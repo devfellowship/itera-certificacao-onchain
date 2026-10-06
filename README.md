@@ -7,6 +7,7 @@ This repository holds the coding-agent evaluation proof of concept for the Colos
 - `apps/web`: Vite, React, and TypeScript web application.
 - `packages/`: shared JavaScript packages as the product grows.
 - `services/`: separate services, including a possible Python evaluation service.
+- `benchmarks/`: three candidate coding scenarios and the planned in-repo fixture/evaluator boundary.
 
 Run `npm ci`, then `npm run dev` for local development. Run `npm run check` and `npm run build` before a PR. The root Dockerfile builds `apps/web` and serves it through Nginx.
 
