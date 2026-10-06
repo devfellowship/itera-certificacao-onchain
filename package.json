@@ -1,0 +1,15 @@
+{
+  "name": "itera-certificacao-onchain",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@11.12.1",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "turbo run dev --filter=@itera/web",
+    "check": "turbo run check",
+    "build": "turbo run build"
+  },
+  "devDependencies": {
+    "turbo": "2.11.7"
+  }
+}

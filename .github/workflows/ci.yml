@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: [self-hosted, dfl-runner]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+      - run: docker build --tag itera-agent-credentials:ci .
+
+# Dokploy's GitHub App independently redeploys each push to main.
+# The app is configured with source=devfellowship/itera-certificacao-onchain,
+# branch=main, triggerType=push, and autoDeploy=true. No deploy secret is needed.
