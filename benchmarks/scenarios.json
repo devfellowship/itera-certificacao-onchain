@@ -1,0 +1,223 @@
+{
+  "schema_version": "0.2.0",
+  "status": "planning_hypotheses_not_validated",
+  "purpose": "Choose one short API coding task for a three-agent, three-minute Itera demonstration.",
+  "shared_protocol": {
+    "agents": [
+      "premium_model_without_task_specific_skill",
+      "low_cost_open_model_with_generic_coding_skill",
+      "same_low_cost_open_model_without_skill"
+    ],
+    "comparison_note": "The last two arms isolate the generic skill effect only if model, version, sampling, tools, budget and fixture are identical. The premium comparison measures the whole model-plus-harness configuration.",
+    "fixture_rules": "Pin one monorepo Git commit and one container image digest. Export only benchmarks/<scenario>/fixture into each network-disabled agent workspace, without .git or evaluator files. Use the same prompt, public tests and limits. Hidden tests stay under benchmarks/<scenario>/evaluator/hidden in the same monorepo, but outside all agent workspaces; mount them only in the evaluator after the patch is frozen.",
+    "score_100": {
+      "public_behavior": 20,
+      "hidden_behavior": 50,
+      "regression": 15,
+      "patch_integrity_and_scope": 10,
+      "reproducible_evidence": 5
+    },
+    "runtime_budget_seconds": {
+      "prewarm_and_fixture_checkout_before_demo": 0,
+      "three_agent_runs_in_parallel": 100,
+      "freeze_and_grade_in_parallel": 25,
+      "evidence_manifest_and_verification": 15,
+      "ui_and_chain_proof_allowance": 40,
+      "total": 180
+    },
+    "runtime_note": "Budget is a target, not an observed latency. Pilot the full pipeline and use a signed, clearly labeled prior-run replay if p95 cannot fit. Never label replay as live.",
+    "onchain_claim": "Commit the canonical manifest digest and issuer identity on Solana. The transaction proves that a specific manifest was recorded, not that a skill claim is intrinsically true.",
+    "test_security": "Tests and scoring commands are evaluator-owned and mounted after patch freeze. Reject changes to package scripts, test runners and protected paths. Run untrusted patches in a network-disabled container with CPU, memory, process and wall-time limits.",
+    "monorepo_layout": {
+      "web_app": "apps/web",
+      "future_evaluator_service": "services/evaluator",
+      "agent_visible_fixture": "benchmarks/<scenario-id>/fixture",
+      "evaluator_only_tests": "benchmarks/<scenario-id>/evaluator/hidden",
+      "scenario_spec": "benchmarks/<scenario-id>/scenario.json"
+    }
+  },
+  "scenarios": [
+    {
+      "id": "webhook-ledger",
+      "title": "Idempotent settlement webhook",
+      "recommendation_rank": 1,
+      "repo_fixture_shape": {
+        "language": "TypeScript",
+        "layout": [
+          "src/app.ts",
+          "src/ledger.ts",
+          "src/types.ts",
+          "tests/public.test.ts",
+          "package.json"
+        ],
+        "state": "Small in-memory ledger behind POST /events and GET /settlements/:id; deterministic fake clock; no external API or real money.",
+        "initial_defect": "POST /events increments settled amount on every delivery, accepts invalid signatures and lets an older pending event overwrite a settled state.",
+        "repository": "devfellowship/itera-certificacao-onchain",
+        "fixture_path": "benchmarks/webhook-ledger/fixture",
+        "hidden_test_path": "benchmarks/webhook-ledger/evaluator/hidden",
+        "scenario_spec_path": "benchmarks/webhook-ledger/scenario.json",
+        "agent_workspace": "fixture subtree export only; no monorepo root, .git, or evaluator paths"
+      },
+      "agent_prompt": "Fix POST /events. Verify the HMAC-SHA256 signature over the raw request body using the supplied fixture key. Process each event ID at most once. A settled event must not move back to pending. Preserve the response contract and existing tests. Add or update a test for your fix.",
+      "public_checks": [
+        "valid signed event settles once",
+        "duplicate event ID returns unchanged settlement",
+        "existing GET response remains compatible"
+      ],
+      "hidden_checks": [
+        "invalid signature has no side effects",
+        "same event ID with altered payload cannot change ledger",
+        "out-of-order pending after settled cannot regress state",
+        "two concurrent duplicate deliveries settle once",
+        "different event IDs for same settlement follow the documented transition order"
+      ],
+      "target_runtime_budget_seconds": {
+        "agent_wall": 100,
+        "grade_wall": 25,
+        "all_three_parallel": true
+      },
+      "demo_visible_evidence": [
+        "three live agent timelines",
+        "side-by-side changed files and patch diff",
+        "signed valid event and duplicate request shown as HTTP responses",
+        "public/hidden/regression score bars",
+        "event trace and canonical manifest hash with Solana transaction state"
+      ],
+      "expected_discrimination_hypothesis": {
+        "premium_model": "May cover signature, idempotency and state ordering within budget.",
+        "low_cost_open_with_skill": "A generic inspect-test-patch-retest skill may help find the duplicate and out-of-order edge cases.",
+        "same_low_cost_open_without_skill": "May fix the visible duplicate symptom but miss the hidden state or signature case.",
+        "caveat": "These are hypotheses. Pilot at least several seeds before choosing the task; do not stage a predicted winner."
+      },
+      "key_risks": [
+        "HMAC wording must specify raw bytes and key to avoid ambiguous grading",
+        "concurrency may expose fixture implementation race rather than agent quality",
+        "task-specific skill hints would invalidate the skill comparison",
+        "security-themed task may imply real payment assurance; use synthetic events only"
+      ]
+    },
+    {
+      "id": "cursor-pagination",
+      "title": "Stable event-feed pagination",
+      "recommendation_rank": 2,
+      "repo_fixture_shape": {
+        "language": "TypeScript",
+        "layout": [
+          "src/app.ts",
+          "src/feed.ts",
+          "src/cursor.ts",
+          "tests/public.test.ts",
+          "package.json"
+        ],
+        "state": "GET /events?limit=&cursor= over an in-memory list with fixed seed data and deterministic insert operations.",
+        "initial_defect": "Offset pagination repeats or skips records when a new event arrives; timestamp ties produce unstable ordering.",
+        "repository": "devfellowship/itera-certificacao-onchain",
+        "fixture_path": "benchmarks/cursor-pagination/fixture",
+        "hidden_test_path": "benchmarks/cursor-pagination/evaluator/hidden",
+        "scenario_spec_path": "benchmarks/cursor-pagination/scenario.json",
+        "agent_workspace": "fixture subtree export only; no monorepo root, .git, or evaluator paths"
+      },
+      "agent_prompt": "Replace offset pagination with a cursor. Order events by created_at descending, then ID descending. A page request must never repeat or skip an event that existed when the first page was read, even after a new insertion. Return a 400 response for malformed cursors. Keep the response shape and existing tests.",
+      "public_checks": [
+        "first page is ordered",
+        "next cursor returns a disjoint page",
+        "empty page has no next cursor"
+      ],
+      "hidden_checks": [
+        "equal timestamps use ID tie-breaker",
+        "insertion between pages does not repeat or skip original records",
+        "malformed cursors return 400",
+        "limit boundaries are enforced",
+        "no duplicates across full traversal"
+      ],
+      "target_runtime_budget_seconds": {
+        "agent_wall": 100,
+        "grade_wall": 20,
+        "all_three_parallel": true
+      },
+      "demo_visible_evidence": [
+        "new event inserted between page requests",
+        "three agent diffs",
+        "duplicated/missing record markers",
+        "test score bars and manifest hash"
+      ],
+      "expected_discrimination_hypothesis": {
+        "premium_model": "May implement a composite cursor and preserve the response contract.",
+        "low_cost_open_with_skill": "A generic edge-case checklist may prompt tie-breaker and malformed-cursor tests.",
+        "same_low_cost_open_without_skill": "May replace offset with timestamp-only cursor and fail tie cases.",
+        "caveat": "The ranking is untested; include deterministic ties in the visible specification."
+      },
+      "key_risks": [
+        "Snapshot guarantee needs explicit semantics; either carry a first-page upper bound or narrow the claim",
+        "opaque cursor signing can distract from pagination behavior",
+        "small fixtures may be solved by hardcoding unless hidden seeds vary",
+        "database-independent fixture is less realistic than a production feed"
+      ]
+    },
+    {
+      "id": "quota-reservation",
+      "title": "Concurrent API quota reservation",
+      "recommendation_rank": 3,
+      "repo_fixture_shape": {
+        "language": "Python",
+        "layout": [
+          "app/main.py",
+          "app/quota.py",
+          "tests/test_public.py",
+          "pyproject.toml"
+        ],
+        "state": "FastAPI-like local HTTP adapter backed by SQLite, fixed account quota and deterministic clock; no external provider.",
+        "initial_defect": "POST /reservations reads remaining quota before it writes, so simultaneous requests can over-reserve; retrying a request consumes quota twice.",
+        "repository": "devfellowship/itera-certificacao-onchain",
+        "fixture_path": "benchmarks/quota-reservation/fixture",
+        "hidden_test_path": "benchmarks/quota-reservation/evaluator/hidden",
+        "scenario_spec_path": "benchmarks/quota-reservation/scenario.json",
+        "agent_workspace": "fixture subtree export only; no monorepo root, .git, or evaluator paths"
+      },
+      "agent_prompt": "Fix POST /reservations so concurrent requests never reserve more than the account quota. The Idempotency-Key header must return the first result on an identical retry and return 409 if that key is reused with a changed payload. Return 409 when quota is exhausted. Keep GET /quota and existing responses compatible. Add or update a test.",
+      "public_checks": [
+        "single reservation reduces remaining quota",
+        "same idempotency key returns the first result",
+        "GET /quota remains compatible"
+      ],
+      "hidden_checks": [
+        "parallel requests cannot exceed quota",
+        "different keys reserve independently",
+        "failed reservation does not consume quota",
+        "same key with changed payload returns 409",
+        "transaction rollback leaves state consistent"
+      ],
+      "target_runtime_budget_seconds": {
+        "agent_wall": 110,
+        "grade_wall": 25,
+        "all_three_parallel": true
+      },
+      "demo_visible_evidence": [
+        "three-way burst request animation",
+        "remaining quota gauge",
+        "per-agent patch and concurrency test outcome",
+        "manifest hash and Solana proof state"
+      ],
+      "expected_discrimination_hypothesis": {
+        "premium_model": "May add an atomic transaction and preserve idempotency semantics.",
+        "low_cost_open_with_skill": "A generic concurrency-test workflow may expose the read-then-write race.",
+        "same_low_cost_open_without_skill": "May add only a sequential check that still races.",
+        "caveat": "The expected spread is untested and may reflect SQLite familiarity, not general coding ability."
+      },
+      "key_risks": [
+        "Concurrent test can be flaky unless a deterministic barrier controls interleaving",
+        "SQLite transaction mode and connection setup must be pinned",
+        "Python environment setup can consume live-demo time",
+        "the fixture may test database knowledge more than general agent quality"
+      ]
+    }
+  ],
+  "sources": [
+    "https://www.swebench.com/SWE-bench/guides/evaluation/",
+    "https://openai.com/index/introducing-swe-bench-verified/",
+    "https://docs.docker.com/engine/containers/resource_constraints",
+    "https://docs.pytest.org/en/stable/example/parametrize.html"
+  ],
+  "repository": "https://github.com/devfellowship/itera-certificacao-onchain",
+  "repository_policy": "All application, fixture, public test, evaluator, and hidden-test source lives in one monorepo. The runner exports only the chosen fixture subtree into each agent sandbox; it never clones the full repository into an agent workspace."
+}
