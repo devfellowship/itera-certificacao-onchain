@@ -19,7 +19,7 @@
     "scenario_spec_path": "benchmarks/webhook-ledger/scenario.json",
     "agent_workspace": "fixture subtree export only; no monorepo root, .git, or evaluator paths"
   },
-  "agent_prompt": "Fix POST /events. Verify the HMAC-SHA256 signature over the raw request body using the supplied fixture key. Process each event ID at most once. A settled event must not move back to pending. Preserve the response contract and existing tests. Add or update a test for your fix.",
+  "agent_prompt": "Fix POST /events. Verify the HMAC-SHA256 signature over the raw request body using the supplied fixture key. Process each event ID at most once. A settled event must not move back to pending. Preserve the response contract and existing tests. Do not edit any file under tests/ -- your fix is graded by hidden tests mounted after your patch is frozen, and any change under tests/ is out of scope and will be rejected.",
   "public_checks": [
     "valid signed event settles once",
     "duplicate event ID returns unchanged settlement",
