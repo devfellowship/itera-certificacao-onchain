@@ -1,0 +1,59 @@
+{
+  "id": "webhook-ledger",
+  "title": "Idempotent settlement webhook",
+  "recommendation_rank": 1,
+  "repo_fixture_shape": {
+    "language": "TypeScript",
+    "layout": [
+      "src/app.ts",
+      "src/ledger.ts",
+      "src/types.ts",
+      "tests/public.test.ts",
+      "package.json"
+    ],
+    "state": "Small in-memory ledger behind POST /events and GET /settlements/:id; deterministic fake clock; no external API or real money.",
+    "initial_defect": "POST /events increments settled amount on every delivery, accepts invalid signatures and lets an older pending event overwrite a settled state.",
+    "repository": "devfellowship/itera-certificacao-onchain",
+    "fixture_path": "benchmarks/webhook-ledger/fixture",
+    "hidden_test_path": "benchmarks/webhook-ledger/evaluator/hidden",
+    "scenario_spec_path": "benchmarks/webhook-ledger/scenario.json",
+    "agent_workspace": "fixture subtree export only; no monorepo root, .git, or evaluator paths"
+  },
+  "agent_prompt": "Fix POST /events. Verify the HMAC-SHA256 signature over the raw request body using the supplied fixture key. Process each event ID at most once. A settled event must not move back to pending. Preserve the response contract and existing tests. Add or update a test for your fix.",
+  "public_checks": [
+    "valid signed event settles once",
+    "duplicate event ID returns unchanged settlement",
+    "existing GET response remains compatible"
+  ],
+  "hidden_checks": [
+    "invalid signature has no side effects",
+    "same event ID with altered payload cannot change ledger",
+    "out-of-order pending after settled cannot regress state",
+    "two concurrent duplicate deliveries settle once",
+    "different event IDs for same settlement follow the documented transition order"
+  ],
+  "target_runtime_budget_seconds": {
+    "agent_wall": 100,
+    "grade_wall": 25,
+    "all_three_parallel": true
+  },
+  "demo_visible_evidence": [
+    "three live agent timelines",
+    "side-by-side changed files and patch diff",
+    "signed valid event and duplicate request shown as HTTP responses",
+    "public/hidden/regression score bars",
+    "event trace and canonical manifest hash with Solana transaction state"
+  ],
+  "expected_discrimination_hypothesis": {
+    "premium_model": "May cover signature, idempotency and state ordering within budget.",
+    "low_cost_open_with_skill": "A generic inspect-test-patch-retest skill may help find the duplicate and out-of-order edge cases.",
+    "same_low_cost_open_without_skill": "May fix the visible duplicate symptom but miss the hidden state or signature case.",
+    "caveat": "These are hypotheses. Pilot at least several seeds before choosing the task; do not stage a predicted winner."
+  },
+  "key_risks": [
+    "HMAC wording must specify raw bytes and key to avoid ambiguous grading",
+    "concurrency may expose fixture implementation race rather than agent quality",
+    "task-specific skill hints would invalidate the skill comparison",
+    "security-themed task may imply real payment assurance; use synthetic events only"
+  ]
+}
