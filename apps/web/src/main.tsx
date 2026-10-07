@@ -1,5 +1,11 @@
+import { Buffer } from 'buffer'
 import { createRoot } from 'react-dom/client'
 import './style.css'
+
+// @solana/web3.js (pulled in by @solana/wallet-adapter-react) expects Node's Buffer global at
+// module scope. Vite doesn't polyfill it, so without this the app throws a cryptic
+// "Cannot read properties of undefined (reading 'hasOwnProperty')" on load with a blank page.
+window.Buffer = window.Buffer ?? Buffer
 import '@solana/wallet-adapter-react-ui/styles.css'
 import { WalletContextProvider, WalletMultiButton } from './wallet'
 
