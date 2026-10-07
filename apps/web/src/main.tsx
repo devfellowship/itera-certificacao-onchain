@@ -1,6 +1,7 @@
-import React from 'react'
 import { createRoot } from 'react-dom/client'
 import './style.css'
+import '@solana/wallet-adapter-react-ui/styles.css'
+import { WalletContextProvider, WalletMultiButton } from './wallet'
 
 const stages = [
   { number: '01', title: 'Run', body: 'Give coding agents the same repository and task.' },
@@ -16,7 +17,10 @@ function App() {
           <span className="brand-mark">i<span>·</span></span>
           <span>ITERA <strong>/ AGENT CREDENTIALS</strong></span>
         </a>
-        <span className="status"><span className="status-dot" /> Planning preview</span>
+        <div className="topbar-actions">
+          <span className="status"><span className="status-dot" /> Planning preview</span>
+          <WalletMultiButton />
+        </div>
       </header>
 
       <section className="hero">
@@ -47,6 +51,8 @@ function App() {
   )
 }
 
+// No StrictMode here on purpose: its deliberate double-mount races Phantom's connect
+// handshake and throws "disconnected port" — same issue hit and fixed in ChainOil.
 createRoot(document.getElementById('root')!).render(
-  <React.StrictMode><App /></React.StrictMode>,
+  <WalletContextProvider><App /></WalletContextProvider>,
 )
