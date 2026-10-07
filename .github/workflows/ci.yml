@@ -20,6 +20,7 @@ jobs:
       - run: npm ci
       - run: python3 scripts/check-scenarios.py
       - run: npm run check
+      - run: npm run test
       - run: npm run build
       - run: docker build --tag itera-agent-credentials:ci .
 

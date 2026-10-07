@@ -17,6 +17,26 @@ a { color: inherit; text-decoration: none; }
 .brand-mark span { color: #F4EDE2; }
 .status { color: #62D996; border: 1px solid #141210; background: #141210; padding: 9px 13px; border-radius: 99px; font-size: 12px; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #3FD17F; margin-right: 8px; box-shadow: 0 0 12px #3FD17F88; }
+.topbar-actions { display: flex; align-items: center; gap: 14px; }
+
+/* Restyle the wallet-adapter-react-ui button to match the ITERA brand instead of its
+   default purple. Selector targets the library's own class so no wrapper div is needed. */
+.wallet-adapter-button {
+  background: #3FD17F !important;
+  color: #0A0908 !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border-radius: 99px !important;
+  height: auto !important;
+  padding: 9px 16px !important;
+}
+.wallet-adapter-button:not([disabled]):hover { background: #62D996 !important; }
+.wallet-adapter-button-trigger { background: #3FD17F !important; }
+.wallet-adapter-modal-wrapper { background: #141210 !important; color: #F4EDE2 !important; font-family: 'Inter', sans-serif !important; }
+.wallet-adapter-modal-title { color: #F4EDE2 !important; }
+.wallet-adapter-modal-list .wallet-adapter-button { background: #1a1714 !important; color: #F4EDE2 !important; }
+.wallet-adapter-modal-list .wallet-adapter-button:hover { background: #22201b !important; }
 .hero { padding: clamp(90px, 12vw, 164px) 0 clamp(110px, 13vw, 170px); position: relative; }
 .hero::after { content: ''; position: absolute; right: 3%; top: 14%; width: min(38vw, 470px); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, #3FD17F1c, transparent 67%); pointer-events: none; }
 .eyebrow { display: flex; align-items: center; gap: 20px; width: min(430px, 90%); color: #3FD17F; letter-spacing: .2em; font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
