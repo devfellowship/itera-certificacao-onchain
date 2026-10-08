@@ -8,32 +8,31 @@ import {
   getCreateSchemaInstruction,
   serializeAttestationData,
 } from '@solana/attestation';
-import { createClient, generateKeyPairSigner, type Instruction } from '@solana/kit';
+import { createClient, generateKeyPairSigner, type Instruction, type KeyPairSigner } from '@solana/kit';
 import { solanaDevnetRpc } from '@solana/kit-plugin-rpc';
-import { generatedPayer } from '@solana/kit-plugin-signer';
+import { payerFromFile } from '@solana/kit-plugin-signer';
 import { CONFIG } from './config.js';
 import type { AttestationData } from './manifest.js';
 
 export type Client = Awaited<ReturnType<typeof setupClient>>['client'];
 
 /**
- * Sets up an RPC client with an ephemeral, auto-generated fee payer (matches the official SAS
- * example's `setupWallets`). The payer needs devnet SOL before any instruction below will land —
- * see services/attestation/README.md for the known devnet faucet rate-limit blocker and the two
- * documented workarounds (manual faucet.solana.com funding, or a local validator).
+ * Sets up an RPC client using a persisted keypair file as the fee payer, loaded via
+ * @solana/kit-plugin-signer's `payerFromFile` (real API, found by reading its .d.ts — not
+ * guessed). Defaults to the Solana CLI's own keypair path so `solana-keygen`/`solana airdrop`
+ * and this client share the same funded address.
  *
- * The issuer/signer keys here are also freshly generated per run. That is correct for a one-shot
- * demo but NOT for production use: a real Credential needs a stable, persisted issuer authority
- * so the same Credential PDA can be reused across runs. Persisting a @solana/kit KeyPairSigner to
- * disk safely is still open — do not invent an API for it; research the real one before wiring
- * this up for a non-demo deployment.
+ * The same keypair also acts as the Credential issuer and its sole authorized signer — correct
+ * for a single-issuer MVP (Itera is the one issuing agent-proof credentials). A multi-issuer
+ * setup would need separate persisted keys per issuer, not implemented here.
  */
-export async function setupClient() {
+export async function setupClient(keypairPath = `${process.env.USERPROFILE ?? process.env.HOME}/.config/solana/id.json`) {
   const client = await createClient()
-    .use(generatedPayer())
+    .use(payerFromFile(keypairPath))
     .use(solanaDevnetRpc({ rpcUrl: CONFIG.HTTP_CONNECTION_URL, rpcSubscriptionsUrl: CONFIG.WSS_CONNECTION_URL }));
-  const issuer = await generateKeyPairSigner();
-  const signer = await generateKeyPairSigner();
+  // payerFromFile sets client.payer; the same signer doubles as issuer and authorized signer.
+  const issuer = client.payer as KeyPairSigner;
+  const signer = client.payer as KeyPairSigner;
   return { client, issuer, signer };
 }
 
@@ -42,7 +41,7 @@ async function send(client: Client, instruction: Instruction, description: strin
   console.log(`${description} — signature: ${context.signature}`);
 }
 
-export async function createCredential(client: Client, issuer: Awaited<ReturnType<typeof generateKeyPairSigner>>, signerAddress: Awaited<ReturnType<typeof generateKeyPairSigner>>['address']) {
+export async function createCredential(client: Client, issuer: KeyPairSigner, signerAddress: KeyPairSigner['address']) {
   const [credentialPda] = await findCredentialPda({ authority: issuer.address, name: CONFIG.CREDENTIAL_NAME });
   const instruction = getCreateCredentialInstruction({
     payer: client.payer,
@@ -55,7 +54,7 @@ export async function createCredential(client: Client, issuer: Awaited<ReturnTyp
   return credentialPda;
 }
 
-export async function createSchema(client: Client, issuer: Awaited<ReturnType<typeof generateKeyPairSigner>>, credentialPda: Awaited<ReturnType<typeof findCredentialPda>>[0]) {
+export async function createSchema(client: Client, issuer: KeyPairSigner, credentialPda: Awaited<ReturnType<typeof findCredentialPda>>[0]) {
   const [schemaPda] = await findSchemaPda({ credential: credentialPda, name: CONFIG.SCHEMA_NAME, version: CONFIG.SCHEMA_VERSION });
   const instruction = getCreateSchemaInstruction({
     authority: issuer,
@@ -79,10 +78,10 @@ export async function createSchema(client: Client, issuer: Awaited<ReturnType<ty
  */
 export async function createAttestationFromManifest(
   client: Client,
-  signer: Awaited<ReturnType<typeof generateKeyPairSigner>>,
+  signer: KeyPairSigner,
   credentialPda: Awaited<ReturnType<typeof findCredentialPda>>[0],
   schemaPda: Awaited<ReturnType<typeof findSchemaPda>>[0],
-  nonce: Awaited<ReturnType<typeof generateKeyPairSigner>>['address'],
+  nonce: KeyPairSigner['address'],
   data: AttestationData,
 ) {
   const [attestationPda] = await findAttestationPda({ credential: credentialPda, schema: schemaPda, nonce });
