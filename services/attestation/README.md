@@ -17,27 +17,29 @@ Service](https://github.com/solana-foundation/solana-attestation-service) (SAS) 
 - `src/cli.ts` — `npm run cli -- <path-to-manifest.json>` runs the full flow end to end: fund
   payer (devnet airdrop) → create Credential → create Schema → create Attestation.
 
-## Known blocker: devnet airdrop rate limit
+## Status: validated end to end on devnet (2026-10-08)
 
-The public devnet faucet (`api.devnet.solana.com`) used by `setupClient()`'s airdrop is
-aggressively rate-limited (`429`) — confirmed independently via `curl`, the Solana CLI, and this
-SDK's own `client.airdrop(...)`, so it is not a client-specific bug. The full
-Credential→Schema→Attestation flow has **not** been run end to end against real devnet funds yet.
+The full Credential→Schema→Attestation flow ran for real against the `webhook-ledger` golden
+(100/100) evidence manifest. Confirmed on-chain via `getAccountInfo` (not just "the CLI printed
+success" — the account data was read back and matches the manifest):
 
-What's already validated: the package installs clean, `tsc --noEmit` passes, and the pure
-`manifestToAttestationData` mapping is unit tested. The on-chain calls in `client.ts` mirror the
-official example's API exactly (same function names/argument shapes), so the remaining risk is
-funding, not code correctness.
+- Credential: `Dh9NF2L2Ua2u4TUzKRX5u8S5DDCBLNA7aVkunteXt7A3`
+- Schema: `ABA68smXFGBtByCUKAzDaRi3SckBmmaWzKuoBbGCy79d`
+- Attestation: `3N2qF69NScEQHiyaqvQpc15RBe9oR2Bv2ussysfJSynf`
+- Payer/issuer: `t93y3suJv2ZjX7WT9wKtcx3Q1tC4ZsxJgrmdBryWbFU` (persisted, funded with 10 devnet SOL
+  via the authenticated faucet.solana.com UI — the public `api.devnet.solana.com` airdrop RPC
+  stayed rate-limited throughout; a human visiting the web faucet with a connected GitHub account
+  was the only working unblock)
 
-To unblock, pick one:
-1. Fund a fixed devnet address manually via <https://faucet.solana.com> (web UI, needs a human +
-   captcha — not automatable), then adapt `setupClient()` to load that persisted keypair instead
-   of `generatedPayer()`'s ephemeral one.
-2. Run `solana-test-validator` locally (no airdrop limit) — blocked on this machine by a Windows
-   permission error unpacking the genesis archive; see
-   `E:\_projetos\_conhecimento\blockchain-solana-attestation-service.md` for the full
-   troubleshooting log.
-3. Use a funded private RPC provider (Helius/QuickNode/Ankr) instead of the public devnet RPC.
+### The original blocker (now resolved) and what fixed it
+
+The public devnet faucet (`api.devnet.solana.com`) used by an ephemeral `generatedPayer()` is
+aggressively rate-limited (`429`) regardless of client (`curl`, Solana CLI, this SDK) — not a
+client bug, a shared quota. The fix was switching the payer from an ephemeral
+`generatedPayer()` to a **persisted** keypair (`setupClient()` now uses
+`@solana/kit-plugin-signer`'s `payerFromFile()`, defaulting to the Solana CLI's own
+`~/.config/solana/id.json`), funded ONCE manually via the web faucet UI, then reused indefinitely
+— no more airdrops needed per run.
 
 ## Gotcha carried over from the ChainOil hackathon project
 
@@ -47,9 +49,14 @@ it's genuinely recent — ChainOil's Solana flow needed `skipPreflight: true` on
 here abstracts that call; if real devnet runs hit the same stale-preflight symptom, check whether
 the Kit exposes a `skipPreflight` option before assuming the transaction itself is broken.
 
-## Known gap: no persisted issuer keypair
+## Keypair persistence (resolved)
 
-`setupClient()` generates a fresh issuer/signer keypair every run (matches the official demo).
-That's fine for a one-shot smoke test, but a real Credential needs a stable authority so the same
-Credential PDA can be reused across runs — don't invent a `@solana/kit` keypair-persistence API
-without checking the real one first; this is open follow-up work, not done here.
+`setupClient()` loads a persisted keypair via `payerFromFile()` and uses it as payer, Credential
+issuer, and the Credential's sole authorized signer — correct for a single-issuer MVP. The real
+`@solana/kit` API for this (found by reading `@solana/signers`' and `@solana/kit-plugin-signer`'s
+`.d.ts` files, not guessed): `createKeyPairSignerFromBytes()` / `payerFromFile()` /
+`writeKeyPairSigner()`, all documented in those packages.
+
+`cli.ts` derives the Attestation's `nonce` deterministically from the manifest's `patch_hash`
+(via `createKeyPairSignerFromPrivateKeyBytes`), so re-running the CLI on the same manifest always
+resolves to the same Attestation PDA instead of a random one each time.
