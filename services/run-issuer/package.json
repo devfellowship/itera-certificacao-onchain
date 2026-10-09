@@ -1,0 +1,22 @@
+{
+  "name": "@itera/run-issuer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@solana-program/memo": "^0.15.0",
+    "@solana/kit": "^8.3.0",
+    "@solana/kit-plugin-rpc": "^0.18.0",
+    "@solana/kit-plugin-signer": "^0.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2"
+  }
+}
