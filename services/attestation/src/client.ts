@@ -2,21 +2,32 @@ import {
   fetchMaybeCredential,
   fetchMaybeSchema,
   fetchSchema,
+  findAttestationMintPda,
   findAttestationPda,
   findCredentialPda,
+  findSasAuthorityPda,
+  findSchemaMintPda,
   findSchemaPda,
   getChangeAuthorizedSignersInstruction,
   getCreateAttestationInstruction,
   getCreateCredentialInstruction,
   getCreateSchemaInstruction,
+  getCreateTokenizedAttestationInstruction,
   serializeAttestationData,
 } from '@solana/attestation';
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ADDRESS,
+  findAssociatedTokenPda,
+  getMintSize,
+  TOKEN_2022_PROGRAM_ADDRESS,
+} from '@solana-program/token-2022';
 import { readFile } from 'node:fs/promises';
 import { createClient, createKeyPairSignerFromBytes, generateKeyPairSigner, type Instruction, type KeyPairSigner } from '@solana/kit';
 import { solanaDevnetRpc } from '@solana/kit-plugin-rpc';
 import { payerFromFile } from '@solana/kit-plugin-signer';
-import { CONFIG } from './config.js';
+import { CONFIG, TOKEN_CONFIG } from './config.js';
 import type { AttestationData } from './manifest.js';
+import type { RunResultData } from './run-result.js';
 
 export type Client = Awaited<ReturnType<typeof setupClient>>['client'];
 
@@ -231,4 +242,80 @@ export async function createAttestationFromManifest(
   });
   await send(client, instruction, 'Attestation created');
   return attestationPda;
+}
+
+/**
+ * Issues the production tokenized attestation (the NFT) for a run-result-v2 record. Generalizes
+ * what spike-tokenized.ts did inline for the devnet spike into a reusable function — same
+ * instructions, same extension set, now parameterized on real RunResultData and a real
+ * recipient wallet instead of the spike's placeholder data and issuer-as-recipient.
+ *
+ * `nonce` should be deterministic per run (e.g. sha256 of `runStartSig`, per the brief) so
+ * re-issuing for the same run resolves to the same Attestation PDA instead of a random one.
+ */
+export async function createTokenizedAttestationFromRunResult(
+  client: Client,
+  signer: KeyPairSigner,
+  credentialPda: Awaited<ReturnType<typeof findCredentialPda>>[0],
+  schemaPda: Awaited<ReturnType<typeof findSchemaPda>>[0],
+  recipient: KeyPairSigner['address'],
+  nonce: KeyPairSigner['address'],
+  data: RunResultData,
+) {
+  const [attestationPda] = await findAttestationPda({ credential: credentialPda, schema: schemaPda, nonce });
+  const [attestationMint] = await findAttestationMintPda({ attestation: attestationPda });
+  const [schemaMint] = await findSchemaMintPda({ schema: schemaPda });
+  const [sasPda] = await findSasAuthorityPda();
+  const schema = await fetchSchema(client.rpc, schemaPda);
+
+  const [recipientTokenAccount] = await findAssociatedTokenPda({
+    mint: attestationMint,
+    owner: recipient,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  });
+
+  const mintAccountSpace = getMintSize([
+    { __kind: 'GroupMemberPointer', authority: sasPda, memberAddress: attestationMint },
+    { __kind: 'NonTransferable' },
+    { __kind: 'MetadataPointer', authority: sasPda, metadataAddress: attestationMint },
+    { __kind: 'PermanentDelegate', delegate: sasPda },
+    { __kind: 'MintCloseAuthority', closeAuthority: sasPda },
+    {
+      __kind: 'TokenMetadata',
+      updateAuthority: sasPda,
+      mint: attestationMint,
+      name: TOKEN_CONFIG.NAME,
+      symbol: TOKEN_CONFIG.SYMBOL,
+      uri: TOKEN_CONFIG.METADATA_URI,
+      additionalMetadata: new Map([
+        ['attestation', attestationPda],
+        ['schema', schemaPda],
+      ]),
+    },
+    { __kind: 'TokenGroupMember', group: schemaMint, mint: attestationMint, memberNumber: 1 },
+  ]);
+
+  const instruction = getCreateTokenizedAttestationInstruction({
+    payer: client.payer,
+    authority: signer,
+    credential: credentialPda,
+    schema: schemaPda,
+    attestation: attestationPda,
+    schemaMint,
+    attestationMint,
+    sasPda,
+    recipient,
+    nonce,
+    expiry: 0, // never expires — same reasoning as the plain attestation
+    data: serializeAttestationData(schema.data, data),
+    name: TOKEN_CONFIG.NAME,
+    uri: TOKEN_CONFIG.METADATA_URI,
+    symbol: TOKEN_CONFIG.SYMBOL,
+    mintAccountSpace,
+    recipientTokenAccount,
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ADDRESS,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  });
+  await send(client, instruction, 'Tokenized attestation created');
+  return { attestationPda, attestationMint };
 }
