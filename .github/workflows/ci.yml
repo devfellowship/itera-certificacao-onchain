@@ -8,9 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
-    runs-on: [self-hosted, dfl-runner]
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,7 +28,8 @@ jobs:
       - run: npm run test
       - run: npm run build
       - run: docker build --tag itera-agent-credentials:ci .
+      - run: docker build --file apps/api/Dockerfile --tag itera-agent-credentials-api:ci .
 
-# Dokploy's GitHub App independently redeploys each push to main.
-# The app is configured with source=devfellowship/itera-certificacao-onchain,
-# branch=main, triggerType=push, and autoDeploy=true. No deploy secret is needed.
+# Deploys do not run here. The dedicated Dokploy (itera-agent-credentials-dokploy.devfellowship.com)
+# receives a GitHub repo webhook on push. Each Dokploy app rebuilds only when the push touches its
+# watch paths. See README "CI and deployment".

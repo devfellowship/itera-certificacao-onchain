@@ -49,7 +49,8 @@ describe('computeScore', () => {
       runCompletedWithoutErrors: true,
     });
     expect(score.patch_integrity_and_scope).toBe(0);
-    expect(score.total).toBe(100 - SCORE_WEIGHTS.patch_integrity_and_scope);
+    // A scope violation rejects the run: computeScore zeroes the total, not only this component.
+    expect(score.total).toBe(0);
   });
 
   it('zeroes reproducible_evidence when the run hit an internal error', () => {

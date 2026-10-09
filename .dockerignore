@@ -4,5 +4,11 @@ node_modules
 **/node_modules
 **/dist
 .turbo
+**/.turbo
 README.md
-services
+.env
+.env.*
+**/.env
+**/.env.*
+**/*keypair*.json
+benchmarks
