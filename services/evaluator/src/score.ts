@@ -31,8 +31,14 @@ export function computeScore(inputs: ScoreInputs): ScoreBreakdown {
   const patch_integrity_and_scope = inputs.patchScopeAllowed ? SCORE_WEIGHTS.patch_integrity_and_scope : 0;
   const reproducible_evidence = inputs.runCompletedWithoutErrors ? SCORE_WEIGHTS.reproducible_evidence : 0;
 
-  const total =
-    public_behavior + hidden_behavior + regression + patch_integrity_and_scope + reproducible_evidence;
+  // A scope violation isn't a 10-point deduction — the agent_prompt tells every agent a change
+  // under tests/ "will be rejected". Zeroing only patch_integrity_and_scope while still paying
+  // out the other 90 points would let a patch that edits its own grader still score well. The
+  // per-component breakdown stays visible in the manifest for diagnostics; only the total reflects
+  // the rejection, and the run is still attested (public proof that the agent cheated).
+  const total = inputs.patchScopeAllowed
+    ? public_behavior + hidden_behavior + regression + patch_integrity_and_scope + reproducible_evidence
+    : 0;
 
   return {
     public_behavior,
