@@ -1,7 +1,7 @@
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp, SERVICE_NAME } from "./app.js";
+import { API_VERSION, createApp, SERVICE_NAME } from "./app.js";
 
 let server: Server;
 let baseUrl: string;
@@ -25,6 +25,7 @@ describe("api routes", () => {
     expect(await res.json()).toEqual({
       service: SERVICE_NAME,
       status: "ok",
+      version: API_VERSION,
       routes: ["/", "/hello-world"],
     });
   });

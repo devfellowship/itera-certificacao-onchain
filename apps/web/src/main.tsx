@@ -53,7 +53,7 @@ function App() {
         </div>
       </section>
 
-      <footer><span>Itera × DevFellowship</span><span>Architecture in progress · Colosseum 2026</span></footer>
+      <footer><span>Itera × DevFellowship</span><a href="https://itera-agent-credentials-api.devfellowship.com/" target="_blank" rel="noreferrer" data-testid="api-link">API <span aria-hidden="true">↗</span></a><span>Architecture in progress · Colosseum 2026</span></footer>
     </main>
   )
 }
