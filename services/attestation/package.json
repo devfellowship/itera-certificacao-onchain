@@ -6,9 +6,12 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "cli": "tsx src/cli.ts"
+    "cli": "tsx src/cli.ts",
+    "setup": "tsx src/setup.ts",
+    "spike:tokenized": "tsx src/spike-tokenized.ts"
   },
   "dependencies": {
+    "@solana-program/token-2022": "^0.18.0",
     "@solana/attestation": "^2.0.0",
     "@solana/kit": "^8.3.0",
     "@solana/kit-plugin-rpc": "^0.18.0",
