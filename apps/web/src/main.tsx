@@ -8,6 +8,7 @@ import './style.css'
 window.Buffer = window.Buffer ?? Buffer
 import '@solana/wallet-adapter-react-ui/styles.css'
 import { WalletContextProvider, WalletMultiButton } from './wallet'
+import { StartRun } from './StartRun'
 
 const stages = [
   { number: '01', title: 'Run', body: 'Give coding agents the same repository and task.' },
@@ -26,6 +27,7 @@ function App() {
         <div className="topbar-actions">
           <span className="status"><span className="status-dot" /> Planning preview</span>
           <WalletMultiButton />
+          <StartRun />
         </div>
       </header>
 

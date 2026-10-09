@@ -17,7 +17,15 @@ a { color: inherit; text-decoration: none; }
 .brand-mark span { color: #F4EDE2; }
 .status { color: #62D996; border: 1px solid #141210; background: #141210; padding: 9px 13px; border-radius: 99px; font-size: 12px; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #3FD17F; margin-right: 8px; box-shadow: 0 0 12px #3FD17F88; }
-.topbar-actions { display: flex; align-items: center; gap: 14px; }
+.topbar-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+.start-run { display: flex; align-items: center; }
+.start-run button { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; padding: 9px 16px; border-radius: 99px; border: 1px solid #2a2721; background: transparent; color: #F4EDE2; cursor: pointer; white-space: nowrap; }
+.start-run button:hover:not([disabled]) { background: #141210; }
+.start-run button[disabled] { opacity: .6; cursor: wait; }
+.run-result { position: absolute; margin-top: 44px; font-size: 11px; color: #8a8378; font-family: 'JetBrains Mono', monospace; }
+.run-result a { color: #62D996; }
+.run-result-error { color: #e07070; }
 
 /* Restyle the wallet-adapter-react-ui button to match the ITERA brand instead of its
    default purple. Selector targets the library's own class so no wrapper div is needed. */
