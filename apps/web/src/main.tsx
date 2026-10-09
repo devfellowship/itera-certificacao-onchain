@@ -10,6 +10,7 @@ import '@solana/wallet-adapter-react-ui/styles.css'
 import { WalletContextProvider, WalletMultiButton } from './wallet'
 import { VerifyPage } from './VerifyPage'
 import { StartRun } from './StartRun'
+import { VerifyPage } from './VerifyPage'
 
 const stages = [
   { number: '01', title: 'Run', body: 'Give coding agents the same repository and task.' },
