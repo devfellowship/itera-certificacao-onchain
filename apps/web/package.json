@@ -9,6 +9,10 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
+    "@solana-program/token-2022": "^0.18.0",
+    "@solana/attestation": "^2.1.0",
+    "@solana/kit": "^8.4.0",
+    "@solana/kit-plugin-rpc": "^0.18.0",
     "@solana/wallet-adapter-base": "^0.9.28",
     "@solana/wallet-adapter-react": "^0.15.40",
     "@solana/wallet-adapter-react-ui": "^0.9.40",

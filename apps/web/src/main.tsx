@@ -8,6 +8,7 @@ import './style.css'
 window.Buffer = window.Buffer ?? Buffer
 import '@solana/wallet-adapter-react-ui/styles.css'
 import { WalletContextProvider, WalletMultiButton } from './wallet'
+import { VerifyPage } from './VerifyPage'
 
 const stages = [
   { number: '01', title: 'Run', body: 'Give coding agents the same repository and task.' },
@@ -57,8 +58,12 @@ function App() {
   )
 }
 
+// No router: a hackathon preview with two pages doesn't need one, and the project is still a
+// single-page marketing/demo app everywhere else. /verify is a plain pathname check.
+const isVerifyRoute = window.location.pathname.startsWith('/verify')
+
 // No StrictMode here on purpose: its deliberate double-mount races Phantom's connect
 // handshake and throws "disconnected port" — same issue hit and fixed in ChainOil.
 createRoot(document.getElementById('root')!).render(
-  <WalletContextProvider><App /></WalletContextProvider>,
+  <WalletContextProvider>{isVerifyRoute ? <VerifyPage /> : <App />}</WalletContextProvider>,
 )
