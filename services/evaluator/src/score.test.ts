@@ -40,7 +40,9 @@ describe('computeScore', () => {
     expect(score.total).toBe(13 + 10 + 15 + 10 + 5);
   });
 
-  it('zeroes patch_integrity_and_scope when the patch touches forbidden paths', () => {
+  it('zeroes the whole total (not just the scope component) when the patch touches forbidden paths', () => {
+    // A scope violation zeros score.total, not just patch_integrity_and_scope — otherwise a
+    // patch that edits its own grader still collects the other 90 points. See PR #12.
     const score = computeScore({
       publicAfterPatch: suite(3, 3),
       hidden: suite(5, 5),
@@ -49,7 +51,6 @@ describe('computeScore', () => {
       runCompletedWithoutErrors: true,
     });
     expect(score.patch_integrity_and_scope).toBe(0);
-    // A scope violation rejects the run: computeScore zeroes the total, not only this component.
     expect(score.total).toBe(0);
   });
 
