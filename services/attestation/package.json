@@ -8,7 +8,9 @@
     "test": "vitest run",
     "cli": "tsx src/cli.ts",
     "setup": "tsx src/setup.ts",
-    "spike:tokenized": "tsx src/spike-tokenized.ts"
+    "issue": "tsx src/issue-run-result.ts",
+    "spike:tokenized": "tsx src/spike-tokenized.ts",
+    "spike:memo": "tsx src/spike-run-start-memo.ts"
   },
   "dependencies": {
     "@solana-program/memo": "^0.15.0",
