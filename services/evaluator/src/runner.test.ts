@@ -326,6 +326,21 @@ const GAMED_SCOPE_PATCH = `--- a/tests/public.test.ts
 +});
 `;
 
+// A different bypass than GAMED_SCOPE_PATCH: instead of editing a tracked file (which plain
+// `git diff --name-only` without --index already caught), this patch ADDS a brand-new file under
+// tests/. Before the --index fix, a newly created file never showed up in the diff at all, so
+// checkPatchScope saw an empty changed-files list and reported no violation — the real bug Samuel
+// and I independently reproduced on 2026-10-07/08. The real bug under src/ is untouched, so hidden
+// tests still fail; what this test exists to catch is whether the new file is detected at all.
+const NEW_FILE_SCOPE_PATCH = `--- /dev/null
++++ b/tests/evil.test.ts
+@@ -0,0 +1,4 @@
++import { describe, expect, it } from 'vitest';
++describe('evil', () => {
++  it('does nothing useful', () => { expect(true).toBe(true); });
++});
+`;
+
 describe('runEvaluation (integration, real webhook-ledger fixture)', () => {
   it('scores a real, correct fix 100/100', async () => {
     const manifest = await runEvaluation({
@@ -351,8 +366,23 @@ describe('runEvaluation (integration, real webhook-ledger fixture)', () => {
     expect(manifest.patch_scope.allowed).toBe(false);
     expect(manifest.patch_scope.violations).toContain('tests/public.test.ts');
     expect(manifest.score.patch_integrity_and_scope).toBe(0);
+    // A scope violation rejects the whole run, not just the 10-point scope component — an agent
+    // that edits its own grader must not still collect the other 90 points.
+    expect(manifest.score.total).toBe(0);
     // The real bug is still there, so the hidden tests still catch it.
     expect(manifest.tests.hidden.failed).toBeGreaterThan(0);
+  }, 180_000);
+
+  it('catches a patch that bypasses scope by adding a new file instead of editing a tracked one', async () => {
+    const manifest = await runEvaluation({
+      repoRoot,
+      scenarioId: 'webhook-ledger',
+      patch: NEW_FILE_SCOPE_PATCH,
+    });
+
+    expect(manifest.patch_scope.allowed).toBe(false);
+    expect(manifest.patch_scope.violations).toContain('tests/evil.test.ts');
+    expect(manifest.score.total).toBe(0);
   }, 180_000);
 
   it('matches the scenario spec on disk (sanity check for the fixtures above)', async () => {

@@ -106,12 +106,17 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Evid
     const patchFile = join(workDir, 'patch.diff');
     await writeFile(patchFile, options.patch, 'utf-8');
 
-    const apply = await run('git', ['apply', '--whitespace=nowarn', patchFile], fixtureDir);
+    // --index stages the patch as part of applying it (including files it creates). A plain
+    // `git apply` without --index leaves new files untracked, and `git diff --name-only` only
+    // compares tracked content — so a patch that creates tests/evil.test.ts (or edits a
+    // gitignored path like node_modules/) applied cleanly but never showed up as a changed file,
+    // bypassing checkPatchScope entirely. `git diff --cached` after a staged apply sees it.
+    const apply = await run('git', ['apply', '--whitespace=nowarn', '--index', patchFile], fixtureDir);
     if (apply.code !== 0) {
       errors.push(`patch did not apply: ${apply.stderr.slice(0, 500)}`);
     }
 
-    const diffNameOnly = await run('git', ['diff', '--name-only'], fixtureDir);
+    const diffNameOnly = await run('git', ['diff', '--cached', '--name-only'], fixtureDir);
     const changedFiles = diffNameOnly.stdout
       .split('\n')
       .map((line) => line.trim())
