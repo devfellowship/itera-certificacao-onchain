@@ -27,6 +27,13 @@ jobs:
       - run: npm run check
       - run: npm run test
       - run: npm run build
+      # GitHub-hosted runners pull Docker Hub anonymously and hit its rate limit (429).
+      # mirror.gcr.io is Google's pull-through cache of Docker Hub official images.
+      - name: Use a Docker Hub mirror
+        run: |
+          echo '{"registry-mirrors":["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+          docker info --format '{{.RegistryConfig.Mirrors}}'
       - run: docker build --tag itera-agent-credentials:ci .
       - run: docker build --file apps/api/Dockerfile --tag itera-agent-credentials-api:ci .
 
