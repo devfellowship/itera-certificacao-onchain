@@ -19,6 +19,24 @@ a { color: inherit; text-decoration: none; }
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #3FD17F; margin-right: 8px; box-shadow: 0 0 12px #3FD17F88; }
 .topbar-actions { display: flex; align-items: center; gap: 14px; }
 
+.verify-page { max-width: 760px; margin: 60px auto; padding: 0 24px; }
+.verify-page h1 { font-family: 'Barlow Condensed', sans-serif; font-size: clamp(36px, 6vw, 56px); margin-bottom: 12px; }
+.verify-page .intro { color: #c9c2b6; margin-bottom: 32px; }
+.verify-input-row { display: flex; gap: 10px; margin-bottom: 24px; }
+.verify-input-row input { flex: 1; background: #141210; border: 1px solid #2a2721; border-radius: 8px; padding: 12px 14px; color: #F4EDE2; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+.verify-banner { font-family: 'Barlow Condensed', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: .05em; padding: 14px 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
+.verify-banner-ok { background: #3FD17F22; color: #62D996; border: 1px solid #3FD17F55; }
+.verify-banner-fail { background: #e0707022; color: #e07070; border: 1px solid #e0707055; }
+.verify-checks { list-style: none; padding: 0; margin: 0 0 24px; display: flex; flex-direction: column; gap: 10px; }
+.verify-check { display: flex; gap: 12px; padding: 12px 14px; border-radius: 8px; background: #141210; border: 1px solid #1f1c18; }
+.verify-check p { margin: 4px 0 0; color: #8a8378; font-size: 13px; }
+.verify-check-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+.verify-check-pass .verify-check-icon { color: #3FD17F; }
+.verify-check-fail .verify-check-icon { color: #e07070; }
+.verify-check-skip .verify-check-icon { color: #8a8378; }
+.tamper-demo { border-top: 1px solid #141210; padding-top: 20px; }
+.tamper-demo code { font-size: 11px; background: #141210; padding: 2px 5px; border-radius: 4px; }
+
 /* Restyle the wallet-adapter-react-ui button to match the ITERA brand instead of its
    default purple. Selector targets the library's own class so no wrapper div is needed. */
 .wallet-adapter-button {
