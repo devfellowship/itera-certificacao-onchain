@@ -40,3 +40,25 @@ export function requiredSecret(envVarName: string): string {
   }
   return value;
 }
+
+/**
+ * Postgres connection string for the testmyagent entity model (vendors, agents, runs, claim
+ * manifests, ... — see the 2026-10-11 migration on the itera-hackatoon Supabase project). Read
+ * lazily (only when a route actually needs the DB) so `npm run dev`/tests don't require it to be
+ * set just to boot the process.
+ */
+export function databaseUrl(): string {
+  return requiredSecret("DATABASE_URL");
+}
+
+/**
+ * Shared-secret operator gate for the three write/operator endpoints (POST /evaluations,
+ * GET /evaluations/:id/events, POST /evaluations/:id/publish). The doc says "No hackathon,
+ * proteger writes com acesso de operador e deixar pública apenas evidência consentida" — there is
+ * no login system anywhere in this monorepo yet, so a real user-auth model is out of scope here.
+ * A shared header key is the honest minimum: it prevents an anonymous internet caller from
+ * creating runs or publishing claims, without pretending to be a full auth system.
+ */
+export function operatorApiKey(): string {
+  return requiredSecret("ITERA_API_OPERATOR_KEY");
+}

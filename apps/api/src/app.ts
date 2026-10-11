@@ -2,11 +2,33 @@ import cors from "cors";
 import express, { type Express } from "express";
 import rateLimit from "express-rate-limit";
 import { CORS_ALLOWED_ORIGINS, RATE_LIMIT } from "./config.js";
+import { createCredentialsRouter } from "./http/credentials-router.js";
+import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
+import { createEvaluationsRouter } from "./http/evaluations-router.js";
+import type { Repository } from "./domain/repository.js";
 
 export const SERVICE_NAME = "itera-agent-credentials-api";
-export const API_VERSION = "0.2.0";
+export const API_VERSION = "0.3.0";
 
-export function createApp(): Express {
+const ROUTES = [
+  "/",
+  "/health",
+  "/hello-world",
+  "POST /evaluations",
+  "GET /evaluations/:id/events",
+  "POST /evaluations/:id/publish",
+  "GET /credentials/:id",
+  "GET /credentials/:id/verify",
+  "GET /credentials/:id/export",
+  "POST /evaluation-requests",
+];
+
+/**
+ * `repo` is injected so tests run against FakeRepository (no live Postgres needed); production
+ * wires PgRepository via a lazy getPool() call in server.ts, only at process start — never
+ * imported eagerly here, so this module stays testable without DATABASE_URL set.
+ */
+export function createApp(repo: Repository): Express {
   const app = express();
   app.disable("x-powered-by");
 
@@ -21,6 +43,7 @@ export function createApp(): Express {
   app.use(
     cors({
       origin: CORS_ALLOWED_ORIGINS,
+      allowedHeaders: ["Content-Type", "x-operator-key"],
     }),
   );
   app.use(
@@ -31,19 +54,24 @@ export function createApp(): Express {
       legacyHeaders: false,
     }),
   );
+  app.use(express.json());
 
   app.get("/", (_req, res) => {
     res.json({
       service: SERVICE_NAME,
       status: "ok",
       version: API_VERSION,
-      routes: ["/", "/health", "/hello-world"],
+      routes: ROUTES,
     });
   });
 
   app.get("/hello-world", (_req, res) => {
     res.type("text/plain").send("Hello, world!");
   });
+
+  app.use(createEvaluationsRouter(repo));
+  app.use(createCredentialsRouter(repo));
+  app.use(createEvaluationRequestsRouter(repo));
 
   return app;
 }
