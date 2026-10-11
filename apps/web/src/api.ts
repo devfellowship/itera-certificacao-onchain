@@ -51,6 +51,15 @@ export function createEvaluation(input: CreateEvaluationInput, operatorKey: stri
   })
 }
 
+// Sends the challenge to the vendor's endpoint and runs the real grader server-side — can take up
+// to ~90s (services/evaluator's own observed range), so this call is slow by design, not a bug.
+export function dispatchEvaluation(runId: string, operatorKey: string): Promise<RunResponse> {
+  return request(`/evaluations/${runId}/dispatch`, {
+    method: 'POST',
+    headers: { 'x-operator-key': operatorKey },
+  })
+}
+
 export interface ObservedEvent {
   id: string
   requestDigest: string | null
@@ -63,6 +72,8 @@ export interface ObservedEvent {
 export interface RunEventsResponse {
   runId: string
   status: RunResponse['status']
+  scoreTotal: number | null
+  evidenceManifest: unknown | null
   events: ObservedEvent[]
 }
 

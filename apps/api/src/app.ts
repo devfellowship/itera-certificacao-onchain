@@ -8,13 +8,14 @@ import { createEvaluationsRouter } from "./http/evaluations-router.js";
 import type { Repository } from "./domain/repository.js";
 
 export const SERVICE_NAME = "itera-agent-credentials-api";
-export const API_VERSION = "0.3.0";
+export const API_VERSION = "0.4.0";
 
 const ROUTES = [
   "/",
   "/health",
   "/hello-world",
   "POST /evaluations",
+  "POST /evaluations/:id/dispatch",
   "GET /evaluations/:id/events",
   "POST /evaluations/:id/publish",
   "GET /credentials/:id",

@@ -48,6 +48,10 @@ export interface Run {
   status: TaskStatus;
   attempts: number;
   idempotencyKey: string | null;
+  // Populated by POST /evaluations/:id/dispatch once the real grader (services/evaluator,
+  // spawned as a subprocess — see domain/grader.ts) has run. Null until then.
+  evidenceManifest: unknown | null;
+  scoreTotal: number | null;
   startedAt: string;
   completedAt: string | null;
 }
@@ -58,6 +62,9 @@ export interface Observation {
   requestDigest: string | null;
   responseDigest: string | null;
   outputArtifactRef: string | null;
+  // The raw patch text the vendor's endpoint returned, frozen at dispatch time — the grader runs
+  // against exactly these bytes. Null for an observation that isn't the dispatch response itself.
+  outputArtifactContent: string | null;
   mode: "observed" | "vendor_declared";
   occurredAt: string;
 }

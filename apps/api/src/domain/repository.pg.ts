@@ -23,6 +23,8 @@ function toRun(row: {
   status: Run["status"];
   attempts: number;
   idempotency_key: string | null;
+  evidence_manifest: unknown | null;
+  score_total: number | null;
   started_at: string;
   completed_at: string | null;
 }): Run {
@@ -35,6 +37,8 @@ function toRun(row: {
     status: row.status,
     attempts: row.attempts,
     idempotencyKey: row.idempotency_key,
+    evidenceManifest: row.evidence_manifest,
+    scoreTotal: row.score_total,
     startedAt: row.started_at,
     completedAt: row.completed_at,
   };
@@ -157,42 +161,71 @@ export class PgRepository implements Repository {
     return row ? toRun(row) : null;
   }
 
+  async getReleaseDeclaration(id: string): Promise<ReleaseDeclaration | null> {
+    const result = await this.pool.query<{
+      id: string;
+      agent_id: string;
+      release_ref: string;
+      declared_config_digest: string | null;
+    }>(`select * from public.release_declarations where id = $1`, [id]);
+    const row = result.rows[0];
+    if (!row) return null;
+    return { id: row.id, agentId: row.agent_id, releaseRef: row.release_ref, declaredConfigDigest: row.declared_config_digest };
+  }
+
+  async getAgent(id: string): Promise<Agent | null> {
+    const result = await this.pool.query<{ id: string; vendor_id: string; name: string; endpoint_url: string }>(
+      `select * from public.agents where id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return { id: row.id, vendorId: row.vendor_id, name: row.name, endpointUrl: row.endpoint_url };
+  }
+
   async createObservation(input: {
     runId: string;
     requestDigest?: string | null;
     responseDigest?: string | null;
     outputArtifactRef?: string | null;
+    outputArtifactContent?: string | null;
     mode: "observed" | "vendor_declared";
   }): Promise<Observation> {
     const result = await this.pool.query(
-      `insert into public.observations (run_id, request_digest, response_digest, output_artifact_ref, mode)
-       values ($1, $2, $3, $4, $5)
+      `insert into public.observations (run_id, request_digest, response_digest, output_artifact_ref, output_artifact_content, mode)
+       values ($1, $2, $3, $4, $5, $6)
        returning *`,
-      [input.runId, input.requestDigest ?? null, input.responseDigest ?? null, input.outputArtifactRef ?? null, input.mode],
+      [
+        input.runId,
+        input.requestDigest ?? null,
+        input.responseDigest ?? null,
+        input.outputArtifactRef ?? null,
+        input.outputArtifactContent ?? null,
+        input.mode,
+      ],
     );
-    const row = result.rows[0];
-    return {
-      id: row.id,
-      runId: row.run_id,
-      requestDigest: row.request_digest,
-      responseDigest: row.response_digest,
-      outputArtifactRef: row.output_artifact_ref,
-      mode: row.mode,
-      occurredAt: row.occurred_at,
-    };
+    return rowToObservation(result.rows[0]);
   }
 
   async listObservations(runId: string): Promise<Observation[]> {
     const result = await this.pool.query(`select * from public.observations where run_id = $1 order by occurred_at asc`, [runId]);
-    return result.rows.map((row) => ({
-      id: row.id,
-      runId: row.run_id,
-      requestDigest: row.request_digest,
-      responseDigest: row.response_digest,
-      outputArtifactRef: row.output_artifact_ref,
-      mode: row.mode,
-      occurredAt: row.occurred_at,
-    }));
+    return result.rows.map(rowToObservation);
+  }
+
+  async resolveRun(input: {
+    runId: string;
+    status: Run["status"];
+    evidenceManifest: unknown;
+    scoreTotal: number;
+  }): Promise<Run> {
+    const result = await this.pool.query(
+      `update public.runs
+       set status = $2, evidence_manifest = $3, score_total = $4, attempts = attempts + 1, completed_at = now()
+       where id = $1
+       returning *`,
+      [input.runId, input.status, JSON.stringify(input.evidenceManifest), input.scoreTotal],
+    );
+    return toRun(result.rows[0]);
   }
 
   async publishClaimManifest(input: {
@@ -263,6 +296,28 @@ export class PgRepository implements Repository {
       status: row.status,
     };
   }
+}
+
+function rowToObservation(row: {
+  id: string;
+  run_id: string;
+  request_digest: string | null;
+  response_digest: string | null;
+  output_artifact_ref: string | null;
+  output_artifact_content: string | null;
+  mode: Observation["mode"];
+  occurred_at: string;
+}): Observation {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    requestDigest: row.request_digest,
+    responseDigest: row.response_digest,
+    outputArtifactRef: row.output_artifact_ref,
+    outputArtifactContent: row.output_artifact_content,
+    mode: row.mode,
+    occurredAt: row.occurred_at,
+  };
 }
 
 function rowToClaimManifest(row: {

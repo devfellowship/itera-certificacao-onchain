@@ -1,8 +1,25 @@
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Mocked so dispatch tests never spawn the real evaluator subprocess (15-90s each) or do a real
+// DNS lookup against a fake *.invalid hostname — the route's own logic (status mapping, 404/409
+// handling, response shape) is what's under test here, not the grader or the network guard
+// themselves (those have their own real coverage: the grader IS services/evaluator's own test
+// suite; the network guard's IP-range logic is simple enough to read, and exercising it for real
+// would need a live private-IP-resolving hostname CI can't rely on).
+vi.mock("./domain/grader.js", () => ({
+  gradePatch: vi.fn(),
+  GraderError: class GraderError extends Error {},
+}));
+vi.mock("./domain/network-guard.js", () => ({
+  assertPublicHttpsEndpoint: vi.fn().mockResolvedValue(undefined),
+  NetworkGuardError: class NetworkGuardError extends Error {},
+}));
+
 import { API_VERSION, createApp, SERVICE_NAME } from "./app.js";
 import { FakeRepository } from "./domain/repository.fake.js";
+import { gradePatch } from "./domain/grader.js";
 
 const OPERATOR_KEY = "test-operator-key";
 process.env.ITERA_API_OPERATOR_KEY = OPERATOR_KEY;
@@ -145,6 +162,131 @@ describe("POST /evaluations", () => {
       body: JSON.stringify({ ...validBody, idempotencyKey: "key-3", task: { id: "unknown-task", version: "1" } }),
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /evaluations/:id/dispatch", () => {
+  const createRunBody = {
+    idempotencyKey: "dispatch-test",
+    vendor: { displayName: "Demo Studio" },
+    agent: { name: "coding-agent", endpointUrl: "https://agent.example.invalid/evaluate" },
+    release: { releaseRef: "demo-release-01" },
+    task: { id: "webhook-ledger", version: "1" },
+  };
+
+  async function createRun(idempotencyKey = createRunBody.idempotencyKey) {
+    const res = await fetch(`${baseUrl}/evaluations`, {
+      method: "POST",
+      headers: operatorHeaders(),
+      body: JSON.stringify({ ...createRunBody, idempotencyKey }),
+    });
+    return (await res.json()) as { runId: string };
+  }
+
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  // globalThis.fetch is process-wide, so a naive stub would also intercept the test's own calls
+  // to the local test server (baseUrl) -- only the vendor endpoint's own URL is faked here, every
+  // other call falls through to the real fetch.
+  function stubVendorFetch(handler: typeof fetch) {
+    globalThis.fetch = vi.fn(((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("agent.example.invalid")) return handler(input, init);
+      return originalFetch(input, init);
+    }) as typeof fetch);
+  }
+
+  it("404s for an unknown run", async () => {
+    const res = await fetch(`${baseUrl}/evaluations/00000000-0000-0000-0000-000000000000/dispatch`, {
+      method: "POST",
+      headers: operatorHeaders(),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("resolves to pass when the grader returns a positive score", async () => {
+    const { runId } = await createRun();
+    stubVendorFetch(async () => new Response(JSON.stringify({ patch: "diff --git a/x b/x" }), { status: 200 }));
+    vi.mocked(gradePatch).mockResolvedValue({
+      schema_version: "0.1.0",
+      evaluator_version: "0.1.0",
+      scenario_id: "webhook-ledger",
+      generated_at: new Date().toISOString(),
+      fixture_hash: "h",
+      patch_hash: "h",
+      patch_scope: { changed_files: ["src/app.ts"], allowed: true },
+      tests: {
+        public_baseline: { total: 3, passed: 1, failed: 2 },
+        public_after_patch: { total: 3, passed: 3, failed: 0 },
+        hidden: { total: 5, passed: 5, failed: 0 },
+      },
+      score: { public_behavior: 20, hidden_behavior: 50, regression: 15, patch_integrity_and_scope: 10, reproducible_evidence: 5, total: 100 },
+      errors: [],
+    });
+
+    const res = await fetch(`${baseUrl}/evaluations/${runId}/dispatch`, { method: "POST", headers: operatorHeaders() });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("pass");
+  });
+
+  it("resolves to invalid when the grader reports a scope violation, not fail", async () => {
+    const { runId } = await createRun("dispatch-scope");
+    stubVendorFetch(async () => new Response(JSON.stringify({ patch: "diff --git a/tests/x b/tests/x" }), { status: 200 }));
+    vi.mocked(gradePatch).mockResolvedValue({
+      schema_version: "0.1.0",
+      evaluator_version: "0.1.0",
+      scenario_id: "webhook-ledger",
+      generated_at: new Date().toISOString(),
+      fixture_hash: "h",
+      patch_hash: "h",
+      patch_scope: { changed_files: ["tests/x"], allowed: false },
+      tests: {
+        public_baseline: { total: 3, passed: 1, failed: 2 },
+        public_after_patch: { total: 3, passed: 3, failed: 0 },
+        hidden: { total: 5, passed: 5, failed: 0 },
+      },
+      score: { public_behavior: 20, hidden_behavior: 50, regression: 15, patch_integrity_and_scope: 0, reproducible_evidence: 5, total: 0 },
+      errors: [],
+    });
+
+    const res = await fetch(`${baseUrl}/evaluations/${runId}/dispatch`, { method: "POST", headers: operatorHeaders() });
+    const body = await res.json();
+    expect(body.status).toBe("invalid");
+  });
+
+  it("resolves to invalid when the endpoint response has no patch field", async () => {
+    const { runId } = await createRun("dispatch-no-patch");
+    stubVendorFetch(async () => new Response(JSON.stringify({ oops: true }), { status: 200 }));
+
+    const res = await fetch(`${baseUrl}/evaluations/${runId}/dispatch`, { method: "POST", headers: operatorHeaders() });
+    expect(res.status).toBe(422);
+    const events = await fetch(`${baseUrl}/evaluations/${runId}/events`, { headers: operatorHeaders() });
+    expect((await events.json()).status).toBe("invalid");
+  });
+
+  it("resolves to infra_error when the endpoint is unreachable", async () => {
+    const { runId } = await createRun("dispatch-unreachable");
+    stubVendorFetch(async () => {
+      throw new Error("connection refused");
+    });
+
+    const res = await fetch(`${baseUrl}/evaluations/${runId}/dispatch`, { method: "POST", headers: operatorHeaders() });
+    expect(res.status).toBe(502);
+  });
+
+  it("refuses to dispatch a run that's already resolved", async () => {
+    const { runId } = await createRun("dispatch-twice");
+    stubVendorFetch(async () => {
+      throw new Error("connection refused");
+    });
+    await fetch(`${baseUrl}/evaluations/${runId}/dispatch`, { method: "POST", headers: operatorHeaders() });
+
+    const second = await fetch(`${baseUrl}/evaluations/${runId}/dispatch`, { method: "POST", headers: operatorHeaders() });
+    expect(second.status).toBe(409);
   });
 });
 

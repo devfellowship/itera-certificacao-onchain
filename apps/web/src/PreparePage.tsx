@@ -94,8 +94,7 @@ export function PreparePage() {
             Status: <code>{run.status}</code> · Run ID: <code>{run.runId}</code>
           </p>
           <p className="small">
-            Dispatching the challenge to the endpoint and running the grader isn't wired into this API yet — the run
-            stays <code>pending</code> until that step exists. Use the run ID on the Observe page.
+            Use the run ID on the Observe page to dispatch the challenge to the endpoint and run the real grader.
           </p>
           <a className="secondary" href={`/observe/${run.runId}`}>
             Go to Observe & publish →

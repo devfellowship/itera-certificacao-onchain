@@ -92,6 +92,8 @@ export class FakeRepository implements Repository {
       status: "pending",
       attempts: 0,
       idempotencyKey: input.idempotencyKey,
+      evidenceManifest: null,
+      scoreTotal: null,
       startedAt: new Date().toISOString(),
       completedAt: null,
     };
@@ -103,11 +105,20 @@ export class FakeRepository implements Repository {
     return this.runs.find((r) => r.id === id) ?? null;
   }
 
+  async getReleaseDeclaration(id: string): Promise<ReleaseDeclaration | null> {
+    return this.releases.find((r) => r.id === id) ?? null;
+  }
+
+  async getAgent(id: string): Promise<Agent | null> {
+    return this.agents.find((a) => a.id === id) ?? null;
+  }
+
   async createObservation(input: {
     runId: string;
     requestDigest?: string | null;
     responseDigest?: string | null;
     outputArtifactRef?: string | null;
+    outputArtifactContent?: string | null;
     mode: "observed" | "vendor_declared";
   }): Promise<Observation> {
     const observation: Observation = {
@@ -116,6 +127,7 @@ export class FakeRepository implements Repository {
       requestDigest: input.requestDigest ?? null,
       responseDigest: input.responseDigest ?? null,
       outputArtifactRef: input.outputArtifactRef ?? null,
+      outputArtifactContent: input.outputArtifactContent ?? null,
       mode: input.mode,
       occurredAt: new Date().toISOString(),
     };
@@ -125,6 +137,17 @@ export class FakeRepository implements Repository {
 
   async listObservations(runId: string): Promise<Observation[]> {
     return this.observations.filter((o) => o.runId === runId);
+  }
+
+  async resolveRun(input: { runId: string; status: Run["status"]; evidenceManifest: unknown; scoreTotal: number }): Promise<Run> {
+    const run = this.runs.find((r) => r.id === input.runId);
+    if (!run) throw new Error(`run ${input.runId} not found`);
+    run.status = input.status;
+    run.evidenceManifest = input.evidenceManifest;
+    run.scoreTotal = input.scoreTotal;
+    run.attempts += 1;
+    run.completedAt = new Date().toISOString();
+    return run;
   }
 
   async publishClaimManifest(input: {
