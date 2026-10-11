@@ -60,6 +60,16 @@ export interface Repository {
   }): Promise<ClaimManifest>;
   getPublicClaimManifest(id: string): Promise<ClaimManifest | null>;
   getAttestationEnvelope(claimManifestId: string): Promise<AttestationEnvelope | null>;
+  /** Records the result of a real SAS issuance (domain/solana-attestation.ts) against a published
+   * claim. One envelope per claim manifest — publish only issues once per claim. */
+  recordAttestationEnvelope(input: {
+    claimManifestId: string;
+    attestationAddress: string;
+    issuerRef: string;
+    schemaRef: string;
+    manifestDigest: string;
+    status: AttestationEnvelope["status"];
+  }): Promise<AttestationEnvelope>;
   createEvaluationRequest(input: {
     requesterContact: string;
     requesterRole?: string | null;

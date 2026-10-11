@@ -186,6 +186,37 @@ export class FakeRepository implements Repository {
     return this.envelopes.find((e) => e.claimManifestId === claimManifestId) ?? null;
   }
 
+  async recordAttestationEnvelope(input: {
+    claimManifestId: string;
+    attestationAddress: string;
+    issuerRef: string;
+    schemaRef: string;
+    manifestDigest: string;
+    status: AttestationEnvelope["status"];
+  }): Promise<AttestationEnvelope> {
+    const existing = this.envelopes.find((e) => e.claimManifestId === input.claimManifestId);
+    if (existing) {
+      existing.attestationAddress = input.attestationAddress;
+      existing.issuerRef = input.issuerRef;
+      existing.schemaRef = input.schemaRef;
+      existing.manifestDigest = input.manifestDigest;
+      existing.status = input.status;
+      return existing;
+    }
+    const envelope: AttestationEnvelope = {
+      id: randomUUID(),
+      claimManifestId: input.claimManifestId,
+      network: "solana-devnet",
+      attestationAddress: input.attestationAddress,
+      issuerRef: input.issuerRef,
+      schemaRef: input.schemaRef,
+      manifestDigest: input.manifestDigest,
+      status: input.status,
+    };
+    this.envelopes.push(envelope);
+    return envelope;
+  }
+
   async createEvaluationRequest(input: {
     requesterContact: string;
     requesterRole?: string | null;

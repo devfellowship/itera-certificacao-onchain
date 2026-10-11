@@ -16,10 +16,19 @@ vi.mock("./domain/network-guard.js", () => ({
   assertPublicHttpsEndpoint: vi.fn().mockResolvedValue(undefined),
   NetworkGuardError: class NetworkGuardError extends Error {},
 }));
+// Same reasoning: real issuance needs a funded devnet keypair and a live RPC round-trip (covered
+// separately, for real, outside the test suite — see the commit that introduced this file).
+vi.mock("./domain/solana-attestation.js", () => ({
+  issueScoreAttestation: vi.fn(),
+  verifyOnChain: vi.fn(),
+  ITERA_CREDENTIAL_PDA: "Dh9NF2L2Ua2u4TUzKRX5u8S5DDCBLNA7aVkunteXt7A3",
+  ITERA_SCORE_SCHEMA_PDA: "ABA68smXFGBtByCUKAzDaRi3SckBmmaWzKuoBbGCy79d",
+}));
 
 import { API_VERSION, createApp, SERVICE_NAME } from "./app.js";
 import { FakeRepository } from "./domain/repository.fake.js";
 import { gradePatch } from "./domain/grader.js";
+import { issueScoreAttestation, verifyOnChain } from "./domain/solana-attestation.js";
 
 const OPERATOR_KEY = "test-operator-key";
 process.env.ITERA_API_OPERATOR_KEY = OPERATOR_KEY;
@@ -31,6 +40,7 @@ let repo: FakeRepository;
 // A fresh repo and a fresh listening server per test, rather than one shared server for the whole
 // file, keeps each test's data isolated without needing a reset()/truncate() method on the fake.
 beforeEach(async () => {
+  vi.clearAllMocks();
   repo = new FakeRepository();
   server = createApp(repo).listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -343,6 +353,114 @@ describe("POST /evaluations/:id/publish", () => {
     const credentialBody = await credential.json();
     expect(credentialBody.registry.status).toBe("not_issued");
     expect(credentialBody.manifestDigestSha256).toBe(canonicalDigestSha256);
+  });
+
+  it("issues a real attestation when the run has a graded EvidenceManifest, and the credential reflects it", async () => {
+    const create = await fetch(`${baseUrl}/evaluations`, {
+      method: "POST",
+      headers: operatorHeaders(),
+      body: JSON.stringify({
+        idempotencyKey: "publish-with-manifest",
+        vendor: { displayName: "Demo Studio" },
+        agent: { name: "coding-agent", endpointUrl: "https://agent.example.invalid/evaluate" },
+        release: { releaseRef: "demo-release-01" },
+        task: { id: "webhook-ledger", version: "1" },
+      }),
+    });
+    const { runId } = await create.json();
+    const run = repo.runs.find((r) => r.id === runId)!;
+    run.status = "pass";
+    run.evidenceManifest = {
+      scenario_id: "webhook-ledger",
+      fixture_hash: "fixture-hash",
+      patch_hash: "patch-hash",
+      score: { total: 100 },
+      generated_at: new Date().toISOString(),
+      patch_scope: { allowed: true },
+      errors: [],
+    };
+    vi.mocked(issueScoreAttestation).mockResolvedValue({
+      attestationAddress: "AttestationAddr11111111111111111111111111" as never,
+      signature: "sig111",
+    });
+
+    const publish = await fetch(`${baseUrl}/evaluations/${runId}/publish`, {
+      method: "POST",
+      headers: operatorHeaders(),
+      body: JSON.stringify({ criteriaResults: [{ requirement: "x", result: "PASS" }] }),
+    });
+    const publishBody = await publish.json();
+    expect(publishBody.attestationError).toBeNull();
+    expect(issueScoreAttestation).toHaveBeenCalledWith(publishBody.claimManifestId, run.evidenceManifest);
+
+    const credential = await fetch(`${baseUrl}/credentials/${publishBody.claimManifestId}`);
+    const credentialBody = await credential.json();
+    expect(credentialBody.registry.status).toBe("confirmed");
+    expect(credentialBody.registry.attestationAddress).toBe("AttestationAddr11111111111111111111111111");
+  });
+
+  it("still publishes the claim when issuance fails, and reports the error instead of swallowing it", async () => {
+    const create = await fetch(`${baseUrl}/evaluations`, {
+      method: "POST",
+      headers: operatorHeaders(),
+      body: JSON.stringify({
+        idempotencyKey: "publish-issuance-fails",
+        vendor: { displayName: "Demo Studio" },
+        agent: { name: "coding-agent", endpointUrl: "https://agent.example.invalid/evaluate" },
+        release: { releaseRef: "demo-release-01" },
+        task: { id: "webhook-ledger", version: "1" },
+      }),
+    });
+    const { runId } = await create.json();
+    const run = repo.runs.find((r) => r.id === runId)!;
+    run.status = "pass";
+    run.evidenceManifest = {
+      scenario_id: "webhook-ledger",
+      fixture_hash: "h",
+      patch_hash: "h",
+      score: { total: 100 },
+      generated_at: new Date().toISOString(),
+      patch_scope: { allowed: true },
+      errors: [],
+    };
+    vi.mocked(issueScoreAttestation).mockRejectedValue(new Error("RPC unreachable"));
+
+    const publish = await fetch(`${baseUrl}/evaluations/${runId}/publish`, {
+      method: "POST",
+      headers: operatorHeaders(),
+      body: JSON.stringify({ criteriaResults: [] }),
+    });
+    expect(publish.status).toBe(201);
+    const body = await publish.json();
+    expect(body.attestationError).toBe("RPC unreachable");
+  });
+
+  it("skips issuance for a timeout/infra_error run that never produced a real manifest", async () => {
+    const create = await fetch(`${baseUrl}/evaluations`, {
+      method: "POST",
+      headers: operatorHeaders(),
+      body: JSON.stringify({
+        idempotencyKey: "publish-no-manifest",
+        vendor: { displayName: "Demo Studio" },
+        agent: { name: "coding-agent", endpointUrl: "https://agent.example.invalid/evaluate" },
+        release: { releaseRef: "demo-release-01" },
+        task: { id: "webhook-ledger", version: "1" },
+      }),
+    });
+    const { runId } = await create.json();
+    const run = repo.runs.find((r) => r.id === runId)!;
+    run.status = "infra_error";
+    run.evidenceManifest = { error: "connection refused" };
+
+    const publish = await fetch(`${baseUrl}/evaluations/${runId}/publish`, {
+      method: "POST",
+      headers: operatorHeaders(),
+      body: JSON.stringify({ criteriaResults: [] }),
+    });
+    expect(publish.status).toBe(201);
+    expect(issueScoreAttestation).not.toHaveBeenCalled();
+    const body = await publish.json();
+    expect(body.attestationError).toBeNull();
   });
 });
 

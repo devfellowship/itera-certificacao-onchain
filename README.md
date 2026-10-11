@@ -27,27 +27,41 @@ This repository holds the coding-agent evaluation proof of concept for the Colos
     (redacts and appends a new `claim_manifests` row; 409 if the run is still `pending` —
     publishing an unresolved run would mean asserting a result nothing graded).
   - **Buyer-side, public and read-only**: `GET /credentials/:id`, `GET /credentials/:id/verify`
-    (recomputes the manifest digest for real; the on-chain checks report `unavailable` until
-    attestation issuance is wired in — never faked as passing), `GET /credentials/:id/export`.
+    (recomputes the manifest digest for real, AND reads the real on-chain attestation via
+    `apps/api/src/domain/solana-attestation.ts`'s `verifyOnChain` — confirms program owner,
+    credential, and schema against known devnet addresses, decodes the attestation's own bytes
+    against the live Schema account; `unavailable` only when no attestation was ever issued for
+    that claim, never faked as passing), `GET /credentials/:id/export`.
   - **Public intake**: `POST /evaluation-requests` ("Solicitar teste na minha tarefa" — contact +
     free-text description only, no code/secret fields).
+  - **On-chain issuance** (`POST /evaluations/:id/publish` triggers this): a real, non-tokenized
+    Solana Attestation Service record — reuses the Credential/Schema already live on devnet from
+    the pre-pivot work (`Dh9NF2L2...` / `coding-benchmark-score-v1`, PR #11), not a new Tokenized
+    one, because this pivot's four pages never connect a wallet anywhere (the doc: "sem wallet
+    obrigatória para a prova pública"). Anchors `scenario_id`/`fixture_hash`/`patch_hash`/
+    `score_total`/`generated_at` from the real `EvidenceManifest` the grader produced. A failed
+    issuance (RPC down, etc.) does not fail the publish itself — reported back as
+    `attestationError` in the response instead of swallowed. Skipped entirely for a
+    `timeout`/`infra_error` run (no real manifest exists to attest to).
   - CORS is restricted to `ITERA_API_CORS_ORIGINS` (comma-separated, defaults to the production web
     app and local dev). Every route is rate-limited (`ITERA_API_RATE_LIMIT_WINDOW_MS` /
     `ITERA_API_RATE_LIMIT_MAX`, defaults 15 min / 300 requests). `DATABASE_URL` points at the
-    `supabase-inovatech-hackatoon` project's Postgres (schema applied via migration, see
-    `apps/api/src/domain/repository.pg.ts`). Any future secret follows `requiredSecret()` in
-    `apps/api/src/config.ts` (env var from Infisical, throws if unset) — never a bare
-    `process.env` read at the call site. Routes depend on the `Repository` interface
-    (`apps/api/src/domain/repository.ts`), never on `pg` directly — tests inject
-    `FakeRepository` (in-memory), production wires `PgRepository`, so the test suite needs no
-    live database.
-  - **Not built yet, explicitly out of scope for this slice**: wiring Solana attestation
-    issuance/verification into this API (the `/verify` on-chain checks stay `unavailable`). Also
-    not built: the production Docker image (`apps/api/Dockerfile`) only copies `apps/api` — it has
-    no `benchmarks/` fixtures, no `services/evaluator` source, and no `git`/`npm` guaranteed at
-    runtime, so `POST /evaluations/:id/dispatch` only works when `apps/api` runs from a full
-    repository checkout (confirmed locally via `npm run dev -w @itera/api`; not yet confirmed in
-    the deployed container). A real gap, not a hidden one.
+    `supabase-inovatech-hackatoon` project's Postgres via a dedicated `itera_api_service` role
+    (schema applied via migration, see `apps/api/src/domain/repository.pg.ts`). The Solana hot
+    signer is `ITERA_HOT_SIGNER_KEYPAIR_PATH` (local file) or `ITERA_HOT_SIGNER_KEYPAIR_B64`
+    (base64 content, for environments with no file on disk — see `hotSignerKeypairPath()` in
+    `config.ts`). Any future secret follows `requiredSecret()` in `apps/api/src/config.ts` (env
+    var from Infisical, throws if unset) — never a bare `process.env` read at the call site.
+    Routes depend on the `Repository` interface (`apps/api/src/domain/repository.ts`), never on
+    `pg` directly — tests inject `FakeRepository` (in-memory), production wires `PgRepository`, so
+    the test suite needs no live database.
+  - **Not built yet, explicitly out of scope for this slice**: the production Docker image
+    (`apps/api/Dockerfile`) only copies `apps/api` — it has no `benchmarks/` fixtures, no
+    `services/evaluator` source, and no `git`/`npm` guaranteed at runtime, so
+    `POST /evaluations/:id/dispatch` only works when `apps/api` runs from a full repository
+    checkout (confirmed locally via `npm run dev -w @itera/api`, including a real devnet
+    attestation issuance + on-chain verification round-trip; not yet confirmed in the deployed
+    container). A real gap, not a hidden one.
 - `packages/`: shared JavaScript packages as the product grows.
 - `services/`: separate services, including a possible Python evaluation service.
 - `benchmarks/`: three candidate coding scenarios and the planned in-repo fixture/evaluator boundary.

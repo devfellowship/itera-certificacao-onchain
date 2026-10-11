@@ -276,6 +276,42 @@ export class PgRepository implements Repository {
     };
   }
 
+  async recordAttestationEnvelope(input: {
+    claimManifestId: string;
+    attestationAddress: string;
+    issuerRef: string;
+    schemaRef: string;
+    manifestDigest: string;
+    status: AttestationEnvelope["status"];
+  }): Promise<AttestationEnvelope> {
+    const result = await this.pool.query(
+      `insert into public.attestation_envelopes
+         (claim_manifest_id, network, attestation_address, issuer_ref, schema_ref, manifest_digest, status, issued_at)
+       values ($1, 'solana-devnet', $2, $3, $4, $5, $6, now())
+       on conflict (claim_manifest_id) do update set
+         attestation_address = excluded.attestation_address,
+         issuer_ref = excluded.issuer_ref,
+         schema_ref = excluded.schema_ref,
+         manifest_digest = excluded.manifest_digest,
+         status = excluded.status,
+         issued_at = now(),
+         updated_at = now()
+       returning *`,
+      [input.claimManifestId, input.attestationAddress, input.issuerRef, input.schemaRef, input.manifestDigest, input.status],
+    );
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      claimManifestId: row.claim_manifest_id,
+      network: row.network,
+      attestationAddress: row.attestation_address,
+      issuerRef: row.issuer_ref,
+      schemaRef: row.schema_ref,
+      manifestDigest: row.manifest_digest,
+      status: row.status,
+    };
+  }
+
   async createEvaluationRequest(input: {
     requesterContact: string;
     requesterRole?: string | null;

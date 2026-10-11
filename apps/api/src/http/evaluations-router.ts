@@ -1,10 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { digestOf } from "../domain/digest.js";
-import { gradePatch, GraderError } from "../domain/grader.js";
+import { gradePatch, GraderError, type EvidenceManifest } from "../domain/grader.js";
 import { assertPublicHttpsEndpoint, NetworkGuardError } from "../domain/network-guard.js";
 import type { Repository } from "../domain/repository.js";
+import { issueScoreAttestation, ITERA_CREDENTIAL_PDA, ITERA_SCORE_SCHEMA_PDA } from "../domain/solana-attestation.js";
 import { requireOperator } from "./require-operator.js";
+
+function isGradedEvidenceManifest(value: unknown): value is EvidenceManifest {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "scenario_id" in value &&
+    "fixture_hash" in value &&
+    "patch_hash" in value &&
+    "score" in value
+  );
+}
 
 const DISPATCH_TIMEOUT_MS = 15_000;
 
@@ -289,9 +301,35 @@ export function createEvaluationsRouter(repo: Repository): Router {
       criteriaResults: body.criteriaResults as never,
       limitations: typeof body.limitations === "string" ? body.limitations : null,
     });
+
+    // Doc section 9, Day 3: real SAS issuance anchors the published claim on-chain. Only possible
+    // when a real grading run actually produced an EvidenceManifest — a timeout/infra_error run
+    // has nothing but an {error} object (see the dispatch route above), so there is genuinely
+    // nothing true to attest to; the envelope stays `not_issued` rather than attesting a fiction.
+    let attestationError: string | null = null;
+    if (isGradedEvidenceManifest(run.evidenceManifest)) {
+      try {
+        const issued = await issueScoreAttestation(manifest.id, run.evidenceManifest);
+        await repo.recordAttestationEnvelope({
+          claimManifestId: manifest.id,
+          attestationAddress: issued.attestationAddress,
+          issuerRef: ITERA_CREDENTIAL_PDA,
+          schemaRef: ITERA_SCORE_SCHEMA_PDA,
+          manifestDigest: manifest.canonicalDigestSha256 ?? "",
+          status: "confirmed",
+        });
+      } catch (e) {
+        // A failed issuance (RPC down, insufficient devnet SOL, etc.) must not fail the publish
+        // itself — the claim manifest is still a valid, redacted record either way. Reported back
+        // so the operator knows the on-chain anchor didn't happen, not silently swallowed.
+        attestationError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
     res.status(201).json({
       claimManifestId: manifest.id,
       canonicalDigestSha256: manifest.canonicalDigestSha256,
+      attestationError,
       publishedAt: manifest.publishedAt,
     });
   });
