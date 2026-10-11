@@ -1,16 +1,25 @@
 import { createClient, type KeyPairSigner } from '@solana/kit';
-import { solanaDevnetRpc } from '@solana/kit-plugin-rpc';
+import { solanaRpcConnection } from '@solana/kit-plugin-rpc';
 import { readFile } from 'node:fs/promises';
 import { createKeyPairSignerFromBytes } from '@solana/kit';
 import { CONFIG } from './config.js';
 
 export type Client = Awaited<ReturnType<typeof setupClient>>;
 
-/** Plain RPC client — no payer bound here, since the fee payer for run-start txs is the hot
- * signer loaded separately (see loadHotSigner), never a client-wide default. */
+/**
+ * Plain RPC client — no payer bound here, since the fee payer for run-start txs is the hot
+ * signer loaded separately (see loadHotSigner), never a client-wide default.
+ *
+ * `solanaDevnetRpc` (used originally) now requires `ClientWithPayer` in @solana/kit-plugin-rpc
+ * 0.18.0 against @solana/kit 8.4.0 (this monorepo hoists one shared @solana/kit version across
+ * workspaces, and apps/web's ^8.4.0 is what's actually installed — services/attestation's own
+ * client avoids this because it chains .use(payerFromFile(...)) before .use(solanaDevnetRpc(...)),
+ * which this service deliberately does not do). `solanaRpcConnection` is the payer-agnostic
+ * sibling plugin for exactly this case — same config shape, no ClientWithPayer constraint.
+ */
 export async function setupClient() {
   return createClient().use(
-    solanaDevnetRpc({ rpcUrl: CONFIG.HTTP_CONNECTION_URL, rpcSubscriptionsUrl: CONFIG.WSS_CONNECTION_URL }),
+    solanaRpcConnection({ rpcUrl: CONFIG.HTTP_CONNECTION_URL, rpcSubscriptionsUrl: CONFIG.WSS_CONNECTION_URL }),
   );
 }
 
