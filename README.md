@@ -33,7 +33,14 @@ This repository holds the coding-agent evaluation proof of concept for the Colos
     against the live Schema account; `unavailable` only when no attestation was ever issued for
     that claim, never faked as passing), `GET /credentials/:id/export`.
   - **Public intake**: `POST /evaluation-requests` ("Solicitar teste na minha tarefa" — contact +
-    free-text description only, no code/secret fields).
+    free-text description only, no code/secret fields). Also commits the task description as a
+    `.md` file to the public `D0ingC0des/itera-agent-manifests` repo via
+    `apps/api/src/domain/manifests-repo.ts` (a real `git clone`/`commit`/`push` over SSH using
+    `ITERA_MANIFESTS_DEPLOY_KEY_PATH`/`_B64`, same materialization pattern as the hot signer) —
+    `requesterContact` is deliberately left out of the committed file (stays in Postgres only;
+    that repo is public). GitHub has no native way to restrict a deploy-key push to one file type,
+    so `.md`-only is enforced in `commitMarkdownFile()` itself, before anything reaches git. A
+    failed commit doesn't fail the request — reported as `manifestCommitError` in the response.
   - **On-chain issuance** (`POST /evaluations/:id/publish` triggers this): a real, non-tokenized
     Solana Attestation Service record — reuses the Credential/Schema already live on devnet from
     the pre-pivot work (`Dh9NF2L2...` / `coding-benchmark-score-v1`, PR #11), not a new Tokenized

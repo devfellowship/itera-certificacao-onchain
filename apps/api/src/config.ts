@@ -81,22 +81,23 @@ export function operatorApiKey(): string {
  *   file on first use (`@solana/kit-plugin-signer`'s `payerFromFile` needs a path, not raw bytes)
  *   and memoized so it's written at most once per process.
  */
-let materializedHotSignerPath: string | null = null;
-
-export function hotSignerKeypairPath(): string {
-  const directPath = process.env.ITERA_HOT_SIGNER_KEYPAIR_PATH;
-  if (directPath) return directPath;
-
-  if (materializedHotSignerPath) return materializedHotSignerPath;
-  const b64 = requiredSecretWithHint(
-    "ITERA_HOT_SIGNER_KEYPAIR_B64",
-    "Set either ITERA_HOT_SIGNER_KEYPAIR_PATH (a local file) or ITERA_HOT_SIGNER_KEYPAIR_B64 " +
-      "(the keypair JSON, base64-encoded) in Infisical under /apps/itera-agent-credentials/.",
-  );
-  const path = join(tmpdir(), "itera-hot-signer.json");
-  writeFileSync(path, Buffer.from(b64, "base64"), { mode: 0o600 });
-  materializedHotSignerPath = path;
-  return path;
+/**
+ * Shared shape for "a key that's either a local file (dev) or base64 content in an env var
+ * (prod, where the Docker image has no such file baked in and shouldn't)". Materializes the file
+ * at most once per process, with 0o600 permissions since it's key material.
+ */
+function materializedKeyPath(pathEnvVar: string, contentEnvVar: string, filename: string, hint: string): () => string {
+  let materialized: string | null = null;
+  return () => {
+    const directPath = process.env[pathEnvVar];
+    if (directPath) return directPath;
+    if (materialized) return materialized;
+    const b64 = requiredSecretWithHint(contentEnvVar, hint);
+    const path = join(tmpdir(), filename);
+    writeFileSync(path, Buffer.from(b64, "base64"), { mode: 0o600 });
+    materialized = path;
+    return path;
+  };
 }
 
 function requiredSecretWithHint(envVarName: string, hint: string): string {
@@ -104,3 +105,37 @@ function requiredSecretWithHint(envVarName: string, hint: string): string {
   if (!value) throw new Error(`${envVarName} is not set. ${hint}`);
   return value;
 }
+
+/**
+ * Same hot signer this project has used since the pre-pivot attestation work
+ * (services/attestation/src/config.ts) — already authorized on the live Credential and funded on
+ * devnet. No default path, same reasoning as everywhere else this pattern appears: forgetting to
+ * set it must fail loud, never silently reuse some other key.
+ *
+ * Two ways to provide it, by environment:
+ * - `ITERA_HOT_SIGNER_KEYPAIR_PATH`: a file already on disk — the local-dev workflow this project
+ *   has used since the pre-pivot work, no change needed there.
+ * - `ITERA_HOT_SIGNER_KEYPAIR_B64`: the keypair JSON, base64-encoded, as an env var — production's
+ *   shape. Materialized to a temp file on first use (`@solana/kit-plugin-signer`'s `payerFromFile`
+ *   needs a path, not raw bytes) and memoized so it's written at most once per process.
+ */
+export const hotSignerKeypairPath = materializedKeyPath(
+  "ITERA_HOT_SIGNER_KEYPAIR_PATH",
+  "ITERA_HOT_SIGNER_KEYPAIR_B64",
+  "itera-hot-signer.json",
+  "Set either ITERA_HOT_SIGNER_KEYPAIR_PATH (a local file) or ITERA_HOT_SIGNER_KEYPAIR_B64 " +
+    "(the keypair JSON, base64-encoded) in Infisical under /apps/itera-agent-credentials/.",
+);
+
+/**
+ * SSH deploy key (write access) for D0ingC0des/itera-agent-manifests — the public repo
+ * domain/manifests-repo.ts commits submitted .md files to. Same materialization pattern as the
+ * hot signer: a local file path for dev, or base64 SSH private key content in production.
+ */
+export const manifestsDeployKeyPath = materializedKeyPath(
+  "ITERA_MANIFESTS_DEPLOY_KEY_PATH",
+  "ITERA_MANIFESTS_DEPLOY_KEY_B64",
+  "itera-manifests-deploy-key",
+  "Set either ITERA_MANIFESTS_DEPLOY_KEY_PATH (a local file) or ITERA_MANIFESTS_DEPLOY_KEY_B64 " +
+    "(the SSH private key, base64-encoded, no passphrase) in Infisical under /apps/itera-agent-credentials/.",
+);

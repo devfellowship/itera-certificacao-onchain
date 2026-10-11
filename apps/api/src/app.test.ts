@@ -24,11 +24,18 @@ vi.mock("./domain/solana-attestation.js", () => ({
   ITERA_CREDENTIAL_PDA: "Dh9NF2L2Ua2u4TUzKRX5u8S5DDCBLNA7aVkunteXt7A3",
   ITERA_SCORE_SCHEMA_PDA: "ABA68smXFGBtByCUKAzDaRi3SckBmmaWzKuoBbGCy79d",
 }));
+// Same reasoning: a real git clone+push needs a real deploy key and network access to GitHub
+// (covered separately, for real, outside the test suite).
+vi.mock("./domain/manifests-repo.js", () => ({
+  commitMarkdownFile: vi.fn().mockResolvedValue({ commitSha: "deadbeef" }),
+  ManifestsRepoError: class ManifestsRepoError extends Error {},
+}));
 
 import { API_VERSION, createApp, SERVICE_NAME } from "./app.js";
 import { FakeRepository } from "./domain/repository.fake.js";
 import { gradePatch } from "./domain/grader.js";
 import { issueScoreAttestation, verifyOnChain } from "./domain/solana-attestation.js";
+import { commitMarkdownFile } from "./domain/manifests-repo.js";
 
 const OPERATOR_KEY = "test-operator-key";
 process.env.ITERA_API_OPERATOR_KEY = OPERATOR_KEY;
@@ -519,5 +526,34 @@ describe("POST /evaluation-requests", () => {
       body: JSON.stringify({ requesterContact: "buyer@example.com" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("commits a .md file to the public manifests repo and never includes the requester's contact in it", async () => {
+    const res = await fetch(`${baseUrl}/evaluation-requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requesterContact: "buyer@example.com", taskDescription: "Validate our custom retry logic." }),
+    });
+    const body = await res.json();
+    expect(body.manifestCommitError).toBeNull();
+    expect(commitMarkdownFile).toHaveBeenCalledTimes(1);
+    const [path, content] = vi.mocked(commitMarkdownFile).mock.calls[0]!;
+    expect(path).toBe(`requests/${body.id}.md`);
+    expect(path.endsWith(".md")).toBe(true);
+    expect(content).not.toContain("buyer@example.com");
+    expect(content).toContain("Validate our custom retry logic.");
+  });
+
+  it("still creates the request when the manifest commit fails, and reports the error", async () => {
+    vi.mocked(commitMarkdownFile).mockRejectedValueOnce(new Error("push failed: authentication"));
+    const res = await fetch(`${baseUrl}/evaluation-requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requesterContact: "buyer@example.com", taskDescription: "x" }),
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.status).toBe("new");
+    expect(body.manifestCommitError).toBe("push failed: authentication");
   });
 });
