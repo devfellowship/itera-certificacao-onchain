@@ -1,3 +1,7 @@
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 /**
  * CORS allow-list. Only the known web app origins by default — never `*`, since this API will
  * grow endpoints that are not pure read-only (per feedback_seguranca_cors_rate_limit: CORS wide
@@ -61,4 +65,42 @@ export function databaseUrl(): string {
  */
 export function operatorApiKey(): string {
   return requiredSecret("ITERA_API_OPERATOR_KEY");
+}
+
+/**
+ * Same hot signer this project has used since the pre-pivot attestation work
+ * (services/attestation/src/config.ts) — already authorized on the live Credential and funded on
+ * devnet. No default path, same reasoning as everywhere else this pattern appears: forgetting to
+ * set it must fail loud, never silently reuse some other key.
+ *
+ * Two ways to provide it, by environment:
+ * - `ITERA_HOT_SIGNER_KEYPAIR_PATH`: a file already on disk — the local-dev workflow this project
+ *   has used since the pre-pivot work, no change needed there.
+ * - `ITERA_HOT_SIGNER_KEYPAIR_B64`: the keypair JSON, base64-encoded, as an env var — production's
+ *   shape, since the Docker image has no such file baked in and shouldn't. Materialized to a temp
+ *   file on first use (`@solana/kit-plugin-signer`'s `payerFromFile` needs a path, not raw bytes)
+ *   and memoized so it's written at most once per process.
+ */
+let materializedHotSignerPath: string | null = null;
+
+export function hotSignerKeypairPath(): string {
+  const directPath = process.env.ITERA_HOT_SIGNER_KEYPAIR_PATH;
+  if (directPath) return directPath;
+
+  if (materializedHotSignerPath) return materializedHotSignerPath;
+  const b64 = requiredSecretWithHint(
+    "ITERA_HOT_SIGNER_KEYPAIR_B64",
+    "Set either ITERA_HOT_SIGNER_KEYPAIR_PATH (a local file) or ITERA_HOT_SIGNER_KEYPAIR_B64 " +
+      "(the keypair JSON, base64-encoded) in Infisical under /apps/itera-agent-credentials/.",
+  );
+  const path = join(tmpdir(), "itera-hot-signer.json");
+  writeFileSync(path, Buffer.from(b64, "base64"), { mode: 0o600 });
+  materializedHotSignerPath = path;
+  return path;
+}
+
+function requiredSecretWithHint(envVarName: string, hint: string): string {
+  const value = process.env[envVarName];
+  if (!value) throw new Error(`${envVarName} is not set. ${hint}`);
+  return value;
 }

@@ -1,7 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
+import { digestOf } from "../domain/digest.js";
+import { gradePatch, GraderError, type EvidenceManifest } from "../domain/grader.js";
+import { assertPublicHttpsEndpoint, NetworkGuardError } from "../domain/network-guard.js";
 import type { Repository } from "../domain/repository.js";
+import { issueScoreAttestation, ITERA_CREDENTIAL_PDA, ITERA_SCORE_SCHEMA_PDA } from "../domain/solana-attestation.js";
 import { requireOperator } from "./require-operator.js";
+
+function isGradedEvidenceManifest(value: unknown): value is EvidenceManifest {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "scenario_id" in value &&
+    "fixture_hash" in value &&
+    "patch_hash" in value &&
+    "score" in value
+  );
+}
+
+const DISPATCH_TIMEOUT_MS = 15_000;
 
 interface CreateEvaluationBody {
   idempotencyKey?: unknown;
@@ -16,9 +33,10 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
- * POST /evaluations · GET /evaluations/:id/events · POST /evaluations/:id/publish — the
- * vendor-side surfaces from the doc ("1 · Preparar avaliação" and "2 · Execução e publicação").
- * All three require the operator key (see require-operator.ts); none of this is buyer-facing.
+ * POST /evaluations · POST /evaluations/:id/dispatch · GET /evaluations/:id/events ·
+ * POST /evaluations/:id/publish — the vendor-side surfaces from the doc ("1 · Preparar avaliação"
+ * and "2 · Execução e publicação"). All four require the operator key (see require-operator.ts);
+ * none of this is buyer-facing.
  */
 export function createEvaluationsRouter(repo: Repository): Router {
   const router = Router();
@@ -106,6 +124,133 @@ export function createEvaluationsRouter(repo: Repository): Router {
     res.status(201).json(toRunResponse(run));
   });
 
+  // Doc section 4, steps 3-6: "Orquestrador envia desafio... Endpoint retorna artefato...
+  // Validador rejeita... Grader fora do agente aplica o artefato num alvo limpo e executa
+  // assertions externas." Blocking/synchronous for this MVP — the doc's own architecture table
+  // lists a dedicated worker/queue as a future component, not required for the 72h build; a real
+  // grading run takes 15-90s (this repo's own evaluator test suite), so this request is slow by
+  // design, not by accident.
+  router.post("/evaluations/:id/dispatch", async (req, res) => {
+    const run = await repo.getRun(req.params.id);
+    if (!run) {
+      res.status(404).json({ error: "run not found" });
+      return;
+    }
+    if (run.status !== "pending") {
+      res.status(409).json({ error: `run already resolved to ${run.status}` });
+      return;
+    }
+    const release = await repo.getReleaseDeclaration(run.releaseDeclarationId);
+    const agent = release ? await repo.getAgent(release.agentId) : null;
+    if (!release || !agent) {
+      res.status(500).json({ error: "run references a release/agent that no longer exists" });
+      return;
+    }
+
+    const endpointUrl = new URL(agent.endpointUrl);
+    try {
+      await assertPublicHttpsEndpoint(endpointUrl);
+    } catch (e) {
+      if (e instanceof NetworkGuardError) {
+        await repo.resolveRun({ runId: run.id, status: "infra_error", evidenceManifest: { error: e.message }, scoreTotal: 0 });
+        res.status(502).json({ error: e.message });
+        return;
+      }
+      throw e;
+    }
+
+    // Doc section 5, "Interface mínima com endpoint" — exact field set, outputContract fixed to
+    // patch-v1 (the only contract this API's grader understands right now).
+    const payload = {
+      runId: run.id,
+      nonce: run.nonce,
+      task: { id: run.taskPackId, version: run.taskPackVersion },
+      fixtureRef: `benchmarks/${run.taskPackId}/fixture`,
+      deadlineAt: new Date(Date.now() + DISPATCH_TIMEOUT_MS).toISOString(),
+      outputContract: "patch-v1",
+    };
+
+    let responseBody: { patch?: unknown };
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), DISPATCH_TIMEOUT_MS);
+      try {
+        const vendorResponse = await fetch(endpointUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        if (!vendorResponse.ok) {
+          throw new Error(`endpoint responded with HTTP ${vendorResponse.status}`);
+        }
+        responseBody = (await vendorResponse.json()) as { patch?: unknown };
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e) {
+      const isTimeout = e instanceof Error && e.name === "AbortError";
+      await repo.resolveRun({
+        runId: run.id,
+        status: isTimeout ? "timeout" : "infra_error",
+        evidenceManifest: { error: e instanceof Error ? e.message : String(e) },
+        scoreTotal: 0,
+      });
+      res.status(isTimeout ? 504 : 502).json({ error: isTimeout ? "endpoint did not respond in time" : "endpoint request failed" });
+      return;
+    }
+
+    if (typeof responseBody.patch !== "string") {
+      await repo.resolveRun({
+        runId: run.id,
+        status: "invalid",
+        evidenceManifest: { error: "endpoint response missing a string 'patch' field" },
+        scoreTotal: 0,
+      });
+      res.status(422).json({ error: "endpoint response did not include a 'patch' string" });
+      return;
+    }
+    const patch = responseBody.patch;
+
+    await repo.createObservation({
+      runId: run.id,
+      requestDigest: digestOf(payload),
+      responseDigest: digestOf(responseBody),
+      outputArtifactContent: patch,
+      mode: "observed",
+    });
+
+    let manifest;
+    try {
+      manifest = await gradePatch(run.taskPackId, patch);
+    } catch (e) {
+      const message = e instanceof GraderError ? e.message : e instanceof Error ? e.message : String(e);
+      const resolved = await repo.resolveRun({
+        runId: run.id,
+        status: "infra_error",
+        evidenceManifest: { error: message },
+        scoreTotal: 0,
+      });
+      res.status(500).json({ error: `grader failed: ${message}`, run: toRunResponse(resolved) });
+      return;
+    }
+
+    // Doc section 2, "Tela 4": Tarefa PASS/FAIL/INVALID/TIMEOUT/INFRA_ERROR — a scope violation
+    // (patch_scope.allowed === false) is INVALID per the doc's own error-flow section ("Patch
+    // proibido é INVALID"), not a FAIL with a zero score indistinguishable from a legitimately
+    // failing patch.
+    const status = !manifest.patch_scope.allowed
+      ? "invalid"
+      : manifest.errors.length > 0
+        ? "infra_error"
+        : manifest.score.total > 0
+          ? "pass"
+          : "fail";
+
+    const resolved = await repo.resolveRun({ runId: run.id, status, evidenceManifest: manifest, scoreTotal: manifest.score.total });
+    res.json(toRunResponse(resolved));
+  });
+
   router.get("/evaluations/:id/events", async (req, res) => {
     const run = await repo.getRun(req.params.id);
     if (!run) {
@@ -116,6 +261,8 @@ export function createEvaluationsRouter(repo: Repository): Router {
     res.json({
       runId: run.id,
       status: run.status,
+      scoreTotal: run.scoreTotal,
+      evidenceManifest: run.evidenceManifest,
       events: events.map((e) => ({
         id: e.id,
         requestDigest: e.requestDigest,
@@ -154,9 +301,35 @@ export function createEvaluationsRouter(repo: Repository): Router {
       criteriaResults: body.criteriaResults as never,
       limitations: typeof body.limitations === "string" ? body.limitations : null,
     });
+
+    // Doc section 9, Day 3: real SAS issuance anchors the published claim on-chain. Only possible
+    // when a real grading run actually produced an EvidenceManifest — a timeout/infra_error run
+    // has nothing but an {error} object (see the dispatch route above), so there is genuinely
+    // nothing true to attest to; the envelope stays `not_issued` rather than attesting a fiction.
+    let attestationError: string | null = null;
+    if (isGradedEvidenceManifest(run.evidenceManifest)) {
+      try {
+        const issued = await issueScoreAttestation(manifest.id, run.evidenceManifest);
+        await repo.recordAttestationEnvelope({
+          claimManifestId: manifest.id,
+          attestationAddress: issued.attestationAddress,
+          issuerRef: ITERA_CREDENTIAL_PDA,
+          schemaRef: ITERA_SCORE_SCHEMA_PDA,
+          manifestDigest: manifest.canonicalDigestSha256 ?? "",
+          status: "confirmed",
+        });
+      } catch (e) {
+        // A failed issuance (RPC down, insufficient devnet SOL, etc.) must not fail the publish
+        // itself — the claim manifest is still a valid, redacted record either way. Reported back
+        // so the operator knows the on-chain anchor didn't happen, not silently swallowed.
+        attestationError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
     res.status(201).json({
       claimManifestId: manifest.id,
       canonicalDigestSha256: manifest.canonicalDigestSha256,
+      attestationError,
       publishedAt: manifest.publishedAt,
     });
   });

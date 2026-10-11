@@ -8,6 +8,7 @@ import type {
   ReleaseDeclaration,
   Run,
   TaskPack,
+  TaskStatus,
   Vendor,
 } from "./types.js";
 
@@ -36,14 +37,20 @@ export interface Repository {
     idempotencyKey: string;
   }): Promise<Run>;
   getRun(id: string): Promise<Run | null>;
+  getReleaseDeclaration(id: string): Promise<ReleaseDeclaration | null>;
+  getAgent(id: string): Promise<Agent | null>;
   createObservation(input: {
     runId: string;
     requestDigest?: string | null;
     responseDigest?: string | null;
     outputArtifactRef?: string | null;
+    outputArtifactContent?: string | null;
     mode: "observed" | "vendor_declared";
   }): Promise<Observation>;
   listObservations(runId: string): Promise<Observation[]>;
+  /** Marks a run as resolved after the grader runs (domain/grader.ts) — the only place a run's
+   * status moves out of `pending`. */
+  resolveRun(input: { runId: string; status: TaskStatus; evidenceManifest: unknown; scoreTotal: number }): Promise<Run>;
   publishClaimManifest(input: {
     runId: string;
     taskRef: string;
@@ -53,6 +60,16 @@ export interface Repository {
   }): Promise<ClaimManifest>;
   getPublicClaimManifest(id: string): Promise<ClaimManifest | null>;
   getAttestationEnvelope(claimManifestId: string): Promise<AttestationEnvelope | null>;
+  /** Records the result of a real SAS issuance (domain/solana-attestation.ts) against a published
+   * claim. One envelope per claim manifest — publish only issues once per claim. */
+  recordAttestationEnvelope(input: {
+    claimManifestId: string;
+    attestationAddress: string;
+    issuerRef: string;
+    schemaRef: string;
+    manifestDigest: string;
+    status: AttestationEnvelope["status"];
+  }): Promise<AttestationEnvelope>;
   createEvaluationRequest(input: {
     requesterContact: string;
     requesterRole?: string | null;
