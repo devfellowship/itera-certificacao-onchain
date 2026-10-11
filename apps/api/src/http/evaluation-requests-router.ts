@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { commitMarkdownFile, ManifestsRepoError } from "../domain/manifests-repo.js";
 import type { Repository } from "../domain/repository.js";
 
 const MAX_DESCRIPTION_LENGTH = 4000;
@@ -33,8 +34,40 @@ export function createEvaluationRequestsRouter(repo: Repository): Router {
       requesterRole: typeof body.requesterRole === "string" ? body.requesterRole : null,
       taskDescription: body.taskDescription,
     });
-    res.status(201).json({ id: request.id, status: request.status });
+
+    // Doc-adjacent: also commits the public-facing part of this request to the public
+    // D0ingC0des/itera-agent-manifests repo as a .md file. requesterContact is deliberately left
+    // OUT of the committed file — it stays in Postgres only. That repo is public; a contact
+    // email/name has no business being published there just because the request was.
+    let manifestCommitError: string | null = null;
+    try {
+      const fileContent = buildMarkdown(request.id, body.taskDescription, typeof body.requesterRole === "string" ? body.requesterRole : null);
+      await commitMarkdownFile(
+        `requests/${request.id}.md`,
+        fileContent,
+        `Evaluation request ${request.id}`,
+      );
+    } catch (e) {
+      manifestCommitError = e instanceof ManifestsRepoError || e instanceof Error ? e.message : String(e);
+    }
+
+    res.status(201).json({ id: request.id, status: request.status, manifestCommitError });
   });
 
   return router;
+}
+
+function buildMarkdown(id: string, taskDescription: string, requesterRole: string | null): string {
+  const lines = [
+    `# Evaluation request ${id}`,
+    "",
+    `Submitted: ${new Date().toISOString()}`,
+    requesterRole ? `Requester role: ${requesterRole}` : null,
+    "",
+    "## What should the agent demonstrate?",
+    "",
+    taskDescription,
+    "",
+  ].filter((line): line is string => line !== null);
+  return lines.join("\n");
 }
