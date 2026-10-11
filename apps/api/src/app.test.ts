@@ -26,8 +26,14 @@ describe("api routes", () => {
       service: SERVICE_NAME,
       status: "ok",
       version: API_VERSION,
-      routes: ["/", "/hello-world"],
+      routes: ["/", "/health", "/hello-world"],
     });
+  });
+
+  it("GET /health returns a minimal ok payload", async () => {
+    const res = await fetch(`${baseUrl}/health`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "ok" });
   });
 
   it("GET /hello-world returns plain text", async () => {
@@ -40,5 +46,26 @@ describe("api routes", () => {
   it("unknown routes return 404", async () => {
     const res = await fetch(`${baseUrl}/does-not-exist`);
     expect(res.status).toBe(404);
+  });
+
+  it("allows a known origin and sets the CORS header", async () => {
+    const res = await fetch(`${baseUrl}/`, {
+      headers: { Origin: "https://itera-agent-credentials.devfellowship.com" },
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://itera-agent-credentials.devfellowship.com",
+    );
+  });
+
+  it("does not echo back an unknown origin", async () => {
+    const res = await fetch(`${baseUrl}/`, {
+      headers: { Origin: "https://evil.example.com" },
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("sets standard rate-limit headers on a response", async () => {
+    const res = await fetch(`${baseUrl}/`);
+    expect(res.headers.get("ratelimit-limit")).not.toBeNull();
   });
 });

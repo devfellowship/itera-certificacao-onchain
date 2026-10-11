@@ -5,7 +5,7 @@ This repository holds the coding-agent evaluation proof of concept for the Colos
 ## Workspace
 
 - `apps/web`: Vite, React, and TypeScript web application.
-- `apps/api`: Express API in TypeScript. `GET /` returns the service status as JSON. `GET /hello-world` returns plain text. `PORT` sets the port (default `3000`).
+- `apps/api`: Express API in TypeScript. `GET /` returns the service status as JSON. `GET /health` is a minimal liveness check, used by the Dockerfile `HEALTHCHECK` and not rate-limited or CORS-gated. `GET /hello-world` returns plain text. `PORT` sets the port (default `3000`). CORS is restricted to `ITERA_API_CORS_ORIGINS` (comma-separated, defaults to the production web app and local dev). Every route is rate-limited (`ITERA_API_RATE_LIMIT_WINDOW_MS` / `ITERA_API_RATE_LIMIT_MAX`, defaults 15 min / 300 requests). Any future secret this API reads must go through `requiredSecret()` in `apps/api/src/config.ts` (env var from Infisical, throws if unset) — never a bare `process.env` read at the call site.
 - `packages/`: shared JavaScript packages as the product grows.
 - `services/`: separate services, including a possible Python evaluation service.
 - `benchmarks/`: three candidate coding scenarios and the planned in-repo fixture/evaluator boundary.
