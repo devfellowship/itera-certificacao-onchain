@@ -10,6 +10,9 @@ import '@solana/wallet-adapter-react-ui/styles.css'
 import { WalletContextProvider, WalletMultiButton } from './wallet'
 import { VerifyPage } from './VerifyPage'
 import { StartRun } from './StartRun'
+import { PreparePage } from './PreparePage'
+import { ObservePage } from './ObservePage'
+import { CredentialPage } from './CredentialPage'
 
 const stages = [
   { number: '01', title: 'Run', body: 'Give coding agents the same repository and task.' },
@@ -37,7 +40,8 @@ function App() {
         <h1>Trust the work.<br /><em>Verify the proof.</em></h1>
         <p className="intro">A coding agent earns a credential through a reproducible task, objective checks, and evidence anchored on Solana.</p>
         <div className="hero-actions">
-          <a className="primary" href="https://plans.devfellowship.com/20261006-itera-certificacao-onchain-hackathon-colosseum" target="_blank" rel="noreferrer">Explore the plan <span aria-hidden="true">↗</span></a>
+          <a className="primary" href="/prepare">Prepare an evaluation <span aria-hidden="true">→</span></a>
+          <a className="secondary" href="https://plans.devfellowship.com/20261006-itera-certificacao-onchain-hackathon-colosseum" target="_blank" rel="noreferrer">Explore the plan <span aria-hidden="true">↗</span></a>
           <a className="secondary" href="https://github.com/devfellowship/itera-certificacao-onchain" target="_blank" rel="noreferrer">View source <span aria-hidden="true">↗</span></a>
         </div>
       </section>
@@ -60,12 +64,20 @@ function App() {
   )
 }
 
-// No router: a hackathon preview with two pages doesn't need one, and the project is still a
-// single-page marketing/demo app everywhere else. /verify is a plain pathname check.
-const isVerifyRoute = window.location.pathname.startsWith('/verify')
+// No router dependency: a plain pathname switch is enough for a handful of fixed routes, and the
+// project doesn't need client-side navigation state beyond "which page is this".
+function routeFor(pathname: string) {
+  if (pathname.startsWith('/verify')) return <VerifyPage />
+  if (pathname.startsWith('/prepare')) return <PreparePage />
+  const observeMatch = pathname.match(/^\/observe\/([^/]+)/)
+  if (observeMatch) return <ObservePage runId={observeMatch[1]} />
+  const credentialMatch = pathname.match(/^\/credentials\/([^/]+)/)
+  if (credentialMatch) return <CredentialPage claimManifestId={credentialMatch[1]} />
+  return <App />
+}
 
 // No StrictMode here on purpose: its deliberate double-mount races Phantom's connect
 // handshake and throws "disconnected port" — same issue hit and fixed in ChainOil.
 createRoot(document.getElementById('root')!).render(
-  <WalletContextProvider>{isVerifyRoute ? <VerifyPage /> : <App />}</WalletContextProvider>,
+  <WalletContextProvider>{routeFor(window.location.pathname)}</WalletContextProvider>,
 )
