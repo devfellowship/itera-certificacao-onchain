@@ -19,6 +19,7 @@ import { MyTasksPage } from './pages/MyTasksPage'
 import { TaskEditorPage } from './pages/TaskEditorPage'
 import { DesignPrimitivesPage } from './pages/DesignPrimitivesPage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { GithubCallbackPage } from './pages/GithubCallbackPage'
 
 // The verifier pulls @solana/kit + SAS; load it only on /verify.
 const VerifyPage = lazy(() => import('./VerifyPage').then((m) => ({ default: m.VerifyPage })))
@@ -35,7 +36,7 @@ function AppLayout() {
   )
 }
 
-/** Dev routes: App Nav, no gate. */
+/** App Nav, no session gate: dev routes and the GitHub install return (its signed state names the wallet). */
 function DevLayout() {
   return (
     <div className="tma-app">
@@ -82,7 +83,14 @@ export const routes = [
       { path: '/tasks/:id', element: <TaskEditorPage /> },
     ],
   },
-  { element: <DevLayout />, children: [{ path: '/design/primitives', element: <DesignPrimitivesPage /> }] },
+  {
+    element: <DevLayout />,
+    children: [
+      { path: '/design/primitives', element: <DesignPrimitivesPage /> },
+      // GitHub App install return (U10): forwards installation_id, code and state to the API.
+      { path: '/connect/github/callback', element: <GithubCallbackPage /> },
+    ],
+  },
   {
     element: <PublicLayout />,
     children: [
