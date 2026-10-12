@@ -1,0 +1,76 @@
+[
+  {
+    "name": "search_tickets",
+    "description": "List support tickets. Filter by status (open or closed), by customer id, or by a text query on the subject and body. Returns the full ticket: id, customer_id, order_id, subject, body, status, resolution and notes.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["open", "closed"] },
+        "customer_id": { "type": "string", "maxLength": 20 },
+        "query": { "type": "string", "maxLength": 200 }
+      }
+    }
+  },
+  {
+    "name": "get_customer",
+    "description": "Get one customer by id: name, email and tier.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["customer_id"],
+      "properties": { "customer_id": { "type": "string", "maxLength": 20 } }
+    }
+  },
+  {
+    "name": "get_order",
+    "description": "Get one order by id: items with unit prices in cents, total_cents, refunded_cents, status and delivered_at.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order_id"],
+      "properties": { "order_id": { "type": "string", "maxLength": 20 } }
+    }
+  },
+  {
+    "name": "issue_refund",
+    "description": "Refund an amount in cents on an order, linked to a ticket. The amount must be positive and at most the order total minus what was already refunded. This moves money: it cannot be undone.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order_id", "ticket_id", "amount_cents", "reason"],
+      "properties": {
+        "order_id": { "type": "string", "maxLength": 20 },
+        "ticket_id": { "type": "string", "maxLength": 20 },
+        "amount_cents": { "type": "integer", "minimum": 1 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    }
+  },
+  {
+    "name": "close_ticket",
+    "description": "Close an open ticket with a resolution: refunded, denied, escalated or answered.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticket_id", "resolution"],
+      "properties": {
+        "ticket_id": { "type": "string", "maxLength": 20 },
+        "resolution": { "type": "string", "enum": ["refunded", "denied", "escalated", "answered"] }
+      }
+    }
+  },
+  {
+    "name": "add_note",
+    "description": "Add an internal note to a ticket (open or closed).",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticket_id", "text"],
+      "properties": {
+        "ticket_id": { "type": "string", "maxLength": 20 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    }
+  }
+]

@@ -1,0 +1,6 @@
+{"tool":"search_tickets","arguments":{"status":"open"}}
+{"tool":"get_order","arguments":{"order_id":"O-10"}}
+{"tool":"issue_refund","arguments":{"order_id":"O-10","ticket_id":"T-1","amount_cents":2000,"reason":"one mug broken"}}
+{"tool":"issue_refund","arguments":{"order_id":"O-10","ticket_id":"T-1","amount_cents":5000,"reason":"too much"},"expect_ok":false}
+{"tool":"close_ticket","arguments":{"ticket_id":"T-1","resolution":"refunded"}}
+{"tool":"get_customer","arguments":{"customer_id":"C-9"},"expect_ok":false}

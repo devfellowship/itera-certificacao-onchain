@@ -1,0 +1,58 @@
+{
+  "name": "memory",
+  "version": 1,
+  "description": "A knowledge graph (entities, relations, observations): the MCP reference memory server, wrapped as a fixture with a seed and a state export.",
+  "transport": "stdio",
+  "license": "Apache-2.0 AND MIT",
+  "upstream": {
+    "repo": "https://github.com/modelcontextprotocol/servers",
+    "path": "src/memory",
+    "commit": "a40bc270fb5ece62673f8a1196f57116d885c5eb",
+    "npm": "@modelcontextprotocol/server-memory@2026.8.31",
+    "checked": "2026-10-12: repository not archived; last commit on src/memory 2026-10-10 (cc89b34); LICENSE = MIT to Apache-2.0 transition; the date-based npm line is deprecated in favour of 1.0.0 (published 2026-10-11, too new to pin)"
+  },
+  "capabilities": ["memory", "knowledge-graph"],
+  "resources": { "cpus": 0.5, "memory_mb": 192, "pids": 64 },
+  "boot_timeout_sec": 20,
+  "call_timeout_sec": 10,
+  "seed_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "entities": {
+        "type": "array",
+        "maxItems": 2000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "entityType", "observations"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "entityType": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "observations": { "type": "array", "maxItems": 200, "items": { "type": "string", "maxLength": 2000 } }
+          }
+        }
+      },
+      "relations": {
+        "type": "array",
+        "maxItems": 5000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "to", "relationType"],
+          "properties": {
+            "from": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "to": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "relationType": { "type": "string", "minLength": 1, "maxLength": 100 }
+          }
+        }
+      }
+    }
+  },
+  "export_schema": {
+    "type": "object",
+    "required": ["entities", "relations"],
+    "properties": { "entities": { "type": "array" }, "relations": { "type": "array" } }
+  }
+}
