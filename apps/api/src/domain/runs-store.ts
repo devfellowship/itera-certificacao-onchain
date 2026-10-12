@@ -50,6 +50,18 @@ export interface AsyncRun {
   error: string | null;
   startedAt: string;
   completedAt: string | null;
+  /** Model cost of the run in USD, measured by the runner gateway (0006_run_cost.sql). Null = not measured. */
+  modelCostUsd?: number | null;
+  modelTokensIn?: number | null;
+  modelTokensOut?: number | null;
+}
+
+/** Recorded model cost of finished runs for one (task, model). */
+export interface CostStats {
+  runs: number;
+  avgCostUsd: number | null;
+  avgTokensIn: number | null;
+  avgTokensOut: number | null;
 }
 
 export interface ProofRecord {
@@ -80,8 +92,11 @@ export interface RunsStore {
     taskPackVersion: string;
     nonce: string;
     dailyLimit: number;
-    /** The caller's model API key, sealed with run-key.ts (BYOK). The worker wipes it when the run ends. */
-    modelApiKeyEnc: string;
+    /**
+     * The caller's model API key, sealed with run-key.ts (BYOK). The worker wipes it when the run ends.
+     * Null = ITERA's platform key pays the tokens (Tainan TG 20967).
+     */
+    modelApiKeyEnc: string | null;
   }): Promise<AsyncRun | null>;
   getRun(id: string): Promise<AsyncRun | null>;
   listRunsByOwner(wallet: string, limit: number): Promise<AsyncRun[]>;
@@ -91,6 +106,11 @@ export interface RunsStore {
   countActions(runId: string): Promise<number | null>;
   /** The proof row, or null when there is none or the proofs table does not exist yet. */
   getProof(runId: string): Promise<ProofRecord | null>;
+  /**
+   * Average recorded model cost of finished runs of (task, version) whose runner used `model`.
+   * `runs: 0` when there is no history or 0006_run_cost.sql is not applied.
+   */
+  costStats(taskPackId: string, taskPackVersion: string, model: string): Promise<CostStats>;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import {
   SchemaNotReadyError,
   type AgentVersionRef,
   type AsyncRun,
+  type CostStats,
   type OwnedAgent,
   type ProofRecord,
   type RunsStore,
@@ -29,7 +30,7 @@ function rethrow(migration: string, e: unknown): never {
 const RUN_COLUMNS = `
   r.id, r.owner_wallet, rd.agent_id, r.agent_version_id, r.task_pack_id, r.task_pack_version,
   r.status, r.phase, r.run_start_sig, r.evidence_manifest, r.score_total, r.error,
-  r.started_at, r.completed_at`;
+  r.started_at, r.completed_at, r.model_cost_usd, r.model_tokens_in, r.model_tokens_out`;
 
 interface RunRow {
   id: string;
@@ -46,6 +47,16 @@ interface RunRow {
   error: string | null;
   started_at: Date | string;
   completed_at: Date | string | null;
+  /** numeric → string in node-postgres. */
+  model_cost_usd: string | number | null;
+  model_tokens_in: number | null;
+  model_tokens_out: number | null;
+}
+
+function numOrNull(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function iso(value: Date | string | null): string | null {
@@ -69,6 +80,9 @@ function toRun(row: RunRow): AsyncRun {
     error: row.error,
     startedAt: iso(row.started_at)!,
     completedAt: iso(row.completed_at),
+    modelCostUsd: numOrNull(row.model_cost_usd),
+    modelTokensIn: numOrNull(row.model_tokens_in),
+    modelTokensOut: numOrNull(row.model_tokens_out),
   };
 }
 
@@ -133,7 +147,7 @@ export class PgRunsStore implements RunsStore {
     taskPackVersion: string;
     nonce: string;
     dailyLimit: number;
-    modelApiKeyEnc: string;
+    modelApiKeyEnc: string | null;
   }): Promise<AsyncRun | null> {
     let client: PoolClient | null = null;
     try {
@@ -257,6 +271,25 @@ export class PgRunsStore implements RunsStore {
       };
     } catch (e) {
       if (isMissingSchema(e)) return null;
+      throw e;
+    }
+  }
+
+  async costStats(taskPackId: string, taskPackVersion: string, model: string): Promise<CostStats> {
+    try {
+      const result = await this.pool.query<{ n: string; cost: string | null; tin: string | null; tout: string | null }>(
+        `select count(*) as n, avg(model_cost_usd) as cost, avg(model_tokens_in) as tin, avg(model_tokens_out) as tout
+           from public.runs
+          where task_pack_id = $1 and task_pack_version = $2
+            and model_cost_usd is not null
+            and completed_at is not null
+            and evidence_manifest -> 'runner' ->> 'model' = $3`,
+        [taskPackId, taskPackVersion, model],
+      );
+      const row = result.rows[0]!;
+      return { runs: Number(row.n), avgCostUsd: numOrNull(row.cost), avgTokensIn: numOrNull(row.tin), avgTokensOut: numOrNull(row.tout) };
+    } catch (e) {
+      if (isMissingSchema(e)) return { runs: 0, avgCostUsd: null, avgTokensIn: null, avgTokensOut: null };
       throw e;
     }
   }

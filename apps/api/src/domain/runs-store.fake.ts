@@ -3,6 +3,7 @@ import {
   SchemaNotReadyError,
   type AgentVersionRef,
   type AsyncRun,
+  type CostStats,
   type OwnedAgent,
   type ProofRecord,
   type RunsStore,
@@ -50,7 +51,7 @@ export class FakeRunsStore implements RunsStore {
     taskPackVersion: string;
     nonce: string;
     dailyLimit: number;
-    modelApiKeyEnc: string;
+    modelApiKeyEnc: string | null;
   }): Promise<AsyncRun | null> {
     this.guard();
     const since = Date.now() - 24 * 60 * 60 * 1000;
@@ -73,7 +74,7 @@ export class FakeRunsStore implements RunsStore {
       completedAt: null,
     };
     this.runs.push(run);
-    this.modelKeys.set(run.id, input.modelApiKeyEnc);
+    if (input.modelApiKeyEnc !== null) this.modelKeys.set(run.id, input.modelApiKeyEnc);
     return run;
   }
 
@@ -100,5 +101,29 @@ export class FakeRunsStore implements RunsStore {
 
   async getProof(runId: string): Promise<ProofRecord | null> {
     return this.proofs.get(runId) ?? null;
+  }
+
+  /** The model of a run, as the runner wrote it in evidence_manifest.runner.model. */
+  static runModel(run: AsyncRun): string | null {
+    const m = run.evidenceManifest as { runner?: { model?: unknown } } | null;
+    return typeof m?.runner?.model === "string" ? m.runner.model : null;
+  }
+
+  async costStats(taskPackId: string, taskPackVersion: string, model: string): Promise<CostStats> {
+    const rows = this.runs.filter(
+      (r) =>
+        r.taskPackId === taskPackId &&
+        r.taskPackVersion === taskPackVersion &&
+        typeof r.modelCostUsd === "number" &&
+        FakeRunsStore.runModel(r) === model,
+    );
+    if (rows.length === 0) return { runs: 0, avgCostUsd: null, avgTokensIn: null, avgTokensOut: null };
+    const avg = (f: (r: AsyncRun) => number) => rows.reduce((s, r) => s + f(r), 0) / rows.length;
+    return {
+      runs: rows.length,
+      avgCostUsd: avg((r) => r.modelCostUsd ?? 0),
+      avgTokensIn: avg((r) => r.modelTokensIn ?? 0),
+      avgTokensOut: avg((r) => r.modelTokensOut ?? 0),
+    };
   }
 }
