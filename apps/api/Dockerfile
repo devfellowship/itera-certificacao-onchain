@@ -20,6 +20,7 @@ WORKDIR /app
 COPY --from=build /workspace/node_modules ./node_modules
 COPY --from=build /workspace/apps/api/package.json ./package.json
 COPY --from=build /workspace/apps/api/dist ./dist
+COPY --from=build /workspace/apps/api/certs ./certs
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD wget -q -O /dev/null http://127.0.0.1:${PORT}/health || exit 1
