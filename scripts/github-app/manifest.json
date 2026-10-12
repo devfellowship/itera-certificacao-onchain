@@ -1,0 +1,16 @@
+{
+  "name": "ITERA Agent Proof",
+  "url": "https://itera-agent-credentials.devfellowship.com",
+  "description": "Read-only access to the repos that hold your coding agent (AGENTS.md, CLAUDE.md, skills/). ITERA runs the agent on a benchmark and issues an on-chain proof of the result.",
+  "redirect_url": "https://itera-agent-credentials.devfellowship.com/connect/github/app-created",
+  "callback_urls": ["https://itera-agent-credentials.devfellowship.com/connect/github/callback"],
+  "setup_url": "https://itera-agent-credentials.devfellowship.com/connect/github/callback",
+  "setup_on_update": true,
+  "request_oauth_on_install": true,
+  "public": true,
+  "default_permissions": {
+    "contents": "read",
+    "metadata": "read"
+  },
+  "default_events": []
+}
