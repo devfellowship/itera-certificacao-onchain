@@ -14,7 +14,7 @@ import { PROVIDER_NAME, providerOf, type ProviderKey } from './model-provider'
 
 const LOGO: Record<ProviderKey, string> = { anthropic, openai, google, qwen, deepseek, zai, kimi, xai, meta, mistral, generic }
 
-type Props = { model?: string | null; provider?: string | null; label?: string | null; size?: 16 | 20 | 24 | 28 }
+type Props = { model?: string | null; provider?: string | null; label?: string | null; size?: 14 | 16 | 18 | 20 | 24 | 28 }
 
 /** Provider logo of a model in a small white rounded tile. Decorative: the model name is always printed next to it. */
 export function ModelAvatar({ model, provider, label, size = 20 }: Props) {
