@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "openrouter": {
+      "options": {
+        "baseURL": "http://itera-gateway:3128/api/v1",
+        "apiKey": "sandbox-has-no-key"
+      }
+    }
+  },
+  "permission": {
+    "edit": "allow",
+    "bash": "allow",
+    "webfetch": "deny",
+    "external_directory": "deny"
+  }
+}
