@@ -103,8 +103,14 @@ export const api = {
   githubAgentCandidates: (fullName: string, ref?: string) => request<unknown>(`/github/repos/${fullName}/agent-candidates`, { query: { ref } }),
   /** Folders with a task.json at `ref` (a branch or a commit); many tasks in one repo (U34). */
   githubTaskCandidates: (fullName: string, ref?: string) => request<T.TaskCandidatesResponse>(`/github/repos/${fullName}/task-candidates`, { query: { ref } }),
+  /** U37: sample repos any wallet can use without installing the App. Public. */
+  sampleRepos: () => request<T.SampleReposResponse>('/github/sample-repos', { auth: false }),
   githubBranches: (fullName: string) => request<T.GithubBranchesResponse>(`/github/repos/${fullName}/branches`),
   githubCommits: (fullName: string, branch: string, limit = 20) => request<T.GithubCommitsResponse>(`/github/repos/${fullName}/commits`, { query: { branch, limit } }),
+
+  // U37 devnet faucet
+  faucetStatus: () => request<T.FaucetStatus>('/faucet'),
+  faucet: () => request<T.FaucetGrantResponse>('/faucet', { method: 'POST' }),
 
   // Agents
   agentValidate: (input: T.AgentValidateInput) => request<T.AgentValidateResponse>('/agents/validate', { method: 'POST', body: json(input) }),

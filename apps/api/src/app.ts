@@ -32,6 +32,7 @@ import { createProfileRouter } from "./http/profile-router.js";
 import { profileEnrichment } from "./http/profile-enrich.js";
 import type { AvatarStorage } from "./domain/avatar.js";
 import type { AgentAvatarStore } from "./domain/agent-avatar-store.js";
+import { createFaucetRouter, type FaucetRouterDeps } from "./http/faucet-router.js";
 
 export const SERVICE_NAME = "testmyagent-api";
 export const PRODUCT_NAME = "TestMyAgent";
@@ -121,6 +122,9 @@ const ROUTES = [
   "GET /runs/:id/feedback",
   "GET /tasks/:idOrSlug/reputation",
   "GET /mcp-catalog",
+  "GET /github/sample-repos",
+  "GET /faucet",
+  "POST /faucet",
 ];
 
 /**
@@ -162,6 +166,8 @@ export interface AppOptions {
   avatarStorage?: AvatarStorage | null;
   /** U36: agent pictures (needs 0015). Mounts POST/DELETE /agents/:id/avatar and the admin seed. */
   agentAvatars?: AgentAvatarStore;
+  /** U37: devnet faucet (needs 0016_sample_repos_faucet.sql). Mounted only when given. */
+  faucet?: FaucetRouterDeps;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -242,6 +248,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
     app.use(createPublicTaskRouter({ store: options.publicTasks, reputation: options.reputation, costCapUsd: RUN_MAX_COST_USD, runFeeUsd: RUN_FEE_USD }));
   }
   if (options.mcpCatalog) app.use(createMcpCatalogRouter(options.mcpCatalog));
+  if (options.faucet) app.use(createFaucetRouter(options.faucet));
 
   return app;
 }

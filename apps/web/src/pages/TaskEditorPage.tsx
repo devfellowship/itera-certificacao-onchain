@@ -17,7 +17,7 @@ import { ApiError, api } from '../lib/api'
 import type { GateRow, Tag, TaskContract, TaskLayout, TaskStatus, TaskSourceInput, TestsVisibility, UserTaskDetail } from '../lib/api'
 import { Badge, Breadcrumb, Button, ButtonLink, Card, Chip, CodePanel, Field, Input, KeyValue, RadioCard, StatusChip, TagPill, type Tone } from '../tma/ui'
 import { describeError } from './add-agent/errors'
-import { GithubPinCard, type InstallCopy } from './add-agent/GithubSourceCard'
+import { GithubPinCard, SampleRepoNotice, type InstallCopy } from './add-agent/GithubSourceCard'
 import { cleanAgentPath, useGithubPin } from './add-agent/useGithubSource'
 import { useLoad } from './add-agent/useLoad'
 import { EnvironmentCard } from './task-editor/EnvironmentCard'
@@ -512,7 +512,7 @@ export function TaskEditorPage() {
   const latest = detail?.latestVersion ?? null
   const sourceInput: TaskSourceInput | null = editingSource
     ? pin.repo && pin.branch && pin.settled
-      ? { repoFullName: pin.repo.fullName, branch: pin.branch, commitSha: pin.commit ?? undefined, path: cleanAgentPath(path) }
+      ? { repoFullName: pin.repo.fullName, branch: pin.branch, commitSha: pin.commit ?? undefined, path: cleanAgentPath(path), ...(pin.sample ? { source: 'sample' as const } : {}) }
       : null
     : latest
       ? { repoFullName: latest.github.repo, branch: latest.github.branch, commitSha: latest.github.commitSha, path: latest.github.path }
@@ -574,6 +574,7 @@ export function TaskEditorPage() {
         name: nameValue.trim(),
         description: descValue.trim(),
         tags: tagsValue,
+        ...(pin.sample ? { source: 'sample' as const } : {}),
       })
       return { id: r.task.id, version: r.version.version }
     }
@@ -763,6 +764,7 @@ export function TaskEditorPage() {
               </Card>
             )
           )}
+          {editingSource && <SampleRepoNotice gh={pin} kind="task" />}
           {editingSource && detail && (
             <div>
               <button type="button" className="te-link" onClick={() => setEditingSource(false)} data-testid="cancel-new-version">

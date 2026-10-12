@@ -9,6 +9,7 @@ import { folderDigest, labelsFor, normalizeTaskPath, readTaskLayout, TaskPathErr
 import { isRankedTask, unrankedReason } from "../domain/reputation.js";
 import { isValidBranchName } from "./github-router.js";
 import { optionalWallet } from "./auth.js";
+import { isSampleRepo, sampleInstallation, sampleReposFromEnv, SampleRepoError, type SampleRepos } from "../github/sample-repos.js";
 
 /**
  * My tasks (U19, plan 20261012-itera-testmyagent-ui-refactor). Source = a GitHub repo through the
@@ -44,6 +45,8 @@ export interface MyTasksRouterDeps {
   github: () => GitHubAppApi;
   installations: Pick<GithubAgentsRepository, "getInstallation">;
   requireWallet: RequestHandler;
+  /** U37: sample task repos any wallet may use, read through the TestMyAgent installation. Absent → env defaults. */
+  samples?: SampleRepos;
 }
 
 class HttpError extends Error {
@@ -71,6 +74,7 @@ function wrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<v
       await fn(req, res, next);
     } catch (e) {
       if (e instanceof HttpError) res.status(e.status).json({ error: e.message, ...e.extra });
+      else if (e instanceof SampleRepoError) res.status(e.status).json({ error: e.message });
       else if (e instanceof SchemaNotReadyError) res.status(503).json({ error: e.message });
       else if (e instanceof GitHubConfigError) res.status(503).json({ error: "the TestMyAgent GitHub App is not configured on this server yet" });
       else if (e instanceof GitHubApiError) {
@@ -141,11 +145,15 @@ function validationJson(v: TaskValidation | null) {
   };
 }
 
+/** U37: true when the version pins a sample task repo (read through the TestMyAgent installation). */
+let sampleTaskRepo: (repoFullName: string) => boolean = () => false;
+
 function versionJson(v: UserTaskVersion) {
   return {
     id: v.id,
     version: v.version,
     source: "github" as const,
+    repoSource: sampleTaskRepo(v.repoFullName) ? ("sample" as const) : ("github" as const),
     github: { installationId: v.installationId, repo: v.repoFullName, branch: v.branch, commitSha: v.commitSha, shortSha: shortSha(v.commitSha), path: v.repoPath },
     repoPrivate: v.repoPrivate,
     testsVisibility: v.repoPrivate ? ("sealed" as const) : ("open" as const),
@@ -172,6 +180,8 @@ function taskJson(t: UserTask, versions: UserTaskVersion[], validation: TaskVali
     description: t.description,
     kind: "user" as const,
     visibility: "private" as const,
+    /** U37: "sample" when the latest version pins a sample task repo. */
+    source: latest && sampleTaskRepo(latest.repoFullName) ? ("sample" as const) : ("github" as const),
     status: t.status,
     estMinutes: t.estMinutes,
     tags: t.tags,
@@ -196,9 +206,20 @@ const layoutJson = (l: TaskLayout) =>
 export function createMyTasksRouter(deps: MyTasksRouterDeps): Router {
   const router = Router();
   const { store, github, requireWallet } = deps;
+  const samples = deps.samples ?? sampleReposFromEnv();
+  sampleTaskRepo = (r) => isSampleRepo(samples, r, "task");
 
-  async function installationFor(walletAddr: string, repoFullName: string): Promise<number> {
+  /**
+   * U37: a sample task repo (or `source: "sample"` asked explicitly) is read through the
+   * TestMyAgent installation whatever wallet calls; an explicit sample request outside the
+   * allow-list is refused (403). Every other repo needs an installation bound to the caller.
+   */
+  async function installationFor(walletAddr: string, repoFullName: string, sample = false): Promise<number> {
     if (!REPO_FULL_NAME_RE.test(repoFullName)) throw new HttpError(400, "repoFullName must look like owner/repo");
+    if (sample || isSampleRepo(samples, repoFullName, "task")) {
+      if (!isSampleRepo(samples, repoFullName, "task")) sampleInstallation(samples, repoFullName, "task", null);
+      return sampleInstallation(samples, repoFullName, "task", await github().getRepoInstallationId(repoFullName));
+    }
     const installationId = await github().getRepoInstallationId(repoFullName);
     const inst = installationId === null ? null : await deps.installations.getInstallation(installationId);
     if (installationId === null || !inst || inst.ownerWallet !== walletAddr) {
@@ -224,7 +245,7 @@ export function createMyTasksRouter(deps: MyTasksRouterDeps): Router {
     if (commitIn !== undefined && commitIn !== null && commitIn !== "" && (typeof commitIn !== "string" || !COMMIT_INPUT_RE.test(commitIn))) {
       throw new HttpError(400, "commitSha must be a hex commit SHA (7 to 40 characters)");
     }
-    const installationId = await installationFor(walletAddr, repoFullName);
+    const installationId = await installationFor(walletAddr, repoFullName, body.source === "sample");
     const gh = github();
     const meta = await gh.getRepo(installationId, repoFullName);
     const branch = typeof body.branch === "string" && body.branch ? body.branch : meta.defaultBranch;
@@ -237,6 +258,7 @@ export function createMyTasksRouter(deps: MyTasksRouterDeps): Router {
 
   const pinJson = (p: Awaited<ReturnType<typeof pin>>) => ({
     repoFullName: p.repoFullName,
+    source: isSampleRepo(samples, p.repoFullName, "task") ? ("sample" as const) : ("github" as const),
     branch: p.branch,
     commitSha: p.commitSha,
     shortSha: shortSha(p.commitSha),

@@ -224,6 +224,8 @@ export interface AgentValidateInput {
   commit?: string
   /** Directory that holds AGENTS.md / CLAUDE.md. "." is the repo root. */
   agentPath: string
+  /** U37: "sample" reads a sample repo through the TestMyAgent installation (no install needed). */
+  source?: RepoSource
 }
 /** `ok:false` answers 200 with an `errorCode` (no_agent_file | too_large) and `candidates`. */
 export interface AgentValidateResponse {
@@ -259,6 +261,8 @@ export interface CreateAgentInput {
   name: string
   description?: string
   visibility: AgentVisibility
+  /** U37: "sample" for a sample repo (any wallet, no install). */
+  source?: RepoSource
 }
 export interface Agent {
   id: string
@@ -272,6 +276,8 @@ export interface Agent {
   model?: string | null
   modelRelease?: string | null
   visibility?: AgentVisibility
+  /** U37: "sample" when registered from a TestMyAgent sample repo. */
+  source?: RepoSource
   status?: AgentStatus
   createdAt?: string
   listedAt?: string | null
@@ -707,6 +713,31 @@ export interface TaskSourceInput {
   branch?: string
   commitSha?: string
   path?: string
+  /** U37: "sample" for a sample task repo (any wallet, no install). */
+  source?: RepoSource
+}
+
+/** U37: where the files of an agent / task are read from. "sample" = a TestMyAgent sample repo, no install. */
+export type RepoSource = 'github' | 'sample'
+/** GET /github/sample-repos (public). */
+export interface SampleReposResponse {
+  agents: string[]
+  tasks: string[]
+}
+/** GET /faucet. */
+export interface FaucetStatus {
+  cluster: 'devnet'
+  amountLamports: number
+  balanceLamports: number
+  eligible: boolean
+  nextAt: string | null
+}
+/** POST /faucet. */
+export interface FaucetGrantResponse {
+  txSig: string
+  lamports: number
+  sol: number
+  explorerUrl: string
 }
 export interface TaskPin {
   repoFullName: string

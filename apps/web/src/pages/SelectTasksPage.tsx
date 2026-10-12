@@ -13,6 +13,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useSession, useSolBalance } from '../auth/session'
+import { GetTestSol } from '../tma/nav/GetTestSol'
 import { api, ApiError, explorerTxUrl } from '../lib/api'
 import type { Agent, Model, Quote, Task } from '../lib/api'
 import { TaskFilter, findTask, useTaskCatalog } from '../tma/task-filter'
@@ -318,6 +319,7 @@ export function SelectTasksPage() {
                 Insufficient balance: this evaluation needs {totalSol!.toFixed(5)} SOL plus the network fee.
               </span>
             )}
+            {insufficient && pay.step === 'idle' && <GetTestSol size={32} />}
             {payError && (
               <span className="st-error" role="alert" data-testid="pay-error">
                 {payError}

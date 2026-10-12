@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import { Breadcrumb, Button, Card, Field, Input, KeyValue, RadioCard, Stepper } from '../tma/ui'
 import { AgentFilesPanel } from './add-agent/AgentFilesPanel'
 import { describeError } from './add-agent/errors'
-import { GithubSourceCard } from './add-agent/GithubSourceCard'
+import { GithubSourceCard, SampleRepoNotice } from './add-agent/GithubSourceCard'
 import { ModelCard } from './add-agent/ModelCard'
 import { cleanAgentPath, useGithubSource } from './add-agent/useGithubSource'
 import { useLoad } from './add-agent/useLoad'
@@ -95,6 +95,7 @@ export function AddAgentPage() {
         name: name.trim(),
         description: description.trim() || undefined,
         visibility,
+        ...(gh.sample ? { source: 'sample' as const } : {}),
       })
       if (picture) {
         // Best effort: a failed picture never blocks the agent; the owner can retry later.
@@ -202,6 +203,8 @@ export function AddAgentPage() {
             />
           </Card>
           <AgentFilesPanel validation={gh.validation} path={cleanAgentPath(gh.agentPath)} />
+          {/* U37: right column, beside the Source card: the left column (and the 02 design diff) does not move. */}
+          <SampleRepoNotice gh={gh} kind="agent" />
         </div>
       </div>
     </main>

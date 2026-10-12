@@ -33,7 +33,16 @@ export interface GithubPin {
   setCommit: (sha: string) => void
   /** Branch and commit lists answered (or failed): the pin is final. */
   settled: boolean
+  /** U37: a TestMyAgent sample repo is picked (read without an install, any wallet). */
+  sample: boolean
+  /** U37: pick a sample repo (no install step). */
+  pickSampleRepo: (fullName: string) => void
+  /** U37: back to the repos of the user's own installations. */
+  leaveSample: () => void
 }
+
+/** U37: sample repos, from GET /github/sample-repos; these are the API defaults while it loads. */
+export const DEFAULT_SAMPLE_REPOS = { agents: ['devfellowship/testmyagent-demo-agent'], tasks: ['devfellowship/testmyagent-demo-task'] }
 
 export interface GithubSource extends GithubPin {
   agentPath: string
@@ -82,7 +91,8 @@ export function useGithubPin(): GithubPin {
     if (connected && reposReady) setWaiting(false)
   }, [connected, reposReady])
 
-  const repos = useMemo(() => source.data?.repos ?? [], [source.data])
+  const [sampleRepo, setSampleRepo] = useState<string | null>(null)
+  const repos = useMemo<GithubRepo[]>(() => (sampleRepo ? [{ fullName: sampleRepo, private: false }] : (source.data?.repos ?? [])), [source.data, sampleRepo])
   const [repoSel, setRepoSel] = useState<string | null>(null)
   const repo = repos.find((r) => r.fullName === repoSel) ?? repos[0] ?? null
   const repoName = repo?.fullName ?? null
@@ -92,6 +102,18 @@ export function useGithubPin(): GithubPin {
 
   const setRepo = useCallback((fullName: string) => {
     setRepoSel(fullName)
+    setBranchSel(null)
+    setCommitSel(null)
+  }, [])
+  const pickSampleRepo = useCallback((fullName: string) => {
+    setSampleRepo(fullName)
+    setRepoSel(fullName)
+    setBranchSel(null)
+    setCommitSel(null)
+  }, [])
+  const leaveSample = useCallback(() => {
+    setSampleRepo(null)
+    setRepoSel(null)
     setBranchSel(null)
     setCommitSel(null)
   }, [])
@@ -125,6 +147,9 @@ export function useGithubPin(): GithubPin {
     commit,
     setCommit: setCommitSel,
     settled: commitsSettled,
+    sample: sampleRepo != null,
+    pickSampleRepo,
+    leaveSample,
   }
 }
 
@@ -148,7 +173,7 @@ export function useGithubSource(): GithubSource {
     setValidation({ phase: 'running' })
     const t = window.setTimeout(() => {
       api
-        .agentValidate({ repoFullName: repoName, branch, commit: commit ?? undefined, agentPath: path })
+        .agentValidate({ repoFullName: repoName, branch, commit: commit ?? undefined, agentPath: path, ...(pin.sample ? { source: 'sample' as const } : {}) })
         .then(
           (result) => my === seq.current && setValidation(result.ok ? { phase: 'ok', result } : { phase: 'fail', result }),
           (e: unknown) => {
@@ -162,7 +187,7 @@ export function useGithubSource(): GithubSource {
       window.clearTimeout(t)
       seq.current++
     }
-  }, [repoName, branch, commit, path, commitsSettled, retry])
+  }, [repoName, branch, commit, path, commitsSettled, retry, pin.sample])
 
   return {
     ...pin,

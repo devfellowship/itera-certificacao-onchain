@@ -35,6 +35,8 @@ export interface GithubAgent {
   createdAt?: string | null;
   /** ADR-11 / U28 (0011_agent_requires): "mcp:<server>" | "tool:<builtin>". Absent until 0011 is applied. */
   requires?: string[];
+  /** U37 (0016_sample_repos_faucet): "sample" when registered from a sample repo. Null on older rows. */
+  source?: "github" | "sample" | null;
 }
 
 /** Fields POST /agents may set beyond the 0002 columns (U8). */
@@ -48,6 +50,8 @@ export interface AgentMetaInput {
   slugBase?: string | null;
   /** U28: normalized with parseAgentRequires (@itera/contracts). */
   requires?: string[];
+  /** U37: where the files were read from (column agents.repo_source, 0016). */
+  source?: "github" | "sample";
 }
 
 export interface AgentMetaResult {

@@ -573,3 +573,58 @@ describe("branches, commits, validate and the pinned POST /agents (U8)", () => {
     ).toBe("AGENTS.md + 3 skills · 42 KB");
   });
 });
+
+describe("sample repos (U37): any wallet, no install", () => {
+  let sampleServer: Server;
+  let sampleBase: string;
+  const sampleCall = async (method: string, path: string, wallet: string, body?: unknown) => {
+    const res = await fetch(`${sampleBase}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json", ...auth(wallet) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+
+  beforeEach(async () => {
+    // alice-org/agents is the sample repo; installation 42 is bound to ALICE. BOB has no installation.
+    await connectAlice();
+    gh.repoInstallations.set("alice-org/private", 42);
+    sampleServer = createApp(new FakeRepository(), {
+      github: { repo: ghRepo, github: () => gh, requireWallet, stateSecret: () => "test-session-secret", samples: { agents: ["alice-org/agents"], tasks: [], installationId: 42 } },
+    }).listen(0);
+    await new Promise<void>((resolve) => sampleServer.once("listening", resolve));
+    sampleBase = `http://127.0.0.1:${(sampleServer.address() as AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    await new Promise<void>((resolve) => sampleServer.close(() => resolve()));
+  });
+
+  it("lists the sample repos publicly", async () => {
+    const res = await fetch(`${sampleBase}/github/sample-repos`);
+    expect(await res.json()).toEqual({ agents: ["alice-org/agents"], tasks: [] });
+  });
+
+  it("a wallet with no installation reads branches, commits, validates and registers the sample agent; the row is its own, source sample", async () => {
+    expect((await sampleCall("GET", "/github/repos/alice-org/agents/branches", BOB)).status).toBe(200);
+    expect((await sampleCall("GET", "/github/repos/alice-org/agents/commits?branch=main", BOB)).body.headSha).toBe(SHA1);
+    const v = await sampleCall("POST", "/agents/validate", BOB, { repoFullName: "alice-org/agents", branch: "main", agentPath: "." });
+    expect(v.body).toMatchObject({ ok: true, source: "sample" });
+    const created = await sampleCall("POST", "/agents", BOB, { repoFullName: "alice-org/agents", branch: "main", agentPath: ".", name: "Bob sample", source: "sample" });
+    expect(created.status).toBe(201);
+    expect(created.body.agent).toMatchObject({ ownerWallet: BOB, installationId: 42, source: "sample" });
+    expect((await sampleCall("GET", "/agents", BOB)).body.agents.map((a: { source: string }) => a.source)).toEqual(["sample"]);
+    // Refresh keeps working for the non-owner of the installation.
+    expect((await sampleCall("POST", `/agents/${created.body.agent.id}/refresh`, BOB)).status).toBe(200);
+  });
+
+  it("refuses a repo outside the allow-list on the sample path (403), and keeps the normal path (404) for it", async () => {
+    const asked = await sampleCall("POST", "/agents", BOB, { repoFullName: "alice-org/private", agentPath: ".", source: "sample" });
+    expect(asked.status).toBe(403);
+    expect((await sampleCall("GET", "/github/repos/alice-org/private/branches?source=sample", BOB)).status).toBe(403);
+    expect((await sampleCall("POST", "/agents", BOB, { repoFullName: "alice-org/private", agentPath: "." })).status).toBe(404);
+    // The installation owner still uses the normal path for its other repos.
+    const own = await sampleCall("POST", "/agents/validate", ALICE, { repoFullName: "alice-org/private", agentPath: "." });
+    expect(own.body.source).toBe("github");
+  });
+});
