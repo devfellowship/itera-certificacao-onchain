@@ -2,9 +2,14 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { VersionedTransaction } from '@solana/web3.js'
 import { useState } from 'react'
 
-// Dev default points at the local run-issuer (services/run-issuer, port 8787). Override via
-// VITE_RUN_ISSUER_URL for any other environment — never hardcode a prod URL here.
-const RUN_ISSUER_URL = import.meta.env.VITE_RUN_ISSUER_URL ?? 'http://localhost:8787'
+// services/run-issuer is not deployed anywhere public yet (README: "Not built yet, explicitly
+// out of scope for this slice"), so there is no real URL to default to in production. Dev points
+// at the local run-issuer (services/run-issuer, port 8787) via .env.local; any other environment
+// sets VITE_RUN_ISSUER_URL explicitly, or this button hides itself (see RUN_ISSUER_URL below) —
+// previously defaulted to http://localhost:8787 unconditionally, which in production meant every
+// visitor's own machine (ERR_CONNECTION_REFUSED, reported by Tainan Fidelis on Discord #web3,
+// 2026-10-12), not a real backend.
+const RUN_ISSUER_URL = import.meta.env.VITE_RUN_ISSUER_URL as string | undefined
 
 type Status =
   | { kind: 'idle' }
@@ -33,7 +38,7 @@ export function StartRun() {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
 
   async function start() {
-    if (!publicKey || !signTransaction) return
+    if (!publicKey || !signTransaction || !RUN_ISSUER_URL) return
     try {
       setStatus({ kind: 'building' })
       const startResponse = await fetch(`${RUN_ISSUER_URL}/api/runs/start`, {
@@ -72,7 +77,7 @@ export function StartRun() {
     }
   }
 
-  if (!connected) return null
+  if (!connected || !RUN_ISSUER_URL) return null
 
   return (
     <div className="start-run">

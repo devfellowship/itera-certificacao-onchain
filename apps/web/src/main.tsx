@@ -20,21 +20,28 @@ const stages = [
   { number: '03', title: 'Prove', body: 'Anchor the manifest proof on Solana for independent verification.' },
 ]
 
-function App() {
+// Rendered once, outside the routed page content, so it stays on screen across every route —
+// previously only <Home> had it, so navigating to /prepare, /observe/*, /verify, or /credentials/*
+// dropped it entirely (Tainan Fidelis, Discord #web3, 2026-10-12).
+function TopBar() {
+  return (
+    <header className="topbar">
+      <a className="brand" href="/" aria-label="Itera home">
+        <span className="brand-mark">i<span>·</span></span>
+        <span>ITERA <strong>/ AGENT CREDENTIALS</strong></span>
+      </a>
+      <div className="topbar-actions">
+        <span className="status"><span className="status-dot" /> Planning preview</span>
+        <WalletMultiButton />
+        <StartRun />
+      </div>
+    </header>
+  )
+}
+
+function Home() {
   return (
     <main className="shell" data-testid="app-ready">
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Itera home">
-          <span className="brand-mark">i<span>·</span></span>
-          <span>ITERA <strong>/ AGENT CREDENTIALS</strong></span>
-        </a>
-        <div className="topbar-actions">
-          <span className="status"><span className="status-dot" /> Planning preview</span>
-          <WalletMultiButton />
-          <StartRun />
-        </div>
-      </header>
-
       <section className="hero">
         <div className="eyebrow"><span>PROOF OF CAPABILITY</span><span className="line" /></div>
         <h1>Trust the work.<br /><em>Verify the proof.</em></h1>
@@ -73,11 +80,14 @@ function routeFor(pathname: string) {
   if (observeMatch) return <ObservePage runId={observeMatch[1]} />
   const credentialMatch = pathname.match(/^\/credentials\/([^/]+)/)
   if (credentialMatch) return <CredentialPage claimManifestId={credentialMatch[1]} />
-  return <App />
+  return <Home />
 }
 
 // No StrictMode here on purpose: its deliberate double-mount races Phantom's connect
 // handshake and throws "disconnected port" — same issue hit and fixed in ChainOil.
 createRoot(document.getElementById('root')!).render(
-  <WalletContextProvider>{routeFor(window.location.pathname)}</WalletContextProvider>,
+  <WalletContextProvider>
+    <TopBar />
+    {routeFor(window.location.pathname)}
+  </WalletContextProvider>,
 )
