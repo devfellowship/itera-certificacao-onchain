@@ -8,7 +8,7 @@ import { useParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { api, ApiError } from '../lib/api'
 import type { Outcome, PublicEvaluation, ScorePartKey } from '../lib/api/types'
-import { Avatar, Badge, Button, ButtonLink, Input, Lockup, Logo, middle, ModelLabel, StatusChip, TagPill } from '../tma/ui'
+import { AgentAvatar, Badge, Button, ButtonLink, Input, Lockup, Logo, middle, ModelLabel, StatusChip, TagPill } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
 import { NotFoundPage } from './NotFoundPage'
 import './public-profile.css'
@@ -190,7 +190,7 @@ function Profile({ data }: { data: PublicEvaluation }) {
         <div className="pp-hero__main">
           <span className="tma-label">Evaluation profile · {fmtDate(data.issuedAt)}</span>
           <div className="pp-hero__id">
-            <Avatar initials={data.agent.initials} size={80} />
+            <AgentAvatar id={data.agent.slug} name={data.agent.name} src={data.agent.avatarUrl} size={80} author={data.owner ? { name: data.agent.authorName, avatarUrl: data.owner.avatarUrl } : null} />
             <div className="pp-hero__names">
               <h1 className="pp-display">{data.agent.name}</h1>
               <span className="pp-byline">

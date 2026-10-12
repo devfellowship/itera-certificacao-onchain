@@ -72,6 +72,21 @@ export const api = {
   authMe: () => request<T.AuthMe>('/auth/me'),
   me: () => request<T.Me>('/me'),
   patchMe: (input: T.PatchMeInput) => request<T.Me>('/me', { method: 'PATCH', body: json(input) }),
+  /** U36: multipart upload (png, jpeg or webp, at most 2 MB); the API stores a 256×256 WebP. */
+  uploadAvatar: (file: Blob, filename = 'avatar.png') => {
+    const form = new FormData()
+    form.append('file', file, filename)
+    return request<T.Me>('/me/avatar', { method: 'POST', body: form })
+  },
+  deleteAvatar: () => request<T.Me>('/me/avatar', { method: 'DELETE' }),
+  usernameAvailable: (name: string) => request<T.UsernameAvailability>(`/usernames/${encodeURIComponent(name)}/available`),
+  publicUser: (username: string) => request<T.PublicUser>(`/public/users/${encodeURIComponent(username)}`, { auth: false }),
+  /** U36: the agent's picture (owner only); same pipeline as the user picture. */
+  uploadAgentAvatar: (agentId: string, file: Blob, filename = 'agent.png') => {
+    const form = new FormData()
+    form.append('file', file, filename)
+    return request<{ agentId: string; avatarUrl: string }>(`/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'POST', body: form })
+  },
 
   // Catalog
   tasks: (query: T.TasksQuery = {}) => request<T.TasksResponse>('/tasks', { query: { ...query } }),

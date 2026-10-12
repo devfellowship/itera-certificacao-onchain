@@ -50,7 +50,49 @@ function tasksWithCounts() {
 export const handlers = [
   // Identity
   http.get(u('/auth/me'), () => HttpResponse.json({ wallet: FIXTURE_USER.wallet })),
-  http.get(u('/me'), () => HttpResponse.json({ wallet: FIXTURE_USER.wallet, displayName: FIXTURE_USER.displayName, handle: FIXTURE_USER.handle, initials: FIXTURE_USER.initials })),
+  http.get(u('/me'), () =>
+    HttpResponse.json({
+      wallet: FIXTURE_USER.wallet,
+      username: FIXTURE_USER.handle,
+      displayName: FIXTURE_USER.displayName,
+      handle: FIXTURE_USER.handle,
+      avatarUrl: null,
+      bio: 'Building payment agents at Settlewise.',
+      initials: FIXTURE_USER.initials,
+      stats: { agents: 3, tasks: 3 },
+    }),
+  ),
+  // U36: profile writes (echo), username availability, picture upload, public user page.
+  http.patch(u('/me'), async ({ request }) => {
+    const b = (await request.json()) as { username?: string | null; displayName?: string | null; bio?: string | null }
+    return HttpResponse.json({
+      wallet: FIXTURE_USER.wallet,
+      username: b.username ?? FIXTURE_USER.handle,
+      handle: b.username ?? FIXTURE_USER.handle,
+      displayName: b.displayName ?? null,
+      bio: b.bio ?? null,
+      avatarUrl: null,
+      initials: FIXTURE_USER.initials,
+    })
+  }),
+  http.post(u('/me/avatar'), () => HttpResponse.json({ wallet: FIXTURE_USER.wallet, avatarUrl: null, initials: FIXTURE_USER.initials }, { status: 201 })),
+  http.delete(u('/me/avatar'), () => HttpResponse.json({ wallet: FIXTURE_USER.wallet, avatarUrl: null, initials: FIXTURE_USER.initials })),
+  http.get(u('/usernames/:name/available'), ({ params }) => {
+    const n = String(params.name)
+    const reserved = ['admin', 'itera', 'testmyagent'].includes(n)
+    const taken = ['settlewise', 'diegosantos'].includes(n)
+    return HttpResponse.json({ username: n, available: !reserved && !taken, reason: reserved ? 'reserved' : taken ? 'taken' : null })
+  }),
+  http.get(u('/public/users/:username'), ({ params }) =>
+    String(params.username) === FIXTURE_USER.handle
+      ? HttpResponse.json({
+          user: { username: FIXTURE_USER.handle, displayName: FIXTURE_USER.displayName, bio: 'Building payment agents at Settlewise.', avatarUrl: null, initials: FIXTURE_USER.initials, wallet: FIXTURE_USER.wallet },
+          agents: [{ id: agentId('settlewise'), slug: 'settlewise', name: 'Settlewise', description: 'Fixes settlement, refund and webhook bugs in payment services.', avatarUrl: null, initials: 'SE', createdAt: null }],
+          tasks: [],
+        })
+      : HttpResponse.json({ error: 'user not found' }, { status: 404 }),
+  ),
+  http.post(u('/agents/:id/avatar'), ({ params }) => HttpResponse.json({ agentId: String(params.id), avatarUrl: null }, { status: 201 })),
 
   // Catalog
   http.get(u('/tasks'), ({ request }) => {

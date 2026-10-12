@@ -88,8 +88,30 @@ export interface Profile {
   wallet: string;
   displayName: string | null;
   handle: string | null;
+  /** U36 (0015): public URL of the 256×256 picture in the `avatars` bucket, or null. */
+  avatarUrl: string | null;
+  /** U36 (0015): storage object key of the picture (`<wallet>/<hash16>.webp`), or null. */
+  avatarKey: string | null;
+  /** U36 (0015): one optional line, ≤ 80 characters. */
+  bio: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+/** Fields of a profile update: undefined = keep, null = clear. */
+export interface ProfilePatch {
+  displayName?: string | null;
+  handle?: string | null;
+  avatarUrl?: string | null;
+  avatarKey?: string | null;
+  bio?: string | null;
+}
+
+/** U36: the public page /u/:username. Only listed agents and public tasks. */
+export interface PublicUserPage {
+  profile: Profile;
+  agents: Array<{ id: string; slug: string | null; name: string; description: string | null; avatarUrl: string | null; createdAt: string | null }>;
+  tasks: Array<{ id: string; slug: string; name: string; description: string | null }>;
 }
 
 export class HandleTakenError extends Error {
@@ -110,7 +132,15 @@ export interface CatalogStore extends ModelsSyncStore {
   isModelEnabled(id: string): Promise<boolean | null>;
   getProfile(wallet: string): Promise<Profile | null>;
   /** Upserts the provided fields (undefined = keep, null = clear). Throws HandleTakenError. */
-  upsertProfile(wallet: string, patch: { displayName?: string | null; handle?: string | null }): Promise<Profile>;
+  upsertProfile(wallet: string, patch: ProfilePatch): Promise<Profile>;
+  /** U36: the profiles of these wallets (absent wallets are left out). One query. */
+  listProfiles(wallets: string[]): Promise<Profile[]>;
+  /** U36: by username (lowercase); null when absent. */
+  getProfileByUsername(username: string): Promise<Profile | null>;
+  /** U36: how many agents and tasks the wallet owns (all visibilities: it is the owner's own view). */
+  profileStats(wallet: string): Promise<{ agents: number; tasks: number }>;
+  /** U36: the public page of a username; null when no profile has it. */
+  publicUser(username: string): Promise<PublicUserPage | null>;
 }
 
 export function isVisibleTo(task: Pick<CatalogTask, "visibility" | "ownerWallet">, wallet: string | null): boolean {
@@ -182,18 +212,40 @@ export class FakeCatalogStore implements CatalogStore {
     return this.profiles.get(wallet) ?? null;
   }
 
-  async upsertProfile(wallet: string, patch: { displayName?: string | null; handle?: string | null }): Promise<Profile> {
+  async listProfiles(wallets: string[]): Promise<Profile[]> {
+    return wallets.map((w) => this.profiles.get(w)).filter((p): p is Profile => p !== undefined);
+  }
+
+  async getProfileByUsername(username: string): Promise<Profile | null> {
+    return [...this.profiles.values()].find((p) => p.handle === username) ?? null;
+  }
+
+  async profileStats(wallet: string): Promise<{ agents: number; tasks: number }> {
+    return { agents: 0, tasks: this.tasks.filter((t) => t.ownerWallet === wallet).length };
+  }
+
+  async publicUser(username: string): Promise<PublicUserPage | null> {
+    const profile = await this.getProfileByUsername(username);
+    if (!profile) return null;
+    const tasks = this.tasks.filter((t) => t.ownerWallet === profile.wallet && t.visibility === "public").map((t) => ({ id: t.id, slug: t.slug, name: t.name, description: t.description }));
+    return { profile, agents: [], tasks };
+  }
+
+  async upsertProfile(wallet: string, patch: ProfilePatch): Promise<Profile> {
     if (patch.handle) {
       for (const p of this.profiles.values()) {
         if (p.wallet !== wallet && p.handle === patch.handle) throw new HandleTakenError(patch.handle);
       }
     }
     const now = new Date().toISOString();
-    const prev = this.profiles.get(wallet) ?? { wallet, displayName: null, handle: null, createdAt: now, updatedAt: now };
+    const prev = this.profiles.get(wallet) ?? { wallet, displayName: null, handle: null, avatarUrl: null, avatarKey: null, bio: null, createdAt: now, updatedAt: now };
     const next: Profile = {
       ...prev,
       displayName: patch.displayName === undefined ? prev.displayName : patch.displayName,
       handle: patch.handle === undefined ? prev.handle : patch.handle,
+      avatarUrl: patch.avatarUrl === undefined ? prev.avatarUrl : patch.avatarUrl,
+      avatarKey: patch.avatarKey === undefined ? prev.avatarKey : patch.avatarKey,
+      bio: patch.bio === undefined ? prev.bio : patch.bio,
       updatedAt: now,
     };
     this.profiles.set(wallet, next);

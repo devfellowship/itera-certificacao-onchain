@@ -34,6 +34,8 @@ export interface Session {
   /** Opens the wallet modal (if needed) and signs in. Resolves when signed in. */
   signIn: () => void
   signOut: () => Promise<void>
+  /** U36: replaces the profile after the settings page saves it (no refetch). */
+  setMe: (me: Me) => void
 }
 
 const SessionContext = createContext<Session | null>(null)
@@ -65,7 +67,7 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 function fallbackMe(wallet: string): Me {
-  return { wallet, displayName: null, handle: null, initials: initialsOf(wallet) }
+  return { wallet, username: null, displayName: null, handle: null, avatarUrl: null, initials: initialsOf(wallet) }
 }
 
 function WalletSessionProvider({ children }: { children: ReactNode }) {
@@ -200,6 +202,7 @@ function WalletSessionProvider({ children }: { children: ReactNode }) {
       error,
       signIn,
       signOut,
+      setMe,
     }),
     [status, stored, wallet.wallet, me, error, signIn, signOut],
   )
@@ -207,17 +210,19 @@ function WalletSessionProvider({ children }: { children: ReactNode }) {
 }
 
 function FixtureSessionProvider({ children }: { children: ReactNode }) {
+  const [me, setMe] = useState<Me>(FIXTURE_USER)
   const value = useMemo<Session>(
     () => ({
       status: 'signed-in',
       wallet: FIXTURE_USER.wallet,
       walletName: 'Phantom',
-      me: FIXTURE_USER,
+      me,
       error: null,
       signIn: () => undefined,
       signOut: async () => undefined,
+      setMe,
     }),
-    [],
+    [me],
   )
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }

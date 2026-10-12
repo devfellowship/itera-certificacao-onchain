@@ -15,7 +15,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, explorerTxUrl } from '../lib/api'
 import type { EvaluationDetail, Run, Task } from '../lib/api'
 import { TaskName, useTaskCatalog } from '../tma/task-filter'
-import { Breadcrumb, ButtonLink, ModelLabel, middle } from '../tma/ui'
+import { AgentAvatar, Breadcrumb, ButtonLink, formatSol, ModelLabel, middle } from '../tma/ui'
+import { useSession } from '../auth/session'
 import { appendPage, callEvents, EMPTY_FEED, mergeByTime } from './running-evaluation/call-events'
 import type { ActionFeed } from './running-evaluation/call-events'
 import './running-evaluation/running-evaluation.css'
@@ -95,6 +96,7 @@ function modelText(m: Detail['model']): string {
 export function RunningEvaluationPage() {
   const { eid = '' } = useParams()
   const navigate = useNavigate()
+  const session = useSession()
   const [detail, setDetail] = useState<Detail | null>(null)
   const [fetchedAt, setFetchedAt] = useState(0)
   const [error, setError] = useState<{ status: number; message: string } | null>(null)
@@ -238,6 +240,11 @@ export function RunningEvaluationPage() {
   const graded = d.tasks.filter((t) => t.stage === 'graded' || t.stage === 'timed_out').length
   const commit = d.agent.commit ? d.agent.commit.slice(0, 7) : null
   const agentLink = d.agent.id ? `/agents/${d.agent.id}` : '/agents'
+  // U36 (TG 21092): agent card under the title — AgentAvatar, author, model, source, tasks · fee.
+  const mine = !!session.wallet && d.agent.authorWallet === session.wallet
+  const authorName = mine ? 'you' : d.agent.authorProfile?.displayName ?? (d.agent.authorProfile?.username ? `@${d.agent.authorProfile.username}` : d.agent.authorWallet ? middle(d.agent.authorWallet, 4, 4) : null)
+  const modelLabel = typeof d.model === 'string' ? d.model : d.model.id
+  const repoShort = d.agent.repo ? d.agent.repo.split('/').pop() : null
 
   // Error banner: a timed-out run (INVALID) or a platform fault after the free retry.
   const timedOut = d.tasks.find((t) => t.stage === 'timed_out')
@@ -319,6 +326,45 @@ export function RunningEvaluationPage() {
           </div>
         </div>
       </div>
+
+      <section className="re-agent" data-testid="evaluation-agent-card">
+        <div className="re-agent__id">
+          <AgentAvatar size={44} id={d.agent.id} name={d.agent.name} src={d.agent.avatarUrl} author={authorName ? { name: authorName === 'you' ? session.me?.displayName ?? d.agent.authorProfile?.displayName ?? 'you' : authorName, avatarUrl: d.agent.authorProfile?.avatarUrl ?? (mine ? session.me?.avatarUrl : null) } : null} />
+          <div className="re-agent__text">
+            <span className="re-agent__name">{d.agent.name}</span>
+            {authorName && (
+              <span className="re-agent__by">
+                by <b>{authorName}</b>
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="re-agent__kv">
+          <span className="tma-label">Model</span>
+          <span className="re-agent__v">
+            <ModelLabel model={modelText(d.model)} label={modelLabel} size={20} />
+          </span>
+        </div>
+        {repoShort && (
+          <div className="re-agent__kv">
+            <span className="tma-label">Source</span>
+            <span className="re-agent__v re-mono">
+              {repoShort}
+              {commit ? `@${commit}` : ''}
+            </span>
+          </div>
+        )}
+        <div className="re-agent__kv">
+          <span className="tma-label">Tasks · Fee</span>
+          <span className="re-agent__v re-mono">
+            {d.taskCount}
+            {d.fee ? ` · ${formatSol(d.fee.lamports, { fromLamports: true, decimals: 3 })} SOL` : ''}
+          </span>
+        </div>
+        <Link to={agentLink} className="re-agent__link">
+          View agent →
+        </Link>
+      </section>
 
       {ui === 'error' && !dismissed && (timedOut || fault) && (
         <div className="re-banner" role="alert" data-testid="error-banner">

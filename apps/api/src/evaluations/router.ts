@@ -403,6 +403,8 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
             // "by {author}": the owner's profile name, else a short wallet. The UI shows "you" for isMine.
             authorName: e.agentAuthorName ?? (e.agentOwnerWallet ? `${e.agentOwnerWallet.slice(0, 4)}…${e.agentOwnerWallet.slice(-4)}` : "unknown"),
             isMine: isMine(e),
+            // U36: the profile middleware adds authorProfile (username, picture) from this wallet.
+            authorWallet: e.agentOwnerWallet ?? null,
           },
           createdAt: e.createdAt,
           feeLamports: e.feeLamports,
@@ -440,7 +442,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         evaluation: ev,
         runs,
         proofs,
-        agent: { name: agent?.name ?? "agent", slug: agent?.slug ?? null, repoFullName: agent?.repoFullName ?? null },
+        agent: { name: agent?.name ?? "agent", slug: agent?.slug ?? null, repoFullName: agent?.repoFullName ?? null, ownerWallet: agent?.ownerWallet ?? null },
         agentCommit: version?.commitSha ?? null,
         nowMs: now(),
       });

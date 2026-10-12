@@ -381,3 +381,60 @@
   align-self: flex-start;
   max-width: 100%;
 }
+
+/* U36 (TG 21092): the agent card under the title. */
+.re-agent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 40px;
+  padding: 16px 20px;
+  background: var(--tma-surface);
+  border: 1px solid var(--tma-line);
+  border-radius: var(--tma-radius-lg);
+}
+.re-agent__id {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.re-agent__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.re-agent__name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.re-agent__by {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.re-agent__by b {
+  color: var(--tma-text);
+  font-weight: 500;
+}
+.re-agent__kv {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.re-agent__v {
+  font-size: 13px;
+  color: var(--tma-text);
+}
+.re-agent__link {
+  font-size: 13px;
+  color: var(--tma-primary);
+  text-decoration: none;
+}
+.re-agent__link:hover {
+  color: var(--tma-primary-hover);
+}

@@ -842,6 +842,48 @@ textarea.tma-input {
   object-fit: cover;
   display: block;
 }
+/* U36: agent tile (picture or generated art) + the author's circle badge, bottom-right. */
+.tma-agent-avatar {
+  position: relative;
+  flex: none;
+  display: inline-block;
+}
+.tma-agent-avatar__tile {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid var(--tma-line-strong);
+  background: var(--tma-surface-raised);
+}
+.tma-agent-avatar__tile img,
+.tma-agent-avatar__tile svg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tma-agent-avatar__badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 0 0 2px var(--tma-bg);
+  background: var(--tma-surface-raised);
+  color: var(--tma-text);
+  font-family: var(--tma-font-mono);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+}
+.tma-agent-avatar__badge img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 
 /* ---------- Model avatar (provider logo) ---------- */
 .tma-model-avatar {
@@ -1109,4 +1151,10 @@ textarea.tma-input {
 }
 .tma-account__disconnect:hover {
   background: var(--tma-surface);
+}
+/* U36: "Profile settings" link in the account menu, same row as Disconnect. */
+.tma-account__item {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
 }

@@ -23,6 +23,8 @@ import { PgPublicTaskStore } from "./public/task-store.pg.js";
 import { PgReputationStore } from "./domain/reputation-store.pg.js";
 import { startMcpCatalogSync } from "./domain/mcp-catalog.js";
 import { PgMcpCatalogStore } from "./domain/mcp-catalog-store.pg.js";
+import { avatarStorageFromEnv } from "./domain/avatar.js";
+import { PgAgentAvatarStore } from "./domain/agent-avatar-store.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const repo = new PgRepository(getPool());
@@ -79,6 +81,9 @@ createApp(repo, {
   // U30: public task profile (needs 0007; results need 0008, reputation 0010).
   publicTasks: new PgPublicTaskStore(getPool()),
   mcpCatalog,
+  // U36 (0015): profile pictures in the TestMyAgent Supabase Storage (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).
+  avatarStorage: avatarStorageFromEnv(),
+  agentAvatars: new PgAgentAvatarStore(getPool()),
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });

@@ -81,7 +81,7 @@ export function AccountMenu({ defaultOpen = false }: { defaultOpen?: boolean }) 
   return (
     <div className="tma-account" ref={ref}>
       <button type="button" className="tma-account__trigger" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="account-trigger">
-        <Avatar initials={initials} size={28} />
+        <Avatar initials={initials} size={28} src={me?.avatarUrl} shape="circle" />
         <span className="tma-account__short" title={wallet}>
           {middle(wallet, 4, 4)}
         </span>
@@ -90,10 +90,10 @@ export function AccountMenu({ defaultOpen = false }: { defaultOpen?: boolean }) 
       {open && (
         <div className="tma-account__menu" role="menu" data-testid="account-menu">
           <div className="tma-account__head">
-            <Avatar initials={initials} size={40} surface="surface" />
+            <Avatar initials={initials} size={40} surface="surface" src={me?.avatarUrl} shape="circle" />
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <span className="tma-account__name">{me?.displayName ?? middle(wallet, 4, 4)}</span>
-              {me?.handle && <span className="tma-account__handle">@{me.handle}</span>}
+              {(me?.username ?? me?.handle) && <span className="tma-account__handle">@{me?.username ?? me?.handle}</span>}
             </div>
           </div>
           <div className="tma-account__section" style={{ gap: 4 }}>
@@ -116,6 +116,9 @@ export function AccountMenu({ defaultOpen = false }: { defaultOpen?: boolean }) 
             <span className="tma-body-sm tma-muted">{session.walletName ?? 'Wallet'} · connected</span>
           </div>
           <div className="tma-account__footer">
+            <Link to="/settings/profile" role="menuitem" className="tma-account__disconnect tma-account__item" onClick={() => setOpen(false)} data-testid="profile-settings-link">
+              Edit profile
+            </Link>
             <button
               type="button"
               role="menuitem"

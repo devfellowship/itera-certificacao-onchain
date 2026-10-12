@@ -255,10 +255,10 @@ describe("GET/PATCH /me", () => {
   });
 
   it("defaults before a profile exists, then updates", async () => {
-    expect((await get("/me", ME)).body).toEqual({ wallet: ME, displayName: null, handle: null, initials: "7X" });
+    expect((await get("/me", ME)).body).toEqual({ wallet: ME, username: null, displayName: null, handle: null, avatarUrl: null, bio: null, initials: "7X", stats: { agents: 0, tasks: expect.any(Number) } });
     const r = await patch({ displayName: "Ada Lovelace", handle: "Ada_L" });
     expect(r.status).toBe(200);
-    expect(r.body).toEqual({ wallet: ME, displayName: "Ada Lovelace", handle: "ada_l", initials: "AL" });
+    expect(r.body).toEqual({ wallet: ME, username: "ada_l", displayName: "Ada Lovelace", handle: "ada_l", avatarUrl: null, bio: null, initials: "AL" });
     expect((await patch({ handle: null })).body.handle).toBeNull();
     expect((await get("/me", ME)).body.displayName).toBe("Ada Lovelace");
   });
@@ -269,6 +269,38 @@ describe("GET/PATCH /me", () => {
     expect((await patch({ displayName: "a".repeat(61) })).status).toBe(400);
     await patch({ handle: "taken" }, OTHER);
     expect((await patch({ handle: "taken" })).status).toBe(409);
+  });
+
+  it("U36: username is 3 to 30 of [a-z0-9_-], not reserved; avatarUrl only clears", async () => {
+    expect((await patch({ username: "ab" })).status).toBe(400);
+    expect((await patch({ username: "a".repeat(31) })).status).toBe(400);
+    expect((await patch({ username: "bad name" })).status).toBe(400);
+    expect((await patch({ username: "Admin" })).body.error).toMatch(/reserved/);
+    const ok = await patch({ username: "Grace_H-1" });
+    expect(ok.status).toBe(200);
+    expect(ok.body.username).toBe("grace_h-1");
+    expect(ok.body.handle).toBe("grace_h-1");
+    expect((await patch({ avatarUrl: "https://evil.test/x.png" })).status).toBe(400);
+    expect((await patch({ avatarUrl: null })).body.avatarUrl).toBeNull();
+    await patch({ username: "dup_name" }, OTHER);
+    const taken = await patch({ username: "DUP_NAME" });
+    expect(taken.status).toBe(409);
+    expect(taken.body.error).toMatch(/taken/);
+  });
+
+  it("U36: bio ≤ 80, username availability, public user page", async () => {
+    expect((await patch({ bio: "x".repeat(81) })).status).toBe(400);
+    expect((await patch({ username: "grace", bio: "Building payment agents." })).body.bio).toBe("Building payment agents.");
+    const avail = async (n: string, w?: string) => (await get(`/usernames/${n}/available`, w)).body;
+    expect(await avail("grace")).toMatchObject({ available: false, reason: "taken" });
+    expect(await avail("grace", ME)).toMatchObject({ available: true });
+    expect(await avail("someone_new")).toMatchObject({ available: true });
+    expect(await avail("admin")).toMatchObject({ available: false, reason: "reserved" });
+    expect(await avail("a")).toMatchObject({ available: false, reason: "invalid" });
+    const page = await get("/public/users/grace");
+    expect(page.status).toBe(200);
+    expect(page.body.user).toMatchObject({ username: "grace", bio: "Building payment agents." });
+    expect((await get("/public/users/nobody_here")).status).toBe(404);
   });
 });
 
@@ -332,7 +364,7 @@ describe("GET /tasks?include=overview (U35)", () => {
   }
 
   it("adds author, agentsCount and the best result, with the ranking visibility rules", async () => {
-    store.profiles.set(ME, { wallet: ME, displayName: "Bruno Lima", handle: "bruno", createdAt: null, updatedAt: null });
+    store.profiles.set(ME, { wallet: ME, displayName: "Bruno Lima", handle: "bruno", avatarUrl: null, avatarKey: null, bio: null, createdAt: null, updatedAt: null });
     const dup = store.tasks[0]!;
     const mine = store.tasks[2]!;
     const rank = new FakeRankingStore();

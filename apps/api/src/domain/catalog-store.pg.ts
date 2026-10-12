@@ -6,6 +6,8 @@ import {
   type CatalogStore,
   type CatalogTask,
   type Profile,
+  type ProfilePatch,
+  type PublicUserPage,
   type Tag,
   type TaskVersionInfo,
 } from "./catalog-store.js";
@@ -122,11 +124,24 @@ function toTask(r: TaskRow): CatalogTask {
   };
 }
 
-type ProfileRow = { wallet: string; display_name: string | null; handle: string | null; created_at: Date | string; updated_at: Date | string };
+type ProfileRow = {
+  wallet: string;
+  display_name: string | null;
+  handle: string | null;
+  /** Absent before 0015_profile_avatars.sql. */
+  avatar_url?: string | null;
+  avatar_key?: string | null;
+  bio?: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
 const toProfile = (r: ProfileRow): Profile => ({
   wallet: r.wallet,
   displayName: r.display_name,
   handle: r.handle,
+  avatarUrl: r.avatar_url ?? null,
+  avatarKey: r.avatar_key ?? null,
+  bio: r.bio ?? null,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
@@ -292,16 +307,93 @@ export class PgCatalogStore implements CatalogStore {
     }
   }
 
-  async upsertProfile(wallet: string, patch: { displayName?: string | null; handle?: string | null }): Promise<Profile> {
+  async listProfiles(wallets: string[]): Promise<Profile[]> {
+    const unique = [...new Set(wallets)].slice(0, 500);
+    if (unique.length === 0) return [];
+    try {
+      const { rows } = await this.pool.query<ProfileRow>(`select * from public.profiles where wallet = any($1::text[])`, [unique]);
+      return rows.map(toProfile);
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+
+  async getProfileByUsername(username: string): Promise<Profile | null> {
+    try {
+      const { rows } = await this.pool.query<ProfileRow>(`select * from public.profiles where handle = $1`, [username]);
+      return rows[0] ? toProfile(rows[0]) : null;
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+
+  async profileStats(wallet: string): Promise<{ agents: number; tasks: number }> {
+    try {
+      const { rows } = await this.pool.query<{ agents: string; tasks: string }>(
+        `select (select count(*) from public.agents where owner_wallet = $1) as agents,
+                (select count(*) from public.tasks where owner_wallet = $1) as tasks`,
+        [wallet],
+      );
+      return { agents: Number(rows[0]?.agents ?? 0), tasks: Number(rows[0]?.tasks ?? 0) };
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+
+  async publicUser(username: string): Promise<PublicUserPage | null> {
+    const profile = await this.getProfileByUsername(username);
+    if (!profile) return null;
+    try {
+      const [agents, tasks] = await Promise.all([
+        this.pool.query<{ id: string; slug: string | null; name: string; description: string | null; avatar_url: string | null; created_at: Date }>(
+          `select id::text, slug, name, description, avatar_url, created_at from public.agents
+            where owner_wallet = $1 and visibility <> 'private' and connector = 'github'
+              -- same rule as the public ranking: a non-owner sees an agent once it has issued evidence
+              and exists (select 1 from public.evaluations e where e.agent_id = agents.id and e.status = 'issued')
+            order by coalesce(listed_at, created_at) desc limit 50`,
+          [profile.wallet],
+        ),
+        this.pool.query<{ id: string; slug: string; name: string; description: string | null }>(
+          `select id::text, slug, name, description from public.tasks
+            where owner_wallet = $1 and visibility = 'public' order by created_at desc limit 50`,
+          [profile.wallet],
+        ),
+      ]);
+      return {
+        profile,
+        agents: agents.rows.map((a) => ({ id: a.id, slug: a.slug, name: a.name, description: a.description, avatarUrl: a.avatar_url ?? null, createdAt: iso(a.created_at) })),
+        tasks: tasks.rows.map((t) => ({ id: t.id, slug: t.slug, name: t.name, description: t.description })),
+      };
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+
+  async upsertProfile(wallet: string, patch: ProfilePatch): Promise<Profile> {
+    // The avatar and bio columns arrive with 0015; the statement names them only when the patch does.
+    const avatar = patch.avatarUrl !== undefined || patch.avatarKey !== undefined || patch.bio !== undefined;
     try {
       const { rows } = await this.pool.query<ProfileRow>(
-        `insert into public.profiles (wallet, display_name, handle) values ($1, $3, $5)
+        `insert into public.profiles (wallet, display_name, handle${avatar ? ", avatar_url, avatar_key, bio" : ""})
+         values ($1, $3, $5${avatar ? ", $7, $9, $11" : ""})
          on conflict (wallet) do update set
            display_name = case when $2 then excluded.display_name else public.profiles.display_name end,
            handle       = case when $4 then excluded.handle else public.profiles.handle end,
+           ${avatar ? `avatar_url = case when $6 then excluded.avatar_url else public.profiles.avatar_url end,
+           avatar_key   = case when $8 then excluded.avatar_key else public.profiles.avatar_key end,
+           bio          = case when $10 then excluded.bio else public.profiles.bio end,` : ""}
            updated_at   = now()
          returning *`,
-        [wallet, patch.displayName !== undefined, patch.displayName ?? null, patch.handle !== undefined, patch.handle ?? null],
+        [
+          wallet,
+          patch.displayName !== undefined,
+          patch.displayName ?? null,
+          patch.handle !== undefined,
+          patch.handle ?? null,
+          ...(avatar
+            ? [patch.avatarUrl !== undefined, patch.avatarUrl ?? null, patch.avatarKey !== undefined, patch.avatarKey ?? null, patch.bio !== undefined, patch.bio ?? null]
+            : []),
+        ],
       );
       return toProfile(rows[0]!);
     } catch (e) {
@@ -311,4 +403,5 @@ export class PgCatalogStore implements CatalogStore {
       rethrow(e);
     }
   }
+
 }

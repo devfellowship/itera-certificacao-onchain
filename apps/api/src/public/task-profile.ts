@@ -90,6 +90,7 @@ export interface ResultsView {
     rank: number;
     agentName: string;
     agentSlug: string | null;
+    ownerWallet: string | null;
     modelLabel: string | null;
     score: number | null;
     outcome: "PASS" | "FAIL" | "INVALID";
@@ -242,6 +243,7 @@ export function resultsView(rows: TaskResultRow[]): ResultsView {
     return {
       agentName: latest.agentName,
       agentSlug: latest.agentSlug,
+      ownerWallet: latest.ownerWallet ?? null,
       modelLabel: latest.modelLabel,
       score: s.length ? round1(s.reduce((a, b) => a + b, 0) / s.length) : null,
       outcome: OUTCOME[latest.status]!,

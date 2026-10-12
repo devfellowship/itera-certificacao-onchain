@@ -21,13 +21,47 @@ export interface AuthMe {
 }
 export interface Me {
   wallet: string
+  /** U36: same value as `handle`. 3–30 of a-z, 0-9, _ and -. */
+  username?: string | null
   displayName: string | null
   handle: string | null
+  /** U36: public URL of the 256×256 picture, or null. */
+  avatarUrl?: string | null
+  /** U36: one optional line, ≤ 80 characters. */
+  bio?: string | null
+  /** U36: GET /me only — agents and tasks the wallet owns. */
+  stats?: { agents: number; tasks: number } | null
   initials: string
 }
+export interface UsernameAvailability {
+  username: string
+  available: boolean
+  reason: 'taken' | 'reserved' | 'invalid' | null
+  error?: string
+}
+/** U36: GET /public/users/:username — the page /u/:username. */
+export interface PublicUser {
+  user: { username: string; displayName: string | null; bio: string | null; avatarUrl: string | null; initials: string; wallet: string }
+  agents: Array<{ id: string; slug: string | null; name: string; description: string | null; avatarUrl: string | null; initials: string; createdAt: string | null }>
+  tasks: Array<{ id: string; slug: string; name: string; description: string | null }>
+}
 export interface PatchMeInput {
-  displayName?: string
-  handle?: string
+  displayName?: string | null
+  handle?: string | null
+  username?: string | null
+  bio?: string | null
+  /** Only null: removes the picture. Upload with POST /me/avatar. */
+  avatarUrl?: null
+}
+/**
+ * U36: the profile the API adds next to a wallet field of any response
+ * (`ownerWallet` → `ownerProfile`, `authorWallet` → `authorProfile`, …). Absent when the wallet has no profile.
+ */
+export interface UserProfile {
+  wallet: string
+  username: string | null
+  displayName: string | null
+  avatarUrl: string | null
 }
 
 // ---------- Catalog ----------
@@ -56,6 +90,9 @@ export interface Task {
   estMinutes: number | null
   mine: boolean
   agentsRunCount: number
+  /** U36: the author of a user task (null for an Itera task) and the profile the API joins. */
+  ownerWallet?: string | null
+  ownerProfile?: UserProfile
   /** [EXT U5] `curated` (TestMyAgent catalog) or a user source. */
   source?: string | null
   /** [EXT U5] e.g. `sealed-tests` | `open-tests` (Gate Q7: label only). */
@@ -269,6 +306,9 @@ export interface AgentProfile {
     description: string | null
     authorName: string
     authorWallet: string
+    authorProfile?: UserProfile
+    /** U36: the agent's picture; absent → the web draws a generated tile. */
+    avatarUrl?: string | null
     isMine: boolean
     listedAt: string | null
     visibility: string
@@ -328,6 +368,9 @@ export interface RankingRow {
   initials: string
   authorName: string
   authorWallet?: string
+  authorProfile?: UserProfile
+  /** U36: the agent's picture; absent → generated tile. */
+  avatarUrl?: string | null
   isMine: boolean
   when: string | null
   description: string | null
@@ -445,7 +488,7 @@ export interface EvaluationListItem {
   id: string
   shortId: string
   slug: string | null
-  agent: { id?: string; slug?: string | null; name: string; initials: string; authorName: string; isMine: boolean }
+  agent: { id?: string; slug?: string | null; name: string; initials: string; authorName: string; isMine: boolean; authorWallet?: string | null; authorProfile?: UserProfile; avatarUrl?: string | null }
   createdAt: string
   feeSol: string
   feeLamports?: number
@@ -482,7 +525,7 @@ export interface EvaluationDetail {
   uiState: EvaluationUiState
   elapsedMs: number
   createdAt?: string
-  agent: { id?: string; name: string; slug?: string | null; repo?: string | null; commit: string | null; initials: string }
+  agent: { id?: string; name: string; slug?: string | null; repo?: string | null; commit: string | null; initials: string; avatarUrl?: string | null; authorWallet?: string | null; authorProfile?: UserProfile }
   /** v2: `{id, release}`; the design fixtures use a label string. */
   model: string | { id: string; release: string | null }
   taskCount: number
@@ -574,8 +617,8 @@ export interface PublicEvaluation {
   hash: string
   url?: string
   issuedAt: string | null
-  agent: { name: string; slug: string; initials: string; authorName: string; modelLabel: string; commit: string; description: string; modelId?: string | null; commitFull?: string | null; repo?: string | null }
-  owner?: { wallet: string; displayName: string | null; handle: string | null } | null
+  agent: { name: string; slug: string; initials: string; authorName: string; modelLabel: string; commit: string; description: string; modelId?: string | null; commitFull?: string | null; repo?: string | null; avatarUrl?: string | null }
+  owner?: { wallet: string; displayName: string | null; handle: string | null; username?: string | null; avatarUrl?: string | null } | null
   evaluatorWallet?: string | null
   /** U27: at least one task was written by the agent owner (same wallet or same GitHub account). */
   selfEvaluated?: boolean
@@ -831,6 +874,9 @@ export interface TaskResults {
     rank: number
     agentName: string
     agentSlug: string | null
+    ownerWallet?: string | null
+    ownerProfile?: UserProfile
+    agentAvatarUrl?: string | null
     modelLabel: string | null
     score: number | null
     outcome: Outcome

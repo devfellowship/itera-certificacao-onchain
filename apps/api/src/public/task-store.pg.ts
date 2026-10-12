@@ -67,7 +67,7 @@ export class PgPublicTaskStore implements PublicTaskStore {
     const { rows } = await this.pool.query(
       `select r.id::text as run_id, r.status, r.score_total, r.started_at, r.claimed_at, r.completed_at,
               e.slug as evaluation_slug, e.issued_at,
-              a.id::text as agent_id, a.name as agent_name, a.slug as agent_slug,
+              a.id::text as agent_id, a.name as agent_name, a.slug as agent_slug, a.owner_wallet,
               m.label as model_label, tv.version as task_version
          from public.runs r
          join public.evaluations e on e.id = r.evaluation_id and e.status = 'issued' and e.is_public
@@ -89,6 +89,7 @@ export class PgPublicTaskStore implements PublicTaskStore {
       agentId: r.agent_id,
       agentName: r.agent_name,
       agentSlug: r.agent_slug ?? null,
+      ownerWallet: r.owner_wallet ?? null,
       modelLabel: r.model_label ?? null,
       evaluationSlug: r.evaluation_slug ?? null,
       issuedAt: iso(r.issued_at),

@@ -109,7 +109,7 @@ export interface RollupInput {
   evaluation: EvaluationRecord;
   runs: EvalRun[];
   proofs: EvalProof[];
-  agent: { name: string; slug: string | null; repoFullName: string | null; initials?: string };
+  agent: { name: string; slug: string | null; repoFullName: string | null; initials?: string; ownerWallet?: string | null };
   agentCommit: string | null;
   nowMs: number;
 }
@@ -303,7 +303,7 @@ export function rollup(input: RollupInput) {
       uiState,
       elapsedMs: Math.max(0, (completedAt ? Date.parse(completedAt) : nowMs) - t0),
       createdAt: ev.createdAt,
-      agent: { id: ev.agentId, name: agent.name, slug: agent.slug, repo: agent.repoFullName, commit: input.agentCommit, initials: initialsOf(agent.name) },
+      agent: { id: ev.agentId, name: agent.name, slug: agent.slug, repo: agent.repoFullName, commit: input.agentCommit, initials: initialsOf(agent.name), authorWallet: agent.ownerWallet ?? null },
       model: { id: ev.modelId, release: ev.modelRelease },
       taskCount: n,
       fee: {

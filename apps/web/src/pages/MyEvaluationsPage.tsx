@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../lib/api'
 import type { Agent, EvaluationListItem, EvaluationScope, EvaluationStatus, EvaluationsResponse } from '../lib/api'
-import { Avatar, Badge, Button, ButtonLink, Table, TableEmpty, Tabs, type Column, type Tone } from '../tma/ui'
+import { AgentAvatar, Badge, Button, ButtonLink, Table, TableEmpty, Tabs, type Column, type Tone } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
 import './my-evaluations.css'
 
@@ -117,7 +117,7 @@ const COLUMNS: Column<EvaluationListItem>[] = [
     width: 'minmax(0,1fr)',
     render: (e) => (
       <span className="tme-agent">
-        <Avatar initials={e.agent.initials} size={40} />
+        <AgentAvatar id={e.agent.id} name={e.agent.name} src={e.agent.avatarUrl} size={40} author={{ name: e.agent.authorName, avatarUrl: e.agent.authorProfile?.avatarUrl }} />
         <span className="tme-agent__text">
           <span>
             <Link to={rowTarget(e)} className="tme-agent__name" onClick={(ev) => ev.stopPropagation()}>
