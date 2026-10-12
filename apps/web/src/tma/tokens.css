@@ -1,0 +1,143 @@
+/*
+ * testmyagent design tokens — the exact values of the design brief, section 1.2
+ * (plan 20261012-itera-testmyagent-ui-refactor, P0 / U1).
+ *
+ * Rules: dark only, flat, no gradients. Every color in the app comes from a --tma-* token.
+ * Do not add a hex value in a component; add a token here (and only if the design has it).
+ * Each brand hex appears exactly once in this file (Verification row 1 greps for it).
+ */
+:root {
+  /* Brand palette — 12 swatches, Brand Kit order */
+  --tma-bg: #0a0908;
+  --tma-surface: #141210;
+  --tma-surface-raised: #1c1916;
+  --tma-surface-code: #0f0e0c;
+  --tma-line: #2a2722;
+  --tma-line-strong: #35382f;
+  --tma-text: #f4ede2;
+  --tma-text-muted: #a2aaa1;
+  --tma-primary: #3fd17f;
+  --tma-primary-hover: #78e3a0;
+  --tma-primary-soft: #1c3a2a;
+  --tma-on-primary: #082113;
+
+  /* Text steps and green text outside the 12 swatches */
+  --tma-text-subtle: #6e6a62;
+  --tma-primary-text: #8fe9b1;
+
+  /* Inverse button (same values as text on bg) */
+  --tma-inverse-bg: var(--tma-text);
+  --tma-inverse-text: var(--tma-bg);
+
+  /* Status sets: bg · text · dot */
+  --tma-success-bg: var(--tma-primary-soft);
+  --tma-success-text: var(--tma-primary-text);
+  --tma-success-dot: var(--tma-primary);
+  --tma-warning-bg: #2a2418;
+  --tma-warning-text: #d8c193;
+  --tma-warning-dot: #d8b04a;
+  --tma-danger-bg: #3a1c1c;
+  --tma-danger-text: #f39595;
+  --tma-danger-dot: #e86a6a;
+  --tma-neutral-bg: var(--tma-surface-raised);
+  --tma-neutral-text: var(--tma-text-muted);
+  --tma-neutral-dot: var(--tma-text-subtle);
+
+  /* Extra values used in the mocks (brief 1.2 "absent from DESIGN.md") */
+  --tma-danger-border: #4a2626;
+  --tma-test-pass: #3f8f63;
+  --tma-test-fail: #8f4545;
+  --tma-scrim-modal: rgba(10, 9, 8, 0.72);
+  --tma-scrim-panel: rgba(10, 9, 8, 0.6);
+  --tma-nav-blur-bg: rgba(10, 9, 8, 0.85);
+
+  /* Level-2 shadows (popover / menu / dialog only) */
+  --tma-shadow-menu: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --tma-shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6);
+  --tma-shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --tma-shadow-panel: -16px 0 40px rgba(0, 0, 0, 0.5);
+  --tma-focus-ring: 0 0 0 3px var(--tma-primary-soft);
+
+  /* Typography */
+  --tma-font-sans: 'Geist', system-ui, sans-serif;
+  --tma-font-mono: 'Geist Mono', ui-monospace, monospace;
+
+  /* Radii */
+  --tma-radius-xs: 4px;
+  --tma-radius-sm: 6px;
+  --tma-radius-md: 8px;
+  --tma-radius-lg: 12px;
+  --tma-radius-pill: 999px;
+
+  /* Layout */
+  --tma-app-width: 1160px;
+  --tma-app-gutter: 32px;
+  --tma-nav-height: 56px;
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--tma-bg);
+}
+
+body {
+  font-family: var(--tma-font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--tma-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--tma-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--tma-primary-text);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.tma-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.tma-mono {
+  font-family: var(--tma-font-mono);
+}

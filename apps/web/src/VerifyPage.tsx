@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import './verify.css'
 import { createVerifierRpc, runVerification, type VerificationReport } from './verify'
 
 /**
