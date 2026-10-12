@@ -81,6 +81,30 @@ installation that holds `--repo` (default `devfellowship/testmyagent-demo-agent`
 free steps only. `--evaluation <id>` re-verifies an evaluation that is already paid. A full run uses
 about 150 requests, and the API allows 300 per 15 min per IP; the script waits on a 429.
 
+## Browser end-to-end check
+
+`npm run e2e:browser -- --base <web>` drives the deployed web app in Chrome (Playwright) with the
+demo wallet: landing, connect (SIWS), `/agents` (ranking, Task Filter modal), `/agents/new` (GitHub
+connected, repo, branch, commit, path, validate), agent detail, select tasks and the itemized quote,
+pay with one wallet signature, `/evaluations/:id` (states and per-call log) to `issued`, the public
+profile `/e/:slug` (Verify in browser -> VERIFIED), the owner feedback prompt, My evaluations, My
+tasks, the task editor Environment card, the public task page, and the agent badge. Every page step
+asserts three things and takes a screenshot: the root mounts, zero `pageerror` events, and a
+positive-data control. The run writes `e2e-report/browser-e2e.json` and `browser-e2e.html`
+(screenshots inline) and exits 1 when a step fails.
+
+There is no Phantom automation. The script injects a Wallet Standard test wallet into the page.
+The page sees only the public key. Every signature (the SIWS message, the payment transaction) runs
+in the Node process, so the secret key never enters the browser. The wallet comes from
+`E2E_WALLET_SECRET_B58` (or `DEMO_WALLET_SECRET_B58`), base58, and needs a GitHub App installation
+that holds `--repo` and about 0.01 SOL on devnet. One paid run on `tsk_webhook_dup` costs about
+0.003 SOL. Options: `--no-pay` (free steps only), `--agent <id>` (reuse an agent instead of
+registering a new one), `--task <slug>`, `--out <dir>`, `--chrome <path>`.
+
+The step "MCP task run - pending GHCR public" stays skipped until an anonymous pull of
+`ghcr.io/devfellowship/itera-mcp-helpdesk` succeeds. When it does, the step pays for and watches a
+`tsk_helpdesk_refunds` run.
+
 ## CI and deployment
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on `ubuntu-latest` for every PR and every push to `main`. The repository is public, and the DFL self-hosted runner group refuses public repositories. CI runs the scenario check, `check`, `test`, `build`, and a Docker build of both images.
