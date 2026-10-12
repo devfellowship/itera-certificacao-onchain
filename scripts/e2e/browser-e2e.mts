@@ -435,7 +435,7 @@ async function main(): Promise<void> {
   // ---- 1. Landing ---------------------------------------------------------------------------------
   await step("landing", "Landing renders (sections, CTAs)", async (c) => {
     await page.goto(WEB + "/", { waitUntil: "domcontentloaded" });
-    await c.verify("landing", '[data-testid="landing-page"]', "section", 8);
+    await c.verify("landing", '[data-testid="landing-page"]', "section", 6);
     must((await page.getByTestId("landing-hero-cta").count()) === 1, "hero CTA missing");
     must((await page.getByTestId("landing-connect").count()) === 1, "connect CTA missing");
     return `${await page.locator("section").count()} sections`;

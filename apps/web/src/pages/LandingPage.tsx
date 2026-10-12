@@ -1,72 +1,97 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSession } from '../auth/session'
-import { Logo } from '../tma/ui'
+import { AgentAvatar, Badge, Logo, ModelAvatar, TagPill, middle } from '../tma/ui'
 import './landing.css'
 
-// Owner: lane U3 (Landing v2). Port of "Landing v2.dc.html" at 99 % fidelity. Only the strings that
-// ADR-10 of plan 20261012-itera-testmyagent-ui-refactor lists are changed; the rest is word for word.
-// The page shows no live numbers: the sample credential is illustrative by design, so it is static.
+// Landing v3 (route /). Port of "Landing v3.dc.html" at 99 % fidelity; every string is the design's.
+// The page shows no live numbers: the sample evaluation is illustrative by design, so it is static.
+// The wallet CTA keeps the behaviour of the earlier landings: sign in with the wallet (SIWS), then /agents.
 
-type Tone = 'success' | 'warning' | 'danger' | 'neutral'
+type Cell = { name: string; by: string; model: string; score: string }
+
+const HERO: Cell[] = [
+  { name: 'Webhook Guard', by: 'DevFellowship', model: 'Claude Fable 5.1', score: '91.2' },
+  { name: 'SDK Upgrader', by: 'Tainan Fidelis', model: 'Claude Fable 5.1', score: '88.7' },
+  { name: 'Migration Writer', by: 'Sabrina Moreira', model: 'Gemini 3 Pro', score: '87.9' },
+  { name: 'Design Exporter', by: 'Will', model: 'Qwen3 Coder', score: '86.4' },
+  { name: 'Flaky Test Fixer', by: 'Pedro Zafalon', model: 'Grok 4.6', score: '84.3' },
+]
+
+const RANK: Array<Cell & { covered: number }> = [
+  { name: 'Webhook Guard', by: 'DevFellowship', model: 'Claude Fable 5.1', score: '90.7', covered: 2 },
+  { name: 'Query Optimizer', by: 'William Rodrigo', model: 'GPT-5.6 Sol', score: '67.0', covered: 2 },
+  { name: 'Repo Bugfixer', by: 'William Rodrigo', model: 'Claude Fable 5.1', score: '75.0', covered: 1 },
+  { name: 'Migration Writer', by: 'Sabrina Moreira', model: 'Gemini 3 Pro', score: '62.5', covered: 1 },
+  { name: 'SDK Upgrader', by: 'Tainan Fidelis', model: 'Claude Fable 5.1', score: '', covered: 0 },
+]
+
+const TASKS: Array<[string, boolean]> = [
+  ['Fix failing CI and open a PR', true],
+  ['Null crash in API handler', true],
+  ['Flaky test with shared state', false],
+  ['Off-by-one in pagination', true],
+]
+
+const STEP_TASKS: Array<[string, string, boolean]> = [
+  ['Fix failing CI and open a PR', 'GitHub CLI', true],
+  ['Null crash in API handler', 'Node.js', true],
+  ['Export frames to SVG', 'OpenPencil', false],
+]
+
+const STAGES: Array<[string, string, boolean]> = [
+  ['Contract', 'frozen', true],
+  ['Agent calls', '4 / 4', true],
+  ['Grading', '3 PASS · 1 FAIL', true],
+  ['Manifest', '7f3a…c91e', true],
+  ['Attestation', 'Confirmed', false],
+]
+
+const CARDS: Array<{ name: string; pass: boolean; passed: number; total: number; tag: string }> = [
+  { name: 'Fix failing CI and open a PR', pass: true, passed: 8, total: 8, tag: 'GitHub CLI' },
+  { name: 'Flaky test with shared state', pass: false, passed: 6, total: 8, tag: 'Vitest' },
+]
 
 const FAQ: Array<[string, string]> = [
-  ["Do I share my agent's source code?", 'We read your agent files from the repos you pick, pinned to a commit. Buyers see results, never your files.'], // ADR-10 #4
-  ['What does a credential cover?', "One task, a declared release, the conditions, observed results and the issuer's record. Not a general endorsement or future guarantee."],
-  ["Can you test my customer's task?", 'Through a guided pilot, after agreeing permissions, criteria, reference behavior and visibility.'],
-  ['Can a buyer verify without a wallet?', 'Yes, for public records. Restricted evidence requires authorization.'],
-  ['Does Solana prove the score is correct?', 'No. It verifies the issued record and evidence digest. Result quality depends on the evaluation method and issuer.'],
-  ['Do you prove which model runs?', 'Not initially. Declared release is shown apart from what the evaluator observed.'],
-  ['Are failed results visible?', 'Publication needs authorization. Published campaigns state scope, attempts, failures and timeouts. Paying never turns a result into a pass.'],
-  ['How is it priced?', 'US$0.10 per task-run, paid in SOL before the run. Verification is never the paid outcome.'], // ADR-10 #5
+  ["Do I share my agent's source code?", 'Not with buyers. A GitHub App reads your repo at a pinned commit, and we run it in an isolated sandbox. Profiles show results, never code.'],
+  ['Which model runs my agent?', 'You pick one from the platform list. We run it on our infra via OpenRouter, so the runtime is platform-run, not just declared.'],
+  ['How is it priced?', 'A small fee per evaluated task, paid in SOL when the run starts. Currently 0.003 SOL per task. Payment never turns a result into a pass.'],
+  ['Can a buyer verify without a wallet?', 'Yes. Public evaluation profiles and their onchain record can be checked by anyone.'],
+  ['Does Solana prove the score is correct?', 'No. It proves the issued record and manifest digest have not changed. Result quality depends on the tasks and the evaluation method.'],
+  ['Can I rank agents on my own tasks?', 'Yes. Create private tasks, run any listed agent on them for the same per-task fee, and compare. Private results stay private.'],
 ]
 
-const CHECKS = ['Valid event → one ledger credit', 'Duplicate delivery → no second credit', 'Unrelated entries → unchanged']
+const SAMPLE_LINK = 'testmyagent.com/e/repo-bugfixer-7f3a'
 
-const TRAIL = [
-  { time: 'T+00', label: 'Task contract frozen', detail: 'fixture · criteria · budget' },
-  { time: 'T+01', label: 'Task request sent', detail: 'allowlisted endpoint · digest recorded' },
-  { time: 'T+42', label: 'Patch received', detail: 'artifact bytes frozen' },
-  { time: 'T+47', label: 'External checks evaluated', detail: '3/3 · outside supplier endpoint' },
-  { time: 'T+49', label: 'Redacted result prepared', detail: 'scope reviewed before digest' },
-]
+const pad = (i: number) => String(i + 1).padStart(2, '0')
 
-const FIELDS: Array<{ k: string; v: string; badge?: { text: string; tone: Tone } }> = [
-  { k: 'Agent', v: 'Demo Studio · Coding Agent' },
-  { k: 'Release', v: 'demo-release-01', badge: { text: 'DECLARED', tone: 'neutral' } },
-  { k: 'Task', v: 'webhook-ledger@0.1' },
-  { k: 'Interaction', v: 'Request → patch → checks' },
-  { k: 'Criteria', v: '3 / 3', badge: { text: 'PASS', tone: 'success' } },
-  { k: 'Attempts', v: '1' },
-  { k: 'Time & cost', v: 'Unavailable', badge: { text: 'UNVERIFIED', tone: 'warning' } },
-  { k: 'Issuer', v: 'testmyagent · proposed' },
-  { k: 'Record', v: 'No transaction', badge: { text: 'NOT ISSUED', tone: 'warning' } },
-  { k: 'Limits', v: 'This task only. Not general competence.' },
-]
+function Eyebrow({ children, muted }: { children: string; muted?: boolean }) {
+  return <span className={muted ? 'lv3-label' : 'lv3-eyebrow'}>{children}</span>
+}
 
-function Badge({ tone, dot, sm, children }: { tone: Tone; dot?: boolean; sm?: boolean; children: ReactNode }) {
-  return (
-    <span className={`lv2-badge lv2-badge--${tone}${sm ? ' lv2-badge--sm' : ''}`}>
-      {dot && <span className="lv2-badge__dot" />}
-      {children}
-    </span>
-  )
+function Outcome({ pass, children }: { pass: boolean; children: string }) {
+  return <Badge tone={pass ? 'success' : 'danger'}>{children}</Badge>
 }
 
 export function LandingPage() {
   const s = useSession()
   const navigate = useNavigate()
   const [open, setOpen] = useState(0)
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const wantApp = useRef(false)
   const busy = s.status === 'connecting' || s.status === 'signing'
+  const connected = s.status === 'signed-in' && !!s.wallet
+  const walletLabel = connected ? `${middle(s.wallet!)} · Connected` : s.status === 'signing' ? 'Sign in your wallet…' : 'Connect wallet'
 
   // Smooth anchor scroll and the 72 px offset for the sticky header live on <html>, as in the design.
   useEffect(() => {
-    document.documentElement.classList.add('lv2-root')
-    return () => document.documentElement.classList.remove('lv2-root')
+    document.documentElement.classList.add('lv3-root')
+    return () => document.documentElement.classList.remove('lv3-root')
   }, [])
+  useEffect(() => () => clearTimeout(copyTimer.current), [])
 
-  // "Evaluate your agent" / "Connect wallet": sign in with the wallet (SIWS), then land on /agents.
+  // Wallet CTA: sign in with the wallet (SIWS), then land on /agents.
   useEffect(() => {
     if (wantApp.current && s.status === 'signed-in' && s.wallet) {
       wantApp.current = false
@@ -75,7 +100,7 @@ export function LandingPage() {
   }, [s.status, s.wallet, navigate])
 
   const start = () => {
-    if (s.status === 'signed-in' && s.wallet) {
+    if (connected) {
       navigate('/agents')
       return
     }
@@ -83,379 +108,437 @@ export function LandingPage() {
     s.signIn()
   }
 
+  const copy = () => {
+    try {
+      void navigator.clipboard?.writeText(SAMPLE_LINK)
+    } catch {
+      // clipboard blocked: the label still confirms, the link is on screen
+    }
+    setCopied(true)
+    clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => setCopied(false), 1200)
+  }
+
+  const cta = (testId: string, className: string) => (
+    <button type="button" className={`${className}${connected ? ' lv3-cta--connected' : ''}`} onClick={start} disabled={busy} data-testid={testId}>
+      {walletLabel}
+    </button>
+  )
+
   return (
-    <div className="lv2" data-testid="landing-page">
-      <header className="lv2-header">
-        <div className="lv2-wrap lv2-header__in">
-          <a className="lv2-lockup" href="#top" aria-label="testmyagent.com">
+    <div className="lv3" data-testid="landing-page">
+      <header className="lv3-header">
+        <div className="lv3-header__in">
+          <a className="lv3-lockup" href="#top" aria-label="testmyagent.com">
             <Logo width={47} height={22} />
-            <span className="lv2-lockup__divider" />
+            <span className="lv3-lockup__divider" />
             <span>
-              testmyagent<span className="lv2-lockup__tld">.com</span>
+              testmyagent<span className="lv3-lockup__tld">.com</span>
             </span>
           </a>
-          <nav className="lv2-header__nav">
-            <a className="lv2-btn lv2-btn--primary lv2-header__cta" href="#request">
-              Request an evaluation
-            </a>
+          <nav className="lv3-nav">
+            <a href="#how">How it works</a>
+            <a href="#profile">Evaluation profile</a>
+            <a href="#rank">Rank agents</a>
+            {cta('landing-header-cta', 'lv3-btn lv3-btn--nav')}
           </nav>
         </div>
       </header>
 
       <main id="top">
-        <section className="lv2-wrap lv2-hero">
-          <div className="lv2-hero__copy">
-            <h1 className="lv2-h1">
-              Show buyers what your coding agent can do. <span className="lv2-muted">Keep your implementation private.</span>
+        <section className="lv3-hero">
+          <div className="lv3-hero__copy">
+            <Eyebrow>Early access · Solana devnet</Eyebrow>
+            <h1 className="lv3-h1">
+              Show buyers what your coding agent can do. <span className="lv3-muted">Keep your implementation private.</span>
             </h1>
-            <p className="lv2-hero__lead">Verifiable task results. No source code shared.</p>
-            <div className="lv2-hero__ctas">
-              <button type="button" className="lv2-btn lv2-btn--primary" onClick={start} disabled={busy} data-testid="landing-hero-cta">
-                Evaluate your agent
-              </button>
-              <a className="lv2-btn lv2-btn--secondary" href="#evidence">
-                Explore a sample credential
+            <p className="lv3-hero__lead">Hidden tests grade your agent on real tasks. The result becomes a shareable profile with an onchain record anyone can check.</p>
+            <div className="lv3-hero__ctas">
+              {cta('landing-hero-cta', 'lv3-btn lv3-btn--hero')}
+              <a className="lv3-btn lv3-btn--hero lv3-btn--secondary" href="#profile">
+                See a sample evaluation
               </a>
             </div>
           </div>
 
-          <div className="lv2-card">
-            <div className="lv2-cred__head">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <div className="lv2-cred__title">Duplicate settlement webhook</div>
-                <div className="lv2-cred__sub">Demo Studio · Coding Agent</div>
+          <div className="lv3-hero__grid">
+            <div className="lv3-card lv3-agents">
+              <div className="lv3-agents__head">
+                <span>Agents</span>
               </div>
-              <div className="lv2-cred__id">webhook-ledger@0.1</div>
-            </div>
-            <div className="lv2-facts">
-              <div className="lv2-fact">
-                <div className="lv2-label">Outcome</div>
-                <div>
-                  <Badge tone="success" dot>
-                    PASS
-                  </Badge>
-                </div>
+              <div className="lv3-agents__cols lv3-agents__cols--head">
+                <span>#</span>
+                <span>Agent</span>
+                <span>Model</span>
+                <span className="lv3-right">Score</span>
               </div>
-              <div className="lv2-fact">
-                <div className="lv2-label">Record</div>
-                <div>
-                  <Badge tone="warning" dot>
-                    NOT ISSUED
-                  </Badge>
-                </div>
-              </div>
-              <div className="lv2-fact">
-                <div className="lv2-label">Runtime</div>
-                <div>
-                  <Badge tone="neutral" dot>
-                    DECLARED
-                  </Badge>
-                </div>
-              </div>
-            </div>
-            <div>
-              <div className="lv2-checks__head">
-                <span>Check</span>
-                <span>Result</span>
-              </div>
-              {CHECKS.map((c) => (
-                <div className="lv2-check" key={c}>
-                  <span>{c}</span>
-                  <span className="lv2-check__res">PASS</span>
-                </div>
-              ))}
-            </div>
-            <div className="lv2-cred__foot">
-              <span>digest —</span>
-              <span>1 attempt · cost unavailable</span>
-            </div>
-          </div>
-        </section>
-
-        <section id="proof" className="lv2-section">
-          <div className="lv2-wrap lv2-block">
-            <div className="lv2-head">
-              <div className="lv2-head__text">
-                <div className="lv2-eyebrow">What the proof means</div>
-                <h2 className="lv2-h2">
-                  Three facts. Never merged.
-                </h2>
-              </div>
-            </div>
-            <div className="lv2-facts3">
-              <div className="lv2-fact3">
-                <div className="lv2-fact3__n">01</div>
-                <h3 className="lv2-h3">Task outcome</h3>
-                <p>PASS, FAIL or INVALID for one task and release.</p>
-                <div className="lv2-fact3__badges">
-                  <Badge tone="success">PASS</Badge>
-                  <Badge tone="danger">FAIL</Badge>
-                  <Badge tone="neutral">INVALID</Badge>
-                </div>
-              </div>
-              <div className="lv2-fact3">
-                <div className="lv2-fact3__n">02</div>
-                <h3 className="lv2-h3">Record integrity</h3>
-                <p>Issuer, schema and digest match the manifest.</p>
-                <div className="lv2-fact3__badges">
-                  <Badge tone="success">VERIFIED</Badge>
-                  <Badge tone="danger">MISMATCH</Badge>
-                  <Badge tone="warning">UNAVAILABLE</Badge>
-                </div>
-              </div>
-              <div className="lv2-fact3">
-                <div className="lv2-fact3__n">03</div>
-                <h3 className="lv2-h3">Runtime identity</h3>
-                <p>Declared release. Not independently verified.</p>
-                <div className="lv2-fact3__badges">
-                  <Badge tone="neutral">DECLARED</Badge>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="how" className="lv2-section">
-          <div className="lv2-wrap lv2-cols">
-            <div className="lv2-col">
-              <div className="lv2-head__text">
-                <div className="lv2-eyebrow">How it works</div>
-                <h2 className="lv2-h2 lv2-h2--balance">A task in. An artifact out. A separate evaluator.</h2>
-              </div>
-              <div className="lv2-steps">
-                <div className="lv2-step">
-                  <div className="lv2-step__n">01</div>
-                  <div className="lv2-step__body">
-                    <h3 className="lv2-h3">Choose the task</h3>
-                    <p>Criteria, release and conditions agreed before the run.</p>
+              {HERO.map((a, i) => (
+                <div className="lv3-agents__cols lv3-agents__row" key={a.name}>
+                  <span className={`lv3-rank${i < 3 ? ' lv3-rank--top' : ''}`}>{pad(i)}</span>
+                  <div className="lv3-agent">
+                    <AgentAvatar id={a.name} name={a.name} size={36} author={{ name: a.by }} testId="landing-agent-avatar" />
+                    <div className="lv3-agent__text">
+                      <span className="lv3-agent__name">{a.name}</span>
+                      <span className="lv3-agent__by">by {a.by}</span>
+                    </div>
                   </div>
-                </div>
-                <div className="lv2-step">
-                  <div className="lv2-step__n">02</div>
-                  <div className="lv2-step__body">
-                    <h3 className="lv2-h3">Evaluate the response</h3>
-                    {/* ADR-10 #2 */}
-                    <p>We run your agent from your repo in a sandbox. A separate evaluator tests the patch.</p>
-                  </div>
-                </div>
-                <div className="lv2-step">
-                  <div className="lv2-step__n">03</div>
-                  <div className="lv2-step__body">
-                    <h3 className="lv2-h3">Share verifiable evidence</h3>
-                    <p>Publish the authorized result. Buyers verify issuer and digest.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="lv2-code">
-              <div className="lv2-code__head">
-                <span>observation trail</span>
-              </div>
-              {TRAIL.map((t) => (
-                <div className="lv2-trail" key={t.time}>
-                  <span className="lv2-trail__time">{t.time}</span>
-                  <span className="lv2-trail__dot" />
-                  <span className="lv2-trail__text">
-                    <span className="lv2-trail__label">{t.label}</span>
-                    <span className="lv2-trail__detail">{t.detail}</span>
+                  <span className="lv3-model">
+                    <ModelAvatar label={a.model} size={18} />
+                    <span className="lv3-ellipsis">{a.model}</span>
                   </span>
+                  <span className="lv3-score">{a.score}</span>
                 </div>
               ))}
-              <div className="lv2-code__foot">
-                <span>outcome</span>
-                <b>PASS</b>
+            </div>
+
+            <div className="lv3-card lv3-evalcard">
+              <div className="lv3-evalcard__main">
+                <Eyebrow muted>Evaluation profile</Eyebrow>
+                <div className="lv3-evalcard__id">
+                  <AgentAvatar id="Repo Bugfixer" name="Repo Bugfixer" size={56} author={{ name: 'William Rodrigo' }} testId="landing-agent-avatar" />
+                  <div className="lv3-evalcard__idtext">
+                    <span className="lv3-evalcard__name">Repo Bugfixer</span>
+                    <span className="lv3-evalcard__desc">Finds bugs across your GitHub repos and opens PRs that fix them.</span>
+                    <span className="lv3-evalcard__by">
+                      by William Rodrigo ·<ModelAvatar label="Claude Fable 5.1" size={16} />
+                      Claude Fable 5.1
+                    </span>
+                  </div>
+                </div>
+                <div className="lv3-evalcard__tasks">
+                  {TASKS.map(([name, pass]) => (
+                    <div className="lv3-evalcard__task" key={name}>
+                      <span className="lv3-ellipsis">{name}</span>
+                      <Outcome pass={pass}>{pass ? 'PASS' : 'FAIL'}</Outcome>
+                    </div>
+                  ))}
+                </div>
+                <div className="lv3-evalcard__badges">
+                  <Badge tone="success" dot>
+                    Verified onchain
+                  </Badge>
+                  <Badge tone="success" dot>
+                    Platform-run
+                  </Badge>
+                </div>
+              </div>
+              <div className="lv3-evalcard__score">
+                <div className="lv3-col6">
+                  <Eyebrow muted>Score</Eyebrow>
+                  <span className="lv3-evalcard__big">78.6</span>
+                </div>
+                <div className="lv3-col8">
+                  <div className="lv3-segbar">
+                    {TASKS.map(([name, pass]) => (
+                      <span key={name} className={pass ? 'lv3-segbar__pass' : 'lv3-segbar__fail'} />
+                    ))}
+                  </div>
+                  <span className="lv3-evalcard__caption">3 of 4 tasks PASS</span>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section id="evidence" className="lv2-section">
-          <div className="lv2-wrap lv2-block lv2-block--80">
-            <div className="lv2-head">
-              <div className="lv2-head__text">
-                <div className="lv2-eyebrow">Sample credential</div>
-                <h2 className="lv2-h2">
-                  A specific result. Not a universal badge.
-                </h2>
-              </div>
-              <a href="#evidence" style={{ fontSize: 14, fontWeight: 500 }}>
-                Inspect the sample →
-              </a>
+        <section id="how" className="lv3-section">
+          <div className="lv3-block">
+            <div className="lv3-head">
+              <Eyebrow>How it works</Eyebrow>
+              <h2 className="lv3-h2">From repo to verifiable result in three steps.</h2>
             </div>
-            <div className="lv2-evidence">
-              <div className="lv2-card">
-                <div className="lv2-strip">Illustrative · no agent run or onchain transaction</div>
-                {FIELDS.map((f) => (
-                  <div className="lv2-field" key={f.k}>
-                    <span className="lv2-label">{f.k}</span>
-                    <span className="lv2-field__v">
-                      {f.v}
-                      {f.badge && (
-                        <Badge tone={f.badge.tone} sm>
-                          {f.badge.text}
-                        </Badge>
-                      )}
+            <div className="lv3-steps">
+              <div className="lv3-card lv3-step">
+                <div className="lv3-step__top">
+                  <span className="lv3-step__n">01</span>
+                  <h3 className="lv3-step__h3">Connect your repo</h3>
+                  <p className="lv3-step__p">Install the GitHub App, pin a commit and pick a model. We run it on our infra.</p>
+                </div>
+                <div className="lv3-demo">
+                  <div className="lv3-demo__row">
+                    <span className="lv3-mono12 lv3-ellipsis">wrodrigo/repo-bugfixer</span>
+                    <span className="lv3-private">private</span>
+                  </div>
+                  <div className="lv3-demo__row lv3-demo__row--line">
+                    <span className="lv3-muted">Pinned commit</span>
+                    <span className="lv3-mono12">9f2c1ab</span>
+                  </div>
+                  <div className="lv3-demo__row lv3-demo__row--line">
+                    <span className="lv3-muted">Model</span>
+                    <span className="lv3-model lv3-model--sm">
+                      <ModelAvatar label="Claude Fable 5.1" size={16} />
+                      Claude Fable 5.1
                     </span>
+                  </div>
+                  <div className="lv3-demo__row lv3-demo__row--line lv3-demo__row--start">
+                    <Badge tone="success" dot>
+                      Verified
+                    </Badge>
+                    <span className="lv3-mono11 lv3-muted">manifest parsed · via OpenRouter</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="lv3-card lv3-step">
+                <div className="lv3-step__top">
+                  <span className="lv3-step__n">02</span>
+                  <h3 className="lv3-step__h3">Pick tasks, pay per task</h3>
+                  <p className="lv3-step__p">Choose public tasks by tool or concept, or bring your own. A small fee per task.</p>
+                </div>
+                <div className="lv3-demo">
+                  {STEP_TASKS.map(([name, tag, on]) => (
+                    <div className="lv3-picktask" key={name}>
+                      <span className={`lv3-check${on ? ' lv3-check--on' : ''}`}>
+                        <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.75" style={{ opacity: on ? 1 : 0 }}>
+                          <path d="M2 5.2 4 7.2 8 2.8" />
+                        </svg>
+                      </span>
+                      <span className="lv3-ellipsis">{name}</span>
+                      <span className="lv3-picktask__tag">{tag}</span>
+                    </div>
+                  ))}
+                  <div className="lv3-total">
+                    <span className="lv3-label">Total</span>
+                    <span className="lv3-mono13">
+                      0.006 SOL <span className="lv3-muted">≈ $0.90</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="lv3-card lv3-step">
+                <div className="lv3-step__top">
+                  <span className="lv3-step__n">03</span>
+                  <h3 className="lv3-step__h3">Hidden tests, onchain record</h3>
+                  <p className="lv3-step__p">Graded outside your sandbox. The manifest is attested on Solana.</p>
+                </div>
+                <div className="lv3-demo">
+                  {STAGES.map(([name, detail, done]) => (
+                    <div className={`lv3-stage${name === 'Attestation' ? ' lv3-stage--last' : ''}${done ? '' : ' lv3-stage--live'}`} key={name}>
+                      <span className="lv3-stage__name">
+                        <span className="lv3-stage__dot">{done ? '✓' : '•'}</span>
+                        {name}
+                      </span>
+                      <span className="lv3-stage__detail">{detail}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="profile" className="lv3-section">
+          <div className="lv3-block">
+            <div className="lv3-head">
+              <Eyebrow>Evaluation profile</Eyebrow>
+              <h2 className="lv3-h2">A specific result you can share. Not a universal badge.</h2>
+            </div>
+
+            <div className="lv3-facts">
+              <div className="lv3-fact">
+                <Eyebrow muted>Task outcome</Eyebrow>
+                <div className="lv3-fact__pills">
+                  <Badge tone="success">3 PASS</Badge>
+                  <Badge tone="danger">1 FAIL</Badge>
+                </div>
+                <span className="lv3-fact__text">Hidden tests, isolated runner.</span>
+              </div>
+              <div className="lv3-fact">
+                <Eyebrow muted>Record integrity</Eyebrow>
+                <div className="lv3-fact__pills">
+                  <Badge tone="success" dot>
+                    Verified
+                  </Badge>
+                </div>
+                <span className="lv3-fact__text">Manifest hash matches the onchain attestation.</span>
+              </div>
+              <div className="lv3-fact">
+                <Eyebrow muted>Runtime</Eyebrow>
+                <div className="lv3-fact__pills">
+                  <Badge tone="success" dot>
+                    Platform-run
+                  </Badge>
+                </div>
+                <span className="lv3-fact__text">Pinned commit and model, run by testmyagent.</span>
+              </div>
+            </div>
+
+            <div className="lv3-share">
+              <div className="lv3-cards">
+                {CARDS.map((t) => (
+                  <div className="lv3-card lv3-taskcard" key={t.name}>
+                    <div className="lv3-taskcard__top">
+                      <span className="lv3-taskcard__name">{t.name}</span>
+                      <Outcome pass={t.pass}>{t.pass ? 'PASS' : 'FAIL'}</Outcome>
+                    </div>
+                    <div className="lv3-cells">
+                      {Array.from({ length: t.total }, (_, i) => (
+                        <span key={i} className={i < t.passed ? 'lv3-cell lv3-cell--pass' : 'lv3-cell lv3-cell--fail'} />
+                      ))}
+                    </div>
+                    <div className="lv3-taskcard__foot">
+                      <TagPill>{t.tag}</TagPill>
+                      <span className="lv3-mono12 lv3-muted">{`${t.passed} / ${t.total} tests`}</span>
+                    </div>
                   </div>
                 ))}
               </div>
-              <div className="lv2-code" style={{ display: 'flex', flexDirection: 'column' }}>
-                <div className="lv2-code__head">
-                  <span>manifest.json</span>
-                  <span>proposed-0.1</span>
+
+              <div className="lv3-side">
+                <div className="lv3-card lv3-linkcard">
+                  <div className="lv3-linkcard__row">
+                    <div className="lv3-linkcard__url">{SAMPLE_LINK}</div>
+                    <button type="button" className="lv3-btn lv3-btn--copy" onClick={copy}>
+                      {copied ? 'Copied' : 'Copy link'}
+                    </button>
+                  </div>
+                  <div className="lv3-linkcard__badge">
+                    <div className="lv3-readme">
+                      <span className="lv3-readme__l">
+                        <Logo variant="symbol" width={11} height={11} solid />
+                        testmyagent
+                      </span>
+                      <span className="lv3-readme__r">78.6 · verified</span>
+                    </div>
+                  </div>
                 </div>
-                <pre className="lv2-json">
-                  {'{\n  '}
-                  <span className="k">"schema_version"</span>: <span className="s">"proposed-0.1"</span>,{'\n  '}
-                  <span className="k">"is_simulated"</span>: <span className="t">true</span>,{'\n  '}
-                  <span className="k">"subject"</span>: {'{\n    '}
-                  <span className="k">"supplier"</span>: <span className="s">"Demo Studio (fictional)"</span>,{'\n    '}
-                  <span className="k">"declared_release"</span>: <span className="s">"demo-release-01"</span>
-                  {'\n  },\n  '}
-                  <span className="k">"task"</span>: {'{ '}
-                  <span className="k">"id"</span>: <span className="s">"webhook-ledger"</span>, <span className="k">"version"</span>: <span className="s">"0.1"</span>
-                  {' },\n  '}
-                  <span className="k">"outcome"</span>: <span className="s">"PASS"</span>,{'\n  '}
-                  <span className="k">"checks"</span>: <span className="s">3</span>,{'\n  '}
-                  <span className="k">"attempts"</span>: <span className="s">1</span>,{'\n  '}
-                  <span className="k">"cost"</span>: <span className="n">null</span>,{'\n  '}
-                  <span className="k">"attestation"</span>: <span className="n">null</span>
-                  {'\n}'}
-                </pre>
+                <div className="lv3-card">
+                  <div className="lv3-onchain__head">
+                    <span className="lv3-onchain__title">Onchain record</span>
+                    <Badge tone="success" dot>
+                      Confirmed
+                    </Badge>
+                  </div>
+                  <div className="lv3-onchain__grid">
+                    <span className="lv3-onchain__k">Network</span>
+                    <span className="lv3-onchain__v">Solana devnet</span>
+                    <span className="lv3-onchain__k lv3-onchain__line">Transaction</span>
+                    <span className="lv3-onchain__v lv3-onchain__line lv3-mono12">5h7k…Qm9w</span>
+                  </div>
+                  <div className="lv3-onchain__foot">Anyone can verify it. No wallet needed.</div>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="lv2-section">
-          <div className="lv2-wrap lv2-cols">
-            <div className="lv2-col lv2-col--12">
-              <div className="lv2-eyebrow">Tasks</div>
-              <h2 className="lv2-h2 lv2-h2--balance">Start with a known task. Bring your client's task to a pilot.</h2>
-            </div>
-            <div className="lv2-tasks">
-              <div className="lv2-card">
-                <a className="lv2-taskrow" href="#request">
-                  <span className="lv2-taskrow__text">
-                    <span className="lv2-taskrow__title">Use a supported task pack</span>
-                    <span className="lv2-taskrow__sub">Public tasks. Fixed criteria.</span>
-                  </span>
-                  <Badge tone="success">AVAILABLE</Badge>
-                </a>
-                <a className="lv2-taskrow" href="#request">
-                  <span className="lv2-taskrow__text">
-                    <span className="lv2-taskrow__title">Discuss a client-specific task</span>
-                    <span className="lv2-taskrow__sub">Criteria, permissions and visibility agreed first.</span>
-                  </span>
-                  <Badge tone="warning">REVIEW</Badge>
-                </a>
+        <section id="rank" className="lv3-section">
+          <div className="lv3-block lv3-block--rank">
+            <div className="lv3-rank__copy">
+              <Eyebrow>For buyers and teams</Eyebrow>
+              <h2 className="lv3-h2">Bring your own tasks. Rank any agent on them.</h2>
+              <p className="lv3-rank__lead">Write a private task once. Run any listed agent on it for the same per-task fee and compare scores on the work you actually need.</p>
+              <div className="lv3-rank__list">
+                <div>
+                  <span>Private tasks</span>
+                  <span className="lv3-muted">visible only to you</span>
+                </div>
+                <div>
+                  <span>Tags by tool and concept</span>
+                  <span className="lv3-muted">Stripe API, GitHub CLI, OpenPencil…</span>
+                </div>
+                <div>
+                  <span>Payment</span>
+                  <span className="lv3-muted">never changes a result</span>
+                </div>
               </div>
-              <div className="lv2-note">No source code, API keys or customer data in the request form.</div>
+            </div>
+
+            <div className="lv3-card">
+              <div className="lv3-ranked">
+                <span className="lv3-label lv3-ranked__label">Ranked on</span>
+                <span className="lv3-ranked__chip">
+                  Ledger reconcile after outage<span>PRIVATE</span>
+                </span>
+                <span className="lv3-ranked__chip">
+                  BRL payout rounding<span>PRIVATE</span>
+                </span>
+              </div>
+              {(() => {
+                let r = 0
+                return RANK.map((a) => {
+                  const has = a.score !== ''
+                  if (has) r++
+                  return (
+                    <div className="lv3-rankrow" key={a.name}>
+                      <span className={`lv3-rank${has && r <= 2 ? ' lv3-rank--top' : ''}`}>{has ? pad(r - 1) : '—'}</span>
+                      <div className="lv3-agent">
+                        <AgentAvatar id={a.name} name={a.name} size={32} author={{ name: a.by }} testId="landing-agent-avatar" />
+                        <div className="lv3-agent__text">
+                          <span className="lv3-agent__name lv3-agent__name--sm">{a.name}</span>
+                          <span className="lv3-rankrow__model">
+                            <ModelAvatar label={a.model} size={14} />
+                            {a.model}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="lv3-cov">
+                        <div className="lv3-cov__dots">
+                          {[0, 1].map((i) => (
+                            <span key={i} className={i < a.covered ? 'lv3-cov__dot lv3-cov__dot--on' : 'lv3-cov__dot'} />
+                          ))}
+                        </div>
+                        <span className="lv3-mono11 lv3-muted">{`${a.covered} / 2`}</span>
+                      </div>
+                      <div className="lv3-rankrow__end">
+                        {has ? (
+                          <span className="lv3-rankrow__score">{a.score}</span>
+                        ) : (
+                          <span className="lv3-runbtn">
+                            Run · <span className="lv3-mono">0.006 SOL</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+              <div className="lv3-ranked__foot">Score = mean on selected tasks</div>
             </div>
           </div>
         </section>
 
-        <section className="lv2-section">
-          <div className="lv2-wrap lv2-aud">
-            <div className="lv2-card lv2-aud__card">
-              <div className="lv2-label">Vendors &amp; studios</div>
-              <h3 className="lv2-aud__h3">Bring evidence to the buyer conversation.</h3>
-              <p className="lv2-aud__lead">Use a scoped result in proposals, release reviews and client deliveries.</p>
-              <div className="lv2-aud__rows">
-                <div className="lv2-aud__row">Explain the claim</div>
-                <div className="lv2-aud__row">Preserve your implementation</div>
-                <div className="lv2-aud__row">Re-evaluate on change</div>
-              </div>
-              <div className="lv2-aud__actions" style={{ display: 'block' }}>
-                <a className="lv2-btn lv2-btn--inverse" href="#request">
-                  Request an evaluation
-                </a>
-              </div>
+        <section id="faq" className="lv3-section">
+          <div className="lv3-block lv3-block--faq">
+            <div className="lv3-head">
+              <Eyebrow>FAQ</Eyebrow>
+              <h2 className="lv3-h2 lv3-h2--plain">What it covers. What it doesn't.</h2>
             </div>
-            <div id="marketplaces" className="lv2-card lv2-aud__card">
-              <div className="lv2-label">Marketplaces &amp; protocols</div>
-              <h3 className="lv2-aud__h3">Add task evidence to agent listings.</h3>
-              <p className="lv2-aud__lead">Read the same scoped record buyers see. Apply your own policy — no evaluator to rebuild.</p>
-              <div className="lv2-aud__rows">
-                <div className="lv2-aud__row">
-                  <span>Task · release · issuer · validity</span>
-                  <span>read</span>
-                </div>
-                <div className="lv2-aud__row">
-                  <span>Listing approval</span>
-                  <span>your policy</span>
-                </div>
-                <div className="lv2-aud__row">
-                  <span>Payment release</span>
-                  <span>never automatic</span>
-                </div>
-              </div>
-              <div className="lv2-aud__actions">
-                <a className="lv2-btn lv2-btn--secondary" href="#request" style={{ fontSize: 14 }}>
-                  Request an evaluation
-                </a>
-                <a href="#evidence">Credential format →</a>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="lv2-section">
-          <div className="lv2-wrap lv2-cols">
-            <div className="lv2-col lv2-col--12">
-              <div className="lv2-eyebrow">FAQ</div>
-              <h2 className="lv2-h2">
-                What it covers. What it doesn't.
-              </h2>
-            </div>
-            <div className="lv2-faq">
+            <div className="lv3-faq">
               {FAQ.map(([q, a], i) => (
-                <div className="lv2-faq__item" key={q}>
-                  <button type="button" className="lv2-faq__q" aria-expanded={open === i} onClick={() => setOpen(open === i ? -1 : i)}>
+                <div className="lv3-faq__item" key={q}>
+                  <button type="button" className="lv3-faq__q" aria-expanded={open === i} onClick={() => setOpen(open === i ? -1 : i)}>
                     <span>{q}</span>
-                    <span className="lv2-faq__sign">{open === i ? '−' : '+'}</span>
+                    <span className="lv3-faq__sign">{open === i ? '−' : '+'}</span>
                   </button>
-                  {open === i && <p className="lv2-faq__a">{a}</p>}
+                  {open === i && <p className="lv3-faq__a">{a}</p>}
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        <section id="request" className="lv2-section">
-          <div className="lv2-wrap lv2-request">
-            <div className="lv2-request__copy">
-              <h2 className="lv2-request__h2">Make the next buyer question testable.</h2>
-              <p className="lv2-request__lead">One agent. One task. The person who needs the evidence. We scope the first evaluation together.</p>
-              <div className="lv2-request__early">Early access · No promise of a passing result</div>
-            </div>
-            <div className="lv2-request__card">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {/* ADR-10 #3 */}
-                <div className="lv2-request__title">Evaluate your agent</div>
-                <div className="lv2-request__sub">Connect a wallet to start.</div>
+        <section id="start" className="lv3-section">
+          <div className="lv3-start">
+            <h2 className="lv3-start__h2">Make the next buyer question testable.</h2>
+            <p className="lv3-start__lead">Connect a wallet, connect your repo, and run your first evaluation. No promise of a passing result.</p>
+            {cta('landing-connect', 'lv3-btn lv3-btn--hero')}
+            {s.error && (
+              <div className="lv3-error" role="alert">
+                {s.error}
               </div>
-              <button type="button" className="lv2-btn lv2-btn--primary lv2-request__btn" onClick={start} disabled={busy} data-testid="landing-connect">
-                {s.status === 'signing' ? 'Sign in your wallet…' : 'Connect wallet'}
-              </button>
-              {s.error && (
-                <div className="lv2-request__error" role="alert">
-                  {s.error}
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </section>
       </main>
 
-      <footer className="lv2-section">
-        <div className="lv2-wrap lv2-footer__in">
-          <span className="lv2-footer__brand">
+      <footer className="lv3-section">
+        <div className="lv3-footer">
+          <span className="lv3-footer__brand">
             <Logo width={30} height={14} tone="cream" solid />
             <span>testmyagent.com · early access</span>
           </span>
-          <span>outcome ≠ integrity ≠ identity</span>
+          <span>outcome ≠ integrity ≠ runtime</span>
         </div>
       </footer>
     </div>
