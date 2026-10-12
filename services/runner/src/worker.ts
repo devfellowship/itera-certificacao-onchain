@@ -147,7 +147,7 @@ export interface LoopOptions {
   pollMs: number;
   staleMs: number;
   signal: AbortSignal;
-  /** After `signal` aborts: how long to wait for in-flight runs before returning. Default 600 000. */
+  /** After `signal` aborts: how long to wait for in-flight runs before returning. Default 420 000. */
   drainMs?: number;
 }
 
@@ -202,7 +202,8 @@ export async function workerLoop(deps: WorkerDeps, opts: LoopOptions): Promise<v
   }
 }
 
-export const DEFAULT_DRAIN_MS = 600_000;
+/** Below the 480 s Dokploy stop grace period (README step 8), so the worker exits before SIGKILL. */
+export const DEFAULT_DRAIN_MS = 420_000;
 
 async function main(): Promise<void> {
   const { default: pg } = await import('pg');
