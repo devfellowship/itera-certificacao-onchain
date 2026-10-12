@@ -5,8 +5,9 @@
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { runEvaluation } from '../../evaluator/src/runner.js';
+import { gradeInSandbox } from './grade.js';
 import { runAgent } from './agent-run.js';
+import { finalStatus } from './outcome.js';
 import { defaultSandboxConfig } from './sandbox.js';
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -43,15 +44,16 @@ async function main(): Promise<void> {
   });
   console.error(`[run-once] agent done in ${agent.durationMs} ms: ${agent.actions.length} tool calls, patch ${agent.patch.length} bytes`);
 
-  const manifest = await runEvaluation({ repoRoot, scenarioId: args.scenario, patch: agent.patch });
-  const result = { runId, ...agent, manifest };
+  const manifest = await gradeInSandbox({ runId, repoRoot, scenarioId: args.scenario, patch: agent.patch, config });
+  const status = finalStatus(agent, manifest);
+  const result = { runId, status, ...agent, manifest };
   const json = JSON.stringify(result, null, 2);
   if (args.out) await writeFile(args.out, json, 'utf-8');
   else console.log(json);
 
   const s = manifest.score;
   console.error(
-    `[run-once] score ${s.total}/100 (public ${s.public_behavior}, hidden ${s.hidden_behavior}, regression ${s.regression}, ` +
+    `[run-once] status ${status}, score ${s.total}/100 (public ${s.public_behavior}, hidden ${s.hidden_behavior}, regression ${s.regression}, ` +
       `scope ${s.patch_integrity_and_scope}, evidence ${s.reproducible_evidence}); errors: ${[...agent.agentErrors, ...manifest.errors].join('; ') || 'none'}`,
   );
 }

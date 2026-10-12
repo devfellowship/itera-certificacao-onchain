@@ -135,6 +135,26 @@ describe('processRun', () => {
   });
 });
 
+describe('processRun grading', () => {
+  it('a grader failure is infra_error with score 0, and keeps the patch and the actions', async () => {
+    const { store, deps } = setup();
+    deps.grade = async () => {
+      throw new Error('grader output is not JSON');
+    };
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome).toMatchObject({ status: 'infra_error', scoreTotal: 0, patch: PATCH });
+    expect(outcome.actions).toHaveLength(2);
+    expect(outcome.error).toContain('grading failed: grader output is not JSON');
+  });
+  it('a manifest with a 0-test suite is infra_error with score 0, not pass', async () => {
+    const { store, deps } = setup({ manifest: { tests: { public_baseline: { total: 0, passed: 0, failed: 0, cases: [] }, public_after_patch: { total: 0, passed: 0, failed: 0, cases: [] }, hidden: { total: 0, passed: 0, failed: 0, cases: [] } } } });
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('infra_error');
+    expect(outcome.scoreTotal).toBe(0);
+    expect(outcome.error).toContain('no test executed');
+  });
+});
+
 describe('processRun BYOK', () => {
   it('infra_error without running the agent when the run has no model key', async () => {
     const { store, deps, seen } = setup({ noKey: true });
