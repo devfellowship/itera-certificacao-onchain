@@ -41,6 +41,8 @@ COPY --from=build /workspace/apps/api/dist ./dist
 COPY --from=build /workspace/apps/api/certs ./certs
 COPY --from=build /workspace/services/evaluator ./services/evaluator
 COPY --from=build /workspace/benchmarks ./benchmarks
+# Fonts for the NFT image (chain/nft-image.ts) — alpine ships no system fonts.
+COPY --from=build /workspace/apps/api/assets ./assets
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD wget -q -O /dev/null http://127.0.0.1:${PORT}/health || exit 1

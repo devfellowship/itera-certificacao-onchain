@@ -7,6 +7,7 @@ import { createAgentEndpointManifestsRouter } from "./http/agent-endpoint-manife
 import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
 import { createEvaluationsRouter } from "./http/evaluations-router.js";
+import { createNftRouter } from "./http/nft-router.js";
 import { createTaskPacksRouter } from "./http/task-packs-router.js";
 import { createRunsRouter, type RunsRouterDeps } from "./http/runs-router.js";
 import type { Repository } from "./domain/repository.js";
@@ -35,6 +36,8 @@ const ROUTES = [
   "POST /evaluation-requests",
   "GET /task-packs",
   "POST /agent-endpoint-manifests",
+  "GET /nft/:mint.json",
+  "GET /nft/:mint.png",
 ];
 
 /**
@@ -95,6 +98,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createEvaluationRequestsRouter(repo));
   app.use(createTaskPacksRouter(repo));
   app.use(createAgentEndpointManifestsRouter());
+  app.use(createNftRouter());
 
   return app;
 }
