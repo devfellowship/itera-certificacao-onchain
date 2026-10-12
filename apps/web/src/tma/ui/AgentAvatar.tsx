@@ -12,10 +12,12 @@ import { initialsOf } from './Avatar'
  * Rule (TG 21095): next to an AgentAvatar with a badge, the "by {author}" text is the name only.
  */
 
-export type AgentAvatarSize = 80 | 72 | 64 | 44 | 40 | 28
-const RADIUS: Record<AgentAvatarSize, number> = { 80: 16, 72: 14, 64: 13, 44: 10, 40: 9, 28: 6 }
-const BADGE: Record<AgentAvatarSize, number> = { 80: 26, 72: 24, 64: 22, 44: 18, 40: 16, 28: 12 }
-const FONT: Record<AgentAvatarSize, number> = { 80: 24, 72: 22, 64: 20, 44: 14, 40: 13, 28: 11 }
+export type AgentAvatarSize = 80 | 72 | 64 | 56 | 44 | 40 | 36 | 32 | 28
+const RADIUS: Record<AgentAvatarSize, number> = { 80: 16, 72: 14, 64: 13, 56: 12, 44: 10, 40: 9, 36: 8, 32: 7, 28: 6 }
+const BADGE: Record<AgentAvatarSize, number> = { 80: 26, 72: 24, 64: 22, 56: 24, 44: 18, 40: 16, 36: 16, 32: 14, 28: 12 }
+/** How far the badge hangs past the tile corner (the landing's 56 px tile hangs it 5 px). */
+const HANG: Partial<Record<AgentAvatarSize, number>> = { 56: 5 }
+const FONT: Record<AgentAvatarSize, number> = { 80: 24, 72: 22, 64: 20, 56: 18, 44: 14, 40: 13, 36: 13, 32: 12, 28: 11 }
 
 export interface AgentAvatarAuthor {
   name?: string | null
@@ -98,7 +100,7 @@ export function AgentAvatar({
         {showImg ? <img src={src!} alt="" width={size} height={size} loading="lazy" decoding="async" onError={() => setTileFailed(true)} /> : <AgentTileArt seed={id || name} />}
       </span>
       {author && (
-        <span className="tma-agent-avatar__badge" style={{ width: b, height: b, fontSize: Math.round(b * 0.42) }} data-testid="author-badge">
+        <span className="tma-agent-avatar__badge" style={{ width: b, height: b, fontSize: Math.round(b * 0.42), ...(HANG[size] ? { right: -HANG[size]!, bottom: -HANG[size]! } : null) }} data-testid="author-badge">
           {authorPic ? <img src={authorPic} alt="" width={b} height={b} loading="lazy" decoding="async" onError={() => setBadgeFailed(true)} /> : initialsOf(author.name || '?').slice(0, 1)}
         </span>
       )}
