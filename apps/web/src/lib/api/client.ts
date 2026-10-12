@@ -96,8 +96,8 @@ export const api = {
   agent: (id: string) => request<{ agent: T.Agent }>(`/agents/${encodeURIComponent(id)}`),
   refreshAgent: (id: string) => request<{ changed: boolean; agent: T.Agent }>(`/agents/${encodeURIComponent(id)}/refresh`, { method: 'POST' }),
   ranking: (query: T.RankingQuery = {}) => request<T.RankingResponse>('/agents/ranking', { query: { scope: query.scope, q: query.q, taskIds: query.taskIds, tag: query.tag } }),
-  agentProfile: (id: string) => request<unknown>(`/agents/${encodeURIComponent(id)}/profile`),
-  agentMyResults: (id: string) => request<unknown>(`/agents/${encodeURIComponent(id)}/my-results`),
+  agentProfile: (id: string) => request<T.AgentProfileResponse>(`/agents/${encodeURIComponent(id)}/profile`),
+  agentMyResults: (id: string) => request<T.AgentMyResultsResponse>(`/agents/${encodeURIComponent(id)}/my-results`),
 
   // Evaluations and payments
   quote: (input: T.QuoteInput) => request<T.Quote>('/evaluations/quote', { method: 'POST', body: json(input) }),
@@ -117,6 +117,7 @@ export const api = {
   publicEvaluation: (slugOrHash: string) => request<T.PublicEvaluation>(`/public/evaluations/${encodeURIComponent(slugOrHash)}`, { auth: false }),
   publicManifestUrl: (slug: string) => `${API_BASE_URL}/public/evaluations/${encodeURIComponent(slug)}/manifest.json`,
   publicOgUrl: (slug: string) => `${API_BASE_URL}/public/evaluations/${encodeURIComponent(slug)}/og.png`,
+  agentBadgeUrl: (key: string) => `${API_BASE_URL}/badge/agents/${encodeURIComponent(key)}.svg`,
   badgeUrl: (slug: string) => `${API_BASE_URL}/b/${encodeURIComponent(slug)}.svg`,
 
   // My tasks (P7)

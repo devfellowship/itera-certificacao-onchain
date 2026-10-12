@@ -1,7 +1,7 @@
 /** Agents of 01 Agents.dc.html / 08 Agent Detail.dc.html, and the ranking rule of design brief 2.3. */
-import type { Agent, RankingRow } from '../../lib/api/types'
+import type { Agent, AgentMyResultsResponse, AgentProfile, AgentProfileResponse, RankingRow } from '../../lib/api/types'
 import { initialsOf } from '../../tma/ui/Avatar'
-import { MODELS, lamportsFor, PRICE, solFor, TASKS } from './catalog'
+import { MODELS, lamportsFor, PRICE, solFor, TAGS, TASKS } from './catalog'
 
 export const ME = 'Bruno Lima'
 
@@ -97,4 +97,109 @@ export function agentResults(name: string) {
   const a = RAW_AGENTS.find((x) => agentId(x.name) === name)
   if (!a) return null
   return Object.entries(a.r).map(([taskId, score]) => ({ task: TASKS.find((t) => t.id === taskId)!, score, outcome: score === 100 ? 'PASS' : 'FAIL' }))
+}
+
+/** Hidden-suite size per public task; Ledgerline's rows of 08 (14/14, 11/11, 12/12, 15/18, 8/8, 8/9) come out of it. */
+const TESTS_TOTAL: Record<string, number> = { tsk_webhook_dup: 14, tsk_idem_keys: 11, tsk_gh_ci_fix: 12, tsk_refund_race: 18, tsk_pg_index: 8, tsk_flaky_state: 9, tsk_gh_release: 6, tsk_op_export: 10, tsk_op_tokens: 9 }
+/** Evidence order, date and attestation of Ledgerline in 08 Agent Detail. */
+const LEDGERLINE_EVIDENCE: Array<[string, string, string]> = [
+  ['tsk_webhook_dup', '2026-10-10T14:38:00Z', '4Kx9'],
+  ['tsk_idem_keys', '2026-10-10T14:38:00Z', '4Kx9'],
+  ['tsk_gh_ci_fix', '2026-10-10T14:38:00Z', '4Kx9'],
+  ['tsk_refund_race', '2026-09-28T09:12:00Z', '8Ld2'],
+  ['tsk_pg_index', '2026-09-28T09:12:00Z', '8Ld2'],
+  ['tsk_flaky_state', '2026-09-14T17:45:00Z', 'Fq7s'],
+]
+/** The mock of 08 lists fewer tags per row than the Task Filter catalog (no Prisma, no GitHub Actions). */
+const EVIDENCE_TAGS: Record<string, string[]> = { tsk_pg_index: ['Postgres'], tsk_gh_ci_fix: ['GitHub CLI'] }
+const SIG_TAIL: Record<string, string> = { '4Kx9': 'aP2e', '8Ld2': 'mW4c', Fq7s: '1yNe' }
+const fullSig = (head: string) => `${head}${'x'.repeat(80)}${SIG_TAIL[head] ?? 'zzzz'}`
+
+/** GET /agents/:id/profile in fixture mode (design brief 2.8). Ledgerline reproduces the mock row by row. */
+export function agentProfile(id: string): AgentProfileResponse | null {
+  const a = RAW_AGENTS.find((x) => agentId(x.name) === id)
+  if (!a) return null
+  const entries = Object.keys(a.r).filter((k) => !k.startsWith('my_'))
+  const ordered = a.name === 'Ledgerline' ? LEDGERLINE_EVIDENCE : entries.map((k, i): [string, string, string] => [k, `2026-10-${String(9 - (i % 8)).padStart(2, '0')}T12:00:00Z`, '4Kx9'])
+  const evidence = ordered.map(([taskId, at, head]) => {
+    const task = TASKS.find((t) => t.id === taskId)!
+    const score = a.r[taskId]
+    const total = TESTS_TOTAL[taskId] ?? 10
+    const sig = fullSig(head)
+    const rowTags = task.tags.filter((t) => !EVIDENCE_TAGS[taskId] || EVIDENCE_TAGS[taskId].includes(t.name))
+    return {
+      taskId,
+      taskSlug: taskId,
+      name: task.name,
+      tags: rowTags.map((t) => ({ id: t.id, name: t.name })),
+      outcome: (score === 100 ? 'PASS' : 'FAIL') as 'PASS' | 'FAIL',
+      score,
+      testsPassed: Math.round((score / 100) * total),
+      testsTotal: total,
+      at,
+      attestation: { status: 'confirmed', txSig: sig, short: `${sig.slice(0, 4)}…${sig.slice(-4)}`, explorerUrl: `https://solscan.io/tx/${sig}?cluster=devnet` },
+      evaluation: { slug: `${id}-${head.toLowerCase()}`, shortId: head.toLowerCase() },
+    }
+  })
+  const counts = new Map<string, { id: string; name: string; kind: 'tool' | 'concept'; count: number }>()
+  for (const e of evidence) {
+    for (const t of e.tags.map((g) => TAGS.find((x) => x.id === g.id)!)) {
+      const cur = counts.get(t.id) ?? { id: t.id, name: t.name, kind: t.kind, count: 0 }
+      cur.count += 1
+      counts.set(t.id, cur)
+    }
+  }
+  const tags = [...counts.values()].sort((x, y) => y.count - x.count || ordered.findIndex(([k]) => TASKS.find((t) => t.id === k)!.tags.some((g) => g.id === x.id)) - ordered.findIndex(([k]) => TASKS.find((t) => t.id === k)!.tags.some((g) => g.id === y.id)))
+  const first = evidence[0]
+  const model = MODELS.find((m) => m.label === a.model)
+  const record = agentRecord(a)
+  const profile: AgentProfile = {
+    agent: {
+      id,
+      slug: id,
+      name: a.name,
+      initials: initialsOf(a.name.slice(0, 2)),
+      description: a.desc,
+      authorName: a.by,
+      authorWallet: `${id}Wallet`,
+      isMine: a.by === ME,
+      listedAt: '2026-10-10T09:00:00Z',
+      visibility: 'listed',
+      draft: !!a.draft,
+    },
+    source: { repoFullName: record.repoFullName ?? null, branch: 'main', agentPath: '.', commit: record.pinnedCommit ?? null, commitShort: record.pinnedCommit ?? null },
+    model: { id: model?.id ?? '', label: a.model, release: model?.releases[0]?.id ?? null },
+    // "2d ago" in the mock: the date is relative to now so the render stays at 2d.
+    stats: { score: a.score, tasksEvaluated: evidence.length, evaluations: a.name === 'Ledgerline' ? 3 : Math.min(evidence.length, 1), lastVerifiedAt: evidence.length ? new Date(Date.now() - 2 * 86_400_000 - 3_600_000).toISOString() : null },
+    tags,
+    evidence,
+    latestAttestation: first?.attestation?.txSig
+      ? { network: 'Solana devnet', status: 'confirmed', issuedAt: first.at, txSig: first.attestation.txSig, txShort: first.attestation.short ?? '', explorerUrl: first.attestation.explorerUrl ?? '', evaluationSlug: first.evaluation?.slug ?? null }
+      : null,
+    evaluations: evidence.length
+      ? [{ id: `ev_${id}`, shortId: first.evaluation?.shortId ?? null, slug: first.evaluation?.slug ?? null, score: a.score, issuedAt: first.at, taskCount: evidence.length, counts: { pass: evidence.filter((e) => e.outcome === 'PASS').length, fail: evidence.filter((e) => e.outcome === 'FAIL').length, invalid: 0 }, profilePath: first.evaluation ? `/e/${first.evaluation.slug}` : null }]
+      : [],
+    badge: evidence.length ? { path: `/badge/agents/${id}.svg`, markdownLinkPath: first.evaluation ? `/e/${first.evaluation.slug}` : null } : null,
+  }
+  return { ...profile, price: { usdPerRun: PRICE.usdPerRun, solUsdRate: PRICE.solUsdRate, priceSource: PRICE.priceSource, runCostLamports: lamportsFor(1), runCostSol: solFor(1), indicative: true } }
+}
+
+/** GET /agents/:id/my-results in fixture mode: the agent's scores on the viewer's tasks (`my_*`) and the viewer's best own agent. */
+export function agentMyResults(id: string): AgentMyResultsResponse | null {
+  const a = RAW_AGENTS.find((x) => agentId(x.name) === id)
+  if (!a) return null
+  const mine = RAW_AGENTS.filter((x) => x.by === ME)
+  const results = Object.keys(a.r)
+    .filter((k) => k.startsWith('my_'))
+    .map((k) => {
+      const task = TASKS.find((t) => t.id === k)!
+      const best = mine.filter((x) => x.r[k] != null).sort((x, y) => y.r[k] - x.r[k])[0]
+      return {
+        task: { id: task.id, name: task.name },
+        outcome: (a.r[k] === 100 ? 'PASS' : 'FAIL') as 'PASS' | 'FAIL',
+        score: a.r[k],
+        bestOwnAgent: best ? { id: agentId(best.name), name: best.name, score: best.r[k] } : null,
+      }
+    })
+  return { results }
 }

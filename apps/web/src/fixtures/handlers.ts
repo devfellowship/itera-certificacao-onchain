@@ -8,8 +8,9 @@ import type { TagKind } from '../lib/api/types'
 import { FIXTURE_USER } from '../auth/fixture'
 import {
   agentId,
+  agentMyResults,
+  agentProfile,
   agentRecord,
-  agentResults,
   evaluationDetail,
   EVALUATIONS,
   evaluationTotals,
@@ -108,11 +109,20 @@ export const handlers = [
   http.get(u('/agents'), () => HttpResponse.json({ agents: RAW_AGENTS.filter((a) => a.by === 'Bruno Lima').map(agentRecord) })),
   http.post(u('/agents'), () => HttpResponse.json({ agent: agentRecord(RAW_AGENTS.find((a) => a.name === 'Settlewise')!) }, { status: 201 })),
   http.get(u('/agents/:id/profile'), ({ params }) => {
-    const a = RAW_AGENTS.find((x) => agentId(x.name) === params.id)
-    if (!a) return notFound()
-    return HttpResponse.json({ agent: agentRecord(a), score: a.score, results: agentResults(agentId(a.name)) })
+    const p = agentProfile(String(params.id))
+    return p ? HttpResponse.json(p) : notFound()
   }),
-  http.get(u('/agents/:id/my-results'), () => HttpResponse.json({ results: [] })),
+  http.get(u('/agents/:id/my-results'), ({ params }) => {
+    const r = agentMyResults(String(params.id))
+    return r ? HttpResponse.json(r) : notFound()
+  }),
+  // README badge (U16): the API renders it with badge-maker; here a hand-written SVG of the same look (rgb() on purpose: the token file is the only place for brand hex).
+  http.get(u('/badge/agents/:file'), ({ params }) => {
+    const p = agentProfile(String(params.file).replace(/\.svg$/, ''))
+    const msg = p?.stats.score != null ? `${p.stats.score.toFixed(1)} · ${p.stats.tasksEvaluated} tasks` : 'not found'
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="166" height="20" role="img" aria-label="testmyagent: ${msg}"><rect width="79" height="20" fill="rgb(28,25,22)"/><rect x="79" width="87" height="20" fill="rgb(28,58,42)"/><g font-family="Verdana,Geneva,sans-serif" font-size="11" text-anchor="middle"><text x="40" y="14" fill="rgb(244,237,226)">testmyagent</text><text x="122" y="14" fill="rgb(143,233,177)">${msg}</text></g></svg>`
+    return new HttpResponse(svg, { headers: { 'Content-Type': 'image/svg+xml' } })
+  }),
   http.get(u('/agents/:id'), ({ params }) => {
     const a = RAW_AGENTS.find((x) => agentId(x.name) === params.id)
     return a ? HttpResponse.json({ agent: agentRecord(a) }) : notFound()
