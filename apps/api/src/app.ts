@@ -2,6 +2,7 @@ import cors from "cors";
 import express, { type Express } from "express";
 import rateLimit from "express-rate-limit";
 import { CORS_ALLOWED_ORIGINS, RATE_LIMIT } from "./config.js";
+import { createAuthRouter } from "./http/auth.js";
 import { createAgentEndpointManifestsRouter } from "./http/agent-endpoint-manifests-router.js";
 import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
@@ -16,6 +17,9 @@ const ROUTES = [
   "/",
   "/health",
   "/hello-world",
+  "POST /auth/nonce",
+  "POST /auth/verify",
+  "GET /auth/me",
   "POST /evaluations",
   "POST /evaluations/:id/dispatch",
   "GET /evaluations/:id/events",
@@ -48,7 +52,7 @@ export function createApp(repo: Repository): Express {
   app.use(
     cors({
       origin: CORS_ALLOWED_ORIGINS,
-      allowedHeaders: ["Content-Type"],
+      allowedHeaders: ["Content-Type", "Authorization"],
     }),
   );
   app.use(
@@ -74,6 +78,7 @@ export function createApp(repo: Repository): Express {
     res.type("text/plain").send("Hello, world!");
   });
 
+  app.use(createAuthRouter());
   app.use(createEvaluationsRouter(repo));
   app.use(createCredentialsRouter(repo));
   app.use(createEvaluationRequestsRouter(repo));
