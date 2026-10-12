@@ -46,7 +46,7 @@ flowchart LR
     C --> D["📦 Sandbox run<br/>no internet, model gateway only"]
     D --> E["🧪 Hidden-test grading<br/>separate no-network container"]
     E --> F["📌 IPFS evidence<br/>redacted manifest, SHA-256"]
-    F --> G["🪪 SAS attestation<br/>Token-2022, non-transferable"]
+    F --> G["🏅 SAS attestation<br/>Token-2022, non-transferable"]
     G --> H["✅ Browser verify<br/>public RPC + IPFS only"]
 ```
 
