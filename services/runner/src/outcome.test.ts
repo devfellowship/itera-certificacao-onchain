@@ -15,8 +15,26 @@ function m(over: Partial<EvidenceManifest['tests']> = {}, total = 70): EvidenceM
 const agent = { timedOut: false, patch: 'diff --git a/src/a.ts b/src/a.ts\n' };
 
 describe('finalStatus — zero tests is never a pass', () => {
-  it('pass when every suite ran and the score is above 0', () => {
+  it('pass when every suite ran and every hidden test passed (5/5)', () => {
     expect(finalStatus(agent, m())).toBe('pass');
+  });
+  it('fail, score kept, when a scored run misses a hidden test (4/5 = score 90)', () => {
+    const manifest = m({ hidden: suite(5, 4) }, 90);
+    expect(finalStatus(agent, manifest)).toBe('fail');
+    expect(manifest.score.total).toBe(90);
+  });
+  it('fail when no hidden test passes (0/5), even with a positive score from other parts', () => {
+    expect(finalStatus(agent, m({ hidden: suite(5, 0) }, 40))).toBe('fail');
+  });
+  it('a skipped hidden test is not a pass', () => {
+    expect(finalStatus(agent, m({ hidden: { total: 5, passed: 4, failed: 1, skipped: 1, cases: [] } }, 90))).toBe('fail');
+  });
+  it('infra_error (unscored) when the hidden report was not trusted or grading recorded errors', () => {
+    expect(finalStatus(agent, m({ hidden: { ...suite(5), state: 'report_mismatch' } }))).toBe('infra_error');
+    expect(finalStatus(agent, { ...m(), errors: ['verifier timed out'] })).toBe('infra_error');
+  });
+  it('invalid on a scope violation even when every hidden test passes', () => {
+    expect(finalStatus(agent, { ...m(), patch_scope: { changed_files: ['tests/x'], allowed: false, violations: ['tests/x'] } })).toBe('invalid');
   });
   it.each(['public_baseline', 'public_after_patch', 'hidden'] as const)('infra_error when %s executed 0 tests', (k) => {
     const manifest = m({ [k]: suite(0) }, 30);

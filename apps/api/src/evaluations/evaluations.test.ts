@@ -55,7 +55,7 @@ const config: EvaluationsConfig = {
 
 class FakeGateway implements PaymentGateway {
   /** txSig → what the chain shows. */
-  txs = new Map<string, { lamports: number; reference: string; memo: string; recipient: string; blockTimeMs: number }>();
+  txs = new Map<string, { lamports: number; reference: string; memo: string; recipient: string; blockTimeMs: number; payer?: string }>();
   newReference() {
     return Keypair.generate().publicKey.toBase58();
   }
@@ -72,7 +72,7 @@ class FakeGateway implements PaymentGateway {
     if (entry.reference !== f.reference) return { ok: false, code: "invalid", message: "payment does not match the quote: invalid reference 0" };
     if (entry.lamports < f.lamports) return { ok: false, code: "invalid", message: "payment does not match the quote: amount not transferred" };
     if (entry.memo !== f.memo) return { ok: false, code: "invalid", message: "payment does not match the quote: invalid memo" };
-    return { ok: true, txSig: sig, payer: OWNER, blockTimeMs: entry.blockTimeMs };
+    return { ok: true, txSig: sig, payer: entry.payer ?? OWNER, blockTimeMs: entry.blockTimeMs };
   }
 }
 
@@ -240,6 +240,72 @@ describe("POST /evaluations", () => {
     await post("/evaluations", { reference: q.reference, txSig });
     const q2 = (await post("/evaluations/quote", { agentId, taskIds: ["webhook-ledger"] })).body;
     expect((await post("/evaluations", { reference: q2.reference, txSig })).status).toBe(409);
+  });
+
+  describe("payment binding: who owns the evaluation, and one tx pays one evaluation", () => {
+    it("a third party that pays the quote's transfer changes nothing: the evaluation belongs to the quote owner", async () => {
+      const { q, txSig } = await quoteAndPay();
+      gateway.txs.get(txSig)!.payer = OTHER; // the sponsor signed and paid the fee
+      // The sponsor cannot claim it: the quote is not theirs, by reference or by txSig.
+      expect((await post("/evaluations", { reference: q.reference, txSig }, OTHER)).status).toBe(403);
+      expect((await post("/evaluations", { txSig }, OTHER)).status).toBe(404); // not paid yet: no payment carries this tx
+      expect(store.evaluations).toHaveLength(0);
+      // The quote owner claims it: the evaluation, its runs and its payment are theirs, not the payer's.
+      const res = await post("/evaluations", { reference: q.reference, txSig });
+      expect(res.status).toBe(202);
+      expect(store.evaluations).toHaveLength(1);
+      expect(store.evaluations[0]).toMatchObject({ id: q.evaluationId, ownerWallet: OWNER, txSig });
+      expect(store.evaluations[0]!.ownerWallet).not.toBe(OTHER);
+      // After the claim the sponsor still gets nothing: not the evaluation, not the list.
+      expect((await post("/evaluations", { txSig }, OTHER)).status).toBe(403);
+      expect((await get(`/evaluations/${q.evaluationId}`, OTHER)).status).toBe(404);
+      expect((await get("/evaluations", OTHER)).body.evaluations ?? []).toHaveLength(0);
+    });
+
+    it("a tx that paid one evaluation can never pay a second one, by the same wallet or another", async () => {
+      const { q, txSig } = await quoteAndPay();
+      expect((await post("/evaluations", { reference: q.reference, txSig })).status).toBe(202);
+      expect(store.evaluations).toHaveLength(1);
+      expect(store.runs).toHaveLength(1);
+
+      // Same wallet, a fresh quote, the same signature.
+      const second = (await post("/evaluations/quote", { agentId, taskIds: ["webhook-ledger"] })).body;
+      const again = await post("/evaluations", { reference: second.reference, txSig });
+      expect(again.status).toBe(409);
+      // Same wallet, a fresh quote, no signature: the chain holds no transfer for that reference.
+      expect((await post("/evaluations", { reference: second.reference })).status).toBe(402);
+      // Another wallet, its own quote, the first wallet's signature.
+      const theirs = (await post("/evaluations/quote", { agentId, taskIds: ["webhook-ledger"] }, OTHER)).body;
+      expect((await post("/evaluations", { reference: theirs.reference, txSig }, OTHER)).status).toBe(409);
+      // Even if the transfer were forged to match the other quote's reference and memo, the unique tx is the last guard.
+      gateway.txs.set(txSig, { lamports: theirs.amountLamports, reference: theirs.reference, memo: theirs.memo, recipient: TREASURY, blockTimeMs: clock + 5_000 });
+      expect((await post("/evaluations", { reference: theirs.reference, txSig }, OTHER)).status).toBe(409);
+
+      expect(store.evaluations).toHaveLength(1);
+      expect(store.runs).toHaveLength(1);
+      expect(store.payments.filter((p) => p.txSig === txSig)).toHaveLength(1);
+      expect(store.evaluations[0]!.ownerWallet).toBe(OWNER);
+    });
+
+    it("the store refuses the same tx for a second payment (the unique tx_sig of the database)", async () => {
+      const a = await quoteAndPay();
+      const b = (await post("/evaluations/quote", { agentId, taskIds: ["webhook-ledger"] })).body;
+      await post("/evaluations", { reference: a.q.reference, txSig: a.txSig });
+      const pay = store.payments.find((p) => p.reference === b.reference)!;
+      await expect(
+        store.createEvaluationFromPayment({ paymentId: pay.id, txSig: a.txSig, ownerWallet: OWNER, shortId: "x", isPublic: true, modelRelease: null, modelApiKeyEnc: null, agentCommit: "c" }),
+      ).rejects.toThrow(/already paid another quote|tx already used/);
+      expect(store.evaluations).toHaveLength(1);
+    });
+
+    it("concurrent POSTs of the same quote create exactly one evaluation", async () => {
+      const { q, txSig } = await quoteAndPay();
+      const results = await Promise.all(Array.from({ length: 6 }, () => post("/evaluations", { reference: q.reference, txSig })));
+      expect(results.filter((r) => r.status === 202)).toHaveLength(1);
+      expect(results.every((r) => r.body.evaluationId === q.evaluationId)).toBe(true);
+      expect(store.evaluations).toHaveLength(1);
+      expect(store.runs).toHaveLength(1);
+    });
   });
 
   it("answers 410 Gone to the retired vendor body, with a pointer to the v2 flow", async () => {
