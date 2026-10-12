@@ -301,6 +301,8 @@ describe("GET /evaluations/:id, cancel, list", () => {
     expect((await get("/evaluations?scope=my_agents")).body.evaluations.map((e: any) => e.agent.name)).toEqual(["Settle Wise"]);
     expect((await get("/evaluations?scope=others")).body.evaluations.map((e: any) => e.agent.name)).toEqual(["Other Bot"]);
     expect((await get("/evaluations?scope=nope")).status).toBe(400);
+    // "by {author}": a short wallet when the owner has no profile name.
+    expect(all.evaluations.find((e: any) => e.agent.name === "Other Bot").agent.authorName).toBe("9WzD…AWWM");
   });
 });
 

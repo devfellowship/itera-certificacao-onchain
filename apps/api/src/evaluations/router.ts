@@ -380,7 +380,15 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
           id: e.id,
           shortId: e.shortId,
           slug: e.slug,
-          agent: { id: e.agentId, name: e.agentName, slug: e.agentSlug, initials: initialsOf(e.agentName), isMine: isMine(e) },
+          agent: {
+            id: e.agentId,
+            name: e.agentName,
+            slug: e.agentSlug,
+            initials: initialsOf(e.agentName),
+            // "by {author}": the owner's profile name, else a short wallet. The UI shows "you" for isMine.
+            authorName: e.agentAuthorName ?? (e.agentOwnerWallet ? `${e.agentOwnerWallet.slice(0, 4)}…${e.agentOwnerWallet.slice(-4)}` : "unknown"),
+            isMine: isMine(e),
+          },
           createdAt: e.createdAt,
           feeLamports: e.feeLamports,
           feeSol: lamportsToSol(e.feeLamports),

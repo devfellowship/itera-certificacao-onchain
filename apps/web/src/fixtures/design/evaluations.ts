@@ -1,6 +1,6 @@
 /** Evaluations of 04 Running Evaluation, 05 Evaluation Results and 09 My Evaluations (design mocks). */
 import type { EvaluationDetail, EvaluationListItem, EvaluationUiState, EventToneApi, Outcome, PublicEvaluation, StageKey, StageState, TaskStage } from '../../lib/api/types'
-import { lamportsFor, solFor, TAGS, TASKS } from './catalog'
+import { TAGS, TASKS } from './catalog'
 import { ME } from './agents'
 
 const taskByName = (name: string) => TASKS.find((t) => t.name === name)!
@@ -21,7 +21,8 @@ export const EVALUATIONS: EvaluationListItem[] = RAW.map((e) => ({
   slug: e.id === 'ev_7f3a' ? 'settlewise-7f3a' : null,
   agent: { name: e.agent, initials: e.agent.slice(0, 2).toUpperCase(), authorName: e.by, isMine: e.by === ME },
   createdAt: e.date,
-  feeSol: solFor(e.tasks.length),
+  // 09 shows the mock's own fee, 0.003 SOL per task (illustrative; 03 and 04 show the quote price).
+  feeSol: (e.tasks.length * 0.003).toFixed(3),
   tasks: e.tasks.map((n) => ({ id: taskByName(n).id, name: n })),
   counts: { pass: e.pass, fail: e.fail, invalid: e.invalid },
   score: e.score,
@@ -30,11 +31,12 @@ export const EVALUATIONS: EvaluationListItem[] = RAW.map((e) => ({
 }))
 
 export function evaluationTotals(list: EvaluationListItem[]) {
-  const lamports = RAW.reduce((s, e) => s + lamportsFor(e.tasks.length), 0)
+  // "Spent 0.036 SOL ≈ $5.40" of the mock: 12 tasks x 0.003 SOL at the mock's $150 per SOL.
+  const sol = RAW.reduce((n, e) => n + e.tasks.length * 0.003, 0)
   return {
-    spentLamports: lamports,
-    spentSol: (lamports / 1e9).toFixed(5),
-    usd: Math.round(RAW.reduce((s, e) => s + e.tasks.length * 0.1, 0) * 100) / 100,
+    spentLamports: Math.round(sol * 1e9),
+    spentSol: sol.toFixed(3),
+    usd: Math.round(sol * 150 * 100) / 100,
     counts: { all: list.length, mineAgents: list.filter((e) => e.agent.isMine).length, otherAgents: list.filter((e) => !e.agent.isMine).length },
   }
 }
