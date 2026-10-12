@@ -135,6 +135,9 @@ export const api = {
   taskCompatibility: (idOrSlug: string, agentId: string) =>
     request<T.TaskCompatibility>(`/tasks/${encodeURIComponent(idOrSlug)}/compatibility`, { query: { agentId } }),
 
+  /** U29: the Itera MCP catalog, with the pinned tools snapshot of each version (task editor, U31). Public. */
+  mcpCatalog: () => request<{ servers: T.McpCatalogServer[] }>('/mcp-catalog', { auth: false }),
+
   // My tasks (P7, U19)
   taskLayout: (input: T.TaskSourceInput) => request<T.TaskLayoutResponse>('/tasks/layout', { method: 'POST', body: json(input) }),
   createTask: (input: T.CreateTaskInput) => request<{ task: T.UserTaskDetail; version: T.UserTaskVersion; layout: T.TaskLayout }>('/tasks', { method: 'POST', body: json(input) }),

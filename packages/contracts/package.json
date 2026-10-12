@@ -8,6 +8,7 @@
   "types": "./index.d.ts",
   "exports": {
     ".": { "types": "./index.d.ts", "default": "./index.js" },
+    "./tool-environment": { "types": "./index.d.ts", "default": "./tool-environment.js" },
     "./schemas/*": "./schemas/*"
   },
   "scripts": {

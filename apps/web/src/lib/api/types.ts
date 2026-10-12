@@ -877,3 +877,23 @@ export interface TaskCompatibility {
   requires: string[]
   environment: { builtin: string[]; mcp: Array<{ name: string; transport: string; allowedTools: string[] }>; runEgress: string[] }
 }
+
+/** GET /mcp-catalog (U29): one published (or not yet published) version of an Itera catalog MCP server. */
+export interface McpCatalogServer {
+  name: string
+  version: number
+  /** "name@version", the string a task.json writes in `catalog`. */
+  ref: string
+  status: 'unpublished' | 'published' | 'retired'
+  /** image@sha256:digest; null while the image has no digest (not published). */
+  image: string | null
+  transport: 'stdio' | 'http'
+  capabilities: string[]
+  description: string | null
+  license: string | null
+  upstream: unknown
+  /** The tools/list snapshot pinned with the version. */
+  tools: Array<{ name: string; description: string | null; inputSchema: unknown }>
+  commit: string | null
+  syncedAt: string
+}

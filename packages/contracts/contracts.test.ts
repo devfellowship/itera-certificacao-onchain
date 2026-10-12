@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { validateTaskContract } from './index.js';
+import { opencodeAgentConfig } from './tool-environment.js';
 
 const ledger = JSON.parse(readFileSync(new URL('../../benchmarks/webhook-ledger/task.json', import.meta.url), 'utf-8'));
 const clone = () => structuredClone(ledger);
@@ -151,6 +152,19 @@ describe('task.schema.json environment block: the tool environment (ADR-11, U28)
 
   it('maps every neutral built-in tool to opencode names', () => {
     expect(Object.keys(OPENCODE_BUILTIN_TOOLS).sort()).toEqual([...BUILTIN_TOOLS].sort());
+  });
+});
+
+describe('opencodeAgentConfig (shared by the runner and the task editor preview, U31)', () => {
+  const endpoint = (name: string) => ({ url: `http://mcp-${name}:8080/mcp`, token: 'T' });
+  it('writes one remote entry per server and switches off the built-in tools the task does not allow', () => {
+    expect(opencodeAgentConfig([{ name: 'helpdesk' }], ['read', 'edit', 'bash', 'search'], endpoint)).toEqual({
+      mcp: { helpdesk: { type: 'remote', url: 'http://mcp-helpdesk:8080/mcp', headers: { Authorization: 'Bearer T' }, enabled: true } },
+      tools: { write: false, list: false, todowrite: false, todoread: false },
+    });
+  });
+  it('is empty when every built-in tool is allowed and there is no server', () => {
+    expect(opencodeAgentConfig([], BUILTIN_TOOLS, endpoint)).toEqual({});
   });
 });
 

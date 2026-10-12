@@ -15,7 +15,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { OPENCODE_BUILTIN_TOOLS, toolEnvironment } from '@itera/contracts';
+import { opencodeAgentConfig, toolEnvironment } from '@itera/contracts';
 import {
   assertionErrors,
   evaluateAssertions,
@@ -247,20 +247,16 @@ export async function bootSidecar(opts: {
  * convenience; the sidecar enforces allowed_tools itself.
  */
 export function opencodeRunConfig(base: Record<string, unknown>, handles: SidecarHandle[], builtin: readonly string[]): Record<string, unknown> {
-  const tools: Record<string, boolean> = {};
-  for (const [neutral, names] of Object.entries(OPENCODE_BUILTIN_TOOLS)) {
-    if (!builtin.includes(neutral)) for (const n of names as readonly string[]) tools[n] = false;
-  }
-  const mcp: Record<string, unknown> = {};
-  for (const h of handles) {
-    mcp[h.plan.name] = {
-      type: 'remote',
-      url: `http://${sidecarAlias(h.plan.name)}:${MCP_PORT}${MCP_PATH}`,
-      headers: { Authorization: `Bearer ${h.token}` },
-      enabled: true,
-    };
-  }
-  return { ...base, ...(handles.length > 0 ? { mcp } : {}), ...(Object.keys(tools).length > 0 ? { tools } : {}) };
+  // The same function builds the task editor preview (U31, packages/contracts): only the endpoint differs.
+  const byName = new Map(handles.map((h) => [h.plan.name, h]));
+  return {
+    ...base,
+    ...opencodeAgentConfig(
+      handles.map((h) => ({ name: h.plan.name })),
+      builtin,
+      (name) => ({ url: `http://${sidecarAlias(name)}:${MCP_PORT}${MCP_PATH}`, token: byName.get(name)!.token }),
+    ),
+  };
 }
 
 export interface CollectedSidecar {

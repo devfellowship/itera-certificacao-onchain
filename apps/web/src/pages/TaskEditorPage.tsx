@@ -20,6 +20,7 @@ import { describeError } from './add-agent/errors'
 import { GithubPinCard, type InstallCopy } from './add-agent/GithubSourceCard'
 import { cleanAgentPath, useGithubPin } from './add-agent/useGithubSource'
 import { useLoad } from './add-agent/useLoad'
+import { EnvironmentCard } from './task-editor/EnvironmentCard'
 import { TestsLabel } from './task-editor/labels'
 import { useTaskCandidates } from './task-editor/useTaskCandidates'
 import { useTaskLayout, type LayoutCheck } from './task-editor/useTaskLayout'
@@ -282,42 +283,23 @@ function ContractCard({ contract, shortSha }: { contract: TaskContract | null; s
   )
 }
 
-/**
- * U31 SLOT — Environment step (ADR-11): built-in tools, MCP servers from the catalog or the repo,
- * list_tools probe, allowed subset, agent preview. U31 replaces the body of this card. Until then
- * it shows the `environment` block that task.json declares, read-only.
- */
-function EnvironmentSlot({ contract }: { contract: TaskContract | null }) {
-  const env = contract?.environment
-  return (
-    <Card className="ta-card ta-card--tight" data-testid="environment-slot" data-slot="u31-environment">
-      <div className="ta-card__top">
-        <span className="tma-label">Environment</span>
-        <span className="te-meta">from task.json</span>
-      </div>
-      {env ? (
-        <div className="te-kv">
-          <KeyValue
-            rows={[
-              { key: 'Folder', value: <span className="te-mono">{env.dir}/</span> },
-              { key: 'Install', value: <span className="te-mono">{env.install?.join(' ') ?? '—'}</span> },
-              { key: 'Internet', value: env.allow_internet === false || env.allow_internet == null ? 'Off' : 'On' },
-              { key: 'Resources', value: [env.cpus != null && `${env.cpus} CPU`, env.memory_mb != null && `${env.memory_mb} MB`].filter(Boolean).join(' · ') || '—' },
-            ]}
-          />
-        </div>
-      ) : (
-        <span className="ta-help">The tools and MCP servers of the task show here after task.json is read.</span>
-      )}
-    </Card>
-  )
-}
-
 function GateRows({ rows, running }: { rows: GateRow[] | null; running: boolean }) {
   const byKey = new Map((rows ?? []).map((r) => [r.key, r]))
-  const extra = (rows ?? []).filter((r) => !GATE_STEPS.some((s) => s.key === r.key))
+  const extra = (rows ?? []).filter((r) => r.key !== 'mcp' && !GATE_STEPS.some((s) => s.key === r.key))
+  // U31: a task with MCP servers gets an ENVIRONMENT group (the gate's MCP step) above the TESTS rows.
+  const mcp = byKey.get('mcp')
   return (
     <div className="te-gate" data-testid="validation-rows">
+      {mcp && (
+        <>
+          <div className="te-gate__group">Environment</div>
+          <div className={`te-gate__row ${mcp.ok ? 'te-gate__row--ok' : 'te-gate__row--bad'}`} data-testid="validation-row" data-gate="mcp">
+            <span className="te-gate__key">{mcp.label}</span>
+            <span className="te-gate__value">{mcp.ok ? mcp.value : `${mcp.value}${/✗/.test(mcp.value) ? '' : ' ✗'}`}</span>
+          </div>
+          <div className="te-gate__group">Tests</div>
+        </>
+      )}
       {extra.map((r) => (
         <div className="te-gate__row te-gate__row--bad" key={r.key} data-testid="validation-extra">
           <span className="te-gate__key">{r.label}</span>
@@ -791,7 +773,7 @@ export function TaskEditorPage() {
 
           <ContractCard contract={contract} shortSha={read?.pin.shortSha ?? latest?.github.shortSha ?? null} />
 
-          <EnvironmentSlot contract={contract} />
+          <EnvironmentCard contract={contract} locked={lockedAll || (ready && !editingSource)} shortSha={read?.pin.shortSha ?? latest?.github.shortSha ?? null} />
 
           <ValidationCard detail={detail} canValidate={canValidate} busy={busy} onValidate={onValidate} reason={ready && !editingSource ? null : reason} />
 

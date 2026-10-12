@@ -128,4 +128,5 @@ export {
   toolEnvironmentErrors,
   parseAgentRequires,
   checkCompatibility,
+  opencodeAgentConfig,
 } from './tool-environment.js';
