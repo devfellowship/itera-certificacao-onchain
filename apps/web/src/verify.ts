@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 /**
  * Build-order item 6 (Samuel's brief): the 7 checks a public verifier runs, in order, against
  * nothing but an attestation mint address (the NFT) and read-only RPC/IPFS fetches. No server,

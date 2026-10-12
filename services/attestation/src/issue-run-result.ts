@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 /**
  * Production issuance path for a run-result-v2 tokenized attestation (build-order item 5).
  * Pins the evaluator's evidence manifest to IPFS, derives manifest_sha256 from those exact bytes,

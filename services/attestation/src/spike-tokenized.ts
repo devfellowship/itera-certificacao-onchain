@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 /**
  * Spike (Samuel's build order, item 1): validate TokenizeSchema + CreateTokenizedAttestation on
  * devnet end to end, and measure the tokenized attestation tx size against the 1232-byte limit

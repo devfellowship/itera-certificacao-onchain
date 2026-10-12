@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 /**
  * Spike (Samuel's build order, item 4, core mechanic): prove a wallet with ZERO SOL can co-sign
  * a run-start Memo transaction while Itera's hot key pays the fee, on real devnet.

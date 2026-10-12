@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 /**
  * Narrow view of services/evaluator's EvidenceManifest — only the fields this schema anchors.
  * Duplicated here instead of imported to keep this package's on-chain surface decoupled from

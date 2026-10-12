@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 import { readFile } from 'node:fs/promises';
 import { createKeyPairSignerFromPrivateKeyBytes } from '@solana/kit';
 import { createAttestationFromManifest, createCredential, createSchema, setupClient } from './client.js';

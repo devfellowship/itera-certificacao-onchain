@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 /**
  * Data mapping for the run-result-v2 schema (CONFIG.RUN_RESULT_SCHEMA in config.ts) — the
  * tokenized attestation that replaces the plain Attestation from manifest.ts/cli.ts (PR #11) as

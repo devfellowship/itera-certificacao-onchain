@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 // @itera/contracts — JSON Schemas (draft 2020-12) of the testmyagent contracts, and Ajv validators.
 // Plain ESM JavaScript with a hand-written index.d.ts: no build step, so the runner (tsx), the
 // evaluator CLI (tsx) and the API (tsc output) all import the same file.
