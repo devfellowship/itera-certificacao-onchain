@@ -5,14 +5,14 @@
 // - A worker is live iff its host (the part of worker_id after "@", the worker container's short id
 //   inside Docker) is a running container, or is this worker itself.
 // - A sandbox container / network is an orphan iff its run is not `running`, or its run's worker is
-//   not live. Names carry the run id: itera-run-<id>, itera-gw-<id>, itera-sbx-<id>, itera-grade-<id>[-label].
+//   not live. Names carry the run id: itera-run-<id>, itera-gw-<id>, itera-sbx-<id>, itera-grade-<id>[-label], itera-mcp-<id>-<server>.
 // - A run that is `running` under a dead worker is requeued ONCE as a free retry; a second loss is
 //   infra_error, as before.
 import type { JobStore } from './jobs.js';
 
 export type DockerFn = (args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-const NAME_RE = /^\/?itera-(?:run|gw|sbx|grade)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-.*)?$/;
+const NAME_RE = /^\/?itera-(?:run|gw|sbx|grade|mcp)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-.*)?$/;
 
 export function runIdFromName(name: string): string | null {
   return name.trim().match(NAME_RE)?.[1] ?? null;
@@ -53,7 +53,7 @@ export async function removeOrphans(deps: { docker: DockerFn; store: Pick<JobSto
   const { docker, store } = deps;
   const live = livenessChecker(docker, deps.selfHost);
   const containers: Array<{ id: string; name: string }> = [];
-  for (const role of ['agent-sandbox', 'model-gateway']) {
+  for (const role of ['agent-sandbox', 'model-gateway', 'mcp-sidecar']) {
     const ps = await docker(['ps', '-a', '--filter', `label=itera.role=${role}`, '--format', '{{.ID}} {{.Names}}']);
     for (const l of lines(ps.stdout)) {
       const [id, name] = l.split(/\s+/);

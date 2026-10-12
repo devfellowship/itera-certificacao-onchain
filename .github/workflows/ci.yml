@@ -81,6 +81,19 @@ jobs:
             docker build --quiet --tag "itera-mcp-$name:ci" --file "$dir/Dockerfile" mcp
             node mcp/conformance.mjs "$name" "itera-mcp-$name:ci"
           done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      # U29: sidecar lifecycle, mcp_state score and the validation-gate mcp step on the demo task,
+      # against the image this job just built (benchmarks/helpdesk-refunds).
+      - name: Runner MCP integration test
+        working-directory: services/runner
+        run: npx vitest run src/mcp.integration.test.ts
+        env:
+          ITERA_DOCKER_TESTS: '1'
+          ITERA_MCP_HELPDESK_IMAGE: itera-mcp-helpdesk:ci
       - name: Refuse to change a published version
         if: github.event_name == 'pull_request'
         run: |

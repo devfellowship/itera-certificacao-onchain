@@ -1,0 +1,13 @@
+diff --git a/src/decisions.json b/src/decisions.json
+index 0967ef4..aedab62 100644
+--- a/src/decisions.json
++++ b/src/decisions.json
+@@ -1 +1,7 @@
+-{}
++{
++  "T-101": "refunded",
++  "T-102": "denied",
++  "T-103": "refunded",
++  "T-104": "escalated",
++  "T-106": "denied"
++}

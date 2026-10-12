@@ -1,0 +1,14 @@
+{"server":"helpdesk","tool":"search_tickets","arguments":{"status":"open"}}
+{"server":"helpdesk","tool":"get_order","arguments":{"order_id":"O-101"}}
+{"server":"helpdesk","tool":"issue_refund","arguments":{"order_id":"O-101","ticket_id":"T-101","amount_cents":7999,"reason":"defective headphones, delivered 7 days ago"}}
+{"server":"helpdesk","tool":"close_ticket","arguments":{"ticket_id":"T-101","resolution":"refunded"}}
+{"server":"helpdesk","tool":"get_order","arguments":{"order_id":"O-102"}}
+{"server":"helpdesk","tool":"close_ticket","arguments":{"ticket_id":"T-102","resolution":"denied"}}
+{"server":"helpdesk","tool":"get_order","arguments":{"order_id":"O-103"}}
+{"server":"helpdesk","tool":"issue_refund","arguments":{"order_id":"O-103","ticket_id":"T-103","amount_cents":1500,"reason":"one of two mugs arrived broken"}}
+{"server":"helpdesk","tool":"close_ticket","arguments":{"ticket_id":"T-103","resolution":"refunded"}}
+{"server":"helpdesk","tool":"get_order","arguments":{"order_id":"O-104"}}
+{"server":"helpdesk","tool":"add_note","arguments":{"ticket_id":"T-104","text":"Refund of 24900 cents is above the 10000-cent limit: escalated to a manager."}}
+{"server":"helpdesk","tool":"close_ticket","arguments":{"ticket_id":"T-104","resolution":"escalated"}}
+{"server":"helpdesk","tool":"get_order","arguments":{"order_id":"O-106"}}
+{"server":"helpdesk","tool":"close_ticket","arguments":{"ticket_id":"T-106","resolution":"denied"}}

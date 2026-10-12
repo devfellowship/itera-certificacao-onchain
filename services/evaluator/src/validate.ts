@@ -8,7 +8,7 @@
 import { readFile } from 'node:fs/promises';
 import { runEvaluation } from './runner.js';
 import type { SuiteExecutor } from './suite.js';
-import { loadTask, taskDigests, TaskError } from './task.js';
+import { loadTask, taskDigests, TaskError, type LoadedTask } from './task.js';
 import type { EvalLog, TestSuiteResult } from './types.js';
 
 export interface GateCheck {
@@ -24,6 +24,12 @@ export interface ValidationResult {
     solution_passes: GateCheck & { public: string; hidden: string; scope_allowed: boolean };
     repeatable: GateCheck & { runs: number; identical: boolean };
     verifier_time: GateCheck & { max_ms: number; budget_ms: number };
+    /**
+     * ADR-11, only for a task that declares MCP servers: each server resolves to a published catalog
+     * version, its seed is valid, the scorer assertions FAIL with no calls, and the replay of
+     * solution/mcp-calls.jsonl makes them all PASS, with the same export 3 times (runner mcp-gate.ts).
+     */
+    mcp?: GateCheck & { servers: number; assertions: number };
   };
   digests: Record<string, string> | null;
   environment_digest: string | null;
@@ -37,7 +43,10 @@ const fingerprint = (m: EvalLog) =>
 /** Errors without test names or paths: the first words of each line only. */
 const safeErrors = (m: EvalLog) => m.errors.map((e) => e.split(':')[0]).join(', ');
 
-export async function validateTask(opts: { taskDir: string; executor?: SuiteExecutor; repeats?: number }): Promise<ValidationResult> {
+/** The MCP step of the gate. It needs Docker, so the runner provides it (services/runner/src/mcp-gate.ts). */
+export type McpGate = (task: LoadedTask, repeats: number) => Promise<GateCheck & { servers: number; assertions: number }>;
+
+export async function validateTask(opts: { taskDir: string; executor?: SuiteExecutor; repeats?: number; mcpGate?: McpGate }): Promise<ValidationResult> {
   const started = Date.now();
   const repeats = Math.max(1, Math.min(5, opts.repeats ?? 3));
   const fail = (detail: string): GateCheck => ({ ok: false, detail });
@@ -68,6 +77,12 @@ export async function validateTask(opts: { taskDir: string; executor?: SuiteExec
   } catch (err) {
     result.checks.contract = fail(err instanceof TaskError ? err.message : `task could not be read: ${String(err)}`);
     return finish();
+  }
+  const servers = task.contract.environment.tools?.mcp ?? [];
+  if (servers.length > 0) {
+    result.checks.mcp = opts.mcpGate
+      ? await opts.mcpGate(task, repeats).catch((err) => ({ ok: false, detail: `MCP check failed: ${String(err?.message ?? err).slice(0, 200)}`, servers: servers.length, assertions: 0 }))
+      : { ok: false, detail: 'the task declares MCP servers and this gate cannot boot them (no Docker)', servers: servers.length, assertions: 0 };
   }
   const budgetMs = task.contract.verifier.timeout_sec * 1000;
   result.checks.verifier_time.budget_ms = budgetMs;

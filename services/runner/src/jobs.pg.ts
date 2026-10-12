@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import type { McpCatalogRef } from './mcp-sidecar.js';
 import { LOST_RUN_REQUEUED, type AgentFile, type ClaimedRun, type JobStore, type RunJob, type RunOutcome, type RunPhase } from './jobs.js';
 
 /** Claim SQL from the shared contract, verbatim apart from the selected columns. */
@@ -15,6 +16,17 @@ export const CLAIM_SQL = `
 
 export class PgJobStore implements JobStore {
   constructor(private readonly pool: Pool) {}
+
+  /** ADR-11: a published Itera MCP catalog version (0013_mcp_catalog.sql). Null if absent or not published. */
+  async mcpCatalog(name: string, version: number): Promise<McpCatalogRef | null> {
+    const r = await this.pool.query<{ image: string; image_digest: string; manifest: McpCatalogRef['manifest']; tools_snapshot: McpCatalogRef['tools'] }>(
+      `select image, image_digest, manifest, tools_snapshot from public.mcp_catalog
+        where name = $1 and version = $2 and status = 'published' and image_digest is not null`,
+      [name, version],
+    );
+    const row = r.rows[0];
+    return row ? { name, version, image: row.image, imageDigest: row.image_digest, manifest: row.manifest ?? {}, tools: row.tools_snapshot ?? [] } : null;
+  }
 
   async claim(workerId: string): Promise<ClaimedRun | null> {
     const result = await this.pool.query<{

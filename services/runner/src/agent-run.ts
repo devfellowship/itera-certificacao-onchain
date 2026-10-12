@@ -4,6 +4,7 @@ import { parseOpencodeEvents } from './trace.js';
 import { runInSandbox, type SandboxConfig } from './sandbox.js';
 import type { ModelUsage } from './model-usage.js';
 import type { AgentUsage, RunAction } from './types.js';
+import type { CollectedSidecar, McpSidecarPlan } from './mcp-sidecar.js';
 import { diffAgainstBaseline, prepareWorkspace } from './workspace.js';
 
 export interface AgentRunResult {
@@ -21,6 +22,8 @@ export interface AgentRunResult {
   costCapped: boolean;
   agentErrors: string[];
   patch: string;
+  /** ADR-11: final state + call log of each MCP sidecar (scored on the worker, never stored raw). */
+  mcp?: CollectedSidecar[];
 }
 
 /** The agent prompt is the task's instruction file (task.json `instruction`, Harbor's instruction.md). */
@@ -39,6 +42,9 @@ export async function runAgent(opts: {
   config: SandboxConfig;
   /** A user task fetched at its pinned commit (U19). Default: benchmarks/<scenarioId>. */
   taskDir?: string;
+  /** ADR-11: the task's MCP sidecars and built-in tool allow-list (worker: planSidecars). */
+  mcp?: McpSidecarPlan[];
+  builtinTools?: readonly string[];
 }): Promise<AgentRunResult> {
   const prompt = await scenarioPrompt(opts.repoRoot, opts.scenarioId, opts.taskDir);
   const ws = await prepareWorkspace({ repoRoot: opts.repoRoot, scenarioId: opts.scenarioId, taskDir: opts.taskDir, agentDir: opts.agentDir, installCmd: opts.config.profile.install_cmd });
@@ -52,8 +58,10 @@ export async function runAgent(opts: {
       prompt,
       openrouterKey: opts.openrouterKey,
       config: opts.config,
+      mcp: opts.mcp,
+      builtinTools: opts.builtinTools,
     });
-    const trace = parseOpencodeEvents(sandbox.events);
+    const trace = parseOpencodeEvents(sandbox.events, (opts.mcp ?? []).map((m) => m.name));
     const patch = await diffAgainstBaseline(ws.dir, outDir);
     const agentErrors = [...trace.errors];
     if (sandbox.timedOut) agentErrors.push(`agent wall limit reached (${Math.round(opts.config.wallMs / 1000)} s)`);
@@ -77,6 +85,7 @@ export async function runAgent(opts: {
       costCapped,
       agentErrors,
       patch,
+      mcp: sandbox.mcp,
     };
   } finally {
     await ws.cleanup();

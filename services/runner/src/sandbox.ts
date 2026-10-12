@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { join as joinPath } from 'node:path';
+import { BUILTIN_TOOLS } from '@itera/contracts';
+import { bootSidecar, collectSidecar, opencodeRunConfig, sidecarName, tarFile, type CollectedSidecar, type McpSidecarPlan, type SidecarHandle } from './mcp-sidecar.js';
 import { exec, pipe } from './exec.js';
 import { parseGatewayUsage, type ModelUsage } from './model-usage.js';
 import { loadRunProfile, renderRunCmd, type RunProfile } from './run-profile.js';
@@ -113,11 +116,11 @@ export function buildGatewayArgs(opts: { name: string; config: SandboxConfig }):
 /** Remove sandbox containers and run networks that a crashed worker left behind. */
 export async function removeOrphans(): Promise<number> {
   const ids: string[] = [];
-  for (const role of ['agent-sandbox', 'model-gateway']) {
+  for (const role of ['agent-sandbox', 'model-gateway', 'mcp-sidecar']) {
     const ps = await docker(['ps', '-aq', '--filter', `label=itera.role=${role}`]);
     ids.push(...ps.stdout.split('\n').map((s) => s.trim()).filter(Boolean));
   }
-  if (ids.length > 0) await docker(['rm', '-f', ...ids]);
+  if (ids.length > 0) await docker(['rm', '-fv', ...ids]);
   const nets = await docker(['network', 'ls', '-q', '--filter', 'label=itera.role=sandbox-net']);
   for (const id of nets.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
     const inspect = await docker(['network', 'inspect', '-f', '{{range $k, $v := .Containers}}{{$v.Name}} {{end}}', id]);
@@ -157,7 +160,13 @@ export interface SandboxResult {
   durationMs: number;
   /** Model usage measured by the run's gateway (OpenRouter `usage`), or null when the gateway log has none. */
   modelUsage: ModelUsage | null;
+  /** ADR-11: final state + call log of each MCP sidecar (trusted plane only; never stored raw). */
+  mcp: CollectedSidecar[];
 }
+
+/** Where the sandbox image keeps opencode's global config (services/runner/sandbox/Dockerfile). */
+export const OPENCODE_CONFIG_DIR = '/home/agent/.config/opencode';
+const BASE_OPENCODE_CONFIG = joinPath(import.meta.dirname, '..', 'sandbox', 'opencode.json');
 
 /**
  * Run the agent in a fresh container, on a fresh `--internal` network shared only with the
@@ -173,6 +182,10 @@ export async function runInSandbox(opts: {
   prompt: string;
   openrouterKey: string;
   config: SandboxConfig;
+  /** ADR-11: the task's MCP servers (mcp-sidecar.ts planSidecars). Each joins this run's network only. */
+  mcp?: McpSidecarPlan[];
+  /** ADR-11: the task's built-in tool allow-list (neutral names). Default: every built-in tool. */
+  builtinTools?: readonly string[];
 }): Promise<SandboxResult> {
   const id = opts.runId.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40);
   const name = `itera-run-${id}`;
@@ -189,9 +202,23 @@ export async function runInSandbox(opts: {
     const join = await docker(['network', 'connect', '--alias', GATEWAY_ALIAS, network, gateway]);
     if (join.code !== 0) throw new Error(`gateway network connect failed: ${join.stderr.slice(0, 300)}`);
 
+    // MCP sidecars: one per declared server, on THIS run's internal network only, ready before the agent starts.
+    const handles: SidecarHandle[] = [];
+    for (const plan of opts.mcp ?? []) {
+      handles.push(await bootSidecar({ name: sidecarName(id, plan.name), network, plan, cleanup }));
+    }
+
     const created = await docker(buildCreateArgs({ name, network, model: opts.model, prompt: opts.prompt, config: opts.config }));
     if (created.code !== 0) throw new Error(`sandbox create failed: ${created.stderr.slice(0, 300)}`);
     cleanup.unshift(() => docker(['rm', '-f', name]));
+
+    const builtin = opts.builtinTools ?? BUILTIN_TOOLS;
+    if (handles.length > 0 || BUILTIN_TOOLS.some((t) => !builtin.includes(t))) {
+      const base = JSON.parse(await readFile(BASE_OPENCODE_CONFIG, 'utf-8')) as Record<string, unknown>;
+      const cfg = Buffer.from(JSON.stringify(opencodeRunConfig(base, handles, builtin), null, 2));
+      const wrote = await exec('docker', ['cp', '-', `${name}:${OPENCODE_CONFIG_DIR}`], { input: tarFile('opencode.json', cfg) });
+      if (wrote.code !== 0) throw new Error(`opencode config copy failed: ${wrote.stderr.slice(0, 300)}`);
+    }
 
     // `docker cp` writes the files as root (its `-a` mode fails on a stopped container with a
     // non-root USER: "getent unable to find entry"). Mode a+rwX lets the sandbox user edit them.
@@ -219,7 +246,11 @@ export async function runInSandbox(opts: {
     const inspect = await docker(['inspect', '-f', '{{.State.ExitCode}}', name]);
     // The gateway logs its running total after each model call; the last line is the run's usage.
     const gwLogs = await docker(['logs', gateway]);
+    // The final MCP state, read before the sidecars are removed (docker exec, not a network port).
+    const mcp: CollectedSidecar[] = [];
+    for (const h of handles) mcp.push(await collectSidecar(h));
     return {
+      mcp,
       modelUsage: parseGatewayUsage(gwLogs.stdout),
       events: run.stdout,
       stderrTail: run.stderr.slice(-2000),

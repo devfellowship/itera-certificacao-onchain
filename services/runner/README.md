@@ -133,3 +133,15 @@ temp dir on the trusted side, and deletes it when the job ends (Gate Q5: no copy
 | `ITERA_MODEL_UPSTREAM` | `https://openrouter.ai` | Gateway upstream. |
 | `ITERA_RUN_WALL_MS` | `300000` | Agent wall limit. |
 | `ITERA_SANDBOX_MEMORY` / `ITERA_SANDBOX_CPUS` / `ITERA_SANDBOX_PIDS` | `2g` / `2` / `512` | Sandbox limits. |
+
+## MCP sidecars (U29, ADR-11)
+
+A task that declares `environment.tools.mcp[]` gets one sidecar per server, per run (`src/mcp-sidecar.ts`; design in `docs/architecture/mcp-sandbox.md`):
+
+- `catalog: name@version` resolves to a **published** row of `mcp_catalog` (0013) and runs as `image@digest`. A custom `image`/`command` is refused (review flow not built).
+- The sidecar joins only the run's `--internal` network (alias `mcp-<name>`), with a fresh 32-byte token, `ITERA_MCP_ALLOWED_TOOLS`, a fixed clock, read-only rootfs, state in a tmpfs, `cap-drop ALL`, and limits from the manifest capped by `ITERA_MCP_MAX_CPUS` / `ITERA_MCP_MAX_MEMORY_MB` / `ITERA_MCP_MAX_PIDS`. The seed goes in with `docker cp`.
+- Readiness: `tools/list` through the token must equal the pinned snapshot, before the agent starts.
+- The agent's opencode config gets one `remote` MCP entry per server and switches off the built-in tools the task does not allow (`OPENCODE_BUILTIN_TOOLS`). The server enforces `allowed_tools`; the config is a convenience.
+- After the agent: `docker exec /itera/export` (final state) + `docker logs` (call log), then removal. The worker scores the state against `tests/hidden/mcp/<name>/assert.json` (`mcp_state`, weight 50; code scorers take the other 50). Only digests and counts reach the EvalLog. MCP calls are `run_actions` rows with tool `<server>_<tool>`.
+- Validation gate `mcp` step (`src/mcp-gate.ts`): assertions FAIL with no calls; the replay of `solution/mcp-calls.jsonl` makes them PASS 3× with the same export sha256.
+- Curated packs: the worker registers every `benchmarks/*` bundle in `task_packs` at boot (`src/curated-packs.ts`).
