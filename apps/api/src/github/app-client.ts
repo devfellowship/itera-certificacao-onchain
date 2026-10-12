@@ -23,6 +23,20 @@ export interface InstallationRepo {
   defaultBranch: string;
 }
 
+export interface BranchRef {
+  name: string;
+  headSha: string;
+}
+
+export interface CommitRef {
+  sha: string;
+  /** First line of the commit message. */
+  message: string;
+  /** Committer date, ISO 8601. */
+  date: string | null;
+  authorName: string | null;
+}
+
 export interface GitHubAppApi {
   /** App slug, used for the public install URL. */
   readonly slug: string;
@@ -39,6 +53,12 @@ export interface GitHubAppApi {
   resolveHead(installationId: number, repoFullName: string, ref?: string): Promise<string>;
   listTree(installationId: number, repoFullName: string, commitSha: string): Promise<{ entries: TreeEntry[]; truncated: boolean }>;
   readBlob(installationId: number, repoFullName: string, blobSha: string): Promise<Buffer>;
+  /** Default branch and visibility of one repo. */
+  getRepo(installationId: number, repoFullName: string): Promise<{ defaultBranch: string; private: boolean }>;
+  /** Branches with their head SHA (paginated, at most 1000). */
+  listBranches(installationId: number, repoFullName: string): Promise<BranchRef[]>;
+  /** The latest `limit` commits of `branch` (one call, no pagination; limit 1..100). */
+  listCommits(installationId: number, repoFullName: string, branch: string, limit: number): Promise<CommitRef[]>;
 }
 
 export class GitHubConfigError extends Error {}
@@ -228,5 +248,39 @@ export class GitHubAppClient implements GitHubAppApi {
     const auth = await this.installationAuth(installationId);
     const out = await this.json<{ content: string; encoding: string }>(`/repos/${owner}/${repo}/git/blobs/${encodeURIComponent(blobSha)}`, auth);
     return Buffer.from(out.content, out.encoding === "base64" ? "base64" : "utf-8");
+  }
+
+  async getRepo(installationId: number, repoFullName: string): Promise<{ defaultBranch: string; private: boolean }> {
+    const [owner, repo] = splitFullName(repoFullName);
+    const auth = await this.installationAuth(installationId);
+    const out = await this.json<{ default_branch: string; private: boolean }>(`/repos/${owner}/${repo}`, auth);
+    return { defaultBranch: out.default_branch, private: out.private };
+  }
+
+  async listBranches(installationId: number, repoFullName: string): Promise<BranchRef[]> {
+    const [owner, repo] = splitFullName(repoFullName);
+    const auth = await this.installationAuth(installationId);
+    const branches: BranchRef[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const out = await this.json<{ name: string; commit: { sha: string } }[]>(`/repos/${owner}/${repo}/branches?per_page=100&page=${page}`, auth);
+      branches.push(...out.map((b) => ({ name: b.name, headSha: b.commit.sha })));
+      if (out.length < 100) break;
+    }
+    return branches;
+  }
+
+  async listCommits(installationId: number, repoFullName: string, branch: string, limit: number): Promise<CommitRef[]> {
+    const [owner, repo] = splitFullName(repoFullName);
+    const auth = await this.installationAuth(installationId);
+    const perPage = Math.max(1, Math.min(100, Math.floor(limit)));
+    const out = await this.json<
+      { sha: string; commit: { message: string; author?: { name?: string; date?: string } | null; committer?: { date?: string } | null } }[]
+    >(`/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(branch)}&per_page=${perPage}`, auth);
+    return out.map((c) => ({
+      sha: c.sha,
+      message: (c.commit.message ?? "").split("\n", 1)[0]!.slice(0, 200),
+      date: c.commit.committer?.date ?? c.commit.author?.date ?? null,
+      authorName: c.commit.author?.name ?? null,
+    }));
   }
 }

@@ -23,6 +23,35 @@ export interface GithubAgent {
   model: string;
   connector: "github";
   latestVersion: { id: string; commitSha: string; fileCount: number; createdAt: string } | null;
+  /** Columns added by the evaluations migration (0008, U6). Absent (undefined) until it is applied. */
+  slug?: string | null;
+  description?: string | null;
+  visibility?: string | null;
+  status?: string | null;
+  branch?: string | null;
+  pinnedCommit?: string | null;
+  modelRelease?: string | null;
+  listedAt?: string | null;
+  createdAt?: string | null;
+}
+
+/** Fields POST /agents may set beyond the 0002 columns (U8). */
+export interface AgentMetaInput {
+  description?: string | null;
+  visibility?: "private" | "listed";
+  branch?: string | null;
+  pinnedCommit?: string | null;
+  modelRelease?: string | null;
+  /** kebab-case base; the store appends 4 hex when it is taken. */
+  slugBase?: string | null;
+}
+
+export interface AgentMetaResult {
+  /** Input fields the store wrote. */
+  stored: string[];
+  /** Input fields the store could not write because their column does not exist yet. */
+  missing: string[];
+  slug: string | null;
 }
 
 export interface AgentVersion {
@@ -50,5 +79,9 @@ export interface GithubAgentsRepository {
   getGithubAgent(id: string): Promise<GithubAgent | null>;
   listGithubAgents(ownerWallet: string): Promise<GithubAgent[]>;
   /** Idempotent per (agent, commit): a refresh at an unchanged HEAD returns the existing version. */
-  createAgentVersion(input: { agentId: string; commitSha: string; files: AgentFile[] }): Promise<AgentVersion>;
+  /** `makeCurrent`: an existing (agent, commit) row becomes the latest version again (re-pin to an
+   * older commit). POST /runs runs the latest version, so the pinned commit is what runs. */
+  createAgentVersion(input: { agentId: string; commitSha: string; files: AgentFile[]; makeCurrent?: boolean }): Promise<AgentVersion>;
+  /** Writes the U8 fields whose columns exist; never fails because a column is missing. */
+  updateAgentMeta(agentId: string, input: AgentMetaInput): Promise<AgentMetaResult>;
 }

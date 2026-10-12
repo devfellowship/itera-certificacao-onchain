@@ -86,3 +86,29 @@ export function encodeAgentFile(relPath: string, sha: string, bytes: Buffer): Ag
     content: binary ? bytes.toString("base64") : bytes.toString("utf-8"),
   };
 }
+
+/** Human size: "41 KB", "1.4 KB", "512 B". */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+}
+
+/**
+ * One-line summary of an agent file set for the validation row of screen 02 (ADR-4):
+ * "AGENTS.md + 3 skills · 41 KB". A skill = one first-level entry under skills/.
+ */
+export function summarizeAgentFiles(files: { path: string; size: number }[]): { summary: string; skillCount: number; totalBytes: number } {
+  const parts: string[] = [];
+  if (files.some((f) => f.path === "AGENTS.md")) parts.push("AGENTS.md");
+  if (files.some((f) => f.path === "CLAUDE.md")) parts.push("CLAUDE.md");
+  const skills = new Set<string>();
+  for (const f of files) {
+    if (!f.path.startsWith("skills/")) continue;
+    const first = f.path.slice("skills/".length).split("/")[0];
+    if (first) skills.add(first.replace(/\.md$/i, ""));
+  }
+  if (skills.size > 0) parts.push(`${skills.size} skill${skills.size === 1 ? "" : "s"}`);
+  const totalBytes = files.reduce((s, f) => s + f.size, 0);
+  return { summary: `${parts.join(" + ")} · ${formatBytes(totalBytes)}`, skillCount: skills.size, totalBytes };
+}

@@ -8,8 +8,10 @@ import { FakeRepository } from "../domain/repository.fake.js";
 import { rethrowMissingSchema } from "../domain/github-agents-repository.pg.js";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { AGENT_FILES_MAX_BYTES, findAgentCandidates, normalizeAgentPath, selectAgentFiles } from "../github/agent-files.js";
-import { GitHubConfigError, signAppJwt, type GitHubAppApi, type InstallationRepo, type TreeEntry } from "../github/app-client.js";
+import { GitHubApiError, GitHubConfigError, signAppJwt, type GitHubAppApi, type InstallationRepo, type TreeEntry } from "../github/app-client.js";
 import { signInstallState, verifyInstallState } from "../github/state.js";
+import { isValidBranchName, slugify } from "./github-router.js";
+import { formatBytes, summarizeAgentFiles } from "../github/agent-files.js";
 import { issueSessionToken, requireWallet } from "./auth.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -61,8 +63,32 @@ class FakeGitHub implements GitHubAppApi {
   async listInstallationRepos(id: number) {
     return this.repos.get(id) ?? [];
   }
-  async resolveHead() {
-    return this.head;
+  /** main follows `head`; dev is pinned at SHA2; a hex prefix of a known commit resolves to it. */
+  async resolveHead(_i: number, _r: string, ref?: string) {
+    if (!ref || ref === "main") return this.head;
+    if (ref === "dev") return SHA2;
+    const hit = [SHA1, SHA2].find((sha) => /^[0-9a-f]{7,40}$/.test(ref) && sha.startsWith(ref));
+    if (hit) return hit;
+    throw new GitHubApiError(`no commit ${ref}`, 404);
+  }
+  async getRepo() {
+    return { defaultBranch: "main", private: true };
+  }
+  async listBranches() {
+    return [
+      { name: "dev", headSha: SHA2 },
+      { name: "main", headSha: this.head },
+    ];
+  }
+  commitCalls: { branch: string; limit: number }[] = [];
+  async listCommits(_i: number, _r: string, branch: string, limit: number) {
+    this.commitCalls.push({ branch, limit });
+    if (branch !== "main" && branch !== "dev") throw new GitHubApiError("no branch", 404);
+    const all = [
+      { sha: SHA2, message: "feat: second", date: "2026-10-12T10:00:00Z", authorName: "Alice" },
+      { sha: SHA1, message: "feat: first", date: "2026-10-11T10:00:00Z", authorName: "Alice" },
+    ];
+    return (branch === "dev" ? all : all.slice(1)).slice(0, limit);
   }
   async listTree(_i: number, _r: string, sha: string) {
     return { entries: this.trees.get(sha) ?? [], truncated: false };
@@ -319,5 +345,164 @@ describe("state and app JWT", () => {
     v.update(`${h}.${p}`);
     expect(v.verify(publicKey, Buffer.from(s, "base64url"))).toBe(true);
     expect(JSON.parse(Buffer.from(p, "base64url").toString())).toEqual({ iat: 9_940, exp: 10_540, iss: "123" });
+  });
+});
+
+describe("branches, commits, validate and the pinned POST /agents (U8)", () => {
+  it("lists branches with the default first, and 404 for another wallet", async () => {
+    await connectAlice();
+    const { status, body } = await call("GET", "/github/repos/alice-org/agents/branches", { wallet: ALICE });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ repoFullName: "alice-org/agents", defaultBranch: "main" });
+    expect(body.branches).toEqual([
+      { name: "main", headSha: SHA1, shortSha: SHA1.slice(0, 7), isDefault: true },
+      { name: "dev", headSha: SHA2, shortSha: SHA2.slice(0, 7), isDefault: false },
+    ]);
+    expect((await call("GET", "/github/repos/alice-org/agents/branches", { wallet: BOB })).status).toBe(404);
+    expect((await call("GET", "/github/repos/alice-org/agents/branches")).status).toBe(401);
+  });
+
+  it("lists the latest commits of a branch in one call (default limit 20, HEAD first)", async () => {
+    await connectAlice();
+    const { status, body } = await call("GET", "/github/repos/alice-org/agents/commits?branch=dev", { wallet: ALICE });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ branch: "dev", headSha: SHA2 });
+    expect(body.commits).toEqual([
+      { sha: SHA2, shortSha: SHA2.slice(0, 7), message: "feat: second", date: "2026-10-12T10:00:00Z", authorName: "Alice", isHead: true },
+      { sha: SHA1, shortSha: SHA1.slice(0, 7), message: "feat: first", date: "2026-10-11T10:00:00Z", authorName: "Alice", isHead: false },
+    ]);
+    expect(gh.commitCalls).toEqual([{ branch: "dev", limit: 20 }]);
+    const def = await call("GET", "/github/repos/alice-org/agents/commits?limit=1", { wallet: ALICE });
+    expect(def.body).toMatchObject({ branch: "main", headSha: SHA1 });
+    expect(gh.commitCalls.at(-1)).toEqual({ branch: "main", limit: 1 });
+    expect((await call("GET", "/github/repos/alice-org/agents/commits?limit=0", { wallet: ALICE })).status).toBe(400);
+    expect((await call("GET", "/github/repos/alice-org/agents/commits?limit=101", { wallet: ALICE })).status).toBe(400);
+    expect((await call("GET", "/github/repos/alice-org/agents/commits?branch=a..b", { wallet: ALICE })).status).toBe(400);
+    expect((await call("GET", "/github/repos/alice-org/agents/commits?branch=nope", { wallet: ALICE })).status).toBe(404);
+    expect((await call("GET", "/github/repos/alice-org/agents/commits", { wallet: BOB })).status).toBe(404);
+  });
+
+  it("agent-candidates reads a branch or a commit with ?ref=", async () => {
+    await connectAlice();
+    const dev = await call("GET", "/github/repos/alice-org/agents/agent-candidates?ref=dev", { wallet: ALICE });
+    expect(dev.body.commitSha).toBe(SHA2);
+    expect(dev.body.candidates).toEqual([{ path: ".", hasAgentsMd: true, hasClaudeMd: false, hasSkills: false }]);
+    const bySha = await call("GET", `/github/repos/alice-org/agents/agent-candidates?ref=${SHA1.slice(0, 7)}`, { wallet: ALICE });
+    expect(bySha.body.commitSha).toBe(SHA1);
+  });
+
+  it("validate: ok with the file list and summary at a SHA; a danger error for a path without AGENTS.md or CLAUDE.md", async () => {
+    await connectAlice();
+    const ok = await call("POST", "/agents/validate", { wallet: ALICE, body: { repoFullName: "alice-org/agents", agentPath: ".", commit: SHA1 } });
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ ok: true, commit: SHA1, shortCommit: SHA1.slice(0, 7), branch: "main", agentPath: ".", summary: "AGENTS.md + CLAUDE.md + 1 skill · 40 B" });
+    expect(ok.body.files).toEqual([
+      { path: "AGENTS.md", bytes: 21 },
+      { path: "CLAUDE.md", bytes: 9 },
+      { path: "skills/fix/SKILL.md", bytes: 10 },
+    ]);
+    expect(ghRepo.agents).toHaveLength(0); // a dry run stores nothing
+
+    const bad = await call("POST", "/agents/validate", { wallet: ALICE, body: { repoFullName: "alice-org/agents", agentPath: "skills", commit: SHA1 } });
+    expect(bad.status).toBe(200);
+    expect(bad.body).toMatchObject({ ok: false, errorCode: "no_agent_file", files: [] });
+    expect(bad.body.error).toMatch(/No AGENTS\.md or CLAUDE\.md in skills at aaaaaaa/);
+    expect(bad.body.candidates).toEqual([".", "agents/reviewer"]);
+
+    expect((await call("POST", "/agents/validate", { wallet: ALICE, body: { repoFullName: "alice-org/agents", commit: "zz" } })).status).toBe(400);
+    expect((await call("POST", "/agents/validate", { wallet: ALICE, body: { repoFullName: "alice-org/agents", commit: "c".repeat(40) } })).status).toBe(404);
+    expect((await call("POST", "/agents/validate", { wallet: BOB, body: { repoFullName: "alice-org/agents" } })).status).toBe(404);
+  });
+
+  it("POST /agents pins the given commit, stores branch/description/visibility/slug, and the pinned version is the current one", async () => {
+    await connectAlice();
+    gh.head = SHA2; // HEAD of main moved on; the user picks the older commit
+    gh.trees.set(SHA2, gh.trees.get(SHA1)!);
+    const { status, body } = await call("POST", "/agents", {
+      wallet: ALICE,
+      body: {
+        repoFullName: "alice-org/agents",
+        agentPath: ".",
+        name: "Ledger Line",
+        branch: "main",
+        commitSha: SHA1,
+        modelRelease: "qwen/qwen3-coder",
+        description: "Fixes idempotency bugs.",
+        visibility: "private",
+      },
+    });
+    expect(status).toBe(201);
+    expect(body.pinned).toEqual({ branch: "main", commitSha: SHA1, shortSha: SHA1.slice(0, 7) });
+    expect(body.agent).toMatchObject({
+      slug: "ledger-line",
+      branch: "main",
+      pinnedCommit: SHA1,
+      description: "Fixes idempotency bugs.",
+      visibility: "private",
+      modelRelease: "qwen/qwen3-coder",
+      status: "draft",
+    });
+    expect(body.agent.latestVersion.commitSha).toBe(SHA1);
+    expect(body.summary).toBe("AGENTS.md + CLAUDE.md + 1 skill · 39 B"); // real bytes, not the tree sizes
+    expect(body.warnings).toBeUndefined();
+
+    // Re-pin to HEAD, then back to the older commit: the older version becomes current again.
+    await call("POST", "/agents", { wallet: ALICE, body: { repoFullName: "alice-org/agents", name: "Ledger Line", branch: "main" } });
+    expect((await ghRepo.getGithubAgent(body.agent.id))!.latestVersion!.commitSha).toBe(SHA2);
+    await call("POST", "/agents", { wallet: ALICE, body: { repoFullName: "alice-org/agents", name: "Ledger Line", commit: SHA1.slice(0, 7) } });
+    expect((await ghRepo.getGithubAgent(body.agent.id))!.latestVersion!.commitSha).toBe(SHA1);
+    expect(ghRepo.versions).toHaveLength(2);
+  });
+
+  it("POST /agents without a commit pins the branch HEAD; a taken slug gets 4 hex", async () => {
+    await connectAlice();
+    const a = await call("POST", "/agents", { wallet: ALICE, body: { repoFullName: "alice-org/agents", name: "Fixer", branch: "dev" } });
+    expect(a.body.pinned.commitSha).toBe(SHA2);
+    expect(a.body.agent.slug).toBe("fixer");
+    const b = await call("POST", "/agents", { wallet: ALICE, body: { repoFullName: "alice-org/agents", name: "fixer!" } });
+    expect(b.body.agent.slug).toMatch(/^fixer-[0-9a-f]{4}$/);
+    expect(b.body.agent.visibility).toBe("listed");
+  });
+
+  it("POST /agents rejects a long description, a bad visibility, a bad branch and an unknown commit", async () => {
+    await connectAlice();
+    const base = { repoFullName: "alice-org/agents" };
+    expect((await call("POST", "/agents", { wallet: ALICE, body: { ...base, description: "x".repeat(91) } })).status).toBe(400);
+    expect((await call("POST", "/agents", { wallet: ALICE, body: { ...base, visibility: "public" } })).status).toBe(400);
+    expect((await call("POST", "/agents", { wallet: ALICE, body: { ...base, branch: "-x" } })).status).toBe(400);
+    expect((await call("POST", "/agents", { wallet: ALICE, body: { ...base, commit: "d".repeat(40) } })).status).toBe(404);
+    expect(ghRepo.agents).toHaveLength(0);
+  });
+
+  it("POST /agents still works before the agents columns migration and says what it did not store", async () => {
+    await connectAlice();
+    ghRepo.metaColumns = false;
+    const { status, body } = await call("POST", "/agents", { wallet: ALICE, body: { repoFullName: "alice-org/agents", name: "x", description: "d", commit: SHA1 } });
+    expect(status).toBe(201);
+    expect(body.agent.latestVersion.commitSha).toBe(SHA1);
+    expect(body.warnings[0]).toMatch(/description/);
+  });
+
+  it("GET /agents/:id answers 404 (not 500) for a non-uuid id", async () => {
+    expect((await call("GET", "/agents/not-a-uuid", { wallet: ALICE })).status).toBe(404);
+  });
+
+  it("helpers: branch names, slugs, sizes", () => {
+    expect(isValidBranchName("feature/x-1")).toBe(true);
+    for (const bad of ["", "-x", "a..b", "a b", "x.lock", "a//b", "x/", "a~1", "a:b"]) expect(isValidBranchName(bad), bad).toBe(false);
+    expect(slugify("Ledger Líne 2!")).toBe("ledger-line-2");
+    expect(slugify("!!!")).toBeNull();
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(1434)).toBe("1.4 KB");
+    expect(formatBytes(41 * 1024)).toBe("41 KB");
+    expect(
+      summarizeAgentFiles([
+        { path: "AGENTS.md", size: 1024 },
+        { path: "skills/a/SKILL.md", size: 1024 },
+        { path: "skills/a/ref.md", size: 1024 },
+        { path: "skills/b.md", size: 1024 },
+        { path: "skills/c/SKILL.md", size: 38 * 1024 },
+      ]).summary,
+    ).toBe("AGENTS.md + 3 skills · 42 KB");
   });
 });

@@ -11,6 +11,7 @@ import {
   findAgentCandidates,
   normalizeAgentPath,
   selectAgentFiles,
+  summarizeAgentFiles,
   type AgentFile,
 } from "../github/agent-files.js";
 import { GitHubApiError, GitHubAppClient, GitHubConfigError, githubAppConfigFromEnv, type GitHubAppApi } from "../github/app-client.js";
@@ -27,8 +28,12 @@ import { requireWallet as defaultRequireWallet } from "./auth.js";
  *   GET  /github/callback?installation_id&state&code   binds the installation to the wallet
  *   GET  /github/installations                         wallet
  *   GET  /github/repos                                 wallet — repos the App can read
- *   GET  /github/repos/:owner/:repo/agent-candidates   wallet — dirs with AGENTS.md / CLAUDE.md
- *   POST /agents {repoFullName, agentPath, model, name} wallet — snapshot at HEAD → agent + version
+ *   GET  /github/repos/:owner/:repo/branches           wallet — branches + head SHA (U8)
+ *   GET  /github/repos/:owner/:repo/commits?branch=&limit=20  wallet — latest commits of a branch (U8)
+ *   GET  /github/repos/:owner/:repo/agent-candidates?ref=     wallet — dirs with AGENTS.md / CLAUDE.md
+ *   POST /agents/validate {repoFullName, branch?, commit?, agentPath}  wallet — dry run of POST /agents (U8)
+ *   POST /agents {repoFullName, agentPath, model, name, branch?, commit?, modelRelease?, description?, visibility?}
+ *                                                      wallet — snapshot at the pinned commit (default: branch HEAD)
  *   GET  /agents                                       wallet — my agents
  *   GET  /agents/:id                                   owner  — agent + latest version file list
  *   POST /agents/:id/refresh                           owner  — new version at the new HEAD
@@ -66,6 +71,33 @@ class HttpError extends Error {
 
 const REPO_FULL_NAME_RE = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
+const COMMIT_INPUT_RE = /^[0-9a-fA-F]{7,40}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MODEL_RELEASE_RE = /^[A-Za-z0-9._:/-]{1,120}$/;
+export const AGENT_DESCRIPTION_MAX = 90;
+export const COMMITS_DEFAULT_LIMIT = 20;
+export const COMMITS_MAX_LIMIT = 100;
+
+/** A git branch name, per the parts of git-check-ref-format that matter for a URL query value. */
+export function isValidBranchName(name: unknown): name is string {
+  if (typeof name !== "string" || name.length === 0 || name.length > 255) return false;
+  if (name.startsWith("-") || name.startsWith("/") || name.endsWith("/") || name.endsWith(".") || name.endsWith(".lock")) return false;
+  if (name.includes("..") || name.includes("//") || name.includes("@{")) return false;
+  return !/[\s~^:?*[\\\x00-\x1f\x7f]/.test(name);
+}
+
+/** "Ledger Line 2!" → "ledger-line-2" (≤ 48 chars); null when nothing usable is left. */
+export function slugify(name: string): string | null {
+  const s = name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+    .replace(/-+$/g, "");
+  return s || null;
+}
 
 type Handler = (req: Request, res: Response) => Promise<void>;
 
@@ -113,10 +145,33 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     return installationId;
   }
 
-  /** Reads AGENTS.md, CLAUDE.md and skills/** under agentPath at the repo HEAD. */
-  async function snapshot(installationId: number, repoFullName: string, agentPath: string): Promise<{ commitSha: string; files: AgentFile[] }> {
+  /**
+   * The commit an agent is pinned to: `commit` when given (short SHAs are resolved and checked to
+   * exist), else the HEAD of `branch`, else the HEAD of the default branch.
+   */
+  async function resolveCommit(
+    installationId: number,
+    repoFullName: string,
+    input: { branch?: unknown; commit?: unknown },
+  ): Promise<{ commitSha: string; branch: string }> {
     const gh = github();
-    const commitSha = await gh.resolveHead(installationId, repoFullName);
+    if (input.branch !== undefined && input.branch !== null && input.branch !== "" && !isValidBranchName(input.branch)) {
+      throw new HttpError(400, "branch is not a valid branch name");
+    }
+    if (input.commit !== undefined && input.commit !== null && input.commit !== "" && (typeof input.commit !== "string" || !COMMIT_INPUT_RE.test(input.commit))) {
+      throw new HttpError(400, "commit must be a hex commit SHA (7 to 40 characters)");
+    }
+    const branch = typeof input.branch === "string" && input.branch ? input.branch : (await gh.getRepo(installationId, repoFullName)).defaultBranch;
+    const ref = typeof input.commit === "string" && input.commit ? input.commit.toLowerCase() : branch;
+    const commitSha = await gh.resolveHead(installationId, repoFullName, ref);
+    if (!SHA_RE.test(commitSha)) throw new HttpError(502, "GitHub returned an invalid commit SHA");
+    return { commitSha, branch };
+  }
+
+  /** Reads AGENTS.md, CLAUDE.md and skills/** under agentPath at `commitSha` (default: the repo HEAD). */
+  async function snapshot(installationId: number, repoFullName: string, agentPath: string, pinned?: string): Promise<{ commitSha: string; files: AgentFile[] }> {
+    const gh = github();
+    const commitSha = pinned ?? (await gh.resolveHead(installationId, repoFullName));
     if (!SHA_RE.test(commitSha)) throw new HttpError(502, "GitHub returned an invalid commit SHA");
     const tree = await gh.listTree(installationId, repoFullName, commitSha);
     const picked = selectAgentFiles(tree.entries, agentPath);
@@ -229,9 +284,105 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
       const repoFullName = `${req.params.owner}/${req.params.repo}`;
       const installationId = await installationFor(wallet(req), repoFullName);
       const gh = github();
-      const commitSha = await gh.resolveHead(installationId, repoFullName);
+      const ref = typeof req.query.ref === "string" && req.query.ref ? req.query.ref : undefined;
+      let commitSha: string;
+      if (ref === undefined) {
+        commitSha = await gh.resolveHead(installationId, repoFullName);
+      } else {
+        const asCommit = COMMIT_INPUT_RE.test(ref);
+        commitSha = (await resolveCommit(installationId, repoFullName, asCommit ? { commit: ref } : { branch: ref })).commitSha;
+      }
       const tree = await gh.listTree(installationId, repoFullName, commitSha);
       res.json({ repoFullName, commitSha, truncatedTree: tree.truncated, candidates: findAgentCandidates(tree.entries) });
+    }),
+  );
+
+  router.get(
+    "/github/repos/:owner/:repo/branches",
+    requireWallet,
+    wrap(async (req, res) => {
+      const repoFullName = `${req.params.owner}/${req.params.repo}`;
+      const installationId = await installationFor(wallet(req), repoFullName);
+      const gh = github();
+      const [meta, branches] = await Promise.all([gh.getRepo(installationId, repoFullName), gh.listBranches(installationId, repoFullName)]);
+      // Default branch first, then by name: the select on 02 and on the task editor opens on it.
+      const rows = branches
+        .map((b) => ({ name: b.name, headSha: b.headSha, shortSha: b.headSha.slice(0, 7), isDefault: b.name === meta.defaultBranch }))
+        .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name));
+      res.json({ repoFullName, defaultBranch: meta.defaultBranch, branches: rows });
+    }),
+  );
+
+  router.get(
+    "/github/repos/:owner/:repo/commits",
+    requireWallet,
+    wrap(async (req, res) => {
+      const repoFullName = `${req.params.owner}/${req.params.repo}`;
+      const installationId = await installationFor(wallet(req), repoFullName);
+      const gh = github();
+      const rawBranch = typeof req.query.branch === "string" && req.query.branch ? req.query.branch : undefined;
+      if (rawBranch !== undefined && !isValidBranchName(rawBranch)) throw new HttpError(400, "branch is not a valid branch name");
+      let limit = COMMITS_DEFAULT_LIMIT;
+      if (req.query.limit !== undefined) {
+        limit = Number(req.query.limit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > COMMITS_MAX_LIMIT) throw new HttpError(400, `limit must be an integer from 1 to ${COMMITS_MAX_LIMIT}`);
+      }
+      const branch = rawBranch ?? (await gh.getRepo(installationId, repoFullName)).defaultBranch;
+      // One call, no pagination (Gate Q4): the select shows the latest `limit` commits, HEAD first.
+      const commits = await gh.listCommits(installationId, repoFullName, branch, limit);
+      res.json({
+        repoFullName,
+        branch,
+        headSha: commits[0]?.sha ?? null,
+        commits: commits.map((c, i) => ({ sha: c.sha, shortSha: c.sha.slice(0, 7), message: c.message, date: c.date, authorName: c.authorName, isHead: i === 0 })),
+      });
+    }),
+  );
+
+  router.post(
+    "/agents/validate",
+    requireWallet,
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as { repoFullName?: unknown; agentPath?: unknown; branch?: unknown; commit?: unknown; commitSha?: unknown };
+      if (typeof body.repoFullName !== "string") throw new HttpError(400, "repoFullName is required (owner/repo)");
+      let agentPath: string;
+      try {
+        agentPath = normalizeAgentPath(body.agentPath);
+      } catch (e) {
+        throw new HttpError(400, e instanceof AgentPathError ? e.message : "invalid agentPath");
+      }
+      const installationId = await installationFor(wallet(req), body.repoFullName);
+      const { commitSha, branch } = await resolveCommit(installationId, body.repoFullName, { branch: body.branch, commit: body.commit ?? body.commitSha });
+      const tree = await github().listTree(installationId, body.repoFullName, commitSha);
+      const picked = selectAgentFiles(tree.entries, agentPath);
+      const base = {
+        repoFullName: body.repoFullName,
+        branch,
+        agentPath,
+        commit: commitSha,
+        shortCommit: commitSha.slice(0, 7),
+        truncatedTree: tree.truncated,
+      };
+      if (!picked.ok) {
+        const where = `${agentPath === "." ? "the repo root" : agentPath} at ${commitSha.slice(0, 7)}`;
+        res.json({
+          ...base,
+          ok: false,
+          files: [],
+          summary: null,
+          errorCode: picked.reason,
+          error:
+            picked.reason === "no_agent_file"
+              ? `No AGENTS.md or CLAUDE.md in ${where}.`
+              : `Agent files total ${picked.totalBytes} bytes at ${where}, above the ${AGENT_FILES_MAX_BYTES}-byte cap.`,
+          // Paths that do hold an agent file, so the form can offer them.
+          candidates: findAgentCandidates(tree.entries).map((c) => c.path),
+        });
+        return;
+      }
+      const files = picked.entries.map((e) => ({ path: e.relPath, bytes: e.size }));
+      const sum = summarizeAgentFiles(files.map((f) => ({ path: f.path, size: f.bytes })));
+      res.json({ ...base, ok: true, files, summary: sum.summary, skillCount: sum.skillCount, totalBytes: sum.totalBytes });
     }),
   );
 
@@ -240,7 +391,18 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     requireWallet,
     wrap(async (req, res) => {
       const walletAddr = wallet(req);
-      const body = (req.body ?? {}) as { repoFullName?: unknown; agentPath?: unknown; model?: unknown; name?: unknown };
+      const body = (req.body ?? {}) as {
+        repoFullName?: unknown;
+        agentPath?: unknown;
+        model?: unknown;
+        name?: unknown;
+        branch?: unknown;
+        commit?: unknown;
+        commitSha?: unknown;
+        modelRelease?: unknown;
+        description?: unknown;
+        visibility?: unknown;
+      };
       if (typeof body.repoFullName !== "string") throw new HttpError(400, "repoFullName is required (owner/repo)");
       let agentPath: string;
       try {
@@ -258,14 +420,44 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
       const defaultName = agentPath === "." ? body.repoFullName : `${body.repoFullName}/${agentPath}`;
       const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : defaultName;
       if (name.length > 120) throw new HttpError(400, "name must be at most 120 characters");
+      let description: string | undefined;
+      if (body.description !== undefined && body.description !== null) {
+        if (typeof body.description !== "string") throw new HttpError(400, "description must be a string");
+        description = body.description.trim();
+        if (description.length > AGENT_DESCRIPTION_MAX) throw new HttpError(400, `description must be at most ${AGENT_DESCRIPTION_MAX} characters`);
+      }
+      let visibility: "private" | "listed" = "listed";
+      if (body.visibility !== undefined) {
+        if (body.visibility !== "private" && body.visibility !== "listed") throw new HttpError(400, "visibility must be private or listed");
+        visibility = body.visibility;
+      }
+      let modelRelease: string | undefined;
+      if (body.modelRelease !== undefined && body.modelRelease !== null && body.modelRelease !== "") {
+        if (typeof body.modelRelease !== "string" || !MODEL_RELEASE_RE.test(body.modelRelease)) throw new HttpError(400, "modelRelease must be a model release id");
+        modelRelease = body.modelRelease;
+      }
 
       const installationId = await installationFor(walletAddr, body.repoFullName);
-      const snap = await snapshot(installationId, body.repoFullName, agentPath);
+      const pin = await resolveCommit(installationId, body.repoFullName, { branch: body.branch, commit: body.commit ?? body.commitSha });
+      const snap = await snapshot(installationId, body.repoFullName, agentPath, pin.commitSha);
       const agent = await repo.upsertGithubAgent({ ownerWallet: walletAddr, name, installationId, repoFullName: body.repoFullName, agentPath, model });
-      const version = await repo.createAgentVersion({ agentId: agent.id, commitSha: snap.commitSha, files: snap.files });
+      // makeCurrent: a re-pin to an older commit makes that version the one POST /runs runs.
+      const version = await repo.createAgentVersion({ agentId: agent.id, commitSha: snap.commitSha, files: snap.files, makeCurrent: true });
+      const meta = await repo.updateAgentMeta(agent.id, {
+        branch: pin.branch,
+        pinnedCommit: snap.commitSha,
+        visibility,
+        ...(description !== undefined ? { description } : {}),
+        ...(modelRelease !== undefined ? { modelRelease } : {}),
+        slugBase: slugify(name),
+      });
       res.status(201).json({
         agent: await repo.getGithubAgent(agent.id),
         version: { id: version.id, commitSha: version.commitSha, files: fileSummary(version.files), createdAt: version.createdAt },
+        pinned: { branch: pin.branch, commitSha: snap.commitSha, shortSha: snap.commitSha.slice(0, 7) },
+        summary: summarizeAgentFiles(version.files).summary,
+        // Fields the DB could not store yet (agents columns of the U6 migration not applied).
+        ...(meta.missing.length > 0 ? { warnings: [`not stored until the agents columns migration is applied: ${meta.missing.join(", ")}`] } : {}),
       });
     }),
   );
@@ -279,6 +471,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
   );
 
   async function ownAgent(req: Request) {
+    if (!UUID_RE.test(String(req.params.id))) throw new HttpError(404, "agent not found");
     const agent = await repo.getGithubAgent(String(req.params.id));
     if (!agent || agent.ownerWallet !== wallet(req)) throw new HttpError(404, "agent not found");
     return agent;
@@ -299,9 +492,12 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
       const agent = await ownAgent(req);
       // Re-check the binding: the user may have uninstalled the App or moved the repo since.
       const installationId = await installationFor(agent.ownerWallet, agent.repoFullName);
-      const snap = await snapshot(installationId, agent.repoFullName, agent.agentPath);
+      // An agent registered on a branch refreshes to that branch's HEAD; older agents to the default branch.
+      const pin = await resolveCommit(installationId, agent.repoFullName, { branch: agent.branch ?? undefined });
+      const snap = await snapshot(installationId, agent.repoFullName, agent.agentPath, pin.commitSha);
+      if (agent.pinnedCommit !== undefined) await repo.updateAgentMeta(agent.id, { pinnedCommit: snap.commitSha });
       const changed = agent.latestVersion?.commitSha !== snap.commitSha;
-      const version = await repo.createAgentVersion({ agentId: agent.id, commitSha: snap.commitSha, files: snap.files });
+      const version = await repo.createAgentVersion({ agentId: agent.id, commitSha: snap.commitSha, files: snap.files, makeCurrent: true });
       res.json({
         changed,
         agent: await repo.getGithubAgent(agent.id),
