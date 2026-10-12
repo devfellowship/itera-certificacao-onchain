@@ -92,6 +92,8 @@ export interface Profile {
   avatarUrl: string | null;
   /** U36 (0015): storage object key of the picture (`<wallet>/<hash16>.webp`), or null. */
   avatarKey: string | null;
+  /** U36 (0015): one optional line, ≤ 80 characters. */
+  bio: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -102,6 +104,14 @@ export interface ProfilePatch {
   handle?: string | null;
   avatarUrl?: string | null;
   avatarKey?: string | null;
+  bio?: string | null;
+}
+
+/** U36: the public page /u/:username. Only listed agents and public tasks. */
+export interface PublicUserPage {
+  profile: Profile;
+  agents: Array<{ id: string; slug: string | null; name: string; description: string | null; avatarUrl: string | null; createdAt: string | null }>;
+  tasks: Array<{ id: string; slug: string; name: string; description: string | null }>;
 }
 
 export class HandleTakenError extends Error {
@@ -125,6 +135,12 @@ export interface CatalogStore extends ModelsSyncStore {
   upsertProfile(wallet: string, patch: ProfilePatch): Promise<Profile>;
   /** U36: the profiles of these wallets (absent wallets are left out). One query. */
   listProfiles(wallets: string[]): Promise<Profile[]>;
+  /** U36: by username (lowercase); null when absent. */
+  getProfileByUsername(username: string): Promise<Profile | null>;
+  /** U36: how many agents and tasks the wallet owns (all visibilities: it is the owner's own view). */
+  profileStats(wallet: string): Promise<{ agents: number; tasks: number }>;
+  /** U36: the public page of a username; null when no profile has it. */
+  publicUser(username: string): Promise<PublicUserPage | null>;
 }
 
 export function isVisibleTo(task: Pick<CatalogTask, "visibility" | "ownerWallet">, wallet: string | null): boolean {
@@ -200,6 +216,21 @@ export class FakeCatalogStore implements CatalogStore {
     return wallets.map((w) => this.profiles.get(w)).filter((p): p is Profile => p !== undefined);
   }
 
+  async getProfileByUsername(username: string): Promise<Profile | null> {
+    return [...this.profiles.values()].find((p) => p.handle === username) ?? null;
+  }
+
+  async profileStats(wallet: string): Promise<{ agents: number; tasks: number }> {
+    return { agents: 0, tasks: this.tasks.filter((t) => t.ownerWallet === wallet).length };
+  }
+
+  async publicUser(username: string): Promise<PublicUserPage | null> {
+    const profile = await this.getProfileByUsername(username);
+    if (!profile) return null;
+    const tasks = this.tasks.filter((t) => t.ownerWallet === profile.wallet && t.visibility === "public").map((t) => ({ id: t.id, slug: t.slug, name: t.name, description: t.description }));
+    return { profile, agents: [], tasks };
+  }
+
   async upsertProfile(wallet: string, patch: ProfilePatch): Promise<Profile> {
     if (patch.handle) {
       for (const p of this.profiles.values()) {
@@ -207,13 +238,14 @@ export class FakeCatalogStore implements CatalogStore {
       }
     }
     const now = new Date().toISOString();
-    const prev = this.profiles.get(wallet) ?? { wallet, displayName: null, handle: null, avatarUrl: null, avatarKey: null, createdAt: now, updatedAt: now };
+    const prev = this.profiles.get(wallet) ?? { wallet, displayName: null, handle: null, avatarUrl: null, avatarKey: null, bio: null, createdAt: now, updatedAt: now };
     const next: Profile = {
       ...prev,
       displayName: patch.displayName === undefined ? prev.displayName : patch.displayName,
       handle: patch.handle === undefined ? prev.handle : patch.handle,
       avatarUrl: patch.avatarUrl === undefined ? prev.avatarUrl : patch.avatarUrl,
       avatarKey: patch.avatarKey === undefined ? prev.avatarKey : patch.avatarKey,
+      bio: patch.bio === undefined ? prev.bio : patch.bio,
       updatedAt: now,
     };
     this.profiles.set(wallet, next);

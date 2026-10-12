@@ -31,6 +31,7 @@ import type { Repository } from "./domain/repository.js";
 import { createProfileRouter } from "./http/profile-router.js";
 import { profileEnrichment } from "./http/profile-enrich.js";
 import type { AvatarStorage } from "./domain/avatar.js";
+import type { AgentAvatarStore } from "./domain/agent-avatar-store.js";
 
 export const SERVICE_NAME = "testmyagent-api";
 export const PRODUCT_NAME = "TestMyAgent";
@@ -101,9 +102,14 @@ const ROUTES = [
   "GET /tags?kind=",
   "GET /me",
   "PATCH /me",
+  "GET /usernames/:name/available",
+  "GET /public/users/:username",
   "POST /me/avatar",
   "DELETE /me/avatar",
   "PUT /admin/profiles/:wallet",
+  "POST /agents/:id/avatar",
+  "DELETE /agents/:id/avatar",
+  "PUT /admin/agents/:id/avatar",
   "GET /models/:id/access",
   "POST /admin/models/sync",
   "GET /public/evaluations/:slugOrHash",
@@ -154,6 +160,8 @@ export interface AppOptions {
    * Profiles (username, display name, picture) join every response that names a wallet when the
    * catalog store is wired (http/profile-enrich.ts). */
   avatarStorage?: AvatarStorage | null;
+  /** U36: agent pictures (needs 0015). Mounts POST/DELETE /agents/:id/avatar and the admin seed. */
+  agentAvatars?: AgentAvatarStore;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -182,7 +190,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   // U36: owner/author profiles next to every wallet field of a JSON response.
   if (options.catalog) {
     const catalog = options.catalog;
-    app.use(profileEnrichment((wallets) => catalog.listProfiles(wallets)));
+    const agentAvatars = options.agentAvatars;
+    app.use(profileEnrichment((wallets) => catalog.listProfiles(wallets), agentAvatars ? (ids, slugs) => agentAvatars.listAvatars(ids, slugs) : undefined));
   }
 
   app.get("/", (_req, res) => {
@@ -217,7 +226,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   if (options.myTasks) app.use(createMyTasksRouter(options.myTasks));
   if (options.catalog) app.use(createCatalogRouter(options.catalog, options.catalogOptions));
   if (options.catalog) {
-    app.use(createProfileRouter({ store: options.catalog, storage: options.avatarStorage ?? null, adminWallets: options.catalogOptions?.adminWallets }));
+    app.use(createProfileRouter({ store: options.catalog, storage: options.avatarStorage ?? null, adminWallets: options.catalogOptions?.adminWallets, agents: options.agentAvatars }));
   }
   const githubDeps = options.github ?? defaultGithubRouterDeps();
   // U21: POST /agents checks the model against models.enabled (DB) when the catalog is wired.

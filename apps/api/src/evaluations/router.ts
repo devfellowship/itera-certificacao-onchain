@@ -442,7 +442,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         evaluation: ev,
         runs,
         proofs,
-        agent: { name: agent?.name ?? "agent", slug: agent?.slug ?? null, repoFullName: agent?.repoFullName ?? null },
+        agent: { name: agent?.name ?? "agent", slug: agent?.slug ?? null, repoFullName: agent?.repoFullName ?? null, ownerWallet: agent?.ownerWallet ?? null },
         agentCommit: version?.commitSha ?? null,
         nowMs: now(),
       });

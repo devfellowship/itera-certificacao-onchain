@@ -9,6 +9,7 @@ import {
   processAvatar,
   type AvatarStorage,
 } from "../domain/avatar.js";
+import { isUuid, type AgentAvatarStore } from "../domain/agent-avatar-store.js";
 import { HandleTakenError, type CatalogStore, type ProfilePatch } from "../domain/catalog-store.js";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { requireWallet } from "./auth.js";
@@ -20,6 +21,8 @@ import { profileJson, usernameProblem } from "./catalog-router.js";
  *   POST /me/avatar   multipart/form-data, one file field (png | jpeg | webp, ≤ 2 MB)      wallet
  *   DELETE /me/avatar                                                                    wallet
  *   PUT  /admin/profiles/:wallet {username?, displayName?, avatarSourceUrl?}  wallet in ITERA_ADMIN_WALLETS
+ *   POST /agents/:id/avatar · DELETE /agents/:id/avatar        (agent owner; same pipeline, key agents/<id>/…)
+ *   PUT  /admin/agents/:id/avatar {avatarSourceUrl}                          wallet in ITERA_ADMIN_WALLETS
  *
  * The upload is decoded, cropped to a centered square, resized to 256×256 WebP without metadata
  * (domain/avatar.ts) and stored in the public `avatars` bucket. The answer is the GET /me body.
@@ -33,6 +36,8 @@ export interface ProfileRouterDeps {
   storage: AvatarStorage | null;
   adminWallets?: () => string[];
   fetchFn?: typeof fetch;
+  /** Agent pictures. Absent → the agent routes are not mounted. */
+  agents?: AgentAvatarStore;
 }
 
 const envAdminWallets = () =>
@@ -193,6 +198,87 @@ export function createProfileRouter(deps: ProfileRouterDeps): Router {
       res.json(profileJson(wallet, after));
     }),
   );
+
+  // ---------------------------------------------------------------------------------------------
+  // Agent pictures (Tainan TG 21086)
+  const agents = deps.agents;
+  if (agents) {
+    const ownedAgent = async (req: Request, res: Response) => {
+      const id = String(req.params.id);
+      const a = isUuid(id) ? await agents.getAgent(id) : null;
+      // Another wallet's agent answers 404 as an absent one does (no existence hint).
+      if (!a || a.ownerWallet !== req.wallet) {
+        res.status(404).json({ error: "agent not found" });
+        return null;
+      }
+      return { id, ...a };
+    };
+    const putAgentPicture = async (id: string, oldKey: string | null, input: Buffer) => {
+      if (!deps.storage) throw new Error("storage missing");
+      const pic = await processAvatar(`agents/${id}`, input);
+      const url = await deps.storage.put(pic.key, pic.bytes, "image/webp");
+      await agents.setAvatar(id, url, pic.key);
+      await dropOld(oldKey, pic.key);
+      return { agentId: id, avatarUrl: url };
+    };
+
+    router.post(
+      "/agents/:id/avatar",
+      requireWallet,
+      wrap(async (req, res) => {
+        if (!deps.storage) {
+          res.status(503).json({ error: "picture storage is not configured on this server" });
+          return;
+        }
+        const a = await ownedAgent(req, res);
+        if (!a) return;
+        const upload = await readUpload(req);
+        if (upload.mimeType && !(AVATAR_MIME_TYPES as readonly string[]).includes(upload.mimeType.toLowerCase())) {
+          throw new AvatarRejectedError("the picture must be PNG, JPEG or WebP", 415);
+        }
+        res.status(201).json(await putAgentPicture(a.id, a.avatarKey, upload.bytes));
+      }),
+    );
+
+    router.delete(
+      "/agents/:id/avatar",
+      requireWallet,
+      wrap(async (req, res) => {
+        const a = await ownedAgent(req, res);
+        if (!a) return;
+        await agents.setAvatar(a.id, null, null);
+        await dropOld(a.avatarKey, null);
+        res.json({ agentId: a.id, avatarUrl: null });
+      }),
+    );
+
+    router.put(
+      "/admin/agents/:id/avatar",
+      requireWallet,
+      wrap(async (req, res) => {
+        if (!adminWallets().includes(req.wallet!)) {
+          res.status(403).json({ error: "admin only" });
+          return;
+        }
+        if (!deps.storage) {
+          res.status(503).json({ error: "picture storage is not configured on this server" });
+          return;
+        }
+        const id = String(req.params.id);
+        const a = isUuid(id) ? await agents.getAgent(id) : null;
+        if (!a) {
+          res.status(404).json({ error: "agent not found" });
+          return;
+        }
+        const src = (req.body ?? {}) as { avatarSourceUrl?: unknown };
+        if (typeof src.avatarSourceUrl !== "string") {
+          res.status(400).json({ error: "avatarSourceUrl is required" });
+          return;
+        }
+        res.json(await putAgentPicture(id, a.avatarKey, await fetchAvatarSource(src.avatarSourceUrl, deps.fetchFn)));
+      }),
+    );
+  }
 
   return router;
 }

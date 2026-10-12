@@ -22,7 +22,9 @@ import { optionalWallet, requireWallet } from "./auth.js";
  *   GET   /tags?kind=tool|concept                                                          optional auth
  *   GET   /models?all=1                                                                    public
  *   GET   /me                                                                              wallet
- *   PATCH /me {username?|handle?, displayName?, avatarUrl?: null}                          wallet
+ *   PATCH /me {username?|handle?, displayName?, bio?, avatarUrl?: null}                    wallet
+ *   GET   /usernames/:name/available                                                       optional auth
+ *   GET   /public/users/:username                                                          public
  *   GET   /models/:id/access                                                               public
  *   POST  /admin/models/sync                                         wallet in ITERA_ADMIN_WALLETS
  *
@@ -137,6 +139,7 @@ export const profileJson = (wallet: string, p: Profile | null) => ({
   displayName: p?.displayName ?? null,
   handle: p?.handle ?? null,
   avatarUrl: p?.avatarUrl ?? null,
+  bio: p?.bio ?? null,
   initials: initials(p?.displayName ?? p?.handle ?? null, wallet),
 });
 
@@ -376,7 +379,8 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
     requireWallet,
     handle(async (req, res) => {
       const wallet = req.wallet!;
-      res.json(profileJson(wallet, await store.getProfile(wallet)));
+      const [p, stats] = await Promise.all([store.getProfile(wallet), store.profileStats(wallet).catch(() => null)]);
+      res.json({ ...profileJson(wallet, p), stats });
     }),
   );
 
@@ -385,8 +389,16 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
     requireWallet,
     handle(async (req, res) => {
       const wallet = req.wallet!;
-      const body = (req.body ?? {}) as { displayName?: unknown; handle?: unknown; username?: unknown; avatarUrl?: unknown };
+      const body = (req.body ?? {}) as { displayName?: unknown; handle?: unknown; username?: unknown; avatarUrl?: unknown; bio?: unknown };
       const patch: ProfilePatch = {};
+      if (body.bio !== undefined) {
+        if (body.bio === null || (typeof body.bio === "string" && body.bio.trim() === "")) patch.bio = null;
+        else if (typeof body.bio === "string" && body.bio.trim().length <= 80) patch.bio = body.bio.trim().replace(/\s+/g, " ");
+        else {
+          res.status(400).json({ error: "bio must be at most 80 characters, or null" });
+          return;
+        }
+      }
       if (body.displayName !== undefined) {
         if (body.displayName === null || body.displayName === "") patch.displayName = null;
         else if (typeof body.displayName === "string" && body.displayName.trim().length >= 1 && body.displayName.trim().length <= 60) {
@@ -423,7 +435,7 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
         patch.avatarKey = null;
       }
       if (Object.keys(patch).length === 0) {
-        res.status(400).json({ error: "nothing to update: send username, displayName and/or avatarUrl: null" });
+        res.status(400).json({ error: "nothing to update: send username, displayName, bio and/or avatarUrl: null" });
         return;
       }
       try {
@@ -438,5 +450,41 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
     }),
   );
 
+
+  // U36: live check of the Edit profile form. The caller's own username counts as available.
+  router.get(
+    "/usernames/:name/available",
+    optionalWallet,
+    handle(async (req, res) => {
+      const u = String(req.params.name).trim().toLowerCase();
+      const problem = usernameProblem(u);
+      if (problem) {
+        res.json({ username: u, available: false, reason: problem.endsWith("reserved") ? "reserved" : "invalid", error: problem });
+        return;
+      }
+      const owner = await store.getProfileByUsername(u);
+      const available = !owner || owner.wallet === req.wallet;
+      res.json({ username: u, available, reason: available ? null : "taken" });
+    }),
+  );
+
+  // U36: the public user page /u/:username (listed agents with issued evidence, public tasks).
+  router.get(
+    "/public/users/:username",
+    handle(async (req, res) => {
+      const u = String(req.params.username).trim().toLowerCase();
+      const page = USERNAME_RE.test(u) ? await store.publicUser(u) : null;
+      if (!page) {
+        res.status(404).json({ error: "user not found" });
+        return;
+      }
+      const p = page.profile;
+      res.json({
+        user: { username: p.handle, displayName: p.displayName, bio: p.bio, avatarUrl: p.avatarUrl, initials: initials(p.displayName ?? p.handle, p.wallet), wallet: p.wallet },
+        agents: page.agents.map((a) => ({ ...a, initials: initials(a.name, a.id) })),
+        tasks: page.tasks,
+      });
+    }),
+  );
   return router;
 }

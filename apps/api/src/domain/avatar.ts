@@ -10,7 +10,7 @@ import sharp from "sharp";
  * `withMetadata()` is called, so the stored file carries pixels only.
  *
  * Storage: the public Supabase Storage bucket `avatars` of the TestMyAgent project. Object key =
- * `<wallet>/<first 16 hex of sha256(webp)>.webp`: the same picture gives the same key, and a new
+ * `<wallet>/<first 16 hex of sha256(webp)>.webp` for a user, `agents/<agent id>/<hash>.webp` for an agent: the same picture gives the same key, and a new
  * picture gives a new URL (no stale CDN cache).
  */
 
@@ -35,8 +35,11 @@ export interface ProcessedAvatar {
   key: string;
 }
 
-/** Decodes, validates, crops, resizes and re-encodes. Throws AvatarRejectedError. */
-export async function processAvatar(wallet: string, input: Buffer): Promise<ProcessedAvatar> {
+/**
+ * Decodes, validates, crops, resizes and re-encodes. Throws AvatarRejectedError.
+ * `prefix` is the folder of the object key: the wallet for a user, `agents/<agent id>` for an agent.
+ */
+export async function processAvatar(prefix: string, input: Buffer): Promise<ProcessedAvatar> {
   if (input.length === 0) throw new AvatarRejectedError("the file is empty");
   if (input.length > AVATAR_MAX_BYTES) throw new AvatarRejectedError("the file is larger than 2 MB", 413);
   let format: string | undefined;
@@ -60,7 +63,7 @@ export async function processAvatar(wallet: string, input: Buffer): Promise<Proc
     .webp({ quality: 86 })
     .toBuffer();
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  return { bytes, sha256, key: `${wallet}/${sha256.slice(0, 16)}.webp` };
+  return { bytes, sha256, key: `${prefix}/${sha256.slice(0, 16)}.webp` };
 }
 
 export interface AvatarStorage {

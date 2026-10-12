@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeAvatarStorage, fetchAvatarSource, processAvatar } from "../domain/avatar.js";
 import { FakeCatalogStore } from "../domain/catalog-store.js";
+import { FakeAgentAvatarStore } from "../domain/agent-avatar-store.js";
 import { issueSessionToken } from "./auth.js";
 import { createCatalogRouter } from "./catalog-router.js";
 import { collectWallets, enrichWithProfiles, profileEnrichment } from "./profile-enrich.js";
@@ -26,6 +27,8 @@ let base: string;
 let store: FakeCatalogStore;
 let storage: FakeAvatarStorage;
 let sourceFetch: typeof fetch;
+let agents: FakeAgentAvatarStore;
+const AGENT = "5c0caea5-19ce-4917-af7a-b3d344a4b9c7";
 
 const auth = (w: string) => ({ Authorization: `Bearer ${issueSessionToken(w).token}` });
 
@@ -39,12 +42,17 @@ async function upload(bytes: Buffer, type = "image/png", wallet = ME) {
 beforeEach(async () => {
   store = new FakeCatalogStore();
   storage = new FakeAvatarStorage();
+  agents = new FakeAgentAvatarStore();
+  agents.agents.set(AGENT, { ownerWallet: ME, slug: "demo-agent", avatarUrl: null, avatarKey: null });
   sourceFetch = (async () => new Response(new Uint8Array(await png(180, 180)), { status: 200 })) as typeof fetch;
   const app = express();
   app.use(express.json());
-  app.use(profileEnrichment((w) => store.listProfiles(w)));
+  app.use(profileEnrichment((w) => store.listProfiles(w), (i, sl) => agents.listAvatars(i, sl)));
   app.use(createCatalogRouter(store));
-  app.use(createProfileRouter({ store, storage, adminWallets: () => [ADMIN], fetchFn: (...a) => sourceFetch(...a) }));
+  app.use(createProfileRouter({ store, storage, adminWallets: () => [ADMIN], fetchFn: (...a) => sourceFetch(...a), agents }));
+  app.get("/agent-rows", (_req, res) => {
+    res.json({ rows: [{ id: AGENT, name: "Demo", initials: "DE" }], entries: [{ agentSlug: "demo-agent" }], other: { id: "6c0caea5-19ce-4917-af7a-b3d344a4b9c7", name: "X", initials: "X" } });
+  });
   app.get("/rows", (_req, res) => {
     res.json({ rows: [{ id: "a", authorName: "D0ingC0des", authorWallet: ME }, { id: "b", ownerWallet: OTHER }], owner: { wallet: ME, displayName: null, handle: null } });
   });
@@ -156,5 +164,38 @@ describe("fetchAvatarSource", () => {
     }) as typeof fetch;
     await expect(fetchAvatarSource("https://github.com/D0ingC0des.png", f)).rejects.toMatchObject({ status: 400 });
     expect(hops).toEqual(["https://github.com/D0ingC0des.png"]);
+  });
+});
+
+describe("agent pictures", () => {
+  async function uploadAgent(id: string, wallet: string) {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(await png())], { type: "image/png" }), "a.png");
+    const res = await fetch(`${base}/agents/${id}/avatar`, { method: "POST", headers: auth(wallet), body: form });
+    return { status: res.status, body: (await res.json()) as any };
+  }
+
+  it("the owner uploads; another wallet gets 404; responses carry the picture", async () => {
+    expect((await uploadAgent(AGENT, OTHER)).status).toBe(404);
+    const r = await uploadAgent(AGENT, ME);
+    expect(r.status).toBe(201);
+    expect([...storage.objects.keys()][0]).toMatch(new RegExp(`^agents/${AGENT}/[0-9a-f]{16}\\.webp$`));
+    const body = (await (await fetch(`${base}/agent-rows`)).json()) as any;
+    expect(body.rows[0].avatarUrl).toBe(r.body.avatarUrl);
+    expect(body.entries[0].agentAvatarUrl).toBe(r.body.avatarUrl);
+    expect(body.other.avatarUrl).toBeUndefined();
+    const del = await fetch(`${base}/agents/${AGENT}/avatar`, { method: "DELETE", headers: auth(ME) });
+    expect(((await del.json()) as any).avatarUrl).toBeNull();
+    expect(storage.objects.size).toBe(0);
+  });
+
+  it("an admin seeds an agent picture from an allow-listed host", async () => {
+    const res = await fetch(`${base}/admin/agents/${AGENT}/avatar`, {
+      method: "PUT",
+      headers: { ...auth(ADMIN), "Content-Type": "application/json" },
+      body: JSON.stringify({ avatarSourceUrl: "https://brand.devfellowship.com/downloads/dfl/dfl-icon-180.png" }),
+    });
+    expect(res.status).toBe(200);
+    expect(agents.agents.get(AGENT)!.avatarUrl).toMatch(/^https:\/\/storage\.test\/avatars\/agents\//);
   });
 });

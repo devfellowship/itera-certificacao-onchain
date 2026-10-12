@@ -51,6 +51,8 @@ export interface TaskResultRow {
   agentId: string;
   agentName: string;
   agentSlug: string | null;
+  /** U36: the agent owner (the profile middleware adds ownerProfile). Optional for older fakes. */
+  ownerWallet?: string | null;
   modelLabel: string | null;
   evaluationSlug: string | null;
   issuedAt: string | null;
