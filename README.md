@@ -64,6 +64,20 @@ Run `npm ci`, then `npm run dev` for local development. Run `npm run check`, `np
 
 Both Dockerfiles run `npm ci`, which checks `package-lock.json` against every workspace. When you add a workspace, add a `COPY <workspace>/package.json` line to both Dockerfiles. CI builds both images, so a missing line fails the PR.
 
+## API end-to-end check
+
+`npm run e2e:api -- --base <api>` drives a deployed API with a real devnet wallet: SIWS login, `/me`,
+catalog, GitHub routes, agent, quote (treasury and price itemization), one signed payment tx,
+`POST /evaluations`, polling to `issued`, run detail, proof, public profile, `og.png`, badges,
+leaderboard, My evaluations, and the negative checks (402, 403, 404, 401). It writes
+`e2e-report/api-e2e.json` and `api-e2e.md` (`--out` changes the folder) and exits 1 when a step fails.
+
+The wallet comes from `E2E_WALLET_SECRET_B58` (base58 secret key). It must own a GitHub App
+installation that holds `--repo` (default `devfellowship/testmyagent-demo-agent`) and hold about
+0.01 SOL: one run costs the quote (about US$0.18 at the recorded model cost). `--no-pay` runs the
+free steps only. `--evaluation <id>` re-verifies an evaluation that is already paid. A full run uses
+about 150 requests, and the API allows 300 per 15 min per IP; the script waits on a 429.
+
 ## CI and deployment
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on `ubuntu-latest` for every PR and every push to `main`. The repository is public, and the DFL self-hosted runner group refuses public repositories. CI runs the scenario check, `check`, `test`, `build`, and a Docker build of both images.
