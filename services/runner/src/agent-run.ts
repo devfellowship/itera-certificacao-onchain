@@ -39,7 +39,7 @@ export async function runAgent(opts: {
   config: SandboxConfig;
 }): Promise<AgentRunResult> {
   const prompt = await scenarioPrompt(opts.repoRoot, opts.scenarioId);
-  const ws = await prepareWorkspace({ repoRoot: opts.repoRoot, scenarioId: opts.scenarioId, agentDir: opts.agentDir });
+  const ws = await prepareWorkspace({ repoRoot: opts.repoRoot, scenarioId: opts.scenarioId, agentDir: opts.agentDir, installCmd: opts.config.profile.install_cmd });
   try {
     const outDir = join(ws.root, 'agent-out');
     const sandbox = await runInSandbox({

@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["index.js", "index.d.ts", "*.test.ts"]
+  "include": ["index.js", "run-profile.js", "index.d.ts", "*.test.ts"]
 }

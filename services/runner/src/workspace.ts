@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadTask, materializeWorkspace, scenarioDir } from '../../evaluator/src/task.js';
 import { exec } from './exec.js';
+import { loadRunProfile } from './run-profile.js';
 
 /** Agent files that are copied from the agent directory into the workspace. Nothing else is. */
 export const AGENT_FILES = ['AGENTS.md', 'CLAUDE.md'] as const;
@@ -49,6 +50,8 @@ export async function prepareWorkspace(opts: {
   taskDir?: string;
   agentDir: string;
   installDeps?: boolean;
+  /** The run profile's install_cmd (argv). Default: the built-in opencode profile. */
+  installCmd?: string[];
 }): Promise<PreparedWorkspace> {
   if (!opts.taskDir && !/^[a-z0-9-]+$/.test(opts.scenarioId)) throw new Error(`invalid scenario id: ${opts.scenarioId}`);
   const taskDir = opts.taskDir ?? scenarioDir(opts.repoRoot, opts.scenarioId);
@@ -78,13 +81,15 @@ export async function prepareWorkspace(opts: {
     }
 
     if (opts.installDeps !== false) {
-      const install = await exec('npm', ['ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'], {
+      const profile = loadRunProfile();
+      const installCmd = opts.installCmd ?? profile.install_cmd;
+      const install = await exec(installCmd[0]!, installCmd.slice(1), {
         cwd: dir,
-        timeoutMs: 180_000,
+        timeoutMs: profile.timeouts.install_sec * 1000,
         // No worker variable reaches npm: a .npmrc can expand ${VAR} into a registry request.
         env: { PATH: process.env.PATH, HOME: process.env.HOME ?? '/tmp', LANG: 'C.UTF-8' },
       });
-      if (install.code !== 0) throw new Error(`npm ci failed: ${install.stderr.slice(0, 400)}`);
+      if (install.code !== 0) throw new Error(`install (${installCmd.slice(0, 2).join(' ')}) failed: ${install.stderr.slice(0, 400)}`);
     }
 
     await writeFile(join(dir, '.gitignore'), 'node_modules/\n', 'utf-8');

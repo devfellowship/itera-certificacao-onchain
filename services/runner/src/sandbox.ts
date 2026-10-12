@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { exec, pipe } from './exec.js';
 import { parseGatewayUsage, type ModelUsage } from './model-usage.js';
+import { loadRunProfile, renderRunCmd, type RunProfile } from './run-profile.js';
 import { WORKSPACE_IN_SANDBOX } from './trace.js';
 
 export const SANDBOX_UID = 10001;
@@ -21,21 +22,30 @@ export interface SandboxConfig {
   pidsLimit: number;
   /** Hard model-cost cap of ONE run, in USD (ITERA_RUN_MAX_COST_USD). The gateway refuses calls above it. */
   maxCostUsd: number;
+  /** How the agent is installed, run and collected (Valkyrie-shaped run profile, profiles/<name>.json). */
+  profile: RunProfile;
 }
 
 export const DEFAULT_MAX_COST_USD = 0.5;
 
+/** Limits come from the run profile (ITERA_RUN_PROFILE, default opencode); the ITERA_* env vars still override. */
 export function defaultSandboxConfig(env: NodeJS.ProcessEnv = process.env): SandboxConfig {
+  const profile = loadRunProfile(env.ITERA_RUN_PROFILE || undefined);
+  const memMb = profile.resources.memory_mb;
   return {
     image: env.ITERA_SANDBOX_IMAGE ?? 'itera-runner-sandbox:latest',
     upstream: env.ITERA_MODEL_UPSTREAM ?? 'https://openrouter.ai',
-    wallMs: Number(env.ITERA_RUN_WALL_MS ?? DEFAULT_WALL_MS),
-    memory: env.ITERA_SANDBOX_MEMORY ?? '2g',
-    cpus: env.ITERA_SANDBOX_CPUS ?? '2',
-    pidsLimit: Number(env.ITERA_SANDBOX_PIDS ?? 512),
+    wallMs: Number(env.ITERA_RUN_WALL_MS ?? profile.timeouts.run_sec * 1000),
+    memory: env.ITERA_SANDBOX_MEMORY ?? (memMb % 1024 === 0 ? `${memMb / 1024}g` : `${memMb}m`),
+    cpus: env.ITERA_SANDBOX_CPUS ?? String(profile.resources.cpus),
+    pidsLimit: Number(env.ITERA_SANDBOX_PIDS ?? profile.resources.pids),
     maxCostUsd: positiveNumber(env.ITERA_RUN_MAX_COST_USD, DEFAULT_MAX_COST_USD),
+    profile,
   };
 }
+
+/** The sandbox image's ENTRYPOINT. A run_cmd that starts with another program gets --entrypoint. */
+export const SANDBOX_ENTRYPOINT = 'opencode';
 
 function positiveNumber(value: string | undefined, fallback: number): number {
   const n = Number(value);
@@ -58,6 +68,7 @@ export function buildCreateArgs(opts: {
   prompt: string;
   config: SandboxConfig;
 }): string[] {
+  const argv = renderRunCmd(opts.config.profile, { workspace: WORKSPACE_IN_SANDBOX, model: normalizeModel(opts.model), instruction: opts.prompt });
   return [
     'create',
     '--name', opts.name,
@@ -70,11 +81,9 @@ export function buildCreateArgs(opts: {
     '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges',
     '--user', `${SANDBOX_UID}:${SANDBOX_UID}`,
+    ...(argv[0] === SANDBOX_ENTRYPOINT ? [] : ['--entrypoint', argv[0]!]),
     opts.config.image,
-    'run', '--pure', '--format', 'json',
-    '--dir', WORKSPACE_IN_SANDBOX,
-    '-m', normalizeModel(opts.model),
-    opts.prompt,
+    ...argv.slice(1),
   ];
 }
 

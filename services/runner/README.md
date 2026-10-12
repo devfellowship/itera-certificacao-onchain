@@ -80,6 +80,25 @@ The worker runs the shared-contract job protocol:
 
 The worker image (`services/runner/Dockerfile`, context = repo root) is Debian (glibc), like the sandbox image: the `node_modules` that the worker installs run inside the sandbox, and musl-built native packages (rollup, esbuild) do not load there. It holds `benchmarks/`, `services/evaluator`, this package, git, GNU tar and a static Docker CLI. It needs the host Docker socket. At boot it builds the sandbox image from `services/runner/sandbox/` with a content-hash tag, so a change there takes effect on the next deploy.
 
+## Run profile (Valkyrie-shaped)
+
+The per-run configuration is a **run profile**, `profiles/<name>.json`, validated against `packages/contracts/schemas/run-profile.schema.json` (Ajv). Its boundaries and field names follow the Valkyrie agent contract (`vals-ai/Valkyrie` `docs/agents/agent-contract.mdx`, commit `68edd7ac`, AGPL-3.0: names reused, no code copied). `opencode` is the one built-in profile and reproduces the previous hard-coded behaviour byte for byte (`src/run-profile.test.ts`). `ITERA_RUN_PROFILE` selects another built-in profile.
+
+| Valkyrie field | Profile field | opencode value |
+|---|---|---|
+| `name` | `name` | `opencode` |
+| `install_cmd` (shell string) | `install_cmd` (argv, trusted side; npm needs `--ignore-scripts`) | `npm ci --include=dev --no-audit --no-fund --ignore-scripts` |
+| `run_cmd` (shell string, `{placeholders}`) | `run_cmd` (argv; `{workspace}` `{model}` `{instruction}`) | `opencode run --pure --format json --dir {workspace} -m {model} {instruction}` |
+| `final_output` (path) | `final_output` | `workspace-diff`: the tree is copied out and diffed against the runner's baseline |
+| `output_artifacts` | `output_artifacts` | `trace` = stdout, opencode JSON events, optional |
+| `install_egress` | `install_egress` | `registry.npmjs.org` |
+| — (benchmark run policy; legacy `egress_allowlist`) | `run_egress` (ours) | `model-gateway` only |
+| `secrets` (env name → secret store name) | `secrets` (names only; `inject_into` must be `gateway`) | `ITERA_UPSTREAM_KEY` ← the run's model key, gateway only |
+| — | `timeouts` (ours) | install 180 s, run 300 s |
+| — | `resources` (ours) | 2 cpus, 2048 MB, 512 pids |
+
+The `ITERA_RUN_WALL_MS`, `ITERA_SANDBOX_MEMORY`, `ITERA_SANDBOX_CPUS` and `ITERA_SANDBOX_PIDS` variables below still override the profile. `install_egress` is declarative today: the trusted-side install runs with the worker's network, and the lockfile check of `services/evaluator` (`resolved` URLs on `registry.npmjs.org`) is what holds it to the registry for task bundles.
+
 ## Configuration (env)
 
 | Variable | Default | Use |
