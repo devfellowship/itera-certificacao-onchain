@@ -8,9 +8,13 @@
     "dev": "turbo run dev --filter=@itera/web",
     "check": "turbo run check",
     "build": "turbo run build",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "design-diff": "node tools/design-diff/run.mjs"
   },
   "devDependencies": {
+    "pixelmatch": "^7.1.0",
+    "playwright": "^1.56.1",
+    "pngjs": "^7.0.0",
     "turbo": "2.11.7"
   },
   "overrides": {
