@@ -13,6 +13,7 @@ import { openRouterPrices } from "./domain/model-prices.js";
 import { solUsdProvider } from "./evaluations/price.js";
 import { SolanaPayGateway } from "./evaluations/solana-pay.js";
 import { PgEvaluationsStore } from "./evaluations/store.pg.js";
+import { PgPublicProfilesStore } from "./public/store.pg.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const repo = new PgRepository(getPool());
@@ -46,6 +47,8 @@ createApp(repo, {
     estimate: runCostEstimator(runsStore, openRouterPrices()),
     runKeySecret: process.env.ITERA_RUN_KEY_SECRET,
   },
+  // U14: public evaluation profile (needs 0008).
+  publicProfiles: new PgPublicProfilesStore(getPool()),
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });

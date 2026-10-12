@@ -75,7 +75,7 @@ This repository holds the coding-agent evaluation proof of concept for the Colos
 - `services/`: separate services, including a possible Python evaluation service.
 - `benchmarks/`: three candidate coding scenarios and the planned in-repo fixture/evaluator boundary.
 
-Run `npm ci`, then `npm run dev` for local development. Run `npm run check`, `npm run test`, and `npm run build` before a PR. The root `Dockerfile` builds `apps/web` and serves it through Nginx. `apps/api/Dockerfile` builds the API. Both use the repository root as the build context.
+Run `npm ci`, then `npm run dev` for local development. Run `npm run check`, `npm run test`, and `npm run build` before a PR. The root `Dockerfile` builds `apps/web` and serves it with `apps/web/server.mjs` (static files, SPA fallback, and OG/Twitter meta for `/e/*` link previews; `API_BASE_URL` overrides the API it reads). `apps/api/Dockerfile` builds the API. Both use the repository root as the build context.
 
 Both Dockerfiles run `npm ci`, which checks `package-lock.json` against every workspace. When you add a workspace, add a `COPY <workspace>/package.json` line to both Dockerfiles. CI builds both images, so a missing line fails the PR.
 

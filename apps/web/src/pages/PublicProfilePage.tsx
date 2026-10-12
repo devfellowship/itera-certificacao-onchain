@@ -1,6 +1,526 @@
-import { Placeholder } from './Placeholder'
+/**
+ * Screen 05 — public evaluation profile (`/e/:slugOrHash`, lane U14). Works logged out.
+ * Data: GET /public/evaluations/:slugOrHash. Link previews come from the web server
+ * (apps/web/server.mjs), which injects OG/Twitter meta for /e/* before the SPA loads.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
+import { api, ApiError } from '../lib/api'
+import type { Outcome, PublicEvaluation, ScorePartKey } from '../lib/api/types'
+import { Avatar, Badge, Button, ButtonLink, Lockup, Logo, middle, StatusChip, TagPill } from '../tma/ui'
+import { NotFoundPage } from './NotFoundPage'
+import './public-profile.css'
 
-// Owner: lane U14. Replace this placeholder with the screen.
+const PART_LABELS: Array<{ key: ScorePartKey; label: string; max: number }> = [
+  { key: 'hidden_behavior', label: 'Hidden tests', max: 50 },
+  { key: 'public_behavior', label: 'Public tests', max: 20 },
+  { key: 'regression', label: 'Regression', max: 15 },
+  { key: 'patch_integrity_and_scope', label: 'Patch scope', max: 10 },
+  { key: 'reproducible_evidence', label: 'Evidence', max: 5 },
+]
+
+const SEG_COLOR: Record<Outcome, string> = { PASS: 'var(--tma-primary-text)', FAIL: 'var(--tma-danger-text)', INVALID: 'var(--tma-text-muted)' }
+
+function fmtDate(iso: string | null, withTime = false): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  if (!withTime) return date
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+  return `${date} · ${time} UTC`
+}
+
+function mmss(ms: number | null): string {
+  if (ms == null) return '—'
+  const s = Math.round(ms / 1000)
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+function fmtScore(n: number | null): string {
+  if (n == null) return '—'
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
+
+function useFlash(): [string | null, (k: string) => void] {
+  const [k, setK] = useState<string | null>(null)
+  const t = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(t.current), [])
+  return [
+    k,
+    (key: string) => {
+      setK(key)
+      window.clearTimeout(t.current)
+      t.current = window.setTimeout(() => setK(null), 1200)
+    },
+  ]
+}
+
+async function copy(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    /* clipboard blocked: the field still shows the text */
+  }
+}
+
+type VerifyState = { kind: 'idle' } | { kind: 'running' } | { kind: 'done'; ok: boolean; passed: number; total: number; detail: string } | { kind: 'error'; message: string }
+
+function PublicHeader() {
+  return (
+    <header className="tma-nav pp-nav">
+      <Lockup />
+      <div className="pp-nav__right">
+        <a className="pp-nav__link" href="/verify">
+          How verification works
+        </a>
+        <ButtonLink href="/agents/new" variant="primary" size={36}>
+          Evaluate your agent
+        </ButtonLink>
+      </div>
+    </header>
+  )
+}
+
 export function PublicProfilePage() {
-  return <Placeholder screen="Evaluation profile" lane="U14" route="/e/:slugOrHash" />
+  const { slugOrHash = '' } = useParams()
+  const [data, setData] = useState<PublicEvaluation | null>(null)
+  const [state, setState] = useState<'loading' | 'ok' | 'notfound' | 'error'>('loading')
+  const [error, setError] = useState('')
+
+  const load = useCallback(() => {
+    setState('loading')
+    api
+      .publicEvaluation(slugOrHash)
+      .then((d) => {
+        setData(d)
+        setState('ok')
+      })
+      .catch((e: unknown) => {
+        if (e instanceof ApiError && e.status === 404) setState('notfound')
+        else {
+          setError(e instanceof Error ? e.message : String(e))
+          setState('error')
+        }
+      })
+  }, [slugOrHash])
+  useEffect(load, [load])
+
+  useEffect(() => {
+    if (data) document.title = `${data.agent.name} — ${fmtScore(data.score)} on TestMyAgent`
+  }, [data])
+
+  return (
+    <div className="tma-app pp">
+      <PublicHeader />
+      {state === 'loading' && (
+        <main className="pp-page" data-testid="profile-loading" aria-busy="true">
+          <div className="pp-skeleton pp-skeleton--hero" />
+          <div className="pp-skeleton pp-skeleton--bar" />
+          <div className="pp-skeleton pp-skeleton--grid" />
+        </main>
+      )}
+      {state === 'notfound' && <NotFoundPage />}
+      {state === 'error' && (
+        <main className="pp-page" data-testid="profile-error">
+          <div className="pp-error">
+            <span className="pp-error__title">This profile could not load.</span>
+            <span className="tma-muted">{error}</span>
+            <div>
+              <Button variant="secondary" onClick={load}>
+                Try again
+              </Button>
+            </div>
+          </div>
+        </main>
+      )}
+      {state === 'ok' && data && <Profile data={data} />}
+    </div>
+  )
+}
+
+function Profile({ data }: { data: PublicEvaluation }) {
+  const [copied, flash] = useFlash()
+  const [verify, setVerify] = useState<VerifyState>({ kind: 'idle' })
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const shareUrl = `${origin}/e/${data.slug}`
+  const shownUrl = shareUrl.replace(/^https?:\/\//, '')
+  const n = data.tasks.length
+  const confirmed = data.record.status === 'Confirmed'
+  const ogTitle = `${data.agent.name} — ${fmtScore(data.score)} on TestMyAgent`
+  const badgeUrl = data.links?.badge ?? `${origin}/b/${data.slug}.svg`
+  const badgeMd = `[![testmyagent](${badgeUrl})](${shareUrl})`
+  const xUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(ogTitle)}&url=${encodeURIComponent(shareUrl)}`
+  const liUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`
+  const mintable = data.record.proofs.filter((p) => p.nftMint)
+  const integrity = verify.kind === 'done' ? (verify.ok ? 'verified' : 'mismatch') : confirmed ? 'verified' : 'unavailable'
+  const anyLabel = (l: string) => data.tasks.some((t) => t.labels?.includes(l))
+
+  async function runVerify() {
+    setVerify({ kind: 'running' })
+    try {
+      const { verifyProof } = await import('../verify')
+      let passed = 0
+      let total = 0
+      let ok = true
+      let detail = ''
+      for (const p of mintable) {
+        const r = await verifyProof(p.nftMint!)
+        total += r.checks.length
+        passed += r.checks.filter((c) => c.status === 'pass').length
+        if (r.overall !== 'VERIFIED') {
+          ok = false
+          detail = r.checks.find((c) => c.status === 'fail')?.label ?? 'a check failed'
+        }
+      }
+      setVerify({ kind: 'done', ok, passed, total, detail })
+    } catch (e) {
+      setVerify({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
+  return (
+    <main className="pp-page" data-testid="public-profile">
+      {/* Hero */}
+      <section className="pp-hero" data-testid="profile-hero">
+        <div className="pp-hero__main">
+          <span className="tma-label">Evaluation profile · {fmtDate(data.issuedAt)}</span>
+          <div className="pp-hero__id">
+            <Avatar initials={data.agent.initials} size={80} />
+            <div className="pp-hero__names">
+              <h1 className="pp-display">{data.agent.name}</h1>
+              <span className="pp-byline">
+                by <span className="pp-byline__owner" title={data.owner?.wallet}>{data.agent.authorName}</span> · {data.agent.modelLabel} via OpenRouter
+                {data.agent.commit && (
+                  <>
+                    {' '}
+                    · <span className="pp-mono13" title={data.agent.commitFull ?? undefined}>{data.agent.commit}</span>
+                  </>
+                )}
+              </span>
+            </div>
+          </div>
+          {data.agent.description && <p className="pp-desc">{data.agent.description}</p>}
+          {data.tags.length > 0 && (
+            <div className="pp-tags">
+              {data.tags.map((t) => (
+                <TagPill key={t.id} large>
+                  {t.name}
+                </TagPill>
+              ))}
+            </div>
+          )}
+          <div className="pp-status-row">
+            <div className="pp-status">
+              <span className="tma-label">Task outcome</span>
+              <div className="pp-status__badges" data-testid="outcome-counts">
+                {data.counts.pass > 0 && <Badge tone="success">{data.counts.pass} PASS</Badge>}
+                {data.counts.fail > 0 && <Badge tone="danger">{data.counts.fail} FAIL</Badge>}
+                {data.counts.invalid > 0 && <Badge tone="neutral">{data.counts.invalid} INVALID</Badge>}
+              </div>
+            </div>
+            <div className="pp-status">
+              <span className="tma-label">Record integrity</span>
+              <div className="pp-status__badges" data-testid="record-integrity">
+                <StatusChip status={integrity} dot />
+              </div>
+            </div>
+            <div className="pp-status">
+              <span className="tma-label">Runtime</span>
+              <div className="pp-status__badges">
+                <StatusChip status="platform_run" dot />
+              </div>
+            </div>
+            {data.selfEvaluated && (
+              <div className="pp-status">
+                <span className="tma-label">Evaluated by</span>
+                <div className="pp-status__badges" data-testid="self-evaluated">
+                  <Badge tone="neutral">Self-evaluated</Badge>
+                </div>
+              </div>
+            )}
+            {(anyLabel('sealed-tests') || anyLabel('open-tests')) && (
+              <div className="pp-status">
+                <span className="tma-label">Hidden tests</span>
+                <div className="pp-status__badges" data-testid="tests-label">
+                  {anyLabel('sealed-tests') && <Badge tone="neutral">Sealed</Badge>}
+                  {anyLabel('open-tests') && <Badge tone="neutral">Open</Badge>}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="pp-hero__score">
+          <div className="pp-score">
+            <span className="tma-label">Score</span>
+            <span className="pp-score__value" data-testid="profile-score">
+              {fmtScore(data.score)}
+            </span>
+            <span className="pp-score__note">out of 100 · hidden tests, regression and patch scope</span>
+          </div>
+          {data.scoreParts && (
+            <div className="pp-parts" data-testid="score-parts">
+              {PART_LABELS.map((p) => {
+                const v = data.scoreParts![p.key]
+                const max = data.scorePartsMax?.[p.key] ?? p.max
+                return (
+                  <div className="pp-part" key={p.key}>
+                    <span className="pp-part__label">{p.label}</span>
+                    <span className="pp-part__track">
+                      <span className="pp-part__fill" style={{ width: `${Math.max(0, Math.min(1, v / max)) * 100}%` }} />
+                    </span>
+                    <span className="pp-part__value">
+                      {fmtScore(v)} / {max}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <div className="pp-score__foot">
+            <div className="pp-segs">
+              {data.tasks.map((t, i) => (
+                <span key={i} className="pp-seg" style={{ background: t.outcome ? SEG_COLOR[t.outcome] : 'var(--tma-line-strong)' }} title={t.outcome ?? 'no result'} />
+              ))}
+            </div>
+            <span className="pp-score__note">
+              {data.counts.pass} of {n} task{n === 1 ? '' : 's'} passed · {data.testsPassed} of {data.testsTotal} hidden tests
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* Share bar */}
+      <section className="pp-share" data-testid="share-bar">
+        <div className="pp-share__field">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M6 8a2.5 2.5 0 0 0 3.5 0l2-2a2.5 2.5 0 0 0-3.5-3.5l-.6.6M8 6a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 6 11.5l.6-.6" />
+          </svg>
+          <span className="pp-share__url" data-testid="share-url">
+            {shownUrl}
+          </span>
+        </div>
+        <Button
+          variant="primary"
+          onClick={() => {
+            void copy(shareUrl)
+            flash('link')
+          }}
+        >
+          {copied === 'link' ? 'Copied' : 'Copy link'}
+        </Button>
+        <a className="tma-btn tma-btn--secondary" href={xUrl} target="_blank" rel="noreferrer" data-testid="share-x">
+          Share on X
+        </a>
+        <a className="tma-btn tma-btn--secondary" href={liUrl} target="_blank" rel="noreferrer" data-testid="share-linkedin">
+          Share on LinkedIn
+        </a>
+      </section>
+
+      {/* Tasks */}
+      <section className="pp-tasks">
+        <div className="pp-tasks__head">
+          <h2 className="pp-h2">Tasks</h2>
+          <span className="pp-small-muted">Each cell is one hidden test.</span>
+        </div>
+        <div className="pp-tasks__grid">
+          {data.tasks.map((t, i) => (
+            <article className="pp-task" key={t.runId ?? i} data-testid="task-card">
+              <div className="pp-task__head">
+                <div className="pp-task__names">
+                  <span className="pp-task__name">{t.name}</span>
+                  {t.description && <span className="pp-small-muted">{t.description}</span>}
+                </div>
+                {t.outcome ? <Badge tone={t.outcome === 'PASS' ? 'success' : t.outcome === 'FAIL' ? 'danger' : 'neutral'}>{t.outcome}</Badge> : <Badge tone="warning">Review</Badge>}
+              </div>
+              <div className="pp-cells" aria-label={`${t.testsPassed} of ${t.testsTotal} hidden tests passed`}>
+                {t.testResults.map((ok, j) => (
+                  <span key={j} className={ok ? 'pp-cell pp-cell--pass' : 'pp-cell pp-cell--fail'} title={ok ? 'passed' : 'failed'} />
+                ))}
+              </div>
+              <div className="pp-task__foot">
+                <div className="pp-task__tags">
+                  {t.tags.map((g) => (
+                    <TagPill key={g.id}>{g.name}</TagPill>
+                  ))}
+                  {t.labels?.includes('sealed-tests') && <TagPill>Sealed tests</TagPill>}
+                  {t.labels?.includes('open-tests') && <TagPill>Open tests</TagPill>}
+                </div>
+                <span className="pp-mono12">
+                  {t.testsPassed} / {t.testsTotal} tests · {mmss(t.durationMs)}
+                  {t.score != null && <> · score {fmtScore(t.score)}</>}
+                </span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {/* Link preview · README badge · Onchain record */}
+      <section className="pp-cards">
+        <div className="tma-card pp-card">
+          <div className="tma-card__header">
+            <span className="tma-card__title">Link preview</span>
+          </div>
+          <div className="pp-card__body">
+            {data.links?.og ? (
+              <img className="pp-og-img" src={data.links.og} alt={`Link preview: ${ogTitle}`} width={1200} height={630} data-testid="og-image" />
+            ) : (
+              <div className="pp-og">
+                <div className="pp-og__top">
+                  <Logo width={39} height={18} />
+                  <span className="pp-og__kicker">{confirmed ? 'Verified onchain' : 'Pending onchain'}</span>
+                </div>
+                <div className="pp-og__bottom">
+                  <div className="pp-og__names">
+                    <span className="pp-og__name">{data.agent.name}</span>
+                    <span className="pp-og__sum">
+                      {data.counts.pass} of {n} tasks PASS · {data.agent.modelLabel}
+                    </span>
+                  </div>
+                  <span className="pp-og__score">{fmtScore(data.score)}</span>
+                </div>
+              </div>
+            )}
+            <span className="pp-small-muted">How the link unfurls on X, LinkedIn and Slack.</span>
+          </div>
+        </div>
+
+        <div className="tma-card pp-card">
+          <div className="tma-card__header">
+            <span className="tma-card__title">README badge</span>
+          </div>
+          <div className="pp-card__body pp-card__body--grow">
+            <div className="pp-badge-wrap">
+              <div className="pp-badge">
+                <span className="pp-badge__left">
+                  <Logo variant="symbol" solid width={12} height={12} />
+                  testmyagent
+                </span>
+                <span className="pp-badge__right">
+                  {fmtScore(data.score)} · {confirmed ? 'verified' : 'pending'}
+                </span>
+              </div>
+            </div>
+            <div className="pp-snippet" data-testid="badge-snippet">
+              {badgeMd}
+            </div>
+            <Button
+              variant="secondary"
+              size={36}
+              onClick={() => {
+                void copy(badgeMd)
+                flash('badge')
+              }}
+            >
+              {copied === 'badge' ? 'Copied' : 'Copy Markdown'}
+            </Button>
+          </div>
+        </div>
+
+        <div className="tma-card pp-card" data-testid="onchain-record">
+          <div className="tma-card__header">
+            <span className="tma-card__title">Onchain record</span>
+            <StatusChip status={confirmed ? 'confirmed' : 'pending'} dot />
+          </div>
+          <div className="pp-kv">
+            <span className="pp-kv__k">Network</span>
+            <span className="pp-kv__v">{data.record.network}</span>
+            <span className="pp-kv__k">Issued</span>
+            <span className="pp-kv__v">{fmtDate(data.record.issuedAt, true)}</span>
+            {data.record.proofs.map((p, i) => (
+              <ProofRows key={p.runId ?? i} proof={p} multi={data.record.proofs.length > 1} index={i} />
+            ))}
+            {data.cost && (data.cost.feeSol != null || data.cost.modelCostUsd != null) && (
+              <>
+                <span className="pp-kv__k">Cost</span>
+                <span className="pp-kv__v" data-testid="cost">
+                  {data.cost.feeSol != null && (
+                    <>
+                      {data.cost.feeSol} SOL{data.cost.feeUsd != null && <> ≈ ${data.cost.feeUsd.toFixed(2)}</>}
+                    </>
+                  )}
+                  {data.cost.feeSol == null && data.cost.modelCostUsd != null && <>${data.cost.modelCostUsd.toFixed(2)} model tokens</>}
+                </span>
+              </>
+            )}
+          </div>
+          <div className="pp-record__foot">
+            <div className="pp-record__line">
+              <span className="tma-muted">Verifiable without a wallet.</span>
+              {data.record.proofs[0]?.txSig && confirmed && (
+                <a className="pp-green-link" href={data.record.proofs[0].txUrl ?? `https://solscan.io/tx/${data.record.proofs[0].txSig}?cluster=devnet`} target="_blank" rel="noreferrer">
+                  View on Solscan ↗
+                </a>
+              )}
+            </div>
+            {mintable.length > 0 && (
+              <div className="pp-record__line">
+                <button type="button" className="pp-text-btn" onClick={runVerify} disabled={verify.kind === 'running'} data-testid="verify-button">
+                  {verify.kind === 'running' ? 'Verifying on devnet…' : 'Verify in browser'}
+                </button>
+                {verify.kind === 'done' && (
+                  <span className={verify.ok ? 'pp-verify pp-verify--ok' : 'pp-verify pp-verify--bad'} data-testid="verify-result">
+                    {verify.ok ? 'VERIFIED' : 'MISMATCH'} · {verify.passed}/{verify.total} checks
+                    {!verify.ok && verify.detail && <> · {verify.detail}</>}
+                  </span>
+                )}
+                {verify.kind === 'error' && <span className="pp-verify pp-verify--bad">{verify.message}</span>}
+              </div>
+            )}
+            {data.links?.manifest ? (
+              <a className="pp-subtle-link" href={data.links.manifest} download data-testid="manifest-download">
+                Download manifest (JSON)
+              </a>
+            ) : (
+              <span className="pp-subtle-link">Download manifest (JSON)</span>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <span className="pp-disclaimer">{data.disclaimer}</span>
+    </main>
+  )
+}
+
+function ProofRows({ proof, multi, index }: { proof: PublicEvaluation['record']['proofs'][number]; multi: boolean; index: number }) {
+  const suffix = multi ? ` ${index + 1}` : ''
+  return (
+    <>
+      {proof.txSig && (
+        <>
+          <span className="pp-kv__k">Transaction{suffix}</span>
+          <span className="pp-kv__v pp-mono12">
+            {proof.txUrl ? (
+              <a className="pp-plain-link" href={proof.txUrl} target="_blank" rel="noreferrer" title={proof.txSig}>
+                {middle(proof.txSig)}
+              </a>
+            ) : (
+              middle(proof.txSig)
+            )}
+          </span>
+        </>
+      )}
+      {proof.nftMint && (
+        <>
+          <span className="pp-kv__k">Proof NFT{suffix}</span>
+          <span className="pp-kv__v pp-mono12" data-testid="proof-nft">
+            <a className="pp-plain-link" href={proof.nftUrl ?? `https://solscan.io/token/${proof.nftMint}?cluster=devnet`} target="_blank" rel="noreferrer" title={proof.nftMint}>
+              {middle(proof.nftMint)}
+            </a>
+          </span>
+        </>
+      )}
+      {proof.evidenceCid && (
+        <>
+          <span className="pp-kv__k">Evidence{suffix}</span>
+          <span className="pp-kv__v pp-mono12" data-testid="evidence-cid">
+            <a className="pp-plain-link" href={proof.evidenceUrl ?? `https://gateway.pinata.cloud/ipfs/${proof.evidenceCid}`} target="_blank" rel="noreferrer" title={proof.evidenceCid}>
+              {middle(proof.evidenceCid, 8, 6)}
+            </a>
+          </span>
+        </>
+      )}
+    </>
+  )
 }
