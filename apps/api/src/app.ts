@@ -10,6 +10,7 @@ import { createEvaluationsRouter } from "./http/evaluations-router.js";
 import { createEvaluationsV2Router, type EvaluationsRouterDeps } from "./evaluations/router.js";
 import { createNftRouter } from "./http/nft-router.js";
 import { createAgentsRankingRouter, defaultAgentsRankingRouterDeps, type AgentsRankingRouterDeps } from "./http/agents-ranking-router.js";
+import { createAgentProfileRouter, defaultAgentProfileRouterDeps, type AgentProfileRouterDeps } from "./http/agent-profile-router.js";
 import { createGithubRouter, defaultGithubRouterDeps, type GithubRouterDeps } from "./http/github-router.js";
 import { createProofsRouter } from "./http/proofs-router.js";
 import { createPublicRouter } from "./public/router.js";
@@ -68,6 +69,11 @@ const ROUTES = [
   "POST /agents",
   "GET /agents",
   "GET /agents/:id",
+  "GET /agents/:idOrSlug/profile",
+  "GET /agents/:idOrSlug/my-results",
+  "GET /badge/agents/:slug.svg",
+  "GET /badge/evaluations/:slug.svg",
+  "GET /b/:slug.svg",
   "POST /agents/:id/refresh",
   "POST /runs/:id/start-signature",
   "GET /proofs/:hash",
@@ -96,6 +102,8 @@ export interface AppOptions {
   github?: GithubRouterDeps;
   /** GET /agents/ranking (U8). Defaults to the Pg store + an indicative CoinGecko SOL/USD rate. */
   ranking?: AgentsRankingRouterDeps;
+  /** GET /agents/:id/profile, /my-results and the README badges (U15, U16). Defaults to the Pg store. */
+  profile?: AgentProfileRouterDeps;
   /** Lane D proofs (start-signature, /proofs/:hash, /leaderboard). Mounted only when given. */
   proofs?: ProofStore;
   /** U5 catalog (tasks, tags, models from DB, profile). Mounted before the GitHub router so its
@@ -169,6 +177,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   if (options.catalog && !githubDeps.isModelAllowed) githubDeps.isModelAllowed = modelAccessCheck(options.catalog);
   // Before the GitHub router: its GET /agents/:id would take "ranking" as an id.
   app.use(createAgentsRankingRouter(options.ranking ?? defaultAgentsRankingRouterDeps()));
+  app.use(createAgentProfileRouter(options.profile ?? defaultAgentProfileRouterDeps()));
   app.use(createGithubRouter(githubDeps));
   if (options.proofs) app.use(createProofsRouter({ store: options.proofs }));
   if (options.publicProfiles) app.use(createPublicRouter({ store: options.publicProfiles }));
