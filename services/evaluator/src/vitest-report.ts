@@ -20,12 +20,20 @@ interface JestLikeReport {
 }
 
 export async function parseVitestJsonReport(reportPath: string): Promise<TestSuiteResult> {
-  const raw = await readFile(reportPath, 'utf-8');
+  return parseVitestJsonText(await readFile(reportPath, 'utf-8'));
+}
+
+export function parseVitestJsonText(raw: string): TestSuiteResult {
   const report = JSON.parse(raw) as JestLikeReport;
+  if (!report || typeof report !== 'object' || !Array.isArray(report.testResults)) {
+    throw new Error('not a vitest JSON report (no testResults array)');
+  }
 
   const cases: TestCaseResult[] = [];
+  let skipped = 0;
   for (const file of report.testResults ?? []) {
     for (const assertion of file.assertionResults ?? []) {
+      if (assertion.status === 'skipped' || assertion.status === 'pending' || assertion.status === 'todo') skipped++;
       cases.push({
         name: assertion.fullName || assertion.title,
         file: file.name,
@@ -35,5 +43,7 @@ export async function parseVitestJsonReport(reportPath: string): Promise<TestSui
   }
 
   const passed = cases.filter((c) => c.passed).length;
-  return { total: cases.length, passed, failed: cases.length - passed, cases };
+  // `failed` counts every case that did not pass (skipped and todo included), as the score always
+  // did. `skipped` is reported separately so the exit-code cross-check can tell them apart.
+  return { total: cases.length, passed, failed: cases.length - passed, skipped, cases };
 }

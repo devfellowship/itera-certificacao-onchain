@@ -164,7 +164,7 @@ export function createEvaluationsRouter(repo: Repository): Router {
       runId: run.id,
       nonce: run.nonce,
       task: { id: run.taskPackId, version: run.taskPackVersion },
-      fixtureRef: `benchmarks/${run.taskPackId}/fixture`,
+      fixtureRef: `benchmarks/${run.taskPackId}/environment`,
       deadlineAt: new Date(Date.now() + DISPATCH_TIMEOUT_MS).toISOString(),
       outputContract: "patch-v1",
     };

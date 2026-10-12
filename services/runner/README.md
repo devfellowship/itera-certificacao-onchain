@@ -18,11 +18,11 @@ npx tsx services/runner/src/run-once.ts \
 
 ## What one run does
 
-1. **Workspace (trusted side).** The runner copies ONLY `benchmarks/<scenario>/fixture` to a temp dir. It does not copy the monorepo, the evaluator or the hidden tests. It copies the agent's `AGENTS.md`, `CLAUDE.md` and `skills/` (to `.opencode/skills/`, where opencode finds project skills). Nothing else from the agent directory goes in. It runs `npm ci --ignore-scripts`, so the agent can run the public tests without network. A baseline git commit records the start state.
-2. **Sandbox.** The runner creates a new container from `sandbox/Dockerfile` and a new `--internal` Docker network for this run. It copies the workspace in with `docker cp` (no bind mount, no Docker socket). The container runs `opencode run --pure --format json -m openrouter/<model> "<scenario agent_prompt>"`.
+1. **Workspace (trusted side).** The runner reads the task contract (`benchmarks/<scenario>/task.json`, or any task bundle, see `services/evaluator/README.md`) and copies ONLY its `environment/` plus the public tests (`tests/public/`) to a temp dir. It does not copy the monorepo, the evaluator, the hidden tests or `solution/`. It copies the agent's `AGENTS.md`, `CLAUDE.md` and `skills/` (to `.opencode/skills/`, where opencode finds project skills). Nothing else from the agent directory goes in. It runs `npm ci --ignore-scripts`, so the agent can run the public tests without network. A baseline git commit records the start state.
+2. **Sandbox.** The runner creates a new container from `sandbox/Dockerfile` and a new `--internal` Docker network for this run. It copies the workspace in with `docker cp` (no bind mount, no Docker socket). The container runs `opencode run --pure --format json -m openrouter/<model> "<the task instruction.md>"`.
 3. **Trace.** opencode writes one JSON event per line. Each `tool_use` event becomes one action: `seq`, `tool`, `target` (file path relative to the workspace, shell command, or pattern; max 300 characters), `ok`, `occurredAt`.
 4. **Patch.** The runner copies the tree back, drops the agent's `.git` and `node_modules`, and diffs the tree against ITS OWN baseline repository. The runner never runs git with the agent's `.git`: a planted hook, `core.fsmonitor` or filter could run commands on the worker.
-5. **Grade (in a second sandbox container).** The evaluator executes agent-authored `src/**` through vitest, so it never runs in the worker process (root, Docker socket, `DATABASE_URL`). `src/grade.ts` starts a grader container from the sandbox image with `--network none`, no environment secret, no mount, non-root, capabilities dropped. It receives a fresh fixture (dependencies installed on the trusted side with `npm ci --ignore-scripts`), the hidden tests, the evaluator bundled into one file (`services/evaluator/dist/cli.mjs`, esbuild) and the patch. The manifest comes back with `docker cp` and must pass a shape check; anything else is a grader failure, never a score.
+5. **Grade (in grading containers, see "Grader sandbox").** The evaluator orchestrates on the trusted side: it installs the lockfile with `npm ci --ignore-scripts` and a scrubbed environment, applies the patch with git, checks the scope against `editable_paths` / `protected_paths`, and computes the score. Only the verifier command of `task.json` runs in a container, a fresh one per suite.
 
 ## Sandbox — what is enforced and what is not
 
@@ -39,8 +39,30 @@ npx tsx services/runner/src/run-once.ts \
 | Model cost per run | Yes (hard cap) | The gateway reads OpenRouter's `usage` (tokens + `cost` in USD) of every response and keeps the run's total. When the total reaches `ITERA_RUN_MAX_COST_USD` (default 0.50), it answers `402` to every further model call; the run ends `timeout` with the error `model cost cap reached: ...`. A call already in flight can finish, so the total can pass the cap by the cost of that one call. |
 | What the agent sends to the model | **No** | The workspace content goes to the model provider. The workspace holds only the public fixture and the agent's own files. |
 | Reading the key's metadata | **No** | `GET /api/v1/key` answers with the key's label and usage, not the key value. |
-| Grading integrity against a hostile patch | **Partly** | The agent's code runs in the same grader container as vitest, so a hostile patch could tamper with the test report or the manifest file. It cannot reach the worker, the network, a secret or the database. A tampered result is still bounded by the patch, which is stored next to it and can be re-graded. |
+| Grading integrity against a hostile patch | **Partly** | See "Grader sandbox" below: the scope verdict and the score are computed outside the container, the test files and the test framework are read-only, and the report is cross-checked with the exit code. The patched code still runs in the same process as the tests. |
 | Sandbox escape through a kernel or runtime bug | **No** | This is a plain `runc` container. gVisor or a VM would be stronger. |
+
+## Grader sandbox (ADR-9) — what is enforced and what is not
+
+Grading executes code that the agent wrote (`src/**`) and, for a user task, tests that a user wrote. `src/grade.ts` runs each verifier suite (`public-baseline`, `public-after-patch`, `hidden`) in its OWN new container from the sandbox image. Nothing carries over from one suite to the next. Proven by `src/grade.integration.test.ts` (CI, real Docker) with the probe task `test-tasks/escape-probe`, whose five hidden tests try each forbidden action: all five fail.
+
+| Control | Enforced | How |
+|---|---|---|
+| No network | Yes | `--network none`. Probe: `fetch('http://1.1.1.1/')` fails. |
+| No Docker socket, no host path | Yes | Only two anonymous volumes (`/workspace`, `/out`), filled with `docker cp`. Probe: `/var/run/docker.sock` does not exist. |
+| No worker environment | Yes | `docker create` gets only `HOME=/tmp CI=1 NPM_CONFIG_OFFLINE=true NPM_CONFIG_UPDATE_NOTIFIER=false`. Probe: `DATABASE_URL` is empty although the worker has it. The trusted-side `npm ci` and git also run with a scrubbed environment, and a bundle with `.npmrc`/`.yarnrc` is refused (a `.npmrc` can expand `${VAR}` into a registry request). |
+| Read-only root filesystem | Yes | `--read-only`, `--tmpfs /tmp` (256 MB). |
+| User | Yes | uid 10002: not root and not the agent's uid 10001. `--cap-drop ALL`, `no-new-privileges`. |
+| Tests, config and test framework not writable | Yes | The workspace is root-owned, mode `go-w`. Only the top directory (sticky, vite writes its bundled config there) and `node_modules/.vite` (sticky, vitest cache) accept new files. Probe: writing `node_modules/vitest/package.json` and planting a file in `tests/hidden/` both fail. |
+| Hidden tests only after the patch is frozen | Yes | They exist only in the `hidden` container; the agent sandbox never has them. |
+| Scope verdict and score outside the container | Yes | The patch is applied with git on the worker (`--no-renames`: a rename out of `tests/` counts; a symlink in the patch is a violation). The container only returns a report. |
+| Resource limits | Yes | `--memory` = `--memory-swap` (min of task `memory_mb` and `ITERA_SANDBOX_MEMORY`), `--cpus` (min of task `cpus` and `ITERA_SANDBOX_CPUS`), `--pids-limit`, `--ulimit nofile=1024`, `--ulimit fsize=256 MB`, wall limit = task `verifier.timeout_sec` then `docker kill`. |
+| Report not forgeable to a full pass | **Partly** | The report file is written by the vitest process, which is the same uid as the patched code, so the patched code CAN overwrite it. The evaluator trusts a report only when it agrees with the verifier exit code (vitest exits 0 if and only if no test failed); a disagreement is `report_mismatch` → error → no score. A forged full pass therefore also needs exit code 0. A forged partial count on a failing suite is still possible. |
+| Patched code tampering with the test framework in memory | **No** | The patched module is imported by the tests, in the same process. It can monkey-patch `expect` and make assertions pass. This is true of every in-process JS verifier (Harbor and SWE-bench share it). The manifest lists it under `limitations`. |
+| Pinned environment | Yes | Install = `npm ci` from the lockfile (lockfile `resolved` URLs must be on `registry.npmjs.org`). The manifest records `environment` (image name + image Id, install argv, lockfile sha256), `environment_digest` (sha256 of it), `evaluator_digest` (sha256 of the evaluator sources) and `evaluator_commit` (`ITERA_GIT_COMMIT`, null when the deployment does not set it). |
+| Kernel or runtime escape | **No** | Plain `runc`. gVisor or a VM would be stronger. |
+
+**Validation gate for user tasks.** `validateTaskInSandbox` (services/evaluator `validateTask` with the sandbox executor) checks: (i) on the untouched environment at least one hidden case FAILS; (ii) with `solution/` applied the patch is in scope and every public and hidden case PASSES; (iii) (ii) gives the same result 3 times; (iv) every verifier run ends inside `verifier.timeout_sec`. The result has counts only, never test names.
 
 ## Step 2: the worker (`src/worker.ts`)
 

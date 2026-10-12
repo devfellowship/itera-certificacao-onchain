@@ -2,8 +2,8 @@
 // for how the runner mounts this file after the agent's patch is frozen).
 import { createHmac } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getSettlement, ledger, postEvents } from '../../fixture/src/app.js';
-import { FIXTURE_SIGNING_KEY } from '../../fixture/src/ledger.js';
+import { getSettlement, ledger, postEvents } from '../../src/app.js';
+import { FIXTURE_SIGNING_KEY } from '../../src/ledger.js';
 
 function sign(rawBody: string, key = FIXTURE_SIGNING_KEY): string {
   return createHmac('sha256', key).update(rawBody, 'utf8').digest('hex');

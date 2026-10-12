@@ -1,6 +1,7 @@
 import { cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { loadTask, materializeWorkspace, scenarioDir } from '../../evaluator/src/task.js';
 import { exec } from './exec.js';
 
 /** Agent files that are copied from the agent directory into the workspace. Nothing else is. */
@@ -44,18 +45,22 @@ async function exists(path: string): Promise<boolean> {
 export async function prepareWorkspace(opts: {
   repoRoot: string;
   scenarioId: string;
+  /** A task bundle outside benchmarks/ (user task). Default: benchmarks/<scenarioId>. */
+  taskDir?: string;
   agentDir: string;
   installDeps?: boolean;
 }): Promise<PreparedWorkspace> {
-  if (!/^[a-z0-9-]+$/.test(opts.scenarioId)) throw new Error(`invalid scenario id: ${opts.scenarioId}`);
-  const fixture = join(opts.repoRoot, 'benchmarks', opts.scenarioId, 'fixture');
-  if (!(await exists(fixture))) throw new Error(`no fixture for scenario ${opts.scenarioId}`);
+  if (!opts.taskDir && !/^[a-z0-9-]+$/.test(opts.scenarioId)) throw new Error(`invalid scenario id: ${opts.scenarioId}`);
+  const taskDir = opts.taskDir ?? scenarioDir(opts.repoRoot, opts.scenarioId);
+  if (!(await exists(join(taskDir, 'task.json')))) throw new Error(`no task bundle for scenario ${opts.scenarioId}`);
+  const task = await loadTask(taskDir);
 
   const root = await mkdtemp(join(tmpdir(), 'itera-run-'));
   const dir = join(root, 'workspace');
   const cleanup = () => rm(root, { recursive: true, force: true });
   try {
-    await cp(fixture, dir, { recursive: true, filter: (src) => !src.split('/').includes('node_modules') });
+    // environment/ + public tests only: never tests/hidden, never solution/.
+    await materializeWorkspace(task, dir);
 
     const agentFiles: string[] = [];
     for (const name of AGENT_FILES) {
@@ -73,7 +78,12 @@ export async function prepareWorkspace(opts: {
     }
 
     if (opts.installDeps !== false) {
-      const install = await exec('npm', ['ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'], { cwd: dir, timeoutMs: 180_000 });
+      const install = await exec('npm', ['ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'], {
+        cwd: dir,
+        timeoutMs: 180_000,
+        // No worker variable reaches npm: a .npmrc can expand ${VAR} into a registry request.
+        env: { PATH: process.env.PATH, HOME: process.env.HOME ?? '/tmp', LANG: 'C.UTF-8' },
+      });
       if (install.code !== 0) throw new Error(`npm ci failed: ${install.stderr.slice(0, 400)}`);
     }
 

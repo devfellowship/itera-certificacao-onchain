@@ -23,7 +23,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: python3 scripts/check-scenarios.py
+      - run: npx tsx scripts/check-tasks.mts
       - run: npm run check
       - run: npm run test
       - run: npm run build
@@ -37,6 +37,13 @@ jobs:
       - run: docker build --tag itera-agent-credentials:ci .
       - run: docker build --file apps/api/Dockerfile --tag itera-agent-credentials-api:ci .
       - run: docker build --tag itera-runner-sandbox:ci services/runner/sandbox
+      # ADR-9: the grader sandbox, against real Docker (escape probe 0/5, webhook-ledger 100, validation gate).
+      - name: Grader sandbox integration test
+        working-directory: services/runner
+        run: npx vitest run src/grade.integration.test.ts
+        env:
+          ITERA_DOCKER_TESTS: '1'
+          ITERA_SANDBOX_IMAGE: itera-runner-sandbox:ci
       - run: docker build --file services/runner/Dockerfile --tag itera-runner-worker:ci .
 
 # Deploys do not run here. The dedicated Dokploy (itera-agent-credentials-dokploy.devfellowship.com)

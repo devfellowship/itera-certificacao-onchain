@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { loadTask, readInstruction, scenarioDir } from '../../evaluator/src/task.js';
 import { join } from 'node:path';
 import { parseOpencodeEvents } from './trace.js';
 import { runInSandbox, type SandboxConfig } from './sandbox.js';
@@ -23,10 +23,9 @@ export interface AgentRunResult {
   patch: string;
 }
 
-export async function scenarioPrompt(repoRoot: string, scenarioId: string): Promise<string> {
-  const spec = JSON.parse(await readFile(join(repoRoot, 'benchmarks', scenarioId, 'scenario.json'), 'utf-8'));
-  if (typeof spec.agent_prompt !== 'string' || !spec.agent_prompt) throw new Error(`scenario ${scenarioId} has no agent_prompt`);
-  return spec.agent_prompt;
+/** The agent prompt is the task's instruction file (task.json `instruction`, Harbor's instruction.md). */
+export async function scenarioPrompt(repoRoot: string, scenarioId: string, taskDir?: string): Promise<string> {
+  return readInstruction(await loadTask(taskDir ?? scenarioDir(repoRoot, scenarioId)));
 }
 
 /** Prepare the workspace, run the agent in the sandbox, collect trace + patch. Grading is separate. */

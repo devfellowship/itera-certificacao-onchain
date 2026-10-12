@@ -10,6 +10,7 @@ COPY services/attestation/package.json services/attestation/package.json
 COPY services/evaluator/package.json services/evaluator/package.json
 COPY services/run-issuer/package.json services/run-issuer/package.json
 COPY services/runner/package.json services/runner/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
 RUN npm ci
 COPY apps/web apps/web
 RUN npx turbo run build --filter=@itera/web

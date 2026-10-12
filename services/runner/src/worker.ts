@@ -212,7 +212,7 @@ async function main(): Promise<void> {
   const { defaultSandboxConfig, ensureSandboxImage } = await import('./sandbox.js');
   const { exec } = await import('./exec.js');
   const { removeOrphans, recoverLostRuns } = await import('./orphans.js');
-  const { ensureEvaluatorBundle, gradeInSandbox } = await import('./grade.js');
+  const { gradeInSandbox } = await import('./grade.js');
 
   const databaseUrl = process.env.DATABASE_URL;
   const runKeySecret = process.env.ITERA_RUN_KEY_SECRET || undefined;
@@ -232,7 +232,6 @@ async function main(): Promise<void> {
   if (!process.env.ITERA_SANDBOX_IMAGE) {
     config.image = await ensureSandboxImage(join(repoRoot, 'services', 'runner', 'sandbox'));
   }
-  await ensureEvaluatorBundle(repoRoot);
   const selfHost = hostname();
   const workerId = `${process.env.ITERA_WORKER_NAME ?? 'itera-runner'}@${selfHost}`;
   // Safe during a rolling redeploy: runs of a still-live worker (the old one, draining) are kept.
