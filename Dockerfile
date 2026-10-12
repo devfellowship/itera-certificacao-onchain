@@ -14,6 +14,8 @@ COPY services/runner/package.json services/runner/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 RUN npm ci
 COPY apps/web apps/web
+# The task editor imports the pure tool-environment functions of @itera/contracts (U31).
+COPY packages/contracts packages/contracts
 RUN npx turbo run build --filter=@itera/web
 
 FROM node:24-alpine

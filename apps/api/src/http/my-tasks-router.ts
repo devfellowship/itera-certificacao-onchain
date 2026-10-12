@@ -119,6 +119,9 @@ export function gateRows(result: unknown): { key: string; label: string; ok: boo
     },
   ];
   if (c.contract && !c.contract.ok) rows.unshift({ key: "contract", label: "Contract", ok: false, value: c.contract.detail });
+  // U29 gate step, only for a task that declares MCP servers: boot, seed, tool schema and the
+  // state assertions in one check. The task editor shows it under ENVIRONMENT (U31).
+  if (c.mcp) rows.unshift({ key: "mcp", label: "MCP servers", ok: Boolean(c.mcp.ok), value: c.mcp.detail || (c.mcp.ok ? "ok" : "not checked") });
   return rows;
 }
 

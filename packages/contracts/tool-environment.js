@@ -82,6 +82,32 @@ export function toolEnvironmentErrors(contract) {
   return errors;
 }
 
+/**
+ * The agent-facing part of the opencode config for one run: one remote MCP entry per server and the
+ * built-in tools the task does not allow switched off. ONE function for the runner (real URL and
+ * token, written to the sandbox) and for the task editor preview (placeholders), so the preview is
+ * never a different thing from the run (U31). The deny list is a convenience; the sidecar enforces
+ * allowed_tools itself.
+ * @param {ReadonlyArray<{ name: string }>} servers
+ * @param {readonly string[]} builtin neutral names the task allows
+ * @param {(name: string) => { url: string, token: string }} endpoint
+ * @returns {{ mcp?: Record<string, unknown>, tools?: Record<string, boolean> }}
+ */
+export function opencodeAgentConfig(servers, builtin, endpoint) {
+  /** @type {Record<string, boolean>} */
+  const tools = {};
+  for (const [neutral, names] of Object.entries(OPENCODE_BUILTIN_TOOLS)) {
+    if (!builtin.includes(neutral)) for (const n of names) tools[n] = false;
+  }
+  /** @type {Record<string, unknown>} */
+  const mcp = {};
+  for (const s of servers) {
+    const { url, token } = endpoint(s.name);
+    mcp[s.name] = { type: 'remote', url, headers: { Authorization: `Bearer ${token}` }, enabled: true };
+  }
+  return { ...(servers.length > 0 ? { mcp } : {}), ...(Object.keys(tools).length > 0 ? { tools } : {}) };
+}
+
 const REQUIREMENT_RE = /^(mcp|tool):([a-z0-9][a-z0-9_-]{0,31})$/;
 export const MAX_REQUIRES = 20;
 

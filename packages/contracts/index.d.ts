@@ -153,4 +153,10 @@ export declare function toolEnvironment(contract: { environment?: Record<string,
 export declare function toolEnvironmentErrors(contract: TaskContract): string[];
 /** Agent `requires`: "mcp:<server>" | "tool:<builtin>"; a bare name means mcp:<name>. */
 export declare function parseAgentRequires(value: unknown): Validation<string[]>;
+/** The agent-facing opencode config of a run (mcp entries + built-in deny list); the runner and the task editor preview share it. */
+export declare function opencodeAgentConfig(
+  servers: ReadonlyArray<{ name: string }>,
+  builtin: readonly string[],
+  endpoint: (name: string) => { url: string; token: string },
+): { mcp?: Record<string, unknown>; tools?: Record<string, boolean> };
 export declare function checkCompatibility(env: ToolEnvironment, requires: readonly string[]): Compatibility;

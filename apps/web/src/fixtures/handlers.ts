@@ -15,6 +15,7 @@ import {
   EVALUATIONS,
   evaluationTotals,
   lamportsFor,
+  MCP_CATALOG,
   MODELS,
   PRICE,
   PUBLIC_EVALUATION,
@@ -67,6 +68,8 @@ export const handlers = [
     const kind = new URL(request.url).searchParams.get('kind') as TagKind | null
     return HttpResponse.json({ tags: TAGS.filter((t) => !kind || t.kind === kind).map((t) => ({ ...t, count: TASKS.filter((x) => x.tags.some((g) => g.id === t.id)).length })) })
   }),
+  // U29 / U31: the Itera MCP catalog with the pinned tools snapshots.
+  http.get(u('/mcp-catalog'), () => HttpResponse.json({ servers: MCP_CATALOG })),
   http.get(u('/models'), () => HttpResponse.json({ models: MODELS })),
 
   // GitHub

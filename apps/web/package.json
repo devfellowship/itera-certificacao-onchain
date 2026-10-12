@@ -7,9 +7,10 @@
     "dev": "vite --host 0.0.0.0",
     "check": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
-    "test": "node --test server.test.mjs src/pages/running-evaluation/call-events.test.mjs"
+    "test": "node --test server.test.mjs src/pages/running-evaluation/call-events.test.mjs src/pages/task-editor/environment.test.mjs"
   },
   "dependencies": {
+    "@itera/contracts": "0.1.0",
     "@solana-program/token-2022": "^0.18.0",
     "@solana/attestation": "^2.1.0",
     "@solana/kit": "^8.4.0",

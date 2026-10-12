@@ -32,13 +32,25 @@ export const MY_TASK_DRAFTS: Task[] = [
   },
 ]
 
-export function contractFor(folder: string, title: string, tools: string[], concepts: string[], est = 6): TaskContract {
+// U31: the chargeback-window task declares a catalog server (helpdesk@1, image not published yet) and a server from its own repo (pending review).
+export const CHARGEBACK_ENV = {
+  tools: {
+    builtin: ['read', 'write', 'edit', 'bash', 'search', 'list'],
+    mcp: [
+      { name: 'helpdesk', catalog: 'helpdesk@1', transport: 'http', seed: 'mcp/helpdesk/seed.json', allowed_tools: ['search_tickets', 'get_customer', 'get_order', 'issue_refund'], expose_state_to_scorer: true },
+      { name: 'stripe-sandbox', image: 'ghcr.io/acme/stripe-sandbox@sha256:' + '3c1a9e07'.repeat(8), transport: 'http', seed: 'mcp/stripe-sandbox/seed.json', allowed_tools: ['create_customer', 'create_charge', 'list_charges'] },
+    ],
+  },
+  run_egress: ['model-gateway', 'mcp'],
+}
+
+export function contractFor(folder: string, title: string, tools: string[], concepts: string[], est = 6, envExtra: Record<string, unknown> = {}): TaskContract {
   return {
     schema_version: '1.0',
     task: { name: `settlewise/${folder.split('/').pop()}`, version: '1', description: title },
     metadata: { title, tags: { tools, concepts } },
     instruction: 'instruction.md',
-    environment: { dir: 'environment', install: ['npm', 'ci', '--ignore-scripts'], allow_internet: false, cpus: 2, memory_mb: 2048 },
+    environment: { dir: 'environment', install: ['npm', 'ci', '--ignore-scripts'], allow_internet: false, cpus: 2, memory_mb: 2048, ...envExtra },
     tests: { public: 'tests/public', hidden: 'tests/hidden' },
     solution: { patch: 'solution/solution.patch' },
     editable_paths: ['src/**'],
@@ -138,7 +150,7 @@ function seed(): Map<string, FixtureTask> {
   const brl = TASKS.find((t) => t.id === 'my_brl_rounding')!
   mk(brl, 'ready', [version(1, 'tasks/brl-rounding', HEAD, contractFor('tasks/brl-rounding', brl.name, ['stripe-api'], ['money-math'], 3), true, 7, '2026-10-12T09:30:00Z')])
   const cb = MY_TASK_DRAFTS[0]
-  mk(cb, 'draft', [version(1, 'tasks/chargeback-window', HEAD, contractFor('tasks/chargeback-window', cb.name, ['stripe-api'], [], 4), false, 5, '2026-10-12T10:02:00Z')])
+  mk(cb, 'draft', [version(1, 'tasks/chargeback-window', HEAD, contractFor('tasks/chargeback-window', cb.name, ['stripe-api'], [], 4, CHARGEBACK_ENV), false, 5, '2026-10-12T10:02:00Z')])
   return m
 }
 
@@ -183,7 +195,7 @@ export function fixtureLayout(input: TaskSourceInput): TaskLayoutResponse | { er
   if (path === '.') return { pin, layout: { ok: false, errorCode: 'no_task_json', error: `no task.json at the repo root in ${input.repoFullName}@${sha.slice(0, 7)}`, entries: [] }, contract: null }
   const folder = path.split('/').pop()!
   const title = folder.replace(/[-_]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
-  const c = contractFor(path, title, ['stripe-api'], ['idempotency'])
+  const c = contractFor(path, title, ['stripe-api'], ['idempotency'], 6, /chargeback-window$/.test(path) ? CHARGEBACK_ENV : {})
   if (/broken/.test(path)) {
     return { pin, layout: { ok: false, errorCode: 'missing_entries', error: 'task.json names entries that are missing at this commit: tests/hidden', entries: entries(c, 0, ['tests/hidden']) }, contract: c }
   }

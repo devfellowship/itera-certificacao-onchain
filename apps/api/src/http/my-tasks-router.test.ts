@@ -271,6 +271,20 @@ describe("My tasks API (U19)", () => {
     expect(rows[3]!.value).toBe("1 s");
   });
 
+  it("a task with MCP servers gets an MCP row first; a task without one gets none (U31)", () => {
+    const checks = {
+      contract: { ok: true, detail: "x@1" },
+      baseline_hidden_fails: { ok: true, detail: "" },
+      solution_passes: { ok: true, detail: "", hidden: "3/3" },
+      repeatable: { ok: true, detail: "3 / 3 same result" },
+      verifier_time: { ok: true, detail: "", max_ms: 900 },
+    };
+    expect(gateRows({ checks })!.some((r) => r.key === "mcp")).toBe(false);
+    const rows = gateRows({ checks: { ...checks, mcp: { ok: false, detail: "helpdesk: the solution calls leave 1 of 4 state assertions failing" } } })!;
+    expect(rows[0]).toEqual({ key: "mcp", label: "MCP servers", ok: false, value: "helpdesk: the solution calls leave 1 of 4 state assertions failing" });
+    expect(rows).toHaveLength(5);
+  });
+
   it("path and labels helpers", () => {
     expect(normalizeTaskPath(undefined)).toBe(".");
     expect(normalizeTaskPath("/tasks/split/")).toBe("tasks/split");

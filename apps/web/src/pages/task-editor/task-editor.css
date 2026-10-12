@@ -169,6 +169,18 @@
 .te-gate__row:first-child {
   border-top: 0;
 }
+.te-gate__group {
+  padding: 8px 14px 6px;
+  border-top: 1px solid var(--tma-line);
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tma-text-subtle);
+}
+.te-gate__group:first-child {
+  border-top: 0;
+}
 .te-gate__key {
   font-family: var(--tma-font-mono);
   font-size: 11px;
