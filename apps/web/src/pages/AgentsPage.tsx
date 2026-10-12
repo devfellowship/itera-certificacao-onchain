@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
 import type { RankingResponse, RankingRow } from '../lib/api'
-import { Avatar, Badge, Button, ButtonLink, ModelLabel, RemovableChip, SearchInput, SectionLabel, StatusChip, Table, TableEmpty, Tabs, type Column } from '../tma/ui'
+import { AgentAvatar, Badge, Button, ButtonLink, ModelLabel, RemovableChip, SearchInput, SectionLabel, StatusChip, Table, TableEmpty, Tabs, type Column } from '../tma/ui'
 import { findTask, TaskFilter, TaskName, useTaskCatalog } from '../tma/task-filter'
 import { relativeTime } from './agents/format'
 import './agents/agents.css'
@@ -123,7 +123,7 @@ export function AgentsPage() {
       width: 'minmax(0,1fr)',
       render: (a) => (
         <div className="agents-agent">
-          <Avatar size={44} initials={a.initials} />
+          <AgentAvatar size={44} id={a.id} name={a.name} src={a.avatarUrl} author={{ name: a.authorName, avatarUrl: a.authorProfile?.avatarUrl }} />
           <div className="agents-agent__text">
             <div className="agents-agent__line">
               <span className="agents-agent__name">{a.name}</span>

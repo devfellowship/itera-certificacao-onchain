@@ -9,6 +9,10 @@ export const FIXTURE_USER = {
   wallet: '7Tma4kEXAMPLEwa11etAddre55DesignFixturen9QvA',
   displayName: 'Bruno Lima',
   handle: 'brunolima',
+  username: 'brunolima',
+  avatarUrl: null as string | null,
+  bio: 'Building payment agents at Settlewise.' as string | null,
+  stats: { agents: 3, tasks: 3 },
   initials: 'BL',
   balanceSol: 4.218,
 }

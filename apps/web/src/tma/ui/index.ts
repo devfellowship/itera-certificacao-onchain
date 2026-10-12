@@ -9,6 +9,7 @@ export { Tabs, Segmented, Stepper, Breadcrumb, type TabItem } from './Navigation
 export { Avatar, initialsOf, type AvatarProps } from './Avatar'
 export { ModelAvatar, ModelLabel } from './ModelAvatar'
 export { providerOf, PROVIDER_NAME, type ProviderKey } from './model-provider'
+export { AgentAvatar, AgentTileArt, type AgentAvatarSize, type AgentAvatarAuthor } from './AgentAvatar'
 export { Logo, Lockup } from './Logo'
 export { Modal } from './Modal'
 export * from './icons'

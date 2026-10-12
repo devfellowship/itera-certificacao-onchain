@@ -18,6 +18,8 @@ import { PublicProfilePage } from './pages/PublicProfilePage'
 import { TaskProfilePage } from './pages/TaskProfilePage'
 import { TasksPage } from './pages/TasksPage'
 import { TaskEditorPage } from './pages/TaskEditorPage'
+import { ProfileSettingsPage } from './pages/ProfileSettingsPage'
+import { UserPage } from './pages/UserPage'
 import { DesignPrimitivesPage } from './pages/DesignPrimitivesPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { GithubCallbackPage } from './pages/GithubCallbackPage'
@@ -93,9 +95,11 @@ export const routes = [
       { path: '/tasks', element: <TasksPage /> },
       { path: '/tasks/new', element: <TaskEditorPage /> },
       { path: '/tasks/:id/edit', element: <TaskEditorPage /> },
+      // U36: Edit profile (username, display name, picture), from the account menu.
+      { path: '/settings/profile', element: <ProfileSettingsPage /> },
     ],
   },
-  { element: <OpenAppLayout />, children: [{ path: '/agents/:aid', element: <AgentDetailPage /> }] },
+  { element: <OpenAppLayout />, children: [{ path: '/agents/:aid', element: <AgentDetailPage /> }, { path: '/u/:username', element: <UserPage /> }] },
   {
     element: <DevLayout />,
     children: [

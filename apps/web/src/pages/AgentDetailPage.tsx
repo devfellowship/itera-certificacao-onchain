@@ -10,7 +10,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { ApiError, api } from '../lib/api'
 import type { AgentEvidenceRow, AgentProfileResponse, MyResultRow } from '../lib/api'
-import { Avatar, Badge, Breadcrumb, Button, ButtonLink, Card, CardHeader, KeyValue, ModelLabel, TagPill, Table, TableEmpty, type Column } from '../tma/ui'
+import { AgentAvatar, Badge, Breadcrumb, Button, ButtonLink, Card, CardHeader, KeyValue, ModelLabel, TagPill, Table, TableEmpty, type Column } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
 import './agent-detail.css'
 
@@ -203,7 +203,7 @@ function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse
       <div className="tad-grid">
         <div className="tad-main">
           <div className="tad-identity">
-            <Avatar initials={agent.initials} size={72} surface="raised" />
+            <AgentAvatar id={agent.id} name={agent.name} src={agent.avatarUrl} size={72} author={{ name: agent.authorName, avatarUrl: agent.authorProfile?.avatarUrl }} />
             <div className="tad-identity__text">
               <h1 className="tad-h1" data-testid="agent-name">
                 {agent.name}

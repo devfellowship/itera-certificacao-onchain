@@ -1,0 +1,62 @@
+/* U36 public user page /u/:username. Colors only through --tma-* tokens. */
+.tup-head {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.tup-head__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tup-handle {
+  font-family: var(--tma-font-mono);
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.tup-bio {
+  font-size: 15px;
+  color: var(--tma-text-muted);
+  margin-top: 4px;
+}
+.tup-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tup-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tma-line);
+  border-radius: var(--tma-radius-lg);
+  background: var(--tma-surface);
+  overflow: hidden;
+}
+.tup-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  color: var(--tma-text);
+  text-decoration: none;
+}
+.tup-row + .tup-row {
+  border-top: 1px solid var(--tma-line);
+}
+.tup-row:hover {
+  background: var(--tma-surface-raised);
+}
+.tup-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tup-row__name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.tup-row__desc {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}

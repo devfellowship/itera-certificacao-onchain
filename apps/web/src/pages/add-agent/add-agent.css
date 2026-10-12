@@ -332,3 +332,38 @@
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr);
   gap: 8px;
 }
+/* U36 (TG 21086): picture tile + "Upload" link, as the design (02 Add Agent.dc.html). */
+.ta-avatar-col {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.ta-avatar {
+  overflow: hidden;
+}
+.ta-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ta-upload {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--tma-primary);
+  cursor: pointer;
+}
+.ta-upload:hover {
+  color: var(--tma-primary-hover);
+}
+.ta-upload__error {
+  max-width: 96px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--tma-danger-text);
+}

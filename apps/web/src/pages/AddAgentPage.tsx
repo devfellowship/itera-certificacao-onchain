@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Breadcrumb, Button, Card, Field, Input, KeyValue, RadioCard, Stepper } from '../tma/ui'
@@ -8,6 +8,7 @@ import { GithubSourceCard } from './add-agent/GithubSourceCard'
 import { ModelCard } from './add-agent/ModelCard'
 import { cleanAgentPath, useGithubSource } from './add-agent/useGithubSource'
 import { useLoad } from './add-agent/useLoad'
+import { renderCrop } from './profile-settings/AvatarCropper'
 import './add-agent/add-agent.css'
 
 const DESC_MAX = 90
@@ -36,6 +37,33 @@ export function AddAgentPage() {
   const [releaseSel, setReleaseSel] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  // U36 (TG 21086): the agent picture, picked here and uploaded once the agent exists.
+  const [picture, setPicture] = useState<{ blob: Blob; url: string } | null>(null)
+  const [pictureError, setPictureError] = useState<string | null>(null)
+  const pictureInput = useRef<HTMLInputElement>(null)
+
+  async function pickPicture(file: File | undefined) {
+    setPictureError(null)
+    if (!file) return
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return setPictureError('PNG, JPG or WebP only.')
+    if (file.size > 2 * 1024 * 1024) return setPictureError('Max 2 MB.')
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new Image()
+        i.onload = () => resolve(i)
+        i.onerror = () => reject(new Error('unreadable'))
+        i.src = URL.createObjectURL(file)
+      })
+      // Centered square crop at 256 px; the API re-encodes it (256×256 WebP, no metadata).
+      const blob = await renderCrop({ img, zoom: 1, x: 0, y: 0 })
+      setPicture((old) => {
+        if (old) URL.revokeObjectURL(old.url)
+        return { blob, url: URL.createObjectURL(blob) }
+      })
+    } catch {
+      setPictureError('This file is not a readable image.')
+    }
+  }
 
   const name = nameEdit ?? nameFromRepo(gh.repo?.fullName)
 
@@ -68,6 +96,10 @@ export function AddAgentPage() {
         description: description.trim() || undefined,
         visibility,
       })
+      if (picture) {
+        // Best effort: a failed picture never blocks the agent; the owner can retry later.
+        await api.uploadAgentAvatar(agent.id, picture.blob, 'agent.png').catch(() => undefined)
+      }
       navigate(`/agents/${encodeURIComponent(agent.id)}/evaluate`)
     } catch (e) {
       setSaveError(describeError(e, 'Could not save the agent. Try again.'))
@@ -90,8 +122,24 @@ export function AddAgentPage() {
           <Card className="ta-card">
             <span className="tma-label">Identity</span>
             <div className="ta-identity">
-              <div className="ta-avatar" aria-hidden="true">
-                {(name || '?').slice(0, 2)}
+              <div className="ta-avatar-col">
+                <div className="ta-avatar" aria-hidden="true" data-testid="agent-picture">
+                  {picture ? <img src={picture.url} alt="" /> : (name || '?').slice(0, 2)}
+                </div>
+                <button type="button" className="ta-upload" onClick={() => pictureInput.current?.click()} data-testid="agent-picture-upload">
+                  Upload
+                </button>
+                {pictureError && <span className="ta-upload__error">{pictureError}</span>}
+                <input
+                  ref={pictureInput}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  hidden
+                  onChange={(e) => {
+                    void pickPicture(e.target.files?.[0])
+                    e.target.value = ''
+                  }}
+                />
               </div>
               <div className="ta-identity__fields">
                 <Field label="Name" htmlFor="ta-name">
