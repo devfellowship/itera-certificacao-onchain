@@ -6,6 +6,7 @@ import type { FinalStatus } from './jobs.js';
  * Final status for a graded run. Same rules as the legacy /evaluations dispatch
  * (apps/api/src/http/evaluations-router.ts), plus:
  * - a wall-limit kill is `timeout`, and an agent that changed nothing is `fail`;
+ * - PASS needs every hidden test to pass (ADR-5); a scored run that misses one is `fail`;
  * - a suite that ran ZERO tests is `infra_error`, never a score. The evaluator falls back to an
  *   empty suite when the vitest report does not parse, so "0 tests" means "not measured".
  */
@@ -16,7 +17,19 @@ export function finalStatus(agent: Pick<AgentRunResult, 'timedOut' | 'patch'> & 
   if (!manifest.patch_scope.allowed) return 'invalid';
   if (zeroTestSuites(manifest).length > 0) return 'infra_error';
   if (manifest.errors.length > 0) return 'infra_error';
-  return manifest.score.total > 0 ? 'pass' : 'fail';
+  const hidden = manifest.tests.hidden;
+  // A suite whose report was not trusted measured nothing (the evaluator also records an error).
+  if (hidden.state !== undefined && hidden.state !== 'ok') return 'infra_error';
+  return allHiddenPassed(hidden) ? 'pass' : 'fail';
+}
+
+/**
+ * ADR-5: a run is PASS only when EVERY hidden test passed. A scored run that misses a hidden test
+ * is FAIL and keeps its score. `score.total > 0` is never the pass rule: a run that fails 1 of 5
+ * hidden tests still earns most of the points (public 20, regression 15, scope 10, evidence 5).
+ */
+export function allHiddenPassed(hidden: Pick<EvidenceManifest['tests']['hidden'], 'total' | 'passed' | 'failed'>): boolean {
+  return hidden.total > 0 && hidden.passed === hidden.total && hidden.failed === 0;
 }
 
 /** Names of the suites that executed no test at all. */
