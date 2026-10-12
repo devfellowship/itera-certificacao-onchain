@@ -23,6 +23,8 @@ import {
   RUN_COUNTS,
   solFor,
   TAGS,
+  taskCompatibility,
+  taskProfile,
   TASKS,
   MY_TASK_DRAFTS,
   fixtureTask,
@@ -211,6 +213,17 @@ export const handlers = [
     const r = fixtureCreateTask((await request.json()) as TaskSourceInput)
     return 'status' in r ? HttpResponse.json({ error: r.error }, { status: r.status }) : HttpResponse.json(r, { status: 201 })
   }),
+  // Public task profile (U30) and the compatibility check (U28). More specific than /tasks/:id below.
+  http.get(u('/public/tasks/:slug'), ({ params, request }) => {
+    const v = Number(new URL(request.url).searchParams.get('v') ?? 0) || undefined
+    const p = taskProfile(String(params.slug), v)
+    return p ? HttpResponse.json(p) : notFound()
+  }),
+  http.get(u('/tasks/:id/compatibility'), ({ params, request }) => {
+    const c = taskCompatibility(String(params.id), new URL(request.url).searchParams.get('agentId') ?? '')
+    return c ? HttpResponse.json(c) : notFound()
+  }),
+
   http.get(u('/tasks/:id'), ({ params }) => {
     const mine = fixtureTask(String(params.id))
     if (mine) return HttpResponse.json({ task: mine })

@@ -16,13 +16,15 @@ import { createProofsRouter } from "./http/proofs-router.js";
 import { createFeedbackRouter } from "./http/feedback-router.js";
 import type { ReputationStore } from "./domain/reputation-store.js";
 import { createPublicRouter } from "./public/router.js";
+import { createPublicTaskRouter } from "./public/task-router.js";
+import type { PublicTaskStore } from "./public/task-store.js";
 import type { PublicProfilesStore } from "./public/store.js";
 import type { ProofStore } from "./chain/proof-store.js";
 import { createCatalogRouter, modelAccessCheck, type CatalogRouterOptions } from "./http/catalog-router.js";
 import type { CatalogStore } from "./domain/catalog-store.js";
 import { createTaskPacksRouter } from "./http/task-packs-router.js";
 import { createMyTasksRouter, type MyTasksRouterDeps } from "./http/my-tasks-router.js";
-import { createRunsRouter, type RunsRouterDeps } from "./http/runs-router.js";
+import { createRunsRouter, RUN_FEE_USD, RUN_MAX_COST_USD, type RunsRouterDeps } from "./http/runs-router.js";
 import type { Repository } from "./domain/repository.js";
 
 export const SERVICE_NAME = "testmyagent-api";
@@ -99,6 +101,8 @@ const ROUTES = [
   "GET /public/evaluations/:slugOrHash",
   "GET /public/evaluations/:slugOrHash/manifest.json",
   "GET /public/evaluations/:slugOrHash/og.png",
+  "GET /public/tasks/:slug?v=",
+  "GET /public/tasks/:slug/schemas.json",
   "POST /runs/:id/feedback",
   "GET /runs/:id/feedback",
   "GET /tasks/:idOrSlug/reputation",
@@ -133,6 +137,8 @@ export interface AppOptions {
   publicProfiles?: PublicProfilesStore;
   /** U27: run feedback + task reputation (0010). Mounted only when given. */
   reputation?: ReputationStore;
+  /** U30: public task profile (/tasks/:slug). Mounted only when given. */
+  publicTasks?: PublicTaskStore;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -204,6 +210,9 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   if (options.proofs) app.use(createProofsRouter({ store: options.proofs }));
   if (options.publicProfiles) app.use(createPublicRouter({ store: options.publicProfiles }));
   if (options.reputation) app.use(createFeedbackRouter({ store: options.reputation }));
+  if (options.publicTasks) {
+    app.use(createPublicTaskRouter({ store: options.publicTasks, reputation: options.reputation, costCapUsd: RUN_MAX_COST_USD, runFeeUsd: RUN_FEE_USD }));
+  }
 
   return app;
 }

@@ -39,3 +39,33 @@ test('GET /b/<slug>.svg redirects to the API badge, and only for a plain .svg na
   const bad = await call('/b/..%2Fsecret')
   assert.notEqual(bad.status, 302)
 })
+
+test('injects OG and Twitter meta for a public task profile', async () => {
+  const { taskMeta } = await import('./server.mjs')
+  const task = {
+    slug: 'tsk_webhook_dup',
+    name: 'Duplicate <settlement> webhook',
+    description: 'Second delivery must not double-credit the ledger.',
+    tests: { label: 'sealed' },
+    tools: [{ allowed: true }, { allowed: true }, { allowed: false }],
+    mcp: { servers: [{}] },
+    version: { number: 3 },
+  }
+  const out = injectMeta(html, taskMeta(task, 'https://web.test'))
+  assert.match(out, /<title>Duplicate &lt;settlement&gt; webhook — task on TestMyAgent<\/title>/)
+  assert.match(out, /<meta property="og:url" content="https:\/\/web.test\/tasks\/tsk_webhook_dup" \/>/)
+  assert.match(out, /content="Second delivery must not double-credit the ledger. · sealed tests · 2 tools · 1 MCP server · v3"/)
+  assert.match(out, /<meta name="twitter:card" content="summary" \/>/)
+  assert.match(out, /<link rel="canonical" href="https:\/\/web.test\/tasks\/tsk_webhook_dup" \/>/)
+  assert.equal(out.match(/<title>/g).length, 1)
+})
+
+test('GET /tasks/new and /tasks are served as the plain app shell', async () => {
+  const { handle } = await import('./server.mjs')
+  for (const url of ['/tasks/new', '/tasks']) {
+    const out = { status: 0, body: '' }
+    await handle({ url, method: 'GET', headers: {} }, { writeHead: (s) => (out.status = s), end: (b) => (out.body = String(b ?? '')) })
+    assert.equal(out.status, 200)
+    assert.ok(!out.body.includes('og:title'))
+  }
+})
