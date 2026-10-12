@@ -11,14 +11,14 @@ import { solanaDevnetRpc } from '@solana/kit-plugin-rpc';
 import { payerFromFile } from '@solana/kit-plugin-signer';
 import { createHash } from 'node:crypto';
 import { hotSignerKeypairPath } from '../config.js';
-import type { EvidenceManifest } from './grader.js';
+import type { EvidenceManifest } from './evidence-manifest.js';
 
 /**
  * Day 3 of the pivot doc (03_produto_mvp_72h.pdf section 9): real SAS issuance + verification.
  * This reuses the Credential/Schema already live on devnet from the pre-pivot work (PR #11,
  * `services/attestation`) rather than minting a new schema — `coding-benchmark-score-v1`'s five
  * fields (scenario_id, fixture_hash, patch_hash, score_total, generated_at) map directly onto the
- * real EvidenceManifest this API's grader (domain/grader.ts) already produces.
+ * real EvidenceManifest the evaluator produces.
  *
  * A STANDARD (non-tokenized) Attestation, not the Tokenized/NFT variant services/attestation also
  * supports: this pivot's four pages never connect a wallet anywhere (doc: "sem wallet obrigatória

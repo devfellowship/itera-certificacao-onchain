@@ -7,7 +7,7 @@ import { validateApiResponse } from "@itera/contracts";
 import { createApp } from "../app.js";
 import { FakeRepository } from "../domain/repository.fake.js";
 import { FakeRunsStore } from "../domain/runs-store.fake.js";
-import type { EvidenceManifest } from "../domain/grader.js";
+import type { EvidenceManifest } from "../domain/evidence-manifest.js";
 import { issueSessionToken } from "../http/auth.js";
 import { proofNonceSeed } from "../chain/attestation.js";
 import { usdToLamports, lamportsToSol, type EvaluationsConfig } from "./config.js";
@@ -232,10 +232,24 @@ describe("POST /evaluations", () => {
     expect((await post("/evaluations", { reference: q2.reference, txSig })).status).toBe(409);
   });
 
-  it("lets the legacy vendor body fall through", async () => {
+  it("answers 410 Gone to the retired vendor body, with a pointer to the v2 flow", async () => {
     const res = await fetch(`${base}/evaluations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idempotencyKey: "x" }) });
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toMatch(/vendor.displayName/);
+    expect(res.status).toBe(410);
+    const body = (await res.json()) as { code: string; replacement: { quote: string } };
+    expect(body.code).toBe("legacy_flow_retired");
+    expect(body.replacement.quote).toBe("POST /evaluations/quote");
+  });
+
+  it("answers 410 Gone on the retired dispatch, events and publish routes while v2 stays mounted", async () => {
+    const id = randomUUID();
+    const dispatch = await fetch(`${base}/evaluations/${id}/dispatch`, { method: "POST" });
+    expect(dispatch.status).toBe(410);
+    expect((await fetch(`${base}/evaluations/${id}/events`)).status).toBe(410);
+    expect((await fetch(`${base}/evaluations/${id}/publish`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status).toBe(410);
+    expect((await fetch(`${base}/agent-endpoint-manifests`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status).toBe(410);
+    // The v2 body still reaches the v2 handler (wallet required, so 401 without one, never 410).
+    const v2 = await fetch(`${base}/evaluations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference: "r", txSig: "s" }) });
+    expect(v2.status).not.toBe(410);
   });
 });
 

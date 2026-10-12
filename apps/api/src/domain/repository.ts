@@ -49,7 +49,7 @@ export interface Repository {
     mode: "observed" | "vendor_declared";
   }): Promise<Observation>;
   listObservations(runId: string): Promise<Observation[]>;
-  /** Marks a run as resolved after the grader runs (domain/grader.ts) — the only place a run's
+  /** Legacy: marks a legacy run as resolved (the local grader was retired) — the only place a run's
    * status moves out of `pending`. */
   resolveRun(input: { runId: string; status: TaskStatus; evidenceManifest: unknown; scoreTotal: number }): Promise<Run>;
   publishClaimManifest(input: {
