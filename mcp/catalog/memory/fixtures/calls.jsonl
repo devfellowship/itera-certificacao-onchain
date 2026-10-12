@@ -1,0 +1,5 @@
+{"tool":"read_graph","arguments":{}}
+{"tool":"create_entities","arguments":{"entities":[{"name":"Bruno","entityType":"person","observations":["likes tea"]}]}}
+{"tool":"create_relations","arguments":{"relations":[{"from":"Bruno","to":"Acme","relationType":"works_at"}]}}
+{"tool":"add_observations","arguments":{"observations":[{"entityName":"Ana","contents":["leads the team"]}]}}
+{"tool":"search_nodes","arguments":{"query":"Acme"}}

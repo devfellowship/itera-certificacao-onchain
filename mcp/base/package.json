@@ -1,0 +1,12 @@
+{
+  "name": "@itera/mcp-fixture-base",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Fixture-server base for the Itera MCP catalog (docs/architecture/mcp-sandbox.md). Not a workspace: each catalog image installs it from this lockfile.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "ajv": "8.20.0"
+  }
+}

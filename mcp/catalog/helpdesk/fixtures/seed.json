@@ -1,0 +1,16 @@
+{
+  "customers": [
+    { "id": "C-1", "name": "Ana Souza", "email": "ana@example.test", "tier": "gold" },
+    { "id": "C-2", "name": "Bruno Lima", "email": "bruno@example.test" }
+  ],
+  "orders": [
+    { "id": "O-10", "customer_id": "C-1", "status": "delivered", "delivered_at": "2026-09-25T10:00:00Z", "total_cents": 4000,
+      "items": [{ "sku": "MUG", "name": "Mug", "qty": 2, "unit_price_cents": 2000 }] },
+    { "id": "O-11", "customer_id": "C-2", "status": "shipped", "total_cents": 1500,
+      "items": [{ "sku": "PEN", "name": "Pen", "qty": 3, "unit_price_cents": 500 }] }
+  ],
+  "tickets": [
+    { "id": "T-1", "customer_id": "C-1", "order_id": "O-10", "subject": "One mug broke", "body": "One of the two mugs arrived broken.", "status": "open" },
+    { "id": "T-2", "customer_id": "C-2", "order_id": "O-11", "subject": "Where is my order?", "body": "Tracking has not moved.", "status": "open" }
+  ]
+}

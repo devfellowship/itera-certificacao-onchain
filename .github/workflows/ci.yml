@@ -49,3 +49,68 @@ jobs:
 # Deploys do not run here. The dedicated Dokploy (itera-agent-credentials-dokploy.devfellowship.com)
 # receives a GitHub repo webhook on push. Each Dokploy app rebuilds only when the push touches its
 # watch paths. See README "CI and deployment".
+
+  # MCP catalog (docs/architecture/mcp-sandbox.md, registration steps 2–3): build every image under
+  # mcp/catalog/, run the conformance test against real Docker, and on main publish each version to
+  # GHCR by digest. A published version is immutable: the job refuses to change it.
+  mcp-catalog:
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Use a Docker Hub mirror
+        run: |
+          echo '{"registry-mirrors":["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+      - name: Log in to GHCR
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and test every catalog image
+        run: |
+          set -euo pipefail
+          for dir in mcp/catalog/*/; do
+            name=$(basename "$dir")
+            docker build --quiet --tag "itera-mcp-$name:ci" --file "$dir/Dockerfile" mcp
+            node mcp/conformance.mjs "$name" "itera-mcp-$name:ci"
+          done
+      - name: Refuse to change a published version
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.base_ref }}"
+          for dir in mcp/catalog/*/; do
+            name=$(basename "$dir")
+            version=$(node -p "require('./$dir/manifest.json').version")
+            ref="ghcr.io/${{ github.repository_owner }}/itera-mcp-$name:$version"
+            changed=$(git diff --name-only "$base"...HEAD -- "$dir" mcp/base | head -1)
+            if [ -n "$changed" ] && docker manifest inspect "$ref" >/dev/null 2>&1; then
+              echo "::error::$ref is already published and this PR changes $dir or mcp/base: bump version in $dir/manifest.json"
+              exit 1
+            fi
+            echo "$name@$version: ${changed:+changed, }not published or unchanged"
+          done
+      - name: Publish new versions to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          for dir in mcp/catalog/*/; do
+            name=$(basename "$dir")
+            version=$(node -p "require('./$dir/manifest.json').version")
+            ref="ghcr.io/${{ github.repository_owner }}/itera-mcp-$name:$version"
+            if docker manifest inspect "$ref" >/dev/null 2>&1; then
+              echo "$ref exists: a published version never changes (skip)"
+            else
+              docker tag "itera-mcp-$name:ci" "$ref"
+              docker push --quiet "$ref"
+            fi
+            digest=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest.Digest}}' | tr -d '"')
+            echo "$name@$version $ref@$digest" | tee -a "$GITHUB_STEP_SUMMARY"
+          done

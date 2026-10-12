@@ -1,0 +1,9 @@
+Itera MCP fixture image.
+
+- /itera/fixture.mjs, /itera/cli.mjs, /itera/server/*: Itera (devfellowship/itera-certificacao-onchain), Apache-2.0.
+- /itera/node_modules/@modelcontextprotocol/sdk: modelcontextprotocol/typescript-sdk. The project is moving from
+  the MIT License to Apache-2.0; contributions without relicensing consent stay MIT. Both texts ship in its package.
+- memory@1 only: /itera/upstream/node_modules/@modelcontextprotocol/server-memory, modelcontextprotocol/servers
+  src/memory at the commit in /itera/server/manifest.json `upstream`. Its LICENSE file is /itera/LICENSE.upstream.
+
+This image is a test fixture: it serves seed data on an isolated network for one run. It is not a production service.

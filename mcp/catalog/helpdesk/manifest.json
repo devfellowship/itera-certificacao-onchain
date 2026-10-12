@@ -1,0 +1,102 @@
+{
+  "name": "helpdesk",
+  "version": 1,
+  "description": "A τ-bench-style customer-support desk: customers, orders, tickets and refunds. A fixture: it simulates a service with seed data and never calls a real one.",
+  "transport": "http",
+  "license": "Apache-2.0",
+  "upstream": null,
+  "capabilities": ["helpdesk", "customer-support", "refunds", "tickets"],
+  "resources": { "cpus": 0.5, "memory_mb": 128, "pids": 64 },
+  "boot_timeout_sec": 20,
+  "call_timeout_sec": 10,
+  "seed_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["customers", "orders", "tickets"],
+    "properties": {
+      "customers": {
+        "type": "array",
+        "maxItems": 500,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "email"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^C-[0-9]{1,6}$" },
+            "name": { "type": "string", "maxLength": 80 },
+            "email": { "type": "string", "maxLength": 120 },
+            "tier": { "enum": ["standard", "gold"] }
+          }
+        }
+      },
+      "orders": {
+        "type": "array",
+        "maxItems": 1000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "customer_id", "items", "total_cents", "status"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^O-[0-9]{1,6}$" },
+            "customer_id": { "type": "string" },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["sku", "name", "qty", "unit_price_cents"],
+                "properties": {
+                  "sku": { "type": "string", "maxLength": 40 },
+                  "name": { "type": "string", "maxLength": 80 },
+                  "qty": { "type": "integer", "minimum": 1 },
+                  "unit_price_cents": { "type": "integer", "minimum": 0 }
+                }
+              }
+            },
+            "total_cents": { "type": "integer", "minimum": 0 },
+            "refunded_cents": { "type": "integer", "minimum": 0 },
+            "status": { "enum": ["pending", "shipped", "delivered", "cancelled"] },
+            "delivered_at": { "type": "string", "maxLength": 40 }
+          }
+        }
+      },
+      "tickets": {
+        "type": "array",
+        "maxItems": 1000,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "customer_id", "subject", "body", "status"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^T-[0-9]{1,6}$" },
+            "customer_id": { "type": "string" },
+            "order_id": { "type": "string" },
+            "subject": { "type": "string", "maxLength": 200 },
+            "body": { "type": "string", "maxLength": 4000 },
+            "status": { "enum": ["open", "closed"] },
+            "resolution": { "enum": ["refunded", "denied", "escalated", "answered"] },
+            "created_at": { "type": "string" },
+            "notes": { "type": "array", "items": { "type": "object" } }
+          }
+        }
+      },
+      "refunds": {
+        "type": "array",
+        "items": { "type": "object" }
+      }
+    }
+  },
+  "export_schema": {
+    "type": "object",
+    "required": ["customers", "orders", "tickets", "refunds"],
+    "properties": {
+      "customers": { "type": "array" },
+      "orders": { "type": "array" },
+      "tickets": { "type": "array" },
+      "refunds": { "type": "array" }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "entities": [
+    { "name": "Ana", "entityType": "person", "observations": ["works at Acme"] },
+    { "name": "Acme", "entityType": "company", "observations": [] }
+  ],
+  "relations": [{ "from": "Ana", "to": "Acme", "relationType": "works_at" }]
+}

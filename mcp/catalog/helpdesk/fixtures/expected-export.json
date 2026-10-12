@@ -1,0 +1,81 @@
+{
+  "customers": [
+    {
+      "email": "ana@example.test",
+      "id": "C-1",
+      "name": "Ana Souza",
+      "tier": "gold"
+    },
+    {
+      "email": "bruno@example.test",
+      "id": "C-2",
+      "name": "Bruno Lima",
+      "tier": "standard"
+    }
+  ],
+  "orders": [
+    {
+      "customer_id": "C-1",
+      "delivered_at": "2026-09-25T10:00:00Z",
+      "id": "O-10",
+      "items": [
+        {
+          "name": "Mug",
+          "qty": 2,
+          "sku": "MUG",
+          "unit_price_cents": 2000
+        }
+      ],
+      "refunded_cents": 2000,
+      "status": "delivered",
+      "total_cents": 4000
+    },
+    {
+      "customer_id": "C-2",
+      "id": "O-11",
+      "items": [
+        {
+          "name": "Pen",
+          "qty": 3,
+          "sku": "PEN",
+          "unit_price_cents": 500
+        }
+      ],
+      "refunded_cents": 0,
+      "status": "shipped",
+      "total_cents": 1500
+    }
+  ],
+  "refunds": [
+    {
+      "amount_cents": 2000,
+      "created_at": "2026-10-01T12:00:04.000Z",
+      "id": "RF-1001",
+      "order_id": "O-10",
+      "reason": "one mug broken",
+      "ticket_id": "T-1"
+    }
+  ],
+  "tickets": [
+    {
+      "body": "One of the two mugs arrived broken.",
+      "closed_at": "2026-10-01T12:00:06.000Z",
+      "customer_id": "C-1",
+      "id": "T-1",
+      "notes": [],
+      "order_id": "O-10",
+      "resolution": "refunded",
+      "status": "closed",
+      "subject": "One mug broke"
+    },
+    {
+      "body": "Tracking has not moved.",
+      "customer_id": "C-2",
+      "id": "T-2",
+      "notes": [],
+      "order_id": "O-11",
+      "status": "open",
+      "subject": "Where is my order?"
+    }
+  ]
+}

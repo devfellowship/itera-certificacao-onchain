@@ -1,0 +1,10 @@
+{
+  "name": "@itera/mcp-memory-upstream",
+  "private": true,
+  "version": "1.0.0",
+  "description": "The upstream reference server that memory@1 wraps, pinned. Installed only inside the image.",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@modelcontextprotocol/server-memory": "2026.8.31"
+  }
+}

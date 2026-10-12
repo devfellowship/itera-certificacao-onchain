@@ -1,0 +1,36 @@
+{
+  "entities": [
+    {
+      "entityType": "company",
+      "name": "Acme",
+      "observations": []
+    },
+    {
+      "entityType": "person",
+      "name": "Ana",
+      "observations": [
+        "leads the team",
+        "works at Acme"
+      ]
+    },
+    {
+      "entityType": "person",
+      "name": "Bruno",
+      "observations": [
+        "likes tea"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from": "Ana",
+      "relationType": "works_at",
+      "to": "Acme"
+    },
+    {
+      "from": "Bruno",
+      "relationType": "works_at",
+      "to": "Acme"
+    }
+  ]
+}
