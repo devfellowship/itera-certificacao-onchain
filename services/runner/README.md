@@ -22,7 +22,7 @@ npx tsx services/runner/src/run-once.ts \
 2. **Sandbox.** The runner creates a new container from `sandbox/Dockerfile` and a new `--internal` Docker network for this run. It copies the workspace in with `docker cp` (no bind mount, no Docker socket). The container runs `opencode run --pure --format json -m openrouter/<model> "<scenario agent_prompt>"`.
 3. **Trace.** opencode writes one JSON event per line. Each `tool_use` event becomes one action: `seq`, `tool`, `target` (file path relative to the workspace, shell command, or pattern; max 300 characters), `ok`, `occurredAt`.
 4. **Patch.** The runner copies the tree back, drops the agent's `.git` and `node_modules`, and diffs the tree against ITS OWN baseline repository. The runner never runs git with the agent's `.git`: a planted hook, `core.fsmonitor` or filter could run commands on the worker.
-5. **Grade.** `runEvaluation()` from `services/evaluator` applies the patch to a fresh fixture, then runs the public and the hidden tests.
+5. **Grade (in a second sandbox container).** The evaluator executes agent-authored `src/**` through vitest, so it never runs in the worker process (root, Docker socket, `DATABASE_URL`). `src/grade.ts` starts a grader container from the sandbox image with `--network none`, no environment secret, no mount, non-root, capabilities dropped. It receives a fresh fixture (dependencies installed on the trusted side with `npm ci --ignore-scripts`), the hidden tests, the evaluator bundled into one file (`services/evaluator/dist/cli.mjs`, esbuild) and the patch. The manifest comes back with `docker cp` and must pass a shape check; anything else is a grader failure, never a score.
 
 ## Sandbox — what is enforced and what is not
 
@@ -38,6 +38,7 @@ npx tsx services/runner/src/run-once.ts \
 | Which model the agent calls | **No** | The gateway forwards any `/api/v1/` call. The agent can call another OpenRouter model, or spend more tokens than needed, inside the 300 s. The key is the user's own (BYOK), so the cost is the user's; a credit limit on that key bounds it. |
 | What the agent sends to the model | **No** | The workspace content goes to the model provider. The workspace holds only the public fixture and the agent's own files. |
 | Reading the key's metadata | **No** | `GET /api/v1/key` answers with the key's label and usage, not the key value. |
+| Grading integrity against a hostile patch | **Partly** | The agent's code runs in the same grader container as vitest, so a hostile patch could tamper with the test report or the manifest file. It cannot reach the worker, the network, a secret or the database. A tampered result is still bounded by the patch, which is stored next to it and can be re-graded. |
 | Sandbox escape through a kernel or runtime bug | **No** | This is a plain `runc` container. gVisor or a VM would be stronger. |
 
 ## Step 2: the worker (`src/worker.ts`)
@@ -49,10 +50,10 @@ The worker runs the shared-contract job protocol:
 3. **BYOK key.** The API seals the caller's OpenRouter key into `runs.model_api_key_enc` (AES-256-GCM, key = HKDF-SHA256 of `ITERA_RUN_KEY_SECRET`). The worker opens it only to start the run's gateway. The finish transaction sets the column to NULL, and so does the reaper. No key → `infra_error`, the agent does not start.
 4. **Phases.** `agent_running` → `grading` → `done`.
 5. **Finish (one transaction).** `status`, `evidence_manifest` (the evaluator manifest plus a `runner` block: model, tool-call count, tokens, cost, wall time), `score_total`, `completed_at`, an `observations` row (`mode='observed'`, `output_artifact_ref='patch.diff'`, the patch as content) and the `run_actions` rows.
-6. **Status.** wall limit → `timeout`; empty patch → `fail`; out-of-scope patch → `invalid`; evaluator errors → `infra_error`; else `pass` when the score is above 0, `fail` otherwise (same rules as the legacy `/evaluations` dispatch).
+6. **Status.** wall limit → `timeout`; empty patch → `fail`; out-of-scope patch → `invalid`; **a suite that executed 0 tests (public baseline, public after patch, or hidden) → `infra_error` with score 0** (the evaluator falls back to an empty suite when the vitest report does not parse, so 0 tests means "not measured"); grader failure or evaluator errors → `infra_error`; else `pass` when the score is above 0, `fail` otherwise.
 7. **Recovery.** At boot the worker removes orphan sandbox/gateway containers and networks, and marks every `running` run as `infra_error` (one replica; set `ITERA_RUNNER_SINGLETON=false` to turn this off). Every minute it reaps runs claimed more than `ITERA_RUNNER_STALE_MS` (15 min) ago.
 
-The worker image (`services/runner/Dockerfile`, context = repo root) holds `benchmarks/`, `services/evaluator`, this package, git, GNU tar and the Docker CLI. It needs the host Docker socket. At boot it builds the sandbox image from `services/runner/sandbox/` with a content-hash tag, so a change there takes effect on the next deploy.
+The worker image (`services/runner/Dockerfile`, context = repo root) is Debian (glibc), like the sandbox image: the `node_modules` that the worker installs run inside the sandbox, and musl-built native packages (rollup, esbuild) do not load there. It holds `benchmarks/`, `services/evaluator`, this package, git, GNU tar and a static Docker CLI. It needs the host Docker socket. At boot it builds the sandbox image from `services/runner/sandbox/` with a content-hash tag, so a change there takes effect on the next deploy.
 
 ## Configuration (env)
 

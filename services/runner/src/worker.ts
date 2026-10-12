@@ -3,12 +3,11 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { runEvaluation } from '../../evaluator/src/runner.js';
 import type { EvidenceManifest } from '../../evaluator/src/types.js';
 import { materializeAgentFiles } from './agent-files.js';
 import { runAgent, type AgentRunResult } from './agent-run.js';
 import type { ClaimedRun, JobStore, RunOutcome } from './jobs.js';
-import { finalStatus, runnerEvidence } from './outcome.js';
+import { finalStatus, runnerEvidence, statusError } from './outcome.js';
 import { decryptRunKey } from './run-key.js';
 import type { SandboxConfig } from './sandbox.js';
 
@@ -22,7 +21,8 @@ export interface WorkerDeps {
   runKeySecret: string;
   config: SandboxConfig;
   runAgent: typeof runAgent;
-  grade: (opts: { repoRoot: string; scenarioId: string; patch: string }) => Promise<EvidenceManifest>;
+  /** Grades in a separate sandbox container (grade.ts). Throws on a grader failure. */
+  grade: (opts: { runId: string; repoRoot: string; scenarioId: string; patch: string }) => Promise<EvidenceManifest>;
 }
 
 function message(err: unknown): string {
@@ -82,17 +82,30 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
         }
         if (agent) {
           await store.setPhase(job.runId, workerId, 'grading');
-          const manifest = await deps.grade({ repoRoot: deps.repoRoot, scenarioId: job.scenarioId, patch: agent.patch });
-          const status = finalStatus(agent, manifest);
-          outcome = {
-            status,
-            phase: 'done',
-            scoreTotal: Math.round(manifest.score.total),
-            evidenceManifest: { ...manifest, runner: runnerEvidence(agent) },
-            error: status === 'timeout' ? agent.agentErrors.join('; ') || 'agent wall limit reached' : status === 'infra_error' ? manifest.errors.join('; ') : null,
-            patch: agent.patch,
-            actions: agent.actions,
-          };
+          let manifest: EvidenceManifest | null = null;
+          try {
+            manifest = await deps.grade({ runId: job.runId, repoRoot: deps.repoRoot, scenarioId: job.scenarioId, patch: agent.patch });
+          } catch (err) {
+            // Keep the agent's evidence (patch, actions) even when grading fails.
+            outcome = fail(`grading failed: ${message(err)}`, {
+              evidenceManifest: { error: `grading failed: ${message(err)}`, runner: runnerEvidence(agent) },
+              patch: agent.patch,
+              actions: agent.actions,
+            });
+          }
+          if (manifest) {
+            const status = finalStatus(agent, manifest);
+            outcome = {
+              status,
+              phase: 'done',
+              // A run that is not measured carries no score.
+              scoreTotal: status === 'infra_error' ? 0 : Math.round(manifest.score.total),
+              evidenceManifest: { ...manifest, runner: runnerEvidence(agent) },
+              error: statusError(status, manifest, agent.agentErrors),
+              patch: agent.patch,
+              actions: agent.actions,
+            };
+          }
         }
       }
     }
@@ -155,6 +168,7 @@ async function main(): Promise<void> {
   const { readFileSync } = await import('node:fs');
   const { PgJobStore } = await import('./jobs.pg.js');
   const { defaultSandboxConfig, ensureSandboxImage, removeOrphans } = await import('./sandbox.js');
+  const { ensureEvaluatorBundle, gradeInSandbox } = await import('./grade.js');
 
   const databaseUrl = process.env.DATABASE_URL;
   const runKeySecret = process.env.ITERA_RUN_KEY_SECRET;
@@ -172,6 +186,7 @@ async function main(): Promise<void> {
   if (!process.env.ITERA_SANDBOX_IMAGE) {
     config.image = await ensureSandboxImage(join(repoRoot, 'services', 'runner', 'sandbox'));
   }
+  await ensureEvaluatorBundle(repoRoot);
   const workerId = `${process.env.ITERA_WORKER_NAME ?? 'itera-runner'}@${hostname()}`;
   const orphans = await removeOrphans();
   // One worker replica: any run still `running` at boot belongs to a dead process.
@@ -186,7 +201,7 @@ async function main(): Promise<void> {
     });
   }
   await workerLoop(
-    { store, workerId, repoRoot, runKeySecret, config, runAgent, grade: runEvaluation },
+    { store, workerId, repoRoot, runKeySecret, config, runAgent, grade: (o) => gradeInSandbox({ ...o, config }) },
     {
       concurrency: Number(process.env.ITERA_RUNNER_CONCURRENCY ?? 2),
       pollMs: Number(process.env.ITERA_RUNNER_POLL_MS ?? 3000),
