@@ -365,23 +365,68 @@ export interface Run {
 }
 
 // ---------- Public surface ----------
+/** The five score parts of a run (services/evaluator): public 20, hidden 50, regression 15, scope 10, evidence 5. */
+export type ScorePartKey = 'public_behavior' | 'hidden_behavior' | 'regression' | 'patch_integrity_and_scope' | 'reproducible_evidence'
+export type ScoreParts = Record<ScorePartKey, number>
+
+/** GET /public/evaluations/:slugOrHash (U14). Fields marked optional arrived with U14; fixtures may omit them. */
 export interface PublicEvaluation {
+  kind?: 'evaluation' | 'run'
   slug: string
   hash: string
+  url?: string
   issuedAt: string | null
-  agent: { name: string; slug: string; initials: string; authorName: string; modelLabel: string; commit: string; description: string }
+  agent: { name: string; slug: string; initials: string; authorName: string; modelLabel: string; commit: string; description: string; modelId?: string | null; commitFull?: string | null; repo?: string | null }
+  owner?: { wallet: string; displayName: string | null; handle: string | null } | null
+  evaluatorWallet?: string | null
+  /** The wallet that paid for the evaluation owns the agent. */
+  selfEvaluated?: boolean
   tags: Tag[]
   score: number | null
+  scoreParts?: ScoreParts | null
+  scorePartsMax?: ScoreParts
   counts: OutcomeCounts
   testsPassed: number
   testsTotal: number
-  tasks: Array<{ name: string; description: string; tags: Tag[]; outcome: Outcome; testResults: boolean[]; testsPassed: number; testsTotal: number; durationMs: number | null }>
+  cost?: { feeUsd: number | null; feeLamports: number | null; feeSol: string | null; modelCostUsd: number | null; paymentTxSig: string | null }
+  tasks: Array<{
+    name: string
+    description: string
+    tags: Tag[]
+    outcome: Outcome | null
+    testResults: boolean[]
+    testsPassed: number
+    testsTotal: number
+    durationMs: number | null
+    runId?: string
+    slug?: string
+    /** task_versions.labels: 'open-tests' | 'sealed-tests' (Q7, label only). */
+    labels?: string[]
+    score?: number | null
+    scoreParts?: ScoreParts | null
+    publicTests?: { passed: number; total: number } | null
+    proofHash?: string | null
+  }>
   record: {
     network: string
     status: 'Confirmed' | 'Pending'
     issuedAt: string | null
-    proofs: Array<{ txSig: string; attestationAddress: string | null; nftMint: string | null; proofHash: string }>
+    proofs: Array<{
+      txSig: string | null
+      attestationAddress: string | null
+      nftMint: string | null
+      proofHash: string | null
+      runId?: string
+      status?: 'pending' | 'confirmed' | 'failed'
+      evidenceCid?: string | null
+      evidenceUrl?: string | null
+      txUrl?: string | null
+      nftUrl?: string | null
+      attestationUrl?: string | null
+      nftImageUrl?: string | null
+    }>
   }
+  links?: { manifest: string; og: string; badge: string }
   disclaimer: string
 }
 

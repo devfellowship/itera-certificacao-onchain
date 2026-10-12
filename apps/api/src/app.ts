@@ -12,6 +12,8 @@ import { createNftRouter } from "./http/nft-router.js";
 import { createAgentsRankingRouter, defaultAgentsRankingRouterDeps, type AgentsRankingRouterDeps } from "./http/agents-ranking-router.js";
 import { createGithubRouter, defaultGithubRouterDeps, type GithubRouterDeps } from "./http/github-router.js";
 import { createProofsRouter } from "./http/proofs-router.js";
+import { createPublicRouter } from "./public/router.js";
+import type { PublicProfilesStore } from "./public/store.js";
 import type { ProofStore } from "./chain/proof-store.js";
 import { createCatalogRouter, modelAccessCheck, type CatalogRouterOptions } from "./http/catalog-router.js";
 import type { CatalogStore } from "./domain/catalog-store.js";
@@ -77,6 +79,9 @@ const ROUTES = [
   "PATCH /me",
   "GET /models/:id/access",
   "POST /admin/models/sync",
+  "GET /public/evaluations/:slugOrHash",
+  "GET /public/evaluations/:slugOrHash/manifest.json",
+  "GET /public/evaluations/:slugOrHash/og.png",
 ];
 
 /**
@@ -100,6 +105,8 @@ export interface AppOptions {
   catalogOptions?: CatalogRouterOptions;
   /** Evaluations v2 (quote, Solana Pay, batch of runs). Mounted only when given. */
   evaluations?: EvaluationsRouterDeps;
+  /** U14: public evaluation profile (screen 05). Mounted only when given. */
+  publicProfiles?: PublicProfilesStore;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -164,6 +171,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createAgentsRankingRouter(options.ranking ?? defaultAgentsRankingRouterDeps()));
   app.use(createGithubRouter(githubDeps));
   if (options.proofs) app.use(createProofsRouter({ store: options.proofs }));
+  if (options.publicProfiles) app.use(createPublicRouter({ store: options.publicProfiles }));
 
   return app;
 }

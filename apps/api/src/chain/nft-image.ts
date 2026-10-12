@@ -75,3 +75,74 @@ export function renderNftPng(input: NftImageInput): Buffer {
   });
   return resvg.render().asPng();
 }
+
+/**
+ * The link-preview image of a public evaluation profile (`og.png`, 1200×630, design brief 2.7
+ * "Link preview" + Brand Kit "Open Graph"). Same palette, fonts and rasterizer as the NFT image.
+ */
+export interface OgImageInput {
+  agent: string;
+  /** "3 of 4 tasks PASS · Claude Sonnet 4.6" */
+  summary: string;
+  score: number | null;
+  /** "Verified onchain" or "Pending onchain" */
+  status: string;
+  /** "itera-agent-credentials.devfellowship.com/e/<slug>" */
+  url: string;
+  /** Short proof hash line, e.g. "3dbc87b7…e178100b". */
+  hash: string;
+}
+
+export function ogSvg(input: OgImageInput): string {
+  const score = input.score === null ? "—" : input.score.toFixed(1).replace(/\.0$/, "");
+  const scoreSize = score.length > 3 ? 132 : 156;
+  const lines = wrapWords(input.agent, 17, 2);
+  const nameLines = lines
+    .map((l, i) => `<text x="64" y="${480 - (lines.length - 1 - i) * 62}" font-family="DejaVu Sans" font-weight="bold" font-size="56" fill="#F4EDE2">${esc(l)}</text>`)
+    .join("\n  ");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0A0908"/>
+  <rect x="0.5" y="0.5" width="1199" height="629" fill="none" stroke="#35382F" stroke-width="1"/>
+  <g transform="translate(64 60) scale(0.56)">
+    ${TMA_WORDMARK}
+  </g>
+  <rect x="200" y="64" width="2" height="48" fill="#35382F"/>
+  <text x="222" y="100" font-family="DejaVu Sans" font-weight="bold" font-size="32" fill="#F4EDE2">testmyagent<tspan fill="#3FD17F">.com</tspan></text>
+  <text x="1136" y="98" text-anchor="end" font-family="DejaVu Sans Mono" font-size="22" letter-spacing="2" fill="#8FE9B1">${esc(input.status.toUpperCase())}</text>
+  <text x="64" y="232" font-family="DejaVu Sans Mono" font-size="22" letter-spacing="2" fill="#A2AAA1">EVALUATION PROFILE</text>
+${nameLines}
+  <text x="64" y="532" font-family="DejaVu Sans" font-size="28" fill="#A2AAA1">${esc(clip(input.summary, 44))}</text>
+  <text x="64" y="582" font-family="DejaVu Sans Mono" font-size="20" fill="#6E6A62">${esc(clip(input.url, 52))}</text>
+  <text x="1136" y="480" text-anchor="end" font-family="DejaVu Sans" font-weight="bold" font-size="${scoreSize}" fill="#F4EDE2">${esc(score)}</text>
+  <text x="1136" y="532" text-anchor="end" font-family="DejaVu Sans Mono" font-size="22" fill="#A2AAA1">out of 100</text>
+  <text x="1136" y="582" text-anchor="end" font-family="DejaVu Sans Mono" font-size="20" fill="#3FD17F">${esc(input.hash)}</text>
+</svg>`;
+}
+
+export function renderOgPng(input: OgImageInput): Buffer {
+  const resvg = new Resvg(ogSvg(input), {
+    font: { fontFiles: FONT_FILES, loadSystemFonts: false, defaultFontFamily: "DejaVu Sans" },
+    fitTo: { mode: "width", value: 1200 },
+  });
+  return resvg.render().asPng();
+}
+
+/** Greedy word wrap into at most `maxLines` lines of `width` chars; the last line is clipped. */
+function wrapWords(text: string, width: number, maxLines: number): string[] {
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of text.trim().split(/\s+/)) {
+    if (!cur) cur = w;
+    else if ((cur + " " + w).length <= width) cur += " " + w;
+    else {
+      lines.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) {
+    const head = lines.slice(0, maxLines - 1);
+    return [...head, clip(lines.slice(maxLines - 1).join(" "), width)];
+  }
+  return lines.map((l) => clip(l, width));
+}
