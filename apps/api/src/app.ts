@@ -8,6 +8,7 @@ import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
 import { createEvaluationsRouter } from "./http/evaluations-router.js";
 import { createTaskPacksRouter } from "./http/task-packs-router.js";
+import { createRunsRouter, type RunsRouterDeps } from "./http/runs-router.js";
 import type { Repository } from "./domain/repository.js";
 
 export const SERVICE_NAME = "itera-agent-credentials-api";
@@ -20,6 +21,10 @@ const ROUTES = [
   "POST /auth/nonce",
   "POST /auth/verify",
   "GET /auth/me",
+  "POST /runs",
+  "GET /runs?mine=1",
+  "GET /runs/:id",
+  "POST /runs/:id/publish",
   "POST /evaluations",
   "POST /evaluations/:id/dispatch",
   "GET /evaluations/:id/events",
@@ -37,7 +42,12 @@ const ROUTES = [
  * wires PgRepository via a lazy getPool() call in server.ts, only at process start — never
  * imported eagerly here, so this module stays testable without DATABASE_URL set.
  */
-export function createApp(repo: Repository): Express {
+export interface AppOptions {
+  /** The async wallet-owned runs flow. Mounted only when a RunsStore is given. */
+  runs?: Omit<RunsRouterDeps, "repo">;
+}
+
+export function createApp(repo: Repository, options: AppOptions = {}): Express {
   const app = express();
   app.disable("x-powered-by");
 
@@ -79,6 +89,7 @@ export function createApp(repo: Repository): Express {
   });
 
   app.use(createAuthRouter());
+  if (options.runs) app.use(createRunsRouter({ repo, ...options.runs }));
   app.use(createEvaluationsRouter(repo));
   app.use(createCredentialsRouter(repo));
   app.use(createEvaluationRequestsRouter(repo));
