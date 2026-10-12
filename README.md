@@ -1,71 +1,242 @@
-# TestMyAgent
+<div align="center">
 
-Product name: TestMyAgent. Internal identifiers keep the old name on purpose: `ITERA_*` env vars, package names (`@itera/*`), DB roles, the on-chain Credential, Schema and Memo prefixes (`itera-run:v1`, `itera-eval:v1`), the GitHub App slug, and the `itera-agent-credentials*` domains.
+<img src="docs/assets/testmyagent-banner.svg" alt="TestMyAgent: verifiable credentials for AI coding agents, on Solana" width="720">
 
-This repository holds the coding-agent evaluation proof of concept for the Colosseum hackathon. The current web app is a planning preview. It does not yet run evaluations or write proofs to Solana.
+<h3>Proof, not promises: run your coding agent on sealed tasks and get a credential anyone can verify on Solana.</h3>
 
-## Workspace
+[![CI](https://github.com/devfellowship/itera-certificacao-onchain/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/devfellowship/itera-certificacao-onchain/actions/workflows/ci.yml)
+[![License: Apache-2.0 + proprietary](https://img.shields.io/badge/license-Apache--2.0%20%2B%20proprietary-3fd17f?labelColor=082113)](OPEN-SOURCE.md)
+[![Solana devnet](https://img.shields.io/badge/Solana-devnet-9945FF?logo=solana&logoColor=white&labelColor=082113)](https://explorer.solana.com/?cluster=devnet)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white&labelColor=082113)](https://www.typescriptlang.org/)
+[![Colosseum Crypto World's Fair](https://img.shields.io/badge/Colosseum-Crypto%20World's%20Fair-3fd17f?labelColor=082113)](https://www.colosseum.org/)
+[![Live demo](https://img.shields.io/badge/live%20demo-open%20app-3fd17f?labelColor=082113)](https://itera-agent-credentials.devfellowship.com)
 
-- `apps/web`: Vite, React, and TypeScript web application.
-- `apps/api`: Express API in TypeScript, backing the testmyagent.com entity model (vendor proves
-  one task to one buyer — see `03_produto_mvp_72h.pdf` from the 2026-10-11 pivot doc, the reference
-  for every route/field name below). `PORT` sets the port (default `3000`).
-  - `GET /`: service status as JSON. `GET /health`: minimal liveness check, used by the Dockerfile
-    `HEALTHCHECK`, not rate-limited or CORS-gated. `GET /hello-world`: plain text.
-  - **Retired (410 Gone)**: the first vendor-endpoint flow (`POST /evaluations` with an
-    `idempotencyKey` body, `POST /evaluations/:id/dispatch`, `GET /evaluations/:id/events`,
-    `POST /evaluations/:id/publish`, `POST /agent-endpoint-manifests`). It graded the vendor's
-    patch as a local process inside the API container, outside the grader sandbox. These routes
-    now answer `410` with a pointer to the new flow (`apps/api/src/http/legacy-gone-router.ts`).
-    The new flow is evaluations v2 (`POST /evaluations/quote`, pay, `POST /evaluations`
-    with `reference` + `txSig`, `GET /evaluations/:id`): the runner runs the agent and a separate
-    no-network container runs the grader. The API image carries no evaluator and no `benchmarks/`.
-  - **Buyer-side, public and read-only**: `GET /credentials/:id`, `GET /credentials/:id/verify`
-    (recomputes the manifest digest for real, AND reads the real on-chain attestation via
-    `apps/api/src/domain/solana-attestation.ts`'s `verifyOnChain` — confirms program owner,
-    credential, and schema against known devnet addresses, decodes the attestation's own bytes
-    against the live Schema account; `unavailable` only when no attestation was ever issued for
-    that claim, never faked as passing), `GET /credentials/:id/export`.
-  - **Public intake**: `POST /evaluation-requests` ("Solicitar teste na minha tarefa" — contact +
-    free-text description only, no code/secret fields). Also commits the task description as a
-    `.md` file to the public `D0ingC0des/itera-agent-manifests` repo via
-    `apps/api/src/domain/manifests-repo.ts` (a real `git clone`/`commit`/`push` over SSH using
-    `ITERA_MANIFESTS_DEPLOY_KEY_PATH`/`_B64`, same materialization pattern as the hot signer) —
-    `requesterContact` is deliberately left out of the committed file (stays in Postgres only;
-    that repo is public). GitHub has no native way to restrict a deploy-key push to one file type,
-    so `.md`-only is enforced in `commitMarkdownFile()` itself, before anything reaches git. A
-    failed commit doesn't fail the request — reported as `manifestCommitError` in the response.
-  - **On-chain issuance** (`POST /evaluations/:id/publish` triggers this): a real, non-tokenized
-    Solana Attestation Service record — reuses the Credential/Schema already live on devnet from
-    the pre-pivot work (`Dh9NF2L2...` / `coding-benchmark-score-v1`, PR #11), not a new Tokenized
-    one, because this pivot's four pages never connect a wallet anywhere (the doc: "sem wallet
-    obrigatória para a prova pública"). Anchors `scenario_id`/`fixture_hash`/`patch_hash`/
-    `score_total`/`generated_at` from the real `EvidenceManifest` the grader produced. A failed
-    issuance (RPC down, etc.) does not fail the publish itself — reported back as
-    `attestationError` in the response instead of swallowed. Skipped entirely for a
-    `timeout`/`infra_error` run (no real manifest exists to attest to).
-  - CORS is restricted to `ITERA_API_CORS_ORIGINS` (comma-separated, defaults to the production web
-    app and local dev). Every route except `/health` is rate-limited per client (the real client IP, or
-    the wallet of a valid session; `ITERA_API_RATE_LIMIT_WINDOW_MS` / `ITERA_API_RATE_LIMIT_MAX`,
-    defaults 15 min / 600 requests; public cached GETs `/public/*`, `/nft/*`, `/badge/*`, `/b/*` have
-    their own bucket, `ITERA_API_PUBLIC_RATE_LIMIT_MAX`, default 3000). `ITERA_API_TRUST_PROXY`
-    (default `1`) is the number of proxies in front of the API: Dokploy's Traefik only. `DATABASE_URL` points at the
-    `supabase-inovatech-hackatoon` project's Postgres via a dedicated `itera_api_service` role
-    (schema applied via migration, see `apps/api/src/domain/repository.pg.ts`). The Solana hot
-    signer is `ITERA_HOT_SIGNER_KEYPAIR_PATH` (local file) or `ITERA_HOT_SIGNER_KEYPAIR_B64`
-    (base64 content, for environments with no file on disk — see `hotSignerKeypairPath()` in
-    `config.ts`). Any future secret follows `requiredSecret()` in `apps/api/src/config.ts` (env
-    var from Infisical, throws if unset) — never a bare `process.env` read at the call site.
-    Routes depend on the `Repository` interface (`apps/api/src/domain/repository.ts`), never on
-    `pg` directly — tests inject `FakeRepository` (in-memory), production wires `PgRepository`, so
-    the test suite needs no live database.
-- `packages/`: shared JavaScript packages as the product grows.
-- `services/`: separate services, including a possible Python evaluation service.
-- `benchmarks/`: three candidate coding scenarios and the planned in-repo fixture/evaluator boundary.
+**[Live app](https://itera-agent-credentials.devfellowship.com)** ·
+**Demo video: coming soon** <!-- TODO(demo-video): replace with the video URL -->
+· [Try it in 2 minutes](#try-it-in-2-minutes) · [How it works](#how-it-works) · [Verify a proof](#verify-a-proof-without-trusting-us)
 
-Run `npm ci`, then `npm run dev` for local development. Run `npm run check`, `npm run test`, and `npm run build` before a PR. The root `Dockerfile` builds `apps/web` and serves it with `apps/web/server.mjs` (static files, SPA fallback, and OG/Twitter meta for `/e/*` link previews; `API_BASE_URL` overrides the API it reads). `apps/api/Dockerfile` builds the API. Both use the repository root as the build context.
+</div>
 
-Both Dockerfiles run `npm ci`, which checks `package-lock.json` against every workspace. When you add a workspace, add a `COPY <workspace>/package.json` line to both Dockerfiles. CI builds both images, so a missing line fails the PR.
+---
+
+## Why
+
+Every AI coding agent claims to be good. Few of those claims are reproducible. Benchmarks
+are self-reported. Demos are cherry-picked. Hidden-test scores live in somebody's spreadsheet.
+
+**TestMyAgent** turns "trust me" into a credential:
+
+- Your agent runs on a **real coding task**, in an **isolated sandbox**, with no internet except the model API.
+- A **separate grading container** scores the patch against **hidden tests** that the agent never sees.
+- The evidence is **pinned to IPFS**, and its hash is **attested on Solana** with the
+  Solana Attestation Service (SAS), as a non-transferable token in the agent owner's wallet.
+- **Anyone can verify** the result in the browser, from public data only. The verifier
+  ([`apps/web/src/verify.ts`](apps/web/src/verify.ts)) is open source and does not call our server.
+
+The product name is **TestMyAgent**. Some internal identifiers keep the older project name on
+purpose: the `ITERA_*` env vars, the `@itera/*` packages, the on-chain Memo prefixes
+(`itera-run:v1`, `itera-eval:v1`) and the `itera-agent-credentials*` domains.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["🔌 Connect agent<br/>GitHub repo, pinned commit"] --> B["🧩 Pick tasks<br/>catalog or your own"]
+    B --> C["💸 Pay with Solana Pay<br/>one signature: transfer + Memo"]
+    C --> D["📦 Sandbox run<br/>no internet, model gateway only"]
+    D --> E["🧪 Hidden-test grading<br/>separate no-network container"]
+    E --> F["📌 IPFS evidence<br/>redacted manifest, SHA-256"]
+    F --> G["🪪 SAS attestation<br/>Token-2022, non-transferable"]
+    G --> H["✅ Browser verify<br/>public RPC + IPFS only"]
+```
+
+1. **Connect an agent.** Install the read-only TestMyAgent GitHub App on a repo, or use a sample
+   repo. The agent is pinned to a commit. The runner takes only its `AGENTS.md`, `CLAUDE.md` and `skills/`.
+2. **Pick tasks.** Choose curated tasks from the catalog, or tasks that users publish from their
+   own repos. The quote itemizes the forecast model cost plus a base fee per run.
+3. **Pay with Solana Pay.** The API prices the quote in SOL with Pyth, then builds one transaction:
+   a Memo (`itera-eval:v1:` + canonical JSON of the evaluation) and a transfer that carries a
+   unique Solana Pay `reference`. The wallet signs once. The API validates the transfer on chain
+   before it queues a run.
+4. **Sandbox run.** A worker runs the agent (opencode) in a fresh container on a private
+   `--internal` Docker network. The only reachable host is a per-run model gateway. The gateway
+   holds the model key and enforces a hard cost cap per run.
+5. **Hidden-test grading.** The patch is frozen. Then each test suite runs in its own new container
+   with `--network none`, a read-only root file system and a different uid. The hidden tests exist
+   only in that container.
+6. **IPFS evidence.** The grader manifest is redacted (hidden test names removed, counts kept),
+   wrapped in an in-toto Statement, hashed with SHA-256 and pinned to IPFS.
+7. **SAS attestation.** The API issues a tokenized SAS attestation (`run-result-v2`) to the agent
+   owner's wallet. It records `manifest_sha256`, `evidence_cid`, `scenario_id`, `score_total`
+   and `run_start_sig` (the payment signature).
+8. **Browser verify.** The public proof page (`/e/:slug`) and `/verify` re-check everything from
+   the mint address alone.
+
+## Try it in 2 minutes
+
+You need a Solana wallet (for example Phantom or Solflare) set to **devnet**. No real money moves.
+
+1. Open **[the live app](https://itera-agent-credentials.devfellowship.com)** and **connect your
+   devnet wallet**. Approve the Sign-In With Solana message.
+2. Open the **wallet menu** and click **Get test SOL**. The faucet sends enough devnet SOL to pay
+   one evaluation (one grant per wallet per day).
+3. Go to **Agents → Add agent** and click **Use sample repo**. You do not need to install the
+   GitHub App for the sample.
+4. **Choose tasks** for the agent. The quote shows the price per run in USD and in SOL.
+5. Click **Pay and start** and sign **once**. Watch the evaluation page: the per-call log streams
+   while the agent works, then the state moves to grading and to `issued`.
+6. **Open the proof page** of the result and click **Verify in browser**. Each check turns green
+   and the page shows **VERIFIED**.
+
+## Verify a proof without trusting us
+
+The verifier needs only an attestation mint address. It reads devnet RPC and the IPFS gateway
+directly, and it runs the same in Node and in the browser. It checks that:
+
+- the NFT mint exists, is a Token-2022 mint, is **non-transferable**, and carries token metadata;
+- exactly **one holder** holds a balance of 1;
+- the SAS **schema** and **credential** are the known TestMyAgent addresses, which are fixed in the
+  frontend code, and the credential has an authorized signer;
+- the **attestation account** exists, and its address derives from the run-start transaction;
+- the **run-start transaction** exists on chain and is confirmed;
+- the **pinned evidence hashes** to the `manifest_sha256` that is recorded on chain;
+- the evidence names the **same run-start transaction** as the attestation.
+
+A single failed check makes the result `MISMATCH`. The `/verify` page also has a tamper demo: change
+the manifest and watch the hash check fail.
+
+## Features
+
+- **Agent registry.** Register agents from GitHub (read-only App, pinned commit) or from sample
+  repos. Each agent gets a public page, a ranking position and an embeddable badge.
+- **Task catalog.** Curated tasks plus user tasks from GitHub, with a task editor, tags, a tool
+  environment and MCP fixture servers (for example a helpdesk API) pinned by image digest.
+- **Per-call trace.** Every tool call of the agent is recorded (`run_actions`) and shown live,
+  with secrets and absolute paths redacted.
+- **Cost control.** The quote forecasts the model cost. The gateway stops a run at a hard
+  USD cap. Bring-your-own model key (BYOK) is sealed per run.
+- **Public proofs.** Shareable proof pages with Open Graph images, per-mint NFT metadata, badges,
+  a leaderboard and public user profiles.
+- **Devnet onboarding.** A built-in faucet and sample repos let a fresh wallet finish the full flow.
+
+## Architecture
+
+| Path | What it is | License |
+|---|---|---|
+| [`apps/web`](apps/web) | Vite + React + TypeScript web app, Solana wallet adapter, SIWS session | Proprietary |
+| [`apps/web/src/verify.ts`](apps/web/src/verify.ts) | The public browser verifier for a proof | Apache-2.0 |
+| [`apps/api`](apps/api) | Express + TypeScript API: auth, catalog, quotes, Solana Pay, proofs, profiles, faucet | Proprietary |
+| [`services/runner`](services/runner) | Worker: runs the agent in a sandbox, then grades it in separate containers | Proprietary |
+| [`services/evaluator`](services/evaluator) | Generic verifier: applies the patch, checks scope, computes the score | Proprietary |
+| [`services/attestation`](services/attestation) | Solana Attestation Service client (credential, schema, tokenized attestation) | Apache-2.0 |
+| [`services/run-issuer`](services/run-issuer) | Run-start transaction issuer | Proprietary |
+| [`packages/contracts`](packages/contracts) | JSON Schemas (task, evidence, run profile, run actions) and Ajv validators | Apache-2.0 |
+| [`mcp/catalog`](mcp/catalog) | MCP fixture servers (`helpdesk`, `memory`), published to GHCR by digest | Apache-2.0 |
+| [`benchmarks`](benchmarks) | Curated tasks: environment, public tests, hidden tests, reference solution | Proprietary |
+| [`db/migrations`](db/migrations) | Postgres schema | Proprietary |
+| [`docs/architecture`](docs/architecture) | Architecture documents, for example the MCP sandbox contract | Apache-2.0 |
+| [`scripts`](scripts), [`tools`](tools) | End-to-end checks, GitHub App setup, design-diff tooling | Proprietary |
+
+The API depends on repository interfaces, never on `pg` directly. Tests inject in-memory fakes,
+so the unit test suite needs no database. The runner's security model, with an explicit
+"enforced / not enforced" table, is in [`services/runner/README.md`](services/runner/README.md).
+
+## Solana integration
+
+| Primitive | Where | What it does |
+|---|---|---|
+| **Solana Attestation Service (SAS)** | [`apps/api/src/chain/attestation.ts`](apps/api/src/chain/attestation.ts), [`services/attestation`](services/attestation) | Tokenized attestation `run-result-v2` per run. Token-2022 mint with per-mint metadata, issued to the agent owner's wallet. Idempotent: the same nonce gives the same attestation PDA. |
+| **Solana Pay** | [`apps/api/src/evaluations/solana-pay.ts`](apps/api/src/evaluations/solana-pay.ts) | Transfer request with a fresh `reference` per quote. `validateTransfer` on the server before any run is queued. |
+| **Pyth** | [`apps/api/src/evaluations/price.ts`](apps/api/src/evaluations/price.ts) | SOL/USD at quote time from the Pyth SOL/USD `PriceUpdateV2` account on Solana (`getAccountInfo`). Prices older than 120 s are refused. Hermes and CoinGecko are fallbacks. |
+| **Memo** | [`apps/api/src/evaluations/memo.ts`](apps/api/src/evaluations/memo.ts) | One Memo per payment, `itera-eval:v1:` + canonical JSON (evaluation, runs, agent repo and commit, model, tasks). Its signature is the `run_start_sig` that every proof of the evaluation binds to. |
+| **Sign-In With Solana (SIWS)** | [`apps/api/src/http/auth.ts`](apps/api/src/http/auth.ts) | Single-use server nonce (5 min), ed25519 `signMessage`, then a 24 h session token. The wallet address is the user id. |
+
+Everything runs on **devnet** today.
+
+## Trust and anti-collusion
+
+A user can author a task and then run their own agent on it. That cannot be prevented, so the
+rules make it worthless ([`apps/api/src/domain/reputation.ts`](apps/api/src/domain/reputation.ts)):
+
+1. **Sealed-test rule.** A task counts for a ranking only when its hidden tests are sealed: a
+   curated task, or a user task whose source repo is private. A public-repo task, or a task with
+   the `open-tests` label, runs but stays unranked.
+2. **Self-evaluated label.** A run is labelled self-evaluated when the task author wallet is the
+   agent owner wallet, or when the task repo and the agent repo come from the same GitHub account.
+3. **Task reputation.** Each per-task score is weighted by the reputation of the task: distinct
+   non-author wallets that ran it, finished runs, and the yes-rate of owner feedback ("the result
+   matched reality").
+
+The proof chain itself is bound end to end: the payment Memo names the runs, the attestation
+address derives from the payment signature, and the pinned evidence names the same signature.
+
+**Known limits** (also in the runner README): the sandbox is a plain `runc` container, not gVisor
+or a VM. The gateway forwards to any model of the provider, not only the quoted model. The hidden
+tests of the curated tasks are in this public repository, separated by path and kept out of the
+agent sandbox, but readable by anyone who reads the repo.
+
+## Local development
+
+Requirements: Node.js 24 (the version of the Docker images) and npm 11. Docker is needed only for the runner.
+
+```bash
+npm ci
+
+# Web app with mock data (MSW fixtures), no API and no wallet needed: http://localhost:5173
+VITE_FIXTURE_MODE=design npm run dev -w @itera/web
+
+# Web app against an API of your choice
+VITE_API_BASE_URL=http://localhost:3000 npm run dev -w @itera/web
+
+# API (reads DATABASE_URL and the other secrets only when a route needs them)
+PORT=3000 npm run dev -w @itera/api
+```
+
+The API reads every secret from an env var and fails loud when one is missing (see
+`requiredSecret()` in [`apps/api/src/config.ts`](apps/api/src/config.ts)). Main variables:
+`DATABASE_URL`, `ITERA_SESSION_SECRET`, `ITERA_HOT_SIGNER_KEYPAIR_PATH` or `_B64`, `PINATA_JWT`,
+`GITHUB_APP_*`, `ITERA_RUN_KEY_SECRET` and `ITERA_RUNNER_OPENROUTER_KEY`. Never commit a value.
+
+To run one agent on one task on your machine, see "Step 1: local CLI" in
+[`services/runner/README.md`](services/runner/README.md).
+
+### Docker images
+
+The root `Dockerfile` builds and serves `apps/web` (`apps/web/server.mjs`: static files, SPA
+fallback, and Open Graph tags for `/e/*` link previews). `apps/api/Dockerfile` builds the API and
+`services/runner/Dockerfile` builds the worker. All use the repository root as the build context.
+When you add a workspace, add its `COPY <workspace>/package.json` line to the Dockerfiles: they run
+`npm ci` against the whole lockfile, and CI builds the images, so a missing line fails the PR.
+
+## Tests
+
+```bash
+npm run check   # TypeScript in every workspace
+npm run test    # unit and integration tests (Vitest and node:test)
+npm run build
+```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every PR and every push to
+`main`: check, test, build, the grader sandbox integration test against real Docker (a probe task
+whose hidden tests try to escape), Docker builds of the images, and the MCP catalog conformance
+tests.
+
+End-to-end checks against a deployed environment, with a real devnet wallet:
+
+- `npm run e2e:api -- --base <api-url>` drives SIWS, catalog, agent, quote, one signed payment,
+  polling to `issued`, the proof, the public profile, badges and the negative paths (401, 402, 403, 404).
+- `npm run e2e:browser -- --base <web-url>` drives the web app in Chrome (Playwright) with an
+  injected Wallet Standard test wallet. The secret key stays in the Node process. Every page step
+  asserts that the root mounts, that there are zero `pageerror` events, and a positive-data control.
+
+Both read the wallet from `E2E_WALLET_SECRET_B58` (base58), accept `--sample` (fresh wallet,
+faucet and sample repo) and `--no-pay`, and write a report to `e2e-report/`.
+
+### Deployment
+
+Each app (web, API, runner worker) deploys from `main` on a self-hosted platform. A GitHub webhook
+starts the deploy when a push touches the app's watch paths. CI does not gate the deploy, and
+GitHub Actions holds no deployment credential.
 
 ## Open vs closed
 
@@ -85,58 +256,14 @@ This repository is public, with a mixed license. Details and rules: [`OPEN-SOURC
 Proprietary means source available for review only: no license to use, copy, modify or distribute.
 Apache-2.0 grants for published versions are irrevocable.
 
-## API end-to-end check
+## Team
 
-`npm run e2e:api -- --base <api>` drives a deployed API with a real devnet wallet: SIWS login, `/me`,
-catalog, GitHub routes, agent, quote (treasury and price itemization), one signed payment tx,
-`POST /evaluations`, polling to `issued`, run detail, proof, public profile, `og.png`, badges,
-leaderboard, My evaluations, and the negative checks (402, 403, 404, 401). It writes
-`e2e-report/api-e2e.json` and `api-e2e.md` (`--out` changes the folder) and exits 1 when a step fails.
+- **Tainan Fidelis**
+- **William Rodrigo**
 
-The wallet comes from `E2E_WALLET_SECRET_B58` (base58 secret key). It must own a GitHub App
-installation that holds `--repo` (default `devfellowship/testmyagent-demo-agent`) and hold about
-0.01 SOL: one run costs the quote (about US$0.18 at the recorded model cost). `--no-pay` runs the
-free steps only. `--evaluation <id>` re-verifies an evaluation that is already paid. A full run uses
-about 150 requests, and the API allows 300 per 15 min per IP; the script waits on a 429.
+## Acknowledgements
 
-## Browser end-to-end check
-
-`npm run e2e:browser -- --base <web>` drives the deployed web app in Chrome (Playwright) with the
-demo wallet: landing, connect (SIWS), `/agents` (ranking, Task Filter modal), `/agents/new` (GitHub
-connected, repo, branch, commit, path, validate), agent detail, select tasks and the itemized quote,
-pay with one wallet signature, `/evaluations/:id` (states and per-call log) to `issued`, the public
-profile `/e/:slug` (Verify in browser -> VERIFIED), the owner feedback prompt, My evaluations, My
-tasks, the task editor Environment card, the public task page, and the agent badge. Every page step
-asserts three things and takes a screenshot: the root mounts, zero `pageerror` events, and a
-positive-data control. The run writes `e2e-report/browser-e2e.json` and `browser-e2e.html`
-(screenshots inline) and exits 1 when a step fails.
-
-There is no Phantom automation. The script injects a Wallet Standard test wallet into the page.
-The page sees only the public key. Every signature (the SIWS message, the payment transaction) runs
-in the Node process, so the secret key never enters the browser. The wallet comes from
-`E2E_WALLET_SECRET_B58` (or `DEMO_WALLET_SECRET_B58`), base58, and needs a GitHub App installation
-that holds `--repo` and about 0.01 SOL on devnet. One paid run on `tsk_webhook_dup` costs about
-0.003 SOL. Options: `--no-pay` (free steps only), `--agent <id>` (reuse an agent instead of
-registering a new one), `--task <slug>`, `--out <dir>`, `--chrome <path>`.
-
-The step "MCP task run - pending GHCR public" stays skipped until an anonymous pull of
-`ghcr.io/devfellowship/itera-mcp-helpdesk` succeeds. When it does, the step pays for and watches a
-`tsk_helpdesk_refunds` run.
-
-## CI and deployment
-
-GitHub Actions (`.github/workflows/ci.yml`) runs on `ubuntu-latest` for every PR and every push to `main`. The repository is public, and the DFL self-hosted runner group refuses public repositories. CI runs the scenario check, `check`, `test`, `build`, and a Docker build of both images.
-
-Deployment uses a dedicated Dokploy on `89.167.72.187`: https://itera-agent-credentials-dokploy.devfellowship.com. The credentials are in Infisical `/apps/itera-agent-credentials/`.
-
-| Dokploy app | Dockerfile | Watch paths | URL |
-|---|---|---|---|
-| `itera-agent-credentials-web` | `Dockerfile` | `apps/web/**`, root package files, `Dockerfile` | https://itera-agent-credentials.devfellowship.com/ |
-| `itera-agent-credentials-api` | `apps/api/Dockerfile` | `apps/api/**`, root package files | https://itera-agent-credentials-api.devfellowship.com/ |
-| `itera-agent-credentials-runner` | `services/runner/Dockerfile` | `services/runner/**`, `services/evaluator/**`, `benchmarks/**`, root package files | none (worker; host Docker socket mounted, see `services/runner/README.md`) |
-
-A GitHub repository webhook sends each push event to the deploy URL of each app. Dokploy deploys an app only when the push is on `main` and changes a file in its watch paths. CI does not gate the deployment. Both start from the same push, so check the CI result and the Dokploy deployment status. GitHub Actions holds no deployment credential.
-
-Production URLs: https://itera-agent-credentials.devfellowship.com/ (web) and https://itera-agent-credentials-api.devfellowship.com/ (API)
-
-Plan: https://plans.devfellowship.com/20261006-itera-certificacao-onchain-hackathon-colosseum
+- [Colosseum](https://www.colosseum.org/), for the Crypto World's Fair hackathon.
+- [Superteam Solana Brasil](https://br.superteam.fun/), for the community and the support.
+- The Solana Foundation teams behind the Solana Attestation Service, Solana Pay and `@solana/kit`,
+  and Pyth Network for the price feeds.

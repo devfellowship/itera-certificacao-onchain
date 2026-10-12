@@ -6,10 +6,10 @@
 #
 # Env:
 #   INFISICAL_TOKEN        Infisical token with write access to the path (required; never printed)
-#   INFISICAL_API_URL      default https://infisical.devfellowship.com
-#   INFISICAL_PROJECT_ID   default f9572f70-c99d-4a44-8686-e9e83ff5a8fe (personal-vaults-tainan)
+#   INFISICAL_API_URL      Infisical base URL, e.g. https://<your-infisical> (required)
+#   INFISICAL_PROJECT_ID   Infisical project id (required)
 #   INFISICAL_ENV          default prod
-#   INFISICAL_SECRET_PATH  default /apps/itera-agent-credentials
+#   INFISICAL_SECRET_PATH  folder for the App secrets (required)
 #   DRY_RUN=1              convert nothing; only check the arguments
 #
 # Writes GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET,
@@ -26,10 +26,10 @@ if [[ "$arg" == *"code="* ]]; then code="$(sed -E 's/.*[?&]code=([^&#]+).*/\1/' 
 : "${INFISICAL_TOKEN:?INFISICAL_TOKEN is required}"
 [[ "${DRY_RUN:-0}" == "1" ]] && { echo "dry run: code parsed (${code:0:4}...), token present"; exit 0; }
 
-API="${INFISICAL_API_URL:-https://infisical.devfellowship.com}"
-export PID="${INFISICAL_PROJECT_ID:-f9572f70-c99d-4a44-8686-e9e83ff5a8fe}"
+API="${INFISICAL_API_URL:?INFISICAL_API_URL is required}"
+export PID="${INFISICAL_PROJECT_ID:?INFISICAL_PROJECT_ID is required}"
 export ENVV="${INFISICAL_ENV:-prod}"
-export SP="${INFISICAL_SECRET_PATH:-/apps/itera-agent-credentials}"
+export SP="${INFISICAL_SECRET_PATH:?INFISICAL_SECRET_PATH is required}"
 
 # The response holds the PEM: keep it in a shell variable only, never on disk.
 conversion="$(curl -sS -f -X POST -H "Accept: application/vnd.github+json" \

@@ -81,14 +81,14 @@ export interface GitHubAppConfig {
   apiBase?: string;
 }
 
-/** Reads GITHUB_APP_* from env (Infisical /apps/itera-agent-credentials/). Throws GitHubConfigError
+/** Reads GITHUB_APP_* from env (the secret store of this deployment). Throws GitHubConfigError
  * when any is missing — routes map that to 503, never a silent fallback. */
 export function githubAppConfigFromEnv(env: NodeJS.ProcessEnv = process.env): GitHubAppConfig {
   const names = ["GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET"] as const;
   const missing = names.filter((n) => !env[n]);
   if (missing.length > 0) {
     throw new GitHubConfigError(
-      `GitHub App is not configured: ${missing.join(", ")} not set (Infisical /apps/itera-agent-credentials/).`,
+      `GitHub App is not configured: ${missing.join(", ")} not set (add them to the environment of this deployment).`,
     );
   }
   const rawKey = env.GITHUB_APP_PRIVATE_KEY!;

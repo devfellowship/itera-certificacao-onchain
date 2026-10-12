@@ -18,7 +18,7 @@ export const CORS_ALLOWED_ORIGINS = (
 
 /**
  * Number of reverse proxies in front of this API whose `X-Forwarded-For` entry we trust. Production
- * runs behind exactly one: Dokploy's Traefik, reached directly (the Cloudflare record is DNS-only).
+ * runs behind exactly one: the Traefik reverse proxy of the deploy platform.
  * Traefik does not trust a client-supplied X-Forwarded-For, so it sets the header to the real
  * client address and `1` makes `req.ip` that address. Never raise this to "trust everything": a
  * hop count that is too high lets a client choose its own rate-limit bucket by sending a header.
@@ -52,8 +52,8 @@ export const RATE_LIMIT = {
 
 /**
  * House pattern for any future secret this API reads (Solana keys, IPFS pinning tokens, etc. —
- * see services/attestation/src/config.ts for the same shape): read from an env var Dokploy injects
- * from Infisical, no default, throw loud instead of silently running with a missing credential.
+ * see services/attestation/src/config.ts for the same shape): read from an env var that the deploy
+ * platform injects from the secret store, no default, throw loud instead of silently running with a missing credential.
  * No route uses this yet — apps/api is still a skeleton — but new secret-consuming code should
  * follow this shape rather than reading process.env inline at the call site.
  */
@@ -61,8 +61,8 @@ export function requiredSecret(envVarName: string): string {
   const value = process.env[envVarName];
   if (!value) {
     throw new Error(
-      `${envVarName} is not set. Set it in Infisical under /apps/itera-agent-credentials/ and ` +
-        "confirm it's wired into the Dokploy app's environment variables.",
+      `${envVarName} is not set. Set it in the secret store of this deployment and ` +
+        "confirm it's wired into the app's environment variables.",
     );
   }
   return value;
@@ -70,7 +70,7 @@ export function requiredSecret(envVarName: string): string {
 
 /**
  * Postgres connection string for the testmyagent entity model (vendors, agents, runs, claim
- * manifests, ... — see the 2026-10-11 migration on the itera-hackatoon Supabase project). Read
+ * manifests, ... — see db/migrations/). Read
  * lazily (only when a route actually needs the DB) so `npm run dev`/tests don't require it to be
  * set just to boot the process.
  */
@@ -135,7 +135,7 @@ export const hotSignerKeypairPath = materializedKeyPath(
   "ITERA_HOT_SIGNER_KEYPAIR_B64",
   "itera-hot-signer.json",
   "Set either ITERA_HOT_SIGNER_KEYPAIR_PATH (a local file) or ITERA_HOT_SIGNER_KEYPAIR_B64 " +
-    "(the keypair JSON, base64-encoded) in Infisical under /apps/itera-agent-credentials/.",
+    "(the keypair JSON, base64-encoded) in the secret store of this deployment.",
 );
 
 /**
@@ -148,5 +148,5 @@ export const manifestsDeployKeyPath = materializedKeyPath(
   "ITERA_MANIFESTS_DEPLOY_KEY_B64",
   "itera-manifests-deploy-key",
   "Set either ITERA_MANIFESTS_DEPLOY_KEY_PATH (a local file) or ITERA_MANIFESTS_DEPLOY_KEY_B64 " +
-    "(the SSH private key, base64-encoded, no passphrase) in Infisical under /apps/itera-agent-credentials/.",
+    "(the SSH private key, base64-encoded, no passphrase) in the secret store of this deployment.",
 );

@@ -9,7 +9,7 @@ let pool: Pool | null = null;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Supabase's own pooler CA chain (Supavisor, the service behind *.pooler.supabase.com) — NOT an
 // AWS RDS cert, despite the underlying Postgres running on RDS; confirmed via
-// `openssl s_client -connect aws-1-us-west-2.pooler.supabase.com:5432 -starttls postgres
+// `openssl s_client -connect <region>.pooler.supabase.com:5432 -starttls postgres
 // -showcerts`, which shows issuer "O=Supabase Inc, CN=Supabase Intermediate 2021 CA" — the AWS
 // RDS public bundle does NOT validate against this chain. Captured straight from the pooler host
 // (3-cert chain: leaf + intermediate + root) and vendored here so a real certificate-chain check

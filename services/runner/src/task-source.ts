@@ -4,7 +4,7 @@
 // sandbox still receives only environment/ + public tests (workspace.ts materializeWorkspace), and
 // hidden tests only ever reach a grading container (grade.ts).
 //
-// Needs GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY (Infisical /apps/itera-agent-credentials/). The App is
+// Needs GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY (from the secret store of the deployment). The App is
 // read-only (Contents: read, Metadata: read). The installation token is minted per job and kept in
 // memory only.
 import { createSign } from 'node:crypto';

@@ -16,7 +16,7 @@
 <p>This page sends the App manifest below to GitHub. GitHub then shows a confirmation page for the
 <code>devfellowship</code> organization. Click <b>Create GitHub App</b> there.</p>
 <p>GitHub then redirects to <code>.../connect/github/app-created?code=...</code>. That page can show a 404:
-<b>copy the full address from the address bar</b> and send it to claude-main. The code expires in 1 hour.</p>
+<b>copy the full address from the address bar</b> and send it to the operator who runs step 3 of README.md. The code expires in 1 hour.</p>
 <p>Permissions: <b>Contents: read</b> and <b>Metadata: read</b> only. No webhook. Public (any account can install).</p>
 <form id="f" method="post" action="https://github.com/organizations/devfellowship/settings/apps/new?state=itera-manifest">
   <input type="hidden" name="manifest" id="manifest">
