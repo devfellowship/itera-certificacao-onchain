@@ -119,13 +119,21 @@ jobs:
             version=$(node -p "require('./$dir/manifest.json').version")
             ref="ghcr.io/${{ github.repository_owner }}/testmyagent-mcp-$name:$version"
             # Before 2026-10-12 the packages were itera-mcp-<name>. A version published there is
-            # COPIED (same manifest, same digest), never rebuilt: the digest that tasks pin stays valid.
+            # COPIED byte for byte (skopeo --preserve-digests), never rebuilt: the digest that tasks
+            # pin stays valid. `buildx imagetools create` is NOT a copy: it wraps the manifest in a
+            # new list with a new digest (it did, on b12c741), so a tag that differs is re-copied.
             legacy="ghcr.io/${{ github.repository_owner }}/itera-mcp-$name:$version"
-            if docker manifest inspect "$ref" >/dev/null 2>&1; then
+            digest_of() { docker buildx imagetools inspect "$1" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"'; }
+            if docker manifest inspect "$legacy" >/dev/null 2>&1; then
+              want=$(digest_of "$legacy")
+              if [ "$(digest_of "$ref")" != "$want" ]; then
+                command -v skopeo >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq skopeo; }
+                skopeo copy --all --preserve-digests --authfile "$HOME/.docker/config.json" "docker://$legacy" "docker://$ref"
+                echo "$ref copied from $legacy"
+              fi
+              [ "$(digest_of "$ref")" = "$want" ] || { echo "::error::$ref does not serve the digest $want of $legacy"; exit 1; }
+            elif docker manifest inspect "$ref" >/dev/null 2>&1; then
               echo "$ref exists: a published version never changes (skip)"
-            elif docker manifest inspect "$legacy" >/dev/null 2>&1; then
-              docker buildx imagetools create --tag "$ref" "$legacy"
-              echo "$ref copied from $legacy (same digest)"
             else
               docker tag "testmyagent-mcp-$name:ci" "$ref"
               docker push --quiet "$ref"
