@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/api/run-actions.json",
+  "title": "GET /runs/:id/actions response (screen 04 event log)",
+  "description": "One agent tool call per row, in seq order, from run_actions. Paginated by after_seq: ask for seq > after_seq, at most 200 rows. `target` is SANITIZED on the server: no absolute path, no secret, no URL query string or credentials, one line, at most 200 characters. Public read, like GET /runs/:id.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runId",
+    "afterSeq",
+    "actions",
+    "hasMore",
+    "nextAfterSeq"
+  ],
+  "properties": {
+    "runId": {
+      "type": "string"
+    },
+    "afterSeq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "actions": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seq",
+          "tool",
+          "target",
+          "ok",
+          "occurredAt"
+        ],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "target": {
+            "description": "Sanitized: never starts a token with an absolute path, never carries a bearer token or key.",
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "maxLength": 200,
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(^|[\\s'\"(=])(/|~/)[A-Za-z0-9_.-]+/"
+                    },
+                    {
+                      "pattern": "([Bb]earer|BEARER)\\s+[A-Za-z0-9._~+/=-]{8,}"
+                    },
+                    {
+                      "pattern": "(sk|pk|rk)-[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "gh[pousr]_[A-Za-z0-9]{16,}"
+                    },
+                    {
+                      "pattern": "[\\r\\n]"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "ok": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "occurredAt": {
+            "type": "string",
+            "minLength": 10
+          }
+        }
+      }
+    },
+    "hasMore": {
+      "type": "boolean",
+      "description": "More rows exist after the last one returned: ask again with after_seq = nextAfterSeq."
+    },
+    "nextAfterSeq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The seq of the last returned row, else afterSeq. Use it as the next after_seq."
+    }
+  }
+}

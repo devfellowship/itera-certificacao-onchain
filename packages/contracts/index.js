@@ -20,6 +20,7 @@ export const apiSchemas = {
   runDetail: loadSchema('api/run-detail.schema.json'),
   evaluationView: loadSchema('api/evaluation-view.schema.json'),
   evaluationList: loadSchema('api/evaluation-list.schema.json'),
+  runActions: loadSchema('api/run-actions.schema.json'),
 };
 
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictTypes: false, strictRequired: false });
@@ -68,7 +69,7 @@ export function validateEvidenceStatement(value) {
 
 /**
  * Validate an API response body against schemas/api/<name>.
- * @param {'runDetail' | 'evaluationView' | 'evaluationList'} name
+ * @param {'runDetail' | 'evaluationView' | 'evaluationList' | 'runActions'} name
  * @param {unknown} value
  */
 export function validateApiResponse(name, value) {

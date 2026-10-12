@@ -6,6 +6,7 @@ import {
   type CostStats,
   type OwnedAgent,
   type ProofRecord,
+  type RunActionRow,
   type RunsStore,
 } from "./runs-store.js";
 
@@ -19,6 +20,8 @@ export class FakeRunsStore implements RunsStore {
   modelKeys = new Map<string, string>();
   patches = new Map<string, string>();
   actions = new Map<string, number>();
+  /** run_actions rows by run id (raw, as the runner wrote them). A run with rows also counts them. */
+  actionRows = new Map<string, RunActionRow[]>();
   proofs = new Map<string, ProofRecord>();
 
   private guard(): void {
@@ -96,7 +99,17 @@ export class FakeRunsStore implements RunsStore {
   }
 
   async countActions(runId: string): Promise<number | null> {
+    if (this.actionRows.has(runId)) return this.actionRows.get(runId)!.length;
     return this.actions.has(runId) ? this.actions.get(runId)! : null;
+  }
+
+  async listActions(runId: string, afterSeq: number, limit: number): Promise<RunActionRow[] | null> {
+    if (!this.actionRows.has(runId)) return this.actions.has(runId) ? [] : null;
+    return this.actionRows
+      .get(runId)!
+      .filter((a) => a.seq > afterSeq)
+      .sort((a, b) => a.seq - b.seq)
+      .slice(0, limit);
   }
 
   async getProof(runId: string): Promise<ProofRecord | null> {

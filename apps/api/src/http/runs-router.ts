@@ -17,6 +17,7 @@ import {
 import { encryptRunKey } from "../domain/run-key.js";
 import { openRouterPrices, type PriceLookup } from "../domain/model-prices.js";
 import { requireWallet } from "./auth.js";
+import { sanitizeActionTarget, sanitizeToolName } from "./run-actions.js";
 
 /**
  * Contract: "per-wallet limit 5 runs/day". ITERA pays the model tokens (Tainan TG 20967, plan
@@ -35,6 +36,8 @@ export const RUN_MAX_COST_USD = Number(process.env.ITERA_RUN_MAX_COST_USD ?? 0.5
 export const DEFAULT_RUN_TOKENS_IN = Number(process.env.ITERA_ESTIMATE_TOKENS_IN ?? 400_000);
 export const DEFAULT_RUN_TOKENS_OUT = Number(process.env.ITERA_ESTIMATE_TOKENS_OUT ?? 12_000);
 const LIST_LIMIT = 50;
+/** Page size of GET /runs/:id/actions. */
+export const ACTIONS_PAGE_LIMIT = 200;
 
 export interface RunsRouterDeps {
   repo: Repository;
@@ -209,7 +212,7 @@ async function detailView(store: RunsStore, run: AsyncRun) {
 }
 
 /**
- * POST /runs · GET /runs/:id · GET /runs?mine=1 · POST /runs/:id/publish — the async, wallet-owned
+ * POST /runs · GET /runs/:id · GET /runs/:id/actions · GET /runs?mine=1 · POST /runs/:id/publish — the async, wallet-owned
  * run flow (contract "Job protocol"). The worker (lane B) executes queued runs; this router only
  * enqueues, reads, and publishes.
  */
@@ -400,6 +403,55 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
         return;
       }
       res.json(await detailView(store, run));
+    }),
+  );
+
+  // Public read, like GET /runs/:id: the agent's tool calls, for the event log of screen 04.
+  // Paginated by after_seq (rows with seq > after_seq, at most 200). `target` is sanitized: it is a shell
+  // command or path from the sandbox, so no absolute path, secret or URL query string goes out.
+  router.get(
+    "/runs/:id/actions",
+    handle(async (req, res) => {
+      const id = String(req.params.id);
+      const run = UUID_RE.test(id) ? await store.getRun(id) : null;
+      if (!run || run.ownerWallet === null) {
+        res.status(404).json({ error: "run not found" });
+        return;
+      }
+      const rawAfter = req.query.after_seq;
+      let afterSeq = 0;
+      if (rawAfter !== undefined && rawAfter !== "") {
+        if (typeof rawAfter !== "string" || !/^\d{1,9}$/.test(rawAfter)) {
+          res.status(400).json({ error: "after_seq must be a non-negative integer" });
+          return;
+        }
+        afterSeq = Number(rawAfter);
+      }
+      let limit = ACTIONS_PAGE_LIMIT;
+      if (req.query.limit !== undefined && req.query.limit !== "") {
+        const l = typeof req.query.limit === "string" && /^\d{1,4}$/.test(req.query.limit) ? Number(req.query.limit) : 0;
+        if (l < 1 || l > ACTIONS_PAGE_LIMIT) {
+          res.status(400).json({ error: `limit must be an integer from 1 to ${ACTIONS_PAGE_LIMIT}` });
+          return;
+        }
+        limit = l;
+      }
+      // One extra row tells whether another page exists.
+      const rows = (await store.listActions(run.id, afterSeq, limit + 1)) ?? [];
+      const page = rows.slice(0, limit);
+      res.json({
+        runId: run.id,
+        afterSeq,
+        actions: page.map((a) => ({
+          seq: a.seq,
+          tool: sanitizeToolName(a.tool),
+          target: sanitizeActionTarget(a.target == null ? null : redactText(a.target.slice(0, 1000))),
+          ok: a.ok,
+          occurredAt: a.occurredAt,
+        })),
+        hasMore: rows.length > limit,
+        nextAfterSeq: page.length ? page[page.length - 1]!.seq : afterSeq,
+      });
     }),
   );
 

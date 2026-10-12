@@ -344,6 +344,10 @@
   padding: 12px 20px;
   align-items: center;
 }
+.re-events {
+  max-height: 560px;
+  overflow-y: auto;
+}
 .re-event {
   display: grid;
   grid-template-columns: 52px 6px minmax(0, 1fr);

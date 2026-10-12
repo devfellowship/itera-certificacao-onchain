@@ -6,6 +6,7 @@ import {
   type CostStats,
   type OwnedAgent,
   type ProofRecord,
+  type RunActionRow,
   type RunsStore,
 } from "./runs-store.js";
 
@@ -239,6 +240,25 @@ export class PgRunsStore implements RunsStore {
     try {
       const result = await this.pool.query<{ n: string }>(`select count(*) as n from public.run_actions where run_id = $1`, [runId]);
       return Number(result.rows[0]!.n);
+    } catch (e) {
+      if (isMissingSchema(e)) return null;
+      throw e;
+    }
+  }
+
+  async listActions(runId: string, afterSeq: number, limit: number): Promise<RunActionRow[] | null> {
+    try {
+      const result = await this.pool.query<{ seq: number; tool: string; target: string | null; ok: boolean | null; occurred_at: Date | string }>(
+        `select seq, tool, target, ok, occurred_at from public.run_actions where run_id = $1 and seq > $2 order by seq asc limit $3`,
+        [runId, afterSeq, limit],
+      );
+      return result.rows.map((r) => ({
+        seq: Number(r.seq),
+        tool: r.tool,
+        target: r.target,
+        ok: r.ok,
+        occurredAt: r.occurred_at instanceof Date ? r.occurred_at.toISOString() : String(r.occurred_at),
+      }));
     } catch (e) {
       if (isMissingSchema(e)) return null;
       throw e;

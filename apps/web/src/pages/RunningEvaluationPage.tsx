@@ -5,21 +5,29 @@
  * and GET /runs/:id per run for the measured model cost (`modelCostUsd`) and the tool-call count.
  * States: queued · running · issuing · error (+ issued, cancelled). A run that ends in
  * `infra_error` gets ONE free retry (Gate Q1): the API inserts it; this page shows it.
- * The event log is the API's (derived from timestamps) plus one live line per active run phase.
- * `run_actions` rows are not exposed by the API (only `actionsCount`): see the PR body.
+ * The event log is the API's (derived from timestamps), one line per agent tool call
+ * (GET /runs/:id/actions, polled with after_seq), and one live line per active run phase.
+ * The runner writes a run's tool calls when its agent phase ends, so the call lines of a run
+ * arrive in one batch at that point; the cursor keeps every later poll to the new rows only.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, explorerTxUrl } from '../lib/api'
 import type { EvaluationDetail, Run, Task } from '../lib/api'
 import { useTaskCatalog } from '../tma/task-filter'
 import { Breadcrumb, ButtonLink, middle } from '../tma/ui'
+import { appendPage, callEvents, EMPTY_FEED, mergeByTime } from './running-evaluation/call-events'
+import type { ActionFeed } from './running-evaluation/call-events'
 import './running-evaluation/running-evaluation.css'
 
 const POLL_MS = 3000
 const TERMINAL = new Set(['issued', 'cancelled', 'failed'])
 const RUN_TERMINAL = new Set(['pass', 'fail', 'invalid', 'timeout', 'infra_error', 'cancelled'])
+/** Pages of 200 calls pulled per run per poll, at most: a run with more catches up over the next polls. */
+const MAX_PAGES_PER_POLL = 5
 const STAGE_NAMES: Record<string, string> = { contract: 'Contract', agent_calls: 'Agent calls', grading: 'Grading', manifest: 'Manifest', attestation: 'Attestation' }
+
+const runEnded = (t: { status?: string; stage: string }) => RUN_TERMINAL.has(t.status ?? '') || ['graded', 'timed_out', 'review', 'cancelled'].includes(t.stage)
 
 type Tone = 'ok' | 'live' | 'idle' | 'bad'
 type Detail = EvaluationDetail
@@ -147,6 +155,53 @@ export function RunningEvaluationPage() {
     }
   }, [detail])
 
+  // Tool calls per run: GET /runs/:id/actions?after_seq=<cursor> on every poll. A finished run is read
+  // until its last page, then never again.
+  const [feeds, setFeeds] = useState<Record<string, ActionFeed>>({})
+  const feedsRef = useRef(feeds)
+  feedsRef.current = feeds
+  const pulling = useRef(new Set<string>())
+  const detailRef = useRef(detail)
+  detailRef.current = detail
+  const [pullTick, setPullTick] = useState(0)
+  useEffect(() => {
+    if (!detail) return
+    for (const t of detail.tasks) {
+      const runId = t.runId
+      const ended = runEnded(t)
+      if (t.stage === 'queued' && t.status !== 'running' && !ended) continue
+      if (feedsRef.current[runId]?.done || pulling.current.has(runId)) continue
+      pulling.current.add(runId)
+      void (async () => {
+        try {
+          let feed = feedsRef.current[runId] ?? EMPTY_FEED
+          for (let i = 0; i < MAX_PAGES_PER_POLL; i++) {
+            const page = await api.runActions(runId, feed.after)
+            feed = appendPage(feed, page, ended)
+            if (!page.hasMore) break
+          }
+          setFeeds((m) => ({ ...m, [runId]: feed }))
+        } catch {
+          // The log is decoration: a failed poll leaves the lines as they were and the next poll retries.
+        } finally {
+          pulling.current.delete(runId)
+          // The run ended while this pull was in flight, and polling may have stopped: pull once more for the last rows.
+          const now = detailRef.current?.tasks.find((x) => x.runId === runId)
+          if (!ended && now && runEnded(now)) setPullTick((n) => n + 1)
+        }
+      })()
+    }
+  }, [detail, pullTick])
+
+  // The log keeps its newest line in view while the reader stays at the bottom.
+  const logRef = useRef<HTMLDivElement | null>(null)
+  const stickToEnd = useRef(true)
+  const lineCount = detail ? detail.events.length + Object.values(feeds).reduce((a, f) => a + f.rows.length, 0) : 0
+  useLayoutEffect(() => {
+    const el = logRef.current
+    if (el && stickToEnd.current) el.scrollTop = el.scrollHeight
+  }, [lineCount])
+
   // Elapsed timer between polls.
   useEffect(() => {
     if (terminal) return
@@ -190,15 +245,20 @@ export function RunningEvaluationPage() {
   const retrying = d.tasks.find((t) => t.stage === 'review' && (t.attempts ?? 1) === 1)
 
   // Event log: the API's events + one live line for each active run phase.
-  const events: Array<{ tMs: number; tone: Tone; label: string; detail: string | null }> = [...d.events]
+  const t0 = d.createdAt && Number.isFinite(Date.parse(d.createdAt)) ? Date.parse(d.createdAt) : fetchedAt - d.elapsedMs
+  const calls = callEvents(
+    d.tasks.map((t) => ({ slug: t.slug, rows: feeds[t.runId]?.rows ?? [] })),
+    t0,
+  )
+  const events: Array<{ tMs: number; tone: Tone; label: string; detail: string | null }> = mergeByTime<{ tMs: number; tone: Tone; label: string; detail: string | null }>([...d.events], calls)
   if (!terminal) {
     for (const t of d.tasks) {
       const r = runs[t.runId]
       if (t.status !== 'running') continue
-      const calls = r?.actionsCount != null ? ` · ${r.actionsCount} tool call${r.actionsCount === 1 ? '' : 's'}` : ''
+      const n = r?.actionsCount != null ? ` · ${r.actionsCount} tool call${r.actionsCount === 1 ? '' : 's'}` : ''
       if (t.phase === 'preparing') events.push({ tMs: elapsed, tone: 'live', label: 'Preparing sandbox', detail: t.slug })
-      else if (t.phase === 'agent_running') events.push({ tMs: elapsed, tone: 'live', label: 'Agent running', detail: `${t.slug}${calls}` })
-      else if (t.phase === 'grading') events.push({ tMs: elapsed, tone: 'live', label: 'Grading', detail: `${t.slug}${calls}` })
+      else if (t.phase === 'agent_running') events.push({ tMs: elapsed, tone: 'live', label: 'Agent running', detail: `${t.slug}${n}` })
+      else if (t.phase === 'grading') events.push({ tMs: elapsed, tone: 'live', label: 'Grading', detail: `${t.slug}${n}` })
     }
     if (ui === 'error' && !dismissed) events.push({ tMs: elapsed, tone: 'live', label: 'Waiting on you', detail: 'retry or continue' })
   }
@@ -380,15 +440,25 @@ export function RunningEvaluationPage() {
             <span className="tma-label">Event log</span>
             <span className="re-mono re-subtle">UTC</span>
           </div>
-          {events.map((e, i) => (
-            <div key={i} className="re-event" data-testid="event-row">
-              <span className="re-subtle re-num">{mmss(e.tMs)}</span>
-              <span className={`re-dot re-dot--${e.tone}`} />
-              <span className="re-event__text">
-                <span>{e.label}</span> <span className="re-muted">{e.detail}</span>
-              </span>
-            </div>
-          ))}
+          <div
+            className="re-events"
+            ref={logRef}
+            data-testid="event-log"
+            onScroll={(ev) => {
+              const el = ev.currentTarget
+              stickToEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+            }}
+          >
+            {events.map((e, i) => (
+              <div key={i} className="re-event" data-testid="event-row">
+                <span className="re-subtle re-num">{mmss(e.tMs)}</span>
+                <span className={`re-dot re-dot--${e.tone}`} />
+                <span className="re-event__text">
+                  <span>{e.label}</span> <span className="re-muted">{e.detail}</span>
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </main>

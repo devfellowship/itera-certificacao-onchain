@@ -502,6 +502,23 @@ export interface Run {
   [extra: string]: unknown
 }
 
+/** One agent tool call of a run (GET /runs/:id/actions). `target` is sanitized by the API. */
+export interface RunAction {
+  seq: number
+  tool: string
+  target: string | null
+  ok: boolean | null
+  occurredAt: string
+}
+/** GET /runs/:id/actions?after_seq= — at most 200 rows per page. Ask again with `nextAfterSeq` while `hasMore`. */
+export interface RunActionsResponse {
+  runId: string
+  afterSeq: number
+  actions: RunAction[]
+  hasMore: boolean
+  nextAfterSeq: number
+}
+
 // ---------- Public surface ----------
 /** The five score parts of a run (services/evaluator): public 20, hidden 50, regression 15, scope 10, evidence 5. */
 export type ScorePartKey = 'public_behavior' | 'hidden_behavior' | 'regression' | 'patch_integrity_and_scope' | 'reproducible_evidence'
