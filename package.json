@@ -10,7 +10,8 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "design-diff": "node tools/design-diff/run.mjs",
-    "e2e:api": "tsx scripts/e2e/api-e2e.mts"
+    "e2e:api": "tsx scripts/e2e/api-e2e.mts",
+    "e2e:browser": "tsx scripts/e2e/browser-e2e.mts"
   },
   "devDependencies": {
     "pixelmatch": "^7.1.0",
