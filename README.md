@@ -45,8 +45,11 @@ This repository holds the coding-agent evaluation proof of concept for the Colos
     `attestationError` in the response instead of swallowed. Skipped entirely for a
     `timeout`/`infra_error` run (no real manifest exists to attest to).
   - CORS is restricted to `ITERA_API_CORS_ORIGINS` (comma-separated, defaults to the production web
-    app and local dev). Every route is rate-limited (`ITERA_API_RATE_LIMIT_WINDOW_MS` /
-    `ITERA_API_RATE_LIMIT_MAX`, defaults 15 min / 300 requests). `DATABASE_URL` points at the
+    app and local dev). Every route except `/health` is rate-limited per client (the real client IP, or
+    the wallet of a valid session; `ITERA_API_RATE_LIMIT_WINDOW_MS` / `ITERA_API_RATE_LIMIT_MAX`,
+    defaults 15 min / 600 requests; public cached GETs `/public/*`, `/nft/*`, `/badge/*`, `/b/*` have
+    their own bucket, `ITERA_API_PUBLIC_RATE_LIMIT_MAX`, default 3000). `ITERA_API_TRUST_PROXY`
+    (default `1`) is the number of proxies in front of the API: Dokploy's Traefik only. `DATABASE_URL` points at the
     `supabase-inovatech-hackatoon` project's Postgres via a dedicated `itera_api_service` role
     (schema applied via migration, see `apps/api/src/domain/repository.pg.ts`). The Solana hot
     signer is `ITERA_HOT_SIGNER_KEYPAIR_PATH` (local file) or `ITERA_HOT_SIGNER_KEYPAIR_B64`
