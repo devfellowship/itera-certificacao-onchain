@@ -197,6 +197,80 @@ export interface Agent {
   listedAt?: string | null
   [extra: string]: unknown
 }
+// ---------- Agent profile (screen 08) [U15] ----------
+export interface AgentProfileTagCount {
+  id: string
+  name: string
+  kind: TagKind
+  count: number
+}
+export interface AgentEvidenceRow {
+  taskId: string | null
+  taskSlug: string | null
+  name: string
+  tags: Array<{ id: string; name: string }>
+  outcome: 'PASS' | 'FAIL'
+  score: number
+  testsPassed: number | null
+  testsTotal: number | null
+  at: string
+  attestation: { status: string; txSig: string | null; short: string | null; explorerUrl: string | null } | null
+  evaluation: { slug: string; shortId: string | null } | null
+}
+export interface AgentProfile {
+  agent: {
+    id: string
+    slug: string | null
+    name: string
+    initials: string
+    description: string | null
+    authorName: string
+    authorWallet: string
+    isMine: boolean
+    listedAt: string | null
+    visibility: string
+    draft: boolean
+  }
+  source: { repoFullName: string | null; branch: string | null; agentPath: string | null; commit: string | null; commitShort: string | null }
+  model: { id: string; label: string; release: string | null }
+  stats: { score: number | null; tasksEvaluated: number; evaluations: number; lastVerifiedAt: string | null }
+  tags: AgentProfileTagCount[]
+  evidence: AgentEvidenceRow[]
+  latestAttestation: {
+    network: string
+    status: 'confirmed'
+    issuedAt: string
+    txSig: string
+    txShort: string
+    explorerUrl: string
+    evaluationSlug: string | null
+  } | null
+  evaluations: Array<{
+    id: string
+    shortId: string | null
+    slug: string | null
+    score: number | null
+    issuedAt: string | null
+    taskCount: number
+    counts: OutcomeCounts
+    profilePath: string | null
+  }>
+  /** Present when the agent has a public profile (README badge, U16). `path` is relative to the API base. */
+  badge: { path: string; markdownLinkPath: string | null } | null
+}
+export interface AgentProfileResponse extends AgentProfile {
+  price: { usdPerRun: number; solUsdRate: number | null; priceSource: string | null; runCostLamports: number | null; runCostSol: string | null; indicative: boolean }
+}
+export interface MyResultRow {
+  task: { id: string; name: string }
+  outcome: 'PASS' | 'FAIL'
+  score: number
+  bestOwnAgent: { id: string; name: string; score: number } | null
+}
+export interface AgentMyResultsResponse {
+  results: MyResultRow[]
+}
+
 /**
  * Row of GET /agents/ranking (U8, PR #50). `rank` counts only scored rows over the whole result;
  * `when` is an ISO timestamp (listedAt, else createdAt); `coverage` is null when no task is selected;

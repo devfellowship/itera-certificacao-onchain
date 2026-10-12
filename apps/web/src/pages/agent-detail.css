@@ -1,0 +1,280 @@
+/* Screen 08 Agent detail — local layout only; every color is a --tma-* token. */
+/*
+ * The design page has no `box-sizing: border-box`: its bordered divs and pills are 1-2 px taller
+ * than their declared height, and its nav is 57 px (56 + border). Fidelity is measured against
+ * the render, so the sizes below are the rendered ones (avatar 74, pills 30 / 24, rows 52 + 1).
+ */
+.tad.tma-page {
+  padding-top: 41px;
+  padding-bottom: 96px;
+  gap: 32px;
+}
+.tad .tma-breadcrumb {
+  font-size: 13px;
+}
+.tad-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 32px;
+  align-items: start;
+}
+.tad-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+.tad-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 24px;
+}
+.tad-identity {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+.tad-identity__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.tad-h1 {
+  font-size: 40px;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+}
+.tad-meta {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.tad-meta__strong {
+  color: var(--tma-text);
+}
+.tad-mono {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+}
+.tad-meta__commit {
+  color: var(--tma-text);
+}
+.tad-identity .tma-avatar {
+  width: 74px !important;
+  height: 74px !important;
+}
+.tad .tma-badge {
+  line-height: 1.55;
+}
+.tad-taglist .tma-tag--lg {
+  height: 30px;
+}
+.tad-tags .tma-tag {
+  height: 24px;
+}
+.tad-desc {
+  font-size: 17px;
+  color: var(--tma-text-muted);
+  max-width: 62ch;
+}
+.tad-taglist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tad-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--tma-surface);
+  border: 1px solid var(--tma-line);
+  border-radius: var(--tma-radius-lg);
+  overflow: hidden;
+}
+.tad-stat {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tad-stat + .tad-stat {
+  border-left: 1px solid var(--tma-line);
+}
+.tad-stat__value {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.tad-stat__unit {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--tma-text-muted);
+  letter-spacing: 0;
+}
+
+/* Section cards: header with title, tables flush to the card edge. */
+.tad-section {
+  overflow: hidden;
+}
+.tad-section .tma-table {
+  border: 0;
+  border-radius: 0;
+}
+.tad-section__head {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--tma-line);
+}
+.tad-section__head--baseline {
+  align-items: baseline;
+}
+.tad-section__titles {
+  display: flex;
+  flex-direction: column;
+}
+.tad-section__title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.tad-section__sub {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.tad-section__meta {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text-muted);
+}
+.tad-task {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tad-task__name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tad-task__date {
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  color: var(--tma-text-subtle);
+}
+.tad-tags {
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+}
+.tad-att {
+  color: var(--tma-primary);
+}
+.tad-subtle {
+  color: var(--tma-text-subtle);
+}
+.tad-score {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--tma-text);
+  font-variant-numeric: tabular-nums;
+}
+.tad-best {
+  color: var(--tma-text-muted);
+}
+.tad-state {
+  padding: 24px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tad-empty-text {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.tad-empty {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Right rail */
+.tad-attest-foot {
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--tma-line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tad-attest-foot__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+.tad-muted {
+  color: var(--tma-text-muted);
+  font-size: 13px;
+}
+.tad-run {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+}
+.tad-run__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.tad-run__text {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+  text-wrap: pretty;
+}
+.tad-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+}
+.tad-badge__img {
+  align-self: flex-start;
+  height: 20px;
+  border-radius: 3px;
+}
+.tad-badge__code {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--tma-surface-code);
+  border: 1px solid var(--tma-line);
+  border-radius: var(--tma-radius-md);
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--tma-text-muted);
+}
+
+/* Loading */
+.tad-skel {
+  display: block;
+  max-width: 100%;
+  background: var(--tma-surface-raised);
+  border-radius: var(--tma-radius-sm);
+}
+
+/* Key/value rows of the design: padding 10 (the primitive's is 11). */
+.tad .tma-kv__key,
+.tad .tma-kv__value {
+  padding: 10px 20px;
+}

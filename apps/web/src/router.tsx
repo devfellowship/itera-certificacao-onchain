@@ -46,6 +46,16 @@ function DevLayout() {
   )
 }
 
+/** App Nav without the session gate: the agent profile of 08 reads logged out (shared link, README badge). */
+function OpenAppLayout() {
+  return (
+    <div className="tma-app">
+      <AppNav />
+      <Outlet />
+    </div>
+  )
+}
+
 /** Public pages that have no design header of their own (verify, 404). */
 function PublicLayout() {
   return (
@@ -74,7 +84,6 @@ export const routes = [
     children: [
       { path: '/agents', element: <AgentsPage /> },
       { path: '/agents/new', element: <AddAgentPage /> },
-      { path: '/agents/:aid', element: <AgentDetailPage /> },
       { path: '/agents/:aid/evaluate', element: <SelectTasksPage /> },
       { path: '/evaluations', element: <MyEvaluationsPage /> },
       { path: '/evaluations/:eid', element: <RunningEvaluationPage /> },
@@ -83,6 +92,7 @@ export const routes = [
       { path: '/tasks/:id', element: <TaskEditorPage /> },
     ],
   },
+  { element: <OpenAppLayout />, children: [{ path: '/agents/:aid', element: <AgentDetailPage /> }] },
   {
     element: <DevLayout />,
     children: [
