@@ -9,8 +9,9 @@ import type { FinalStatus } from './jobs.js';
  * - a suite that ran ZERO tests is `infra_error`, never a score. The evaluator falls back to an
  *   empty suite when the vitest report does not parse, so "0 tests" means "not measured".
  */
-export function finalStatus(agent: Pick<AgentRunResult, 'timedOut' | 'patch'>, manifest: EvidenceManifest): FinalStatus {
-  if (agent.timedOut) return 'timeout';
+export function finalStatus(agent: Pick<AgentRunResult, 'timedOut' | 'patch'> & { costCapped?: boolean }, manifest: EvidenceManifest): FinalStatus {
+  // A run stopped by its wall limit OR by its model cost cap is `timeout`: the agent did not finish.
+  if (agent.timedOut || agent.costCapped) return 'timeout';
   if (agent.patch.trim() === '') return 'fail';
   if (!manifest.patch_scope.allowed) return 'invalid';
   if (zeroTestSuites(manifest).length > 0) return 'infra_error';
@@ -43,6 +44,7 @@ export function runnerEvidence(agent: AgentRunResult) {
     opencode_exit_code: agent.exitCode,
     tool_calls: agent.actions.length,
     usage: agent.usage,
+    model_usage: agent.modelUsage,
     agent_errors: agent.agentErrors,
   };
 }

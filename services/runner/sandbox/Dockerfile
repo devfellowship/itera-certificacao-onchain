@@ -12,7 +12,7 @@ RUN useradd --create-home --uid 10001 agent \
   && mkdir -p /workspace /home/agent/.config/opencode \
   && chown -R agent:agent /workspace /home/agent
 COPY --chown=agent:agent opencode.json /home/agent/.config/opencode/opencode.json
-COPY model-gateway.mjs /opt/itera/model-gateway.mjs
+COPY model-gateway.mjs gateway-meter.mjs /opt/itera/
 ENV HOME=/home/agent \
     OPENCODE_DISABLE_AUTOUPDATE=true \
     OPENCODE_DISABLE_MODELS_FETCH=true \

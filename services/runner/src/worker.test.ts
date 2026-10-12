@@ -41,6 +41,8 @@ function agentResult(over: Partial<AgentRunResult> = {}): AgentRunResult {
       { seq: 2, tool: 'edit', target: 'src/app.ts', ok: true, occurredAt: '2026-10-12T00:00:02.000Z' },
     ],
     usage: { steps: 2, inputTokens: 10, outputTokens: 5, costUsd: 0.001 },
+    modelUsage: { costUsd: 0.0123, tokensIn: 1200, tokensOut: 300, calls: 4, refused: 0, maxCostUsd: 0.5, capStopped: false },
+    costCapped: false,
     agentErrors: [],
     patch: PATCH,
     ...over,
@@ -100,6 +102,29 @@ describe('processRun', () => {
     expect((outcome.evidenceManifest as { runner: { tool_calls: number } }).runner.tool_calls).toBe(2);
     expect(store.outcomes.get('run-1')).toEqual(outcome);
     expect(store.runs.get('run-1')!.status).toBe('pass');
+    // The gateway's measure (OpenRouter accounting) is the billed cost, not opencode's own count.
+    expect(outcome.cost).toEqual({ costUsd: 0.0123, tokensIn: 1200, tokensOut: 300 });
+  });
+
+  it('timeout: the cost cap stopped the agent, with a clear error and the cost recorded', async () => {
+    const msg = 'model cost cap reached: US$0.5100 spent, cap US$0.5 per run (ITERA_RUN_MAX_COST_USD); the gateway refused further model calls';
+    const { store, deps } = setup({
+      agent: {
+        costCapped: true,
+        agentErrors: [msg],
+        modelUsage: { costUsd: 0.51, tokensIn: 90000, tokensOut: 9000, calls: 20, refused: 1, maxCostUsd: 0.5, capStopped: true },
+      },
+    });
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('timeout');
+    expect(outcome.error).toContain('model cost cap reached');
+    expect(outcome.cost).toEqual({ costUsd: 0.51, tokensIn: 90000, tokensOut: 9000 });
+  });
+
+  it('falls back to the opencode usage when the gateway reported nothing', async () => {
+    const { store, deps } = setup({ agent: { modelUsage: null } });
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.cost).toEqual({ costUsd: 0.001, tokensIn: 10, tokensOut: 5 });
   });
 
   it('timeout: the agent hit the wall limit, the partial patch is still graded and stored', async () => {
@@ -155,17 +180,31 @@ describe('processRun grading', () => {
   });
 });
 
-describe('processRun BYOK', () => {
-  it('infra_error without running the agent when the run has no model key', async () => {
+describe('processRun model key', () => {
+  it('platform key: a run without BYOK uses ITERA_RUNNER_OPENROUTER_KEY (ITERA pays)', async () => {
+    const { store, deps, seen } = setup({ noKey: true });
+    deps.platformModelKey = 'sk-or-v1-itera-platform';
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('pass');
+    expect(seen.key).toBe('sk-or-v1-itera-platform');
+  });
+  it('BYOK wins over the platform key when the run carries its own key', async () => {
+    const { store, deps, seen } = setup();
+    deps.platformModelKey = 'sk-or-v1-itera-platform';
+    await processRun(deps, (await store.claim('w1'))!);
+    expect(seen.key).toBe('sk-or-v1-user');
+  });
+  it('infra_error without running the agent when there is no BYOK key and no platform key', async () => {
     const { store, deps, seen } = setup({ noKey: true });
     const outcome = await processRun(deps, (await store.claim('w1'))!);
     expect(outcome.status).toBe('infra_error');
-    expect(outcome.error).toContain('BYOK');
+    expect(outcome.error).toContain('ITERA_RUNNER_OPENROUTER_KEY');
     expect(seen.key).toBeUndefined();
   });
-  it('infra_error when the key was sealed with another secret', async () => {
+  it('infra_error when the BYOK key was sealed with another secret (never a silent switch to the platform key)', async () => {
     const { store, deps, seen } = setup();
     deps.runKeySecret = 'o'.repeat(40);
+    deps.platformModelKey = 'sk-or-v1-itera-platform';
     expect((await processRun(deps, (await store.claim('w1'))!)).status).toBe('infra_error');
     expect(seen.key).toBeUndefined();
   });

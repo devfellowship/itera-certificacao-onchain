@@ -1,3 +1,4 @@
+import type { ModelUsage } from './model-usage.js';
 import type { RunAction } from './types.js';
 
 /** Phases of an async run (shared contract "Job protocol"). */
@@ -25,6 +26,9 @@ export interface RunJob extends ClaimedRun {
   modelApiKeyEnc: string | null;
 }
 
+/** Model usage written to runs.model_cost_usd / model_tokens_in / model_tokens_out (0006_run_cost.sql). */
+export type RunCost = Pick<ModelUsage, 'costUsd' | 'tokensIn' | 'tokensOut'>;
+
 export interface RunOutcome {
   status: FinalStatus;
   phase: RunPhase;
@@ -34,6 +38,8 @@ export interface RunOutcome {
   /** Unified diff of the agent's change. Stored as an `observations` row (mode 'observed'). */
   patch: string | null;
   actions: RunAction[];
+  /** Measured model usage of the run. Null when the agent never started or the gateway reported nothing. */
+  cost?: RunCost | null;
 }
 
 export interface JobStore {

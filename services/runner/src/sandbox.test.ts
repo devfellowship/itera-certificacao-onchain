@@ -46,4 +46,9 @@ describe('buildGatewayArgs', () => {
     expect(args).toEqual(expect.arrayContaining(['--cap-drop', 'ALL', 'ITERA_UPSTREAM=https://openrouter.ai']));
     expect(args.join(' ')).not.toMatch(/docker\.sock|-v |--volume|--mount/);
   });
+  it('passes the per-run cost cap to the gateway (default US$0.50, env ITERA_RUN_MAX_COST_USD)', () => {
+    expect(buildGatewayArgs({ name: 'g', config: defaultSandboxConfig({}) })).toContain('ITERA_RUN_MAX_COST_USD=0.5');
+    expect(buildGatewayArgs({ name: 'g', config: defaultSandboxConfig({ ITERA_RUN_MAX_COST_USD: '1.25' }) })).toContain('ITERA_RUN_MAX_COST_USD=1.25');
+    expect(defaultSandboxConfig({ ITERA_RUN_MAX_COST_USD: 'abc' }).maxCostUsd).toBe(0.5);
+  });
 });
