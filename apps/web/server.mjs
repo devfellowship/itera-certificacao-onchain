@@ -5,6 +5,8 @@
  * - For `GET /e/:slugOrHash` it reads the public profile from the API and injects Open Graph and
  *   Twitter meta into index.html, so X, LinkedIn and Slack unfurl the link without running JS.
  *   If the API is slow or down, it serves the plain index.html: the SPA still works.
+ * - For `GET /tasks/:slug` (the public task profile, U30) it does the same from `GET /public/tasks/:slug`.
+ *   `/tasks` and `/tasks/new` are app routes and get the plain index.html.
  * - `GET /health` answers `ok` (Docker HEALTHCHECK).
  *
  * No dependencies: node:http only.
@@ -21,6 +23,8 @@ const API_BASE_URL = (process.env.API_BASE_URL ?? 'https://itera-agent-credentia
 const API_TIMEOUT_MS = Number(process.env.OG_API_TIMEOUT_MS ?? 4000)
 const META_TTL_MS = 60_000
 const KEY_RE = /^[A-Za-z0-9-]{3,100}$/
+// Task slugs have underscores (tsk_webhook_dup); `new` is the editor route, not a task.
+const TASK_KEY_RE = /^(?!new$)[A-Za-z0-9._-]{1,100}$/
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -87,6 +91,32 @@ export function profileMeta(p, origin) {
   }
 }
 
+/** The meta block for one public task profile (the JSON of GET /public/tasks/:slug). No image: a task has no og.png yet. */
+export function taskMeta(t, origin) {
+  const url = `${origin}/tasks/${t.slug}`
+  const title = `${t.name} — task on TestMyAgent`
+  const tools = (t.tools ?? []).filter((x) => x.allowed).length
+  const servers = t.mcp?.servers?.length ?? 0
+  const tests = t.tests?.label === 'open' ? 'open tests' : 'sealed tests'
+  const description = `${t.description} · ${tests} · ${tools} tool${tools === 1 ? '' : 's'} · ${servers} MCP server${servers === 1 ? '' : 's'} · v${t.version?.number ?? 1}`
+  const m = (attr, key, value) => `<meta ${attr}="${key}" content="${escapeHtml(value)}" />`
+  return {
+    title,
+    description,
+    tags: [
+      m('property', 'og:type', 'website'),
+      m('property', 'og:site_name', 'TestMyAgent'),
+      m('property', 'og:title', title),
+      m('property', 'og:description', description),
+      m('property', 'og:url', url),
+      m('name', 'twitter:card', 'summary'),
+      m('name', 'twitter:title', title),
+      m('name', 'twitter:description', description),
+      `<link rel="canonical" href="${escapeHtml(url)}" />`,
+    ].join('\n    '),
+  }
+}
+
 /** index.html with the profile's title, description and OG/Twitter tags. */
 export function injectMeta(html, meta) {
   let out = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(meta.title)}</title>`)
@@ -108,6 +138,25 @@ async function profileFor(key) {
       while (metaCache.size > 500) metaCache.delete(metaCache.keys().next().value)
     }
     return profile
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+const taskCache = new Map()
+async function taskFor(slug) {
+  const hit = taskCache.get(slug)
+  if (hit && hit.at > Date.now() - META_TTL_MS) return hit.task
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${API_BASE_URL}/public/tasks/${encodeURIComponent(slug)}`, { signal: ctrl.signal })
+    const task = res.ok ? await res.json() : null
+    if (res.ok || res.status === 404) {
+      taskCache.set(slug, { at: Date.now(), task })
+      while (taskCache.size > 500) taskCache.delete(taskCache.keys().next().value)
+    }
+    return task
   } finally {
     clearTimeout(timer)
   }
@@ -166,6 +215,20 @@ export async function handle(req, res) {
         if (profile) return sendIndex(res, injectMeta(indexHtml, profileMeta(profile, originOf(req))))
       } catch (e) {
         console.error(JSON.stringify({ event: 'og_inject_error', key, error: e instanceof Error ? e.message : String(e) }))
+      }
+    }
+    return sendIndex(res, indexHtml)
+  }
+
+  const taskMatch = /^\/tasks\/([^/]+)\/?$/.exec(pathname)
+  if (taskMatch) {
+    const slug = taskMatch[1]
+    if (TASK_KEY_RE.test(slug)) {
+      try {
+        const task = await taskFor(slug)
+        if (task) return sendIndex(res, injectMeta(indexHtml, taskMeta(task, originOf(req))))
+      } catch (e) {
+        console.error(JSON.stringify({ event: 'og_inject_error', key: slug, error: e instanceof Error ? e.message : String(e) }))
       }
     }
     return sendIndex(res, indexHtml)

@@ -15,6 +15,7 @@ import { SelectTasksPage } from './pages/SelectTasksPage'
 import { RunningEvaluationPage } from './pages/RunningEvaluationPage'
 import { MyEvaluationsPage } from './pages/MyEvaluationsPage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
+import { TaskProfilePage } from './pages/TaskProfilePage'
 import { MyTasksPage } from './pages/MyTasksPage'
 import { TaskEditorPage } from './pages/TaskEditorPage'
 import { DesignPrimitivesPage } from './pages/DesignPrimitivesPage'
@@ -79,6 +80,8 @@ function LegacyRedirect({ to }: { to: string }) {
 export const routes = [
   { path: '/', element: <LandingPage /> },
   { path: '/e/:slugOrHash', element: <PublicProfilePage /> },
+  // U30: public task profile (ADR-11). The editor moved to /tasks/:id/edit; the owner of a private task who opens its slug is sent there.
+  { path: '/tasks/:slug', element: <TaskProfilePage /> },
   {
     element: <AppLayout />,
     children: [
@@ -90,8 +93,6 @@ export const routes = [
       { path: '/tasks', element: <MyTasksPage /> },
       { path: '/tasks/new', element: <TaskEditorPage /> },
       { path: '/tasks/:id/edit', element: <TaskEditorPage /> },
-      // U30 replaces this with the public task page (/tasks/:slug, U32 decision).
-      { path: '/tasks/:id', element: <TaskEditorPage /> },
     ],
   },
   { element: <OpenAppLayout />, children: [{ path: '/agents/:aid', element: <AgentDetailPage /> }] },

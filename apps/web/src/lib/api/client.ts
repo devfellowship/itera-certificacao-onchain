@@ -125,6 +125,14 @@ export const api = {
   agentBadgeUrl: (key: string) => `${API_BASE_URL}/badge/agents/${encodeURIComponent(key)}.svg`,
   badgeUrl: (slug: string) => `${API_BASE_URL}/b/${encodeURIComponent(slug)}.svg`,
 
+  // Public task profile (U30)
+  publicTask: (slug: string, version?: number) =>
+    request<T.TaskProfile>(`/public/tasks/${encodeURIComponent(slug)}`, { query: { v: version }, auth: false }),
+  publicTaskSchemasUrl: (slug: string, version?: number) => `${API_BASE_URL}/public/tasks/${encodeURIComponent(slug)}/schemas.json${version ? `?v=${version}` : ''}`,
+  /** U28: does the agent fit the task's tool environment? Optional auth: the owner, or a listed agent. */
+  taskCompatibility: (idOrSlug: string, agentId: string) =>
+    request<T.TaskCompatibility>(`/tasks/${encodeURIComponent(idOrSlug)}/compatibility`, { query: { agentId } }),
+
   // My tasks (P7, U19)
   taskLayout: (input: T.TaskSourceInput) => request<T.TaskLayoutResponse>('/tasks/layout', { method: 'POST', body: json(input) }),
   createTask: (input: T.CreateTaskInput) => request<{ task: T.UserTaskDetail; version: T.UserTaskVersion; layout: T.TaskLayout }>('/tasks', { method: 'POST', body: json(input) }),

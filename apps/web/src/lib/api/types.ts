@@ -758,3 +758,104 @@ export interface RunFeedback {
   note: string | null
   createdAt: string
 }
+
+// ---------- U30: public task profile (/tasks/:slug) ----------
+export interface McpToolView {
+  name: string
+  description: string
+  params: string[]
+  required: string[]
+  inputSchema: unknown
+}
+export interface McpServerView {
+  name: string
+  description: string | null
+  source: 'catalog' | 'repo'
+  transport: 'stdio' | 'http'
+  version: string | null
+  reviewedAt: string | null
+  retired: boolean
+  seed: { applied: boolean; digest: string | null }
+  scorerReadsState: boolean
+  snapshot: { status: 'pinned' | 'pending'; capturedAt: string | null; digest: string | null; toolCount: number }
+  tools: McpToolView[]
+  notExposedCount: number
+  allowedToolNames: string[]
+}
+export interface TaskResults {
+  agentsEvaluated: number
+  runs: number
+  passRate: number | null
+  medianScore: number | null
+  medianDurationMs: number | null
+  outcomes: { pass: number; fail: number; invalid: number }
+  leaderboard: Array<{
+    rank: number
+    agentName: string
+    agentSlug: string | null
+    modelLabel: string | null
+    score: number | null
+    outcome: Outcome
+    date: string | null
+    evaluationSlug: string | null
+  }>
+}
+export interface TaskProfile {
+  id: string
+  slug: string
+  name: string
+  description: string
+  tags: Tag[]
+  curatedByItera: true
+  runnable: boolean
+  estMinutes: number | null
+  price: { usdPerRun: number; currency: 'USD'; paidIn: 'SOL'; network: 'devnet' }
+  tests: { label: 'sealed' | 'open'; hiddenCount: number | null; publicCount: number | null }
+  version: {
+    number: number
+    latest: number
+    isLatest: boolean
+    createdAt: string
+    commit: string | null
+    repoUrl: string | null
+    digest: string | null
+    digests: { contract: string; environment: string; mcpSchema: string | null; fixture: string | null; hidden: string | null; seeds: Array<{ server: string; digest: string | null }> }
+    history: Array<{ version: number; createdAt: string; changed: Array<'Contract' | 'Environment' | 'Tests'> }>
+  }
+  goal: { text: string; doneWhen: string[] }
+  input: {
+    instruction: { text: string | null; truncated: boolean }
+    repository: { repo: string | null; path: string | null; commit: string | null }
+    editablePaths: string[]
+    protectedPaths: string[]
+  }
+  output: { summary: string; checkedBy: string | null; separateContainer: true; hiddenCount: number | null }
+  tools: Array<{ id: string; name: string; description: string; allowed: boolean }>
+  mcp: { servers: McpServerView[]; scorerReads: string[]; snapshotDigest: string | null }
+  limits: {
+    runTimeoutSec: number | null
+    estMinutes: number | null
+    costCapUsd: number
+    resources: { cpus: number | null; memoryMb: number | null; pids: number | null }
+    network: 'model-gateway' | 'model-gateway+mcp'
+    secrets: string[]
+    mcpBootTimeoutSec: number | null
+    editablePaths: string[]
+    protectedPaths: string[]
+  }
+  scoring: { parts: Array<{ key: string; label: string; points: number; description: string }>; total: 100 }
+  reputation: TaskReputation | null
+  results: TaskResults
+  resultsAll: TaskResults
+  links: { web: string; api: string }
+}
+/** GET /tasks/:idOrSlug/compatibility?agentId= (U28). */
+export interface TaskCompatibility {
+  taskId: string
+  slug: string
+  agentId: string
+  compatible: boolean
+  reasons: Array<{ code: 'missing_mcp_server' | 'missing_builtin_tool'; requirement: string; message: string }>
+  requires: string[]
+  environment: { builtin: string[]; mcp: Array<{ name: string; transport: string; allowedTools: string[] }>; runEgress: string[] }
+}

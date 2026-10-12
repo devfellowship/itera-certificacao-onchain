@@ -18,6 +18,7 @@ import { solUsdProvider } from "./evaluations/price.js";
 import { SolanaPayGateway } from "./evaluations/solana-pay.js";
 import { PgEvaluationsStore } from "./evaluations/store.pg.js";
 import { PgPublicProfilesStore } from "./public/store.pg.js";
+import { PgPublicTaskStore } from "./public/task-store.pg.js";
 import { PgReputationStore } from "./domain/reputation-store.pg.js";
 
 const port = Number(process.env.PORT ?? 3000);
@@ -67,6 +68,8 @@ createApp(repo, {
   // U14: public evaluation profile (needs 0008).
   publicProfiles: new PgPublicProfilesStore(getPool()),
   reputation,
+  // U30: public task profile (needs 0007; results need 0008, reputation 0010).
+  publicTasks: new PgPublicTaskStore(getPool()),
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });
