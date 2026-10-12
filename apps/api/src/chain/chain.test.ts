@@ -62,7 +62,7 @@ describe("run-start memo", () => {
     });
   });
 
-  it("refuses a tx that the Itera hot signer did not build", async () => {
+  it("refuses a tx that the TestMyAgent hot signer did not build", async () => {
     const hot = await generateKeyPairSigner();
     const impostor = await generateKeyPairSigner();
     const user = await generateKeyPairSigner();

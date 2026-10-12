@@ -4,7 +4,7 @@ import { renderNftPng, type NftImageInput } from "../chain/nft-image.js";
 import { NotAnIteraProof, readOnChainProof, type OnChainProof } from "../chain/onchain-proof.js";
 
 /**
- * Public NFT metadata + image for Itera proof NFTs (plan 20261012-itera-agent-proof-route-change-fixes, F5).
+ * Public NFT metadata + image for TestMyAgent proof NFTs (plan 20261012-itera-agent-proof-route-change-fixes, F5).
  *
  *   GET /nft/:mint.json — Metaplex-style metadata JSON; wallets and explorers fetch the mint's
  *                         TokenMetadata `uri`, which points here.
@@ -24,7 +24,7 @@ export function createNftRouter(deps: { readProof?: (mint: string) => Promise<On
       return await readProof(mint);
     } catch (error) {
       if (error instanceof NotAnIteraProof) {
-        res.status(404).json({ error: "not an Itera proof NFT", detail: error.message });
+        res.status(404).json({ error: "not a TestMyAgent proof NFT", detail: error.message });
       } else {
         res.status(502).json({ error: "chain read failed", detail: error instanceof Error ? error.message : String(error) });
       }
@@ -66,7 +66,7 @@ export function nftMetadataJson(proof: OnChainProof) {
     name: `${CHAIN.TOKEN_NAME} · ${data.scenario_id} · ${data.score_total}`,
     symbol: CHAIN.TOKEN_SYMBOL,
     description:
-      `Itera agent proof. Agent ${agent} scored ${data.score_total}/100 on benchmark ${data.scenario_id}. ` +
+      `TestMyAgent proof. Agent ${agent} scored ${data.score_total}/100 on benchmark ${data.scenario_id}. ` +
       "Non-transferable Solana Attestation Service credential (schema run-result-v2). " +
       `Evidence: ipfs://${data.evidence_cid} (sha256 ${data.manifest_sha256}).`,
     image: nftImageUrl(proof.nftMint),

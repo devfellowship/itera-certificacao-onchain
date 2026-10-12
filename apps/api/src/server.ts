@@ -47,5 +47,5 @@ createApp(repo, {
     runKeySecret: process.env.ITERA_RUN_KEY_SECRET,
   },
 }).listen(port, () => {
-  console.log(`itera-agent-credentials-api listening on port ${port}`);
+  console.log(`testmyagent-api listening on port ${port}`);
 });

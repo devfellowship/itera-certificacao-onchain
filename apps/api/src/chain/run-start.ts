@@ -181,7 +181,7 @@ export async function verifyRunStartTx(
     throw new RunStartError("expected exactly two signers (hot signer + user wallet)", "invalid_tx");
   }
   if (accounts[0] !== hotSignerAddress) {
-    throw new RunStartError("fee payer is not the Itera hot signer", "invalid_tx");
+    throw new RunStartError("fee payer is not the TestMyAgent hot signer", "invalid_tx");
   }
   const userWallet = accounts[1];
 

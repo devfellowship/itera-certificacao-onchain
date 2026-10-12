@@ -2,7 +2,7 @@
 
 Anchors a `services/evaluator` evidence manifest on Solana via the [Solana Attestation
 Service](https://github.com/solana-foundation/solana-attestation-service) (SAS) — the
-"Verify on-chain" step of the Itera Agent Proof flow.
+"Verify on-chain" step of the TestMyAgent proof flow.
 
 ## What's here
 

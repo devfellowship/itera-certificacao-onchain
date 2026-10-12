@@ -41,8 +41,8 @@ export const RUN_RESULT_SCHEMA = {
 } as const;
 
 export const TOKEN_CONFIG = {
-  NAME: 'Itera Run Result',
-  SYMBOL: 'ITERA',
+  NAME: 'TestMyAgent Run Result',
+  SYMBOL: 'TMA',
   // Cosmetic only — confirmed against the official SAS example that this uri is never resolved
   // for CreateTokenizedAttestation to succeed, it only affects how a wallet renders the token.
   // Swap for a real pinned {name,symbol,image} JSON when one exists (build-order item 5, IPFS).

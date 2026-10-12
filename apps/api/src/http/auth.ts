@@ -134,7 +134,7 @@ export function buildSignInMessage(wallet: string, nonce: string, issuedAt: stri
     `${SIWS_DOMAIN} wants you to sign in with your Solana account:`,
     wallet,
     "",
-    "Sign in to ITERA Agent Credentials. This request does not send a transaction and costs nothing.",
+    "Sign in to TestMyAgent. This request does not send a transaction and costs nothing.",
     "",
     `Nonce: ${nonce}`,
     `Issued At: ${issuedAt}`,

@@ -235,7 +235,7 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
       let modelApiKeyEnc: string | null = null;
       if (body.modelApiKey !== undefined && body.modelApiKey !== null && body.modelApiKey !== "") {
         if (!isModelApiKey(body.modelApiKey)) {
-          res.status(400).json({ error: "modelApiKey is not a valid OpenRouter API key (omit it to let ITERA pay the model tokens)" });
+          res.status(400).json({ error: "modelApiKey is not a valid OpenRouter API key (omit it to let TestMyAgent pay the model tokens)" });
           return;
         }
         if (!deps.runKeySecret) {

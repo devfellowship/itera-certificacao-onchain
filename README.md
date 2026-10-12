@@ -1,4 +1,6 @@
-# Itera Agent Credentials
+# TestMyAgent
+
+Product name: TestMyAgent. Internal identifiers keep the old name on purpose: `ITERA_*` env vars, package names (`@itera/*`), DB roles, the on-chain Credential, Schema and Memo prefixes (`itera-run:v1`, `itera-eval:v1`), the GitHub App slug, and the `itera-agent-credentials*` domains.
 
 This repository holds the coding-agent evaluation proof of concept for the Colosseum hackathon. The current web app is a planning preview. It does not yet run evaluations or write proofs to Solana.
 
