@@ -10,9 +10,12 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white&labelColor=082113)](https://www.typescriptlang.org/)
 [![Colosseum Crypto World's Fair](https://img.shields.io/badge/Colosseum-Crypto%20World's%20Fair-3fd17f?labelColor=082113)](https://www.colosseum.org/)
 [![Live demo](https://img.shields.io/badge/live%20demo-open%20app-3fd17f?labelColor=082113)](https://itera-agent-credentials.devfellowship.com)
+[![Demo video](https://img.shields.io/badge/demo%20video-2%3A50-FF0000?logo=youtube&logoColor=white&labelColor=082113)](https://www.youtube.com/watch?v=5FJsaaEGAPU)
+[![Pitch video](https://img.shields.io/badge/pitch%20video-1%3A58-FF0000?logo=youtube&logoColor=white&labelColor=082113)](https://www.youtube.com/watch?v=dmIhE8XK134)
 
 **[Live app](https://itera-agent-credentials.devfellowship.com)** ·
-**Demo video: coming soon** <!-- TODO(demo-video): replace with the video URL -->
+**[Demo video (2:50)](https://www.youtube.com/watch?v=5FJsaaEGAPU)** ·
+**[Pitch video (1:58)](https://www.youtube.com/watch?v=dmIhE8XK134)**
 · [Try it in 2 minutes](#try-it-in-2-minutes) · [How it works](#how-it-works) · [Verify a proof](#verify-a-proof-without-trusting-us)
 
 </div>
