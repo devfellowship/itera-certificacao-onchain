@@ -9,6 +9,7 @@ import {
   type Tag,
   type TaskVersionInfo,
 } from "./catalog-store.js";
+import type { SyncedModel } from "./models-sync.js";
 import { SchemaNotReadyError } from "./runs-store.js";
 
 const MISSING_SCHEMA_CODES = new Set(["42P01", "42703"]); // undefined_table, undefined_column
@@ -202,6 +203,82 @@ export class PgCatalogStore implements CatalogStore {
       }));
     } catch (e) {
       rethrow(e);
+    }
+  }
+
+  async isModelEnabled(id: string): Promise<boolean | null> {
+    try {
+      const { rows } = await this.pool.query<{ enabled: boolean }>(`select enabled from public.models where id = $1`, [id]);
+      return rows[0] ? rows[0].enabled : null;
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+
+  /**
+   * One transaction. Existing models keep `label`, `enabled` and `sort` (ITERA's curation); OpenRouter
+   * facts are refreshed. The seed's placeholder release (id = model id) is replaced by the canonical
+   * slug; the newest canonical slug is the only is_latest row of a model.
+   */
+  async applyModelsSync(models: SyncedModel[], syncedAt: string) {
+    const col = <T>(f: (m: SyncedModel) => T) => models.map(f);
+    const input = `select * from unnest($1::text[], $2::text[], $3::text[], $4::int[], $5::numeric[], $6::numeric[],
+                                        $7::boolean[], $8::timestamptz[], $9::text[])
+                     as x(id, label, provider, ctx, pp, cp, tools, created, rid)`;
+    const params = [
+      col((m) => m.id),
+      col((m) => m.label),
+      col((m) => m.provider),
+      col((m) => m.contextLength),
+      col((m) => m.promptPriceUsdPerM),
+      col((m) => m.completionPriceUsdPerM),
+      col((m) => m.supportsTools),
+      col((m) => m.createdAt),
+      col((m) => m.release.id),
+      syncedAt,
+    ];
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      const up = await client.query<{ inserted: boolean }>(
+        `insert into public.models (id, label, provider, context_length, prompt_price_usd_m, completion_price_usd_m,
+                                    supports_tools, enabled, sort, openrouter_created_at, synced_at)
+         select id, label, provider, ctx, pp, cp, tools, false, 100, created, $10::timestamptz from (${input}) i
+         on conflict (id) do update set
+           provider = excluded.provider, context_length = excluded.context_length,
+           prompt_price_usd_m = excluded.prompt_price_usd_m, completion_price_usd_m = excluded.completion_price_usd_m,
+           supports_tools = excluded.supports_tools, openrouter_created_at = excluded.openrouter_created_at,
+           synced_at = excluded.synced_at
+         returning (xmax = 0) as inserted`,
+        params,
+      );
+      await client.query(
+        `delete from public.model_releases r using (${input}) i
+          where r.model_id = i.id and r.id = r.model_id and i.rid <> i.id`,
+        params.slice(0, 9),
+      );
+      await client.query(
+        `update public.model_releases r set is_latest = false from (${input}) i
+          where r.model_id = i.id and r.id <> i.rid and r.is_latest`,
+        params.slice(0, 9),
+      );
+      const rel = await client.query<{ inserted: boolean }>(
+        `insert into public.model_releases (id, model_id, released_at, is_latest, synced_at)
+         select rid, id, created, true, $10::timestamptz from (${input}) i
+         on conflict (id) do update set is_latest = true, released_at = coalesce(excluded.released_at, public.model_releases.released_at),
+           synced_at = excluded.synced_at
+           where public.model_releases.model_id = excluded.model_id
+         returning (xmax = 0) as inserted`,
+        params,
+      );
+      await client.query("commit");
+      const inserted = up.rows.filter((r) => r.inserted).length;
+      return { inserted, updated: up.rows.length - inserted, newReleases: rel.rows.filter((r) => r.inserted).length };
+    } catch (e) {
+      await client.query("rollback").catch(() => undefined);
+      rethrow(e);
+    } finally {
+      client.release();
     }
   }
 

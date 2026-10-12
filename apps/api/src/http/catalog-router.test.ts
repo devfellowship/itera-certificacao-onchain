@@ -270,3 +270,38 @@ describe("GET/PATCH /me", () => {
     expect((await patch({ handle: "taken" })).status).toBe(409);
   });
 });
+
+describe("model access (U21)", () => {
+  it("GET /models/:id/access reads the allow-list", async () => {
+    expect((await get("/models/anthropic%2Fclaude-haiku-4.5/access")).body).toEqual({ modelId: "anthropic/claude-haiku-4.5", accessible: true, reason: "allow_listed" });
+    expect((await get("/models/openai/gpt-x/access")).body).toEqual({ modelId: "openai/gpt-x", accessible: false, reason: "not_enabled" });
+    expect((await get("/models/nope/nope/access")).body).toMatchObject({ accessible: false, reason: "unknown_model" });
+  });
+
+  it("POST /admin/models/sync: admin wallets only", async () => {
+    const app = express();
+    app.use(express.json());
+    let calls = 0;
+    app.use(
+      createCatalogRouter(store, {
+        adminWallets: () => [ME],
+        syncModels: async () => {
+          calls += 1;
+          return { fetched: 1, inserted: 0, updated: 1, newReleases: 0, syncedAt: "2026-10-12T20:00:00.000Z" };
+        },
+      }),
+    );
+    const srv = app.listen(0);
+    const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/admin/models/sync`;
+    try {
+      expect((await fetch(url, { method: "POST" })).status).toBe(401);
+      expect((await fetch(url, { method: "POST", headers: auth(OTHER) })).status).toBe(403);
+      const ok = await fetch(url, { method: "POST", headers: auth(ME) });
+      expect(ok.status).toBe(200);
+      expect(((await ok.json()) as any).updated).toBe(1);
+      expect(calls).toBe(1);
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()));
+    }
+  });
+});

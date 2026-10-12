@@ -11,7 +11,7 @@ import { createNftRouter } from "./http/nft-router.js";
 import { createGithubRouter, defaultGithubRouterDeps, type GithubRouterDeps } from "./http/github-router.js";
 import { createProofsRouter } from "./http/proofs-router.js";
 import type { ProofStore } from "./chain/proof-store.js";
-import { createCatalogRouter } from "./http/catalog-router.js";
+import { createCatalogRouter, modelAccessCheck, type CatalogRouterOptions } from "./http/catalog-router.js";
 import type { CatalogStore } from "./domain/catalog-store.js";
 import { createTaskPacksRouter } from "./http/task-packs-router.js";
 import { createRunsRouter, type RunsRouterDeps } from "./http/runs-router.js";
@@ -62,6 +62,8 @@ const ROUTES = [
   "GET /tags?kind=",
   "GET /me",
   "PATCH /me",
+  "GET /models/:id/access",
+  "POST /admin/models/sync",
 ];
 
 /**
@@ -79,6 +81,8 @@ export interface AppOptions {
   /** U5 catalog (tasks, tags, models from DB, profile). Mounted before the GitHub router so its
    * GET /models (DB) wins over the static one. */
   catalog?: CatalogStore;
+  /** U21: the on-demand OpenRouter sync and the admin allow-list. */
+  catalogOptions?: CatalogRouterOptions;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -130,8 +134,11 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createTaskPacksRouter(repo));
   app.use(createAgentEndpointManifestsRouter());
   app.use(createNftRouter());
-  if (options.catalog) app.use(createCatalogRouter(options.catalog));
-  app.use(createGithubRouter(options.github ?? defaultGithubRouterDeps()));
+  if (options.catalog) app.use(createCatalogRouter(options.catalog, options.catalogOptions));
+  const githubDeps = options.github ?? defaultGithubRouterDeps();
+  // U21: POST /agents checks the model against models.enabled (DB) when the catalog is wired.
+  if (options.catalog && !githubDeps.isModelAllowed) githubDeps.isModelAllowed = modelAccessCheck(options.catalog);
+  app.use(createGithubRouter(githubDeps));
   if (options.proofs) app.use(createProofsRouter({ store: options.proofs }));
 
   return app;
