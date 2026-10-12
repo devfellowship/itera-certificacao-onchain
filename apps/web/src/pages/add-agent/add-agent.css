@@ -1,0 +1,327 @@
+/* Screen 02 Add agent (U10). Tokens only; sizes are the design's (02 Add Agent.dc.html). */
+.ta-head {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.ta-head__row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+.ta-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.ta-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.ta-card {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.ta-card--tight {
+  gap: 16px;
+}
+.ta-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.ta-identity {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.ta-avatar {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  background: var(--tma-surface-raised);
+  border: 1px dashed var(--tma-line-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--tma-font-mono);
+  font-size: 20px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+.ta-identity__fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.ta-count {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.ta-count__n {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text-subtle);
+}
+.ta-count__n--max {
+  color: var(--tma-warning-text);
+}
+.ta-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.ta-pair--even {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.ta-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ta-mono13 {
+  font-family: var(--tma-font-mono);
+  font-size: 13px;
+}
+.ta-sans13 {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ta-repo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  font-family: var(--tma-font-mono);
+  font-size: 13px;
+}
+.ta-pill {
+  font-family: var(--tma-font-sans);
+  font-size: 11px;
+  color: var(--tma-text-muted);
+  border: 1px solid var(--tma-line-strong);
+  border-radius: var(--tma-radius-pill);
+  padding: 0 6px;
+}
+.ta-provider {
+  font-size: 12px;
+  color: var(--tma-text-muted);
+}
+.ta-model {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ta-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-bg);
+  border: 1px solid var(--tma-line);
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.ta-info b {
+  font-weight: 400;
+  color: var(--tma-text);
+}
+.ta-info a {
+  white-space: nowrap;
+}
+.ta-verify {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 22px;
+}
+.ta-verify__text {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text-muted);
+}
+.ta-verify__text--bad {
+  font-family: var(--tma-font-sans);
+  font-size: 13px;
+  color: var(--tma-danger-text);
+}
+.ta-verify__try {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.ta-spin {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--tma-line-strong);
+  border-top-color: var(--tma-warning-dot);
+  animation: ta-spin 0.8s linear infinite;
+}
+@keyframes ta-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ta-install__title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.ta-install__copy {
+  font-size: 14px;
+  color: var(--tma-text-muted);
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.ta-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.ta-tile {
+  padding: 14px 16px;
+  border-radius: var(--tma-radius-md);
+  border: 1px solid var(--tma-line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ta-tile--on {
+  border-color: var(--tma-line-strong);
+  background: var(--tma-bg);
+}
+.ta-tile__n {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text-subtle);
+}
+.ta-tile--on .ta-tile__n {
+  color: var(--tma-primary);
+}
+.ta-tile__t {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tma-text-muted);
+}
+.ta-tile--on .ta-tile__t {
+  color: var(--tma-text);
+}
+.ta-tile__d {
+  font-size: 13px;
+  color: var(--tma-text-subtle);
+}
+.ta-tile--on .ta-tile__d {
+  color: var(--tma-text-muted);
+}
+.ta-tile__d--mono {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+}
+.ta-install__cta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.ta-install__note {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.ta-help {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.ta-error {
+  font-size: 13px;
+  color: var(--tma-danger-text);
+  background: var(--tma-danger-bg);
+  border: 1px solid var(--tma-danger-border);
+  border-radius: var(--tma-radius-md);
+  padding: 10px 14px;
+}
+.ta-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 8px;
+}
+.ta-actions__row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.ta-actions .tma-btn--primary:disabled {
+  opacity: 0.4;
+}
+.ta-access .tma-kv__key,
+.ta-access .tma-kv__value {
+  padding: 12px 20px;
+}
+.ta-access .tma-kv__value {
+  justify-content: flex-start;
+  text-align: left;
+}
+.ta-files {
+  display: flex;
+  flex-direction: column;
+}
+.ta-file {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ta-file span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ta-file span:last-child {
+  flex: none;
+  color: var(--tma-text-subtle);
+}
+.ta-files__empty {
+  color: var(--tma-text-subtle);
+  white-space: normal;
+}
+.ta-skel {
+  height: 40px;
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-surface-raised);
+  opacity: 0.6;
+}
+@media (max-width: 1023px) {
+  .ta-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ta-head__row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* The design's badges inherit the body line-height (1.55), so they are 2 px taller than the primitive's. */
+.ta-card .tma-badge {
+  line-height: 1.55;
+}

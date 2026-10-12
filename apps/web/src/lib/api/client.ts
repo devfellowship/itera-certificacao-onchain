@@ -83,9 +83,11 @@ export const api = {
   githubInstallUrl: () => request<{ url: string; state: string }>('/github/install-url'),
   githubInstallations: () => request<{ installations: T.GithubInstallation[] }>('/github/installations'),
   githubRepos: () => request<{ repos: T.GithubRepo[] }>('/github/repos'),
-  githubAgentCandidates: (fullName: string) => request<unknown>(`/github/repos/${fullName}/agent-candidates`),
-  githubBranches: (fullName: string) => request<{ branches: T.GithubBranch[] }>(`/github/repos/${fullName}/branches`),
-  githubCommits: (fullName: string, branch: string, limit = 20) => request<{ commits: T.GithubCommit[] }>(`/github/repos/${fullName}/commits`, { query: { branch, limit } }),
+  /** The page /connect/github/callback forwards GitHub's query (installation_id, code, state) here, with the session token. */
+  githubCallback: (params: T.GithubCallbackParams) => request<T.GithubCallbackResponse>('/github/callback', { query: { ...params } }),
+  githubAgentCandidates: (fullName: string, ref?: string) => request<unknown>(`/github/repos/${fullName}/agent-candidates`, { query: { ref } }),
+  githubBranches: (fullName: string) => request<T.GithubBranchesResponse>(`/github/repos/${fullName}/branches`),
+  githubCommits: (fullName: string, branch: string, limit = 20) => request<T.GithubCommitsResponse>(`/github/repos/${fullName}/commits`, { query: { branch, limit } }),
 
   // Agents
   agentValidate: (input: T.AgentValidateInput) => request<T.AgentValidateResponse>('/agents/validate', { method: 'POST', body: json(input) }),

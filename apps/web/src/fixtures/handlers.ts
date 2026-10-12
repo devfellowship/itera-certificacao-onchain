@@ -58,17 +58,26 @@ export const handlers = [
 
   // GitHub
   http.get(u('/github/install-url'), () => HttpResponse.json({ url: 'https://github.com/apps/testmyagent-watcher/installations/new', state: 'fixture' })),
-  http.get(u('/github/installations'), () => HttpResponse.json({ installations: [{ installationId: 1, accountLogin: 'brunolima' }] })),
-  http.get(u('/github/repos'), () =>
-    HttpResponse.json({ repos: ['brunolima/settlewise', 'brunolima/querytune', 'brunolima/logweaver'].map((fullName) => ({ fullName, installationId: 1, accountLogin: 'brunolima', private: true, defaultBranch: 'main' })) }),
+  http.get(u('/github/installations'), () => HttpResponse.json({ installations: [{ installationId: 1, accountLogin: 'settlewise-labs' }] })),
+  http.get(u('/github/repos'), () => HttpResponse.json({ repos: [{ fullName: 'settlewise-labs/settlewise-agent', installationId: 1, accountLogin: 'settlewise-labs', private: true, defaultBranch: 'main' }] })),
+  http.get(u('/github/callback'), () => HttpResponse.json({ installationId: 1, accountLogin: 'settlewise-labs', ownerWallet: FIXTURE_USER.wallet })),
+  http.get(u('/github/repos/:owner/:repo/branches'), () =>
+    HttpResponse.json({
+      defaultBranch: 'main',
+      branches: [
+        { name: 'main', headSha: '9f2c1ab4e7d0c3b5a8f6e2d1c0b9a8f7e6d5c4b3', shortSha: '9f2c1ab', isDefault: true },
+        { name: 'release/1.2', headSha: '3e07a21c5b90c4d209fa7f3a2be19c04d6e81a5f', shortSha: '3e07a21', isDefault: false },
+      ],
+    }),
   ),
-  http.get(u('/github/repos/:owner/:repo/branches'), () => HttpResponse.json({ branches: [{ name: 'main', headSha: '9f2c1ab4e7d0c3b5a8f6e2d1c0b9a8f7e6d5c4b3' }, { name: 'release/1.2', headSha: '3e07a21c5b90c4d209fa7f3a2be19c04d6e81a5f' }] })),
   http.get(u('/github/repos/:owner/:repo/commits'), () =>
     HttpResponse.json({
+      branch: 'main',
+      headSha: '9f2c1ab4e7d0c3b5a8f6e2d1c0b9a8f7e6d5c4b3',
       commits: [
-        { sha: '9f2c1ab4e7d0c3b5a8f6e2d1c0b9a8f7e6d5c4b3', shortSha: '9f2c1ab', message: 'Handle duplicate settlement webhooks', date: '2026-10-12T09:14:00Z' },
-        { sha: '4be192af7f3ac91e5h7kQm9w2Wb8k3Ps0a1b2c3d', shortSha: '4be192a', message: 'Add refund race test', date: '2026-10-11T18:02:00Z' },
-        { sha: 'a91c04dee27b5f10c41e7d2c4d209fa3e07a21c5', shortSha: 'a91c04d', message: 'Bump vitest', date: '2026-10-10T12:40:00Z' },
+        { sha: '9f2c1ab4e7d0c3b5a8f6e2d1c0b9a8f7e6d5c4b3', shortSha: '9f2c1ab', message: 'Handle duplicate settlement webhooks', date: '2026-10-12T09:14:00Z', authorName: 'Bruno Lima', isHead: true },
+        { sha: '4be192af7f3ac91e5a7b2c3d4e5f60718293a4b5', shortSha: '4be192a', message: 'Add refund race test', date: '2026-10-11T18:02:00Z', authorName: 'Bruno Lima', isHead: false },
+        { sha: 'a91c04dee27b5f10c41e7d2c4d209fa3e07a21c5', shortSha: 'a91c04d', message: 'Bump vitest', date: '2026-10-10T12:40:00Z', authorName: 'Bruno Lima', isHead: false },
       ],
     }),
   ),
@@ -82,7 +91,11 @@ export const handlers = [
         { path: 'skills/postgres/SKILL.md', bytes: 11800 },
       ],
       summary: 'AGENTS.md + 3 skills · 41 KB',
-      commit: '9f2c1ab',
+      skillCount: 3,
+      totalBytes: 41970,
+      commit: '9f2c1ab4e7d0c3b5a8f6e2d1c0b9a8f7e6d5c4b3',
+      shortCommit: '9f2c1ab',
+      branch: 'main',
     }),
   ),
 

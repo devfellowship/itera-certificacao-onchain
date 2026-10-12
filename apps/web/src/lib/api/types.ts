@@ -73,6 +73,8 @@ export interface TagsResponse {
 export interface ModelRelease {
   id: string
   isLatest: boolean
+  /** ISO date of the release (OpenRouter), when the API knows it. */
+  releasedAt?: string | null
 }
 export interface Model {
   id: string
@@ -83,6 +85,8 @@ export interface Model {
   releases: ModelRelease[]
 }
 export interface ModelsResponse {
+  /** Id of the default model (first enabled one). */
+  default?: string | null
   models: Model[]
 }
 
@@ -101,25 +105,61 @@ export interface GithubRepo {
 export interface GithubBranch {
   name: string
   headSha: string
+  shortSha?: string
+  isDefault?: boolean
+}
+export interface GithubBranchesResponse {
+  defaultBranch?: string
+  branches: GithubBranch[]
 }
 export interface GithubCommit {
   sha: string
   shortSha: string
   message: string
   date: string
+  authorName?: string
+  isHead?: boolean
+}
+export interface GithubCommitsResponse {
+  branch?: string
+  headSha?: string | null
+  commits: GithubCommit[]
+}
+export interface GithubCallbackParams {
+  installation_id: string
+  code?: string
+  state?: string
+  setup_action?: string
+}
+export interface GithubCallbackResponse {
+  installationId: number
+  accountLogin: string | null
+  ownerWallet: string
 }
 export interface AgentValidateInput {
   repoFullName: string
-  branch: string
+  /** Defaults to the repo default branch on the API. */
+  branch?: string
+  /** Defaults to the branch HEAD on the API. Full or short (7+) SHA. */
+  commit?: string
+  /** Directory that holds AGENTS.md / CLAUDE.md. "." is the repo root. */
   agentPath: string
-  commit: string
 }
+/** `ok:false` answers 200 with an `errorCode` (no_agent_file | too_large) and `candidates`. */
 export interface AgentValidateResponse {
   ok: boolean
   files: Array<{ path: string; bytes: number }>
-  summary: string
+  /** "AGENTS.md + 3 skills · 41 KB"; null when ok is false. */
+  summary: string | null
   commit: string
+  shortCommit?: string
+  branch?: string
+  skillCount?: number
+  totalBytes?: number
+  errorCode?: 'no_agent_file' | 'too_large' | (string & {})
   error?: string
+  /** Paths that do hold an agent file, offered when the chosen path has none. */
+  candidates?: string[]
 }
 export interface AgentVersionSummary {
   id: string
