@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../packages/contracts/schemas/run-profile.schema.json",
+  "schema_version": "1.0",
+  "name": "opencode",
+  "install_cmd": ["npm", "ci", "--include=dev", "--no-audit", "--no-fund", "--ignore-scripts"],
+  "run_cmd": ["opencode", "run", "--pure", "--format", "json", "--dir", "{workspace}", "-m", "{model}", "{instruction}"],
+  "final_output": "workspace-diff",
+  "output_artifacts": [{ "name": "trace", "source": "stdout", "format": "opencode-json-events", "required": false }],
+  "install_egress": ["registry.npmjs.org"],
+  "run_egress": ["model-gateway"],
+  "secrets": {
+    "ITERA_UPSTREAM_KEY": { "source": "run-model-key", "inject_into": "gateway" }
+  },
+  "timeouts": { "install_sec": 180, "run_sec": 300 },
+  "resources": { "cpus": 2, "memory_mb": 2048, "pids": 512 }
+}

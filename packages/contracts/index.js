@@ -35,3 +35,4 @@ export function validateTaskContract(value) {
   if (validateTaskFn(value)) return { ok: true, value: /** @type {any} */ (value) };
   return { ok: false, errors: formatErrors(validateTaskFn.errors) };
 }
+export { validateRunProfile, runProfileSchema } from './run-profile.js';

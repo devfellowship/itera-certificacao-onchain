@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/run-profile/1.0.json",
+  "title": "Runner run profile (how the runner installs, runs and collects one agent)",
+  "description": "The per-run configuration of services/runner. The boundaries and field names follow the Valkyrie agent contract (vals-ai/Valkyrie docs/agents/agent-contract.mdx, commit 68edd7ac, AGPL-3.0: names and boundaries reused, no code copied): install_cmd, run_cmd, final_output, output_artifacts, install_egress, secrets. Differences, on purpose: commands are argv arrays (no shell); secrets name the platform secret AND where it is injected (never in the agent sandbox); run_egress, timeouts and resources are our extensions (in Valkyrie the BENCHMARK owns the run network policy, with the legacy egress_allowlist on the agent side).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "install_cmd", "run_cmd", "final_output", "install_egress", "run_egress", "secrets", "timeouts", "resources"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": "1.0" },
+    "name": {
+      "description": "Valkyrie `name`. The profile id.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$"
+    },
+    "install_cmd": {
+      "description": "Valkyrie `install_cmd` (a shell string there; an argv here). Runs on the TRUSTED side in the task workspace before the agent starts. npm never runs lifecycle scripts: --ignore-scripts is required when argv[0] is npm.",
+      "$ref": "#/$defs/argv"
+    },
+    "run_cmd": {
+      "description": "Valkyrie `run_cmd` (a shell string with {placeholders} there; an argv here). Runs in the agent sandbox. Placeholders: {workspace} = the workspace path in the sandbox, {model} = the normalized model id, {instruction} = the task instruction as ONE argument (Valkyrie: provided.problem_statement_path).",
+      "allOf": [
+        { "$ref": "#/$defs/argv" },
+        { "contains": { "type": "string", "pattern": "\\{instruction\\}" } }
+      ]
+    },
+    "final_output": {
+      "description": "Valkyrie `final_output` (a path to collect). Here: what the runner collects after the run. `workspace-diff` = the workspace tree is copied out and diffed against the runner's own baseline commit; the result is the patch.",
+      "enum": ["workspace-diff"]
+    },
+    "output_artifacts": {
+      "description": "Valkyrie `output_artifacts` (small files collected next to the final output; required unless required: false).",
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "source"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$" },
+          "source": {
+            "description": "Where the runner reads it. `stdout` = the run command's standard output.",
+            "enum": ["stdout"]
+          },
+          "format": { "enum": ["opencode-json-events"] },
+          "required": { "type": "boolean", "default": true }
+        }
+      }
+    },
+    "install_egress": {
+      "description": "Valkyrie `install_egress`: \"*\" (unrestricted) or the list of hosts reachable while install_cmd runs. [] blocks all.",
+      "oneOf": [
+        { "const": "*" },
+        { "type": "array", "maxItems": 20, "items": { "type": "string", "pattern": "^[a-z0-9.-]+$" } }
+      ]
+    },
+    "run_egress": {
+      "description": "Our extension (Valkyrie: the benchmark's run policy). Destinations the agent sandbox can reach while run_cmd runs. `model-gateway` = the per-run model gateway container, which forwards only the model API and adds the key itself.",
+      "type": "array",
+      "maxItems": 1,
+      "items": { "enum": ["model-gateway"] }
+    },
+    "secrets": {
+      "description": "Valkyrie `secrets` (env var name -> secret store name, resolved at sandbox creation). Here: NAMES only, never values. The platform injects each one into the named container; `sandbox` is not an allowed target.",
+      "type": "object",
+      "maxProperties": 10,
+      "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "inject_into"],
+        "properties": {
+          "source": { "description": "Where the platform reads the value (an env var name of the worker, or `run-key` = the run's BYOK key).", "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$" },
+          "inject_into": { "const": "gateway" }
+        }
+      }
+    },
+    "timeouts": {
+      "description": "Our extension (Valkyrie leaves timeouts to the benchmark).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["install_sec", "run_sec"],
+      "properties": {
+        "install_sec": { "type": "integer", "minimum": 10, "maximum": 900 },
+        "run_sec": { "type": "integer", "minimum": 10, "maximum": 1800 }
+      }
+    },
+    "resources": {
+      "description": "Our extension. Limits of the agent sandbox container.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpus", "memory_mb", "pids"],
+      "properties": {
+        "cpus": { "type": "number", "exclusiveMinimum": 0, "maximum": 8 },
+        "memory_mb": { "type": "integer", "minimum": 256, "maximum": 16384 },
+        "pids": { "type": "integer", "minimum": 16, "maximum": 4096 }
+      }
+    }
+  },
+  "$defs": {
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 40,
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+    }
+  }
+}

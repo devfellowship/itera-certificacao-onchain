@@ -40,3 +40,25 @@ export declare const taskSchema: Record<string, unknown>;
 export declare function validateTaskContract(
   value: unknown,
 ): { ok: true; value: TaskContract } | { ok: false; errors: string[] };
+
+/** Runner run profile — see schemas/run-profile.schema.json (Valkyrie agent-contract boundaries). */
+export interface RunProfile {
+  $schema?: string;
+  schema_version: '1.0';
+  name: string;
+  install_cmd: string[];
+  run_cmd: string[];
+  final_output: 'workspace-diff';
+  output_artifacts?: Array<{ name: string; source: 'stdout'; format?: 'opencode-json-events'; required?: boolean }>;
+  install_egress: '*' | string[];
+  run_egress: Array<'model-gateway'>;
+  secrets: Record<string, { source: string; inject_into: 'gateway' }>;
+  timeouts: { install_sec: number; run_sec: number };
+  resources: { cpus: number; memory_mb: number; pids: number };
+}
+
+export declare const runProfileSchema: Record<string, unknown>;
+
+export declare function validateRunProfile(
+  value: unknown,
+): { ok: true; value: RunProfile } | { ok: false; errors: string[] };
