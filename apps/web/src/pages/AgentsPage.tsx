@@ -8,8 +8,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
 import type { RankingResponse, RankingRow } from '../lib/api'
-import { Avatar, Badge, Button, ButtonLink, RemovableChip, SearchInput, SectionLabel, StatusChip, Table, TableEmpty, Tabs, type Column } from '../tma/ui'
-import { findTask, TaskFilter, useTaskCatalog } from '../tma/task-filter'
+import { Avatar, Badge, Button, ButtonLink, ModelLabel, RemovableChip, SearchInput, SectionLabel, StatusChip, Table, TableEmpty, Tabs, type Column } from '../tma/ui'
+import { findTask, TaskFilter, TaskName, useTaskCatalog } from '../tma/task-filter'
 import { relativeTime } from './agents/format'
 import './agents/agents.css'
 
@@ -144,7 +144,7 @@ export function AgentsPage() {
         </div>
       ),
     },
-    { key: 'model', header: 'Model', width: '170px', render: (a) => <span className="agents-model">{a.modelLabel}</span> },
+    { key: 'model', header: 'Model', width: '170px', render: (a) => <ModelLabel className="agents-model" model={a.model} label={a.modelLabel} size={20} /> },
     {
       key: 'cov',
       header: n ? 'Coverage' : 'Evaluated on',
@@ -287,7 +287,7 @@ export function AgentsPage() {
             <SectionLabel>Ranked on</SectionLabel>
             {tasksOf(selIds).map(({ id, task }) => (
               <RemovableChip key={id} onRemove={() => update({ tasks: selIds.filter((x) => x !== id) })} removeLabel={`Remove ${task?.name ?? id}`}>
-                {task?.name ?? id}
+                <TaskName name={task?.name ?? id} taskId={task?.id ?? id} slug={task?.slug} />
               </RemovableChip>
             ))}
             <Button variant="text" onClick={() => setFilterOpen(true)} style={{ padding: '0 4px' }}>

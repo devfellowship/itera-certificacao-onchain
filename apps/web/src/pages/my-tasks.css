@@ -227,3 +227,21 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* Mine tab panel (U35): same rhythm as the page it came from. */
+.tmt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.tmt-head__right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.tmt-head__right .tma-tabs {
+  border-bottom: 0;
+}
+.tmt-head__right .tma-tab {
+  gap: 8px;
+}

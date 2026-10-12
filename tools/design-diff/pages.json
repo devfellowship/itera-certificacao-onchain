@@ -12,6 +12,6 @@
     { "id": "05-results", "title": "05 Evaluation profile", "design": "05 Evaluation Results.dc.html", "route": "/e/settlewise-7f3a", "threshold": 5 },
     { "id": "08-agent-detail", "title": "08 Agent detail", "design": "08 Agent Detail.dc.html", "route": "/agents/ledgerline", "threshold": 5 },
     { "id": "09-my-evals", "title": "09 My evaluations", "design": "09 My Evaluations.dc.html", "route": "/evaluations", "threshold": 5 },
-    { "id": "10-my-tasks", "title": "10 My tasks", "design": "10 My Tasks.dc.html", "route": "/tasks", "threshold": 5 }
+    { "id": "10-my-tasks", "title": "10 My tasks", "design": "10 My Tasks.dc.html", "route": "/tasks?tab=mine", "threshold": 5 }
   ]
 }

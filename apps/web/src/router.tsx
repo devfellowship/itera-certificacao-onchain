@@ -16,7 +16,7 @@ import { RunningEvaluationPage } from './pages/RunningEvaluationPage'
 import { MyEvaluationsPage } from './pages/MyEvaluationsPage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
 import { TaskProfilePage } from './pages/TaskProfilePage'
-import { MyTasksPage } from './pages/MyTasksPage'
+import { TasksPage } from './pages/TasksPage'
 import { TaskEditorPage } from './pages/TaskEditorPage'
 import { DesignPrimitivesPage } from './pages/DesignPrimitivesPage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -90,7 +90,7 @@ export const routes = [
       { path: '/agents/:aid/evaluate', element: <SelectTasksPage /> },
       { path: '/evaluations', element: <MyEvaluationsPage /> },
       { path: '/evaluations/:eid', element: <RunningEvaluationPage /> },
-      { path: '/tasks', element: <MyTasksPage /> },
+      { path: '/tasks', element: <TasksPage /> },
       { path: '/tasks/new', element: <TaskEditorPage /> },
       { path: '/tasks/:id/edit', element: <TaskEditorPage /> },
     ],

@@ -645,7 +645,7 @@ export function TaskEditorPage() {
   }
 
   // ---- not loaded states
-  const crumbs = [{ label: 'My tasks', to: '/tasks' }, { label: isNew ? 'New task' : (detail?.name ?? 'Task') }]
+  const crumbs = [{ label: 'Tasks', to: '/tasks?tab=mine' }, { label: isNew ? 'New task' : (detail?.name ?? 'Task') }]
   if (loaded.state === 'loading' || loaded.state === 'missing' || loaded.state === 'error') {
     return (
       <main className="tma-page tma-page--flow" data-testid="task-editor">
@@ -658,8 +658,8 @@ export function TaskEditorPage() {
           <Card className="ta-card" data-testid="task-missing">
             <span className="ta-help">This task does not exist, or it is not yours.</span>
             <div>
-              <ButtonLink variant="secondary" href="/tasks">
-                Back to My tasks
+              <ButtonLink variant="secondary" href="/tasks?tab=mine">
+                Back to Tasks
               </ButtonLink>
             </div>
           </Card>
@@ -799,7 +799,7 @@ export function TaskEditorPage() {
                   Saved
                 </span>
               )}
-              <Button variant="secondary" onClick={() => navigate('/tasks')}>
+              <Button variant="secondary" onClick={() => navigate('/tasks?tab=mine')}>
                 Cancel
               </Button>
               <Button variant="secondary" disabled={!canSave} onClick={onSave} data-testid="save-draft">

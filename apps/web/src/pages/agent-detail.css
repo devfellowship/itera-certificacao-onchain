@@ -251,20 +251,6 @@
   height: 20px;
   border-radius: 3px;
 }
-.tad-badge__code {
-  margin: 0;
-  padding: 10px 12px;
-  background: var(--tma-surface-code);
-  border: 1px solid var(--tma-line);
-  border-radius: var(--tma-radius-md);
-  font-family: var(--tma-font-mono);
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--tma-text-muted);
-}
-
 /* Loading */
 .tad-skel {
   display: block;
@@ -277,4 +263,13 @@
 .tad .tma-kv__key,
 .tad .tma-kv__value {
   padding: 10px 20px;
+}
+
+.tad-meta__model {
+  vertical-align: middle;
+  margin: 0 2px;
+}
+a.tad-task__name {
+  align-self: flex-start;
+  max-width: 100%;
 }

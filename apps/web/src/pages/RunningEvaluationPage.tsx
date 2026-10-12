@@ -14,8 +14,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, explorerTxUrl } from '../lib/api'
 import type { EvaluationDetail, Run, Task } from '../lib/api'
-import { useTaskCatalog } from '../tma/task-filter'
-import { Breadcrumb, ButtonLink, middle } from '../tma/ui'
+import { TaskName, useTaskCatalog } from '../tma/task-filter'
+import { Breadcrumb, ButtonLink, ModelLabel, middle } from '../tma/ui'
 import { appendPage, callEvents, EMPTY_FEED, mergeByTime } from './running-evaluation/call-events'
 import type { ActionFeed } from './running-evaluation/call-events'
 import './running-evaluation/running-evaluation.css'
@@ -406,7 +406,7 @@ export function RunningEvaluationPage() {
             return (
               <div key={t.runId} className="re-row" data-testid="task-row" data-run-id={t.runId} data-stage={t.stage}>
                 <div className="re-row__task">
-                  <span className="re-row__name">{t.name}</span>
+                  <TaskName className="re-row__name" name={t.name} taskId={t.taskId} slug={t.slug} />
                   <span className="re-mono re-subtle">
                     {t.slug}
                     {cost != null && <span data-testid="run-cost"> · model ${cost.toFixed(3)}</span>}
@@ -429,7 +429,7 @@ export function RunningEvaluationPage() {
             <div className="re-cost" data-testid="total-model-cost">
               <span className="tma-label">Model cost</span>
               <span className="re-mono">
-                ${totalCost.toFixed(3)} · paid by TestMyAgent · {modelText(d.model)}
+                ${totalCost.toFixed(3)} · paid by TestMyAgent · <ModelLabel model={modelText(d.model)} label={modelText(d.model)} size={16} />
               </span>
             </div>
           )}

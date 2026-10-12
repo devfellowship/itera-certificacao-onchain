@@ -278,7 +278,8 @@
   flex-direction: column;
   min-width: 0;
 }
-.re-row__task > span {
+.re-row__task > span,
+.re-row__task > a {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -375,4 +376,8 @@
     flex-direction: column;
     align-items: flex-start;
   }
+}
+.re-row__task > a {
+  align-self: flex-start;
+  max-width: 100%;
 }

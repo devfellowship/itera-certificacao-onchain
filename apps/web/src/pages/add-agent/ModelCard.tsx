@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { Model } from '../../lib/api'
-import { Button, Card, Field, Select, type SelectOption } from '../../tma/ui'
+import { Button, Card, Field, ModelLabel, Select, type SelectOption } from '../../tma/ui'
 import type { Load } from './useLoad'
 import { describeError } from './errors'
 
@@ -34,7 +34,7 @@ export function ModelCard({
 }) {
   const list = useMemo(() => models.data?.models.filter((m) => m.enabled) ?? [], [models.data])
   const model = list.find((m) => m.id === modelId)
-  const modelOptions: SelectOption[] = list.map((m) => ({ value: m.id, label: m.label, meta: m.id }))
+  const modelOptions: SelectOption[] = list.map((m) => ({ value: m.id, label: <ModelLabel model={m.id} provider={m.provider} label={m.label} size={20} />, meta: m.id }))
   const loading = models.status === 'loading' && !models.data
   const failed = models.status === 'error' && !models.data
 
