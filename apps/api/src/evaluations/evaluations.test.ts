@@ -12,7 +12,7 @@ import { proofNonceSeed } from "../chain/attestation.js";
 import { usdToLamports, lamportsToSol, type EvaluationsConfig } from "./config.js";
 import { createEvaluationIssuer } from "./issuer.js";
 import { buildEvaluationMemo, parseEvaluationMemo } from "./memo.js";
-import { coinGeckoSolUsd, pythSolUsd, solUsdProvider, PYTH_SOL_USD_FEED_ID, type SolUsdQuote } from "./price.js";
+import { coinGeckoSolUsd, parsePriceUpdateV2, pythOnChainSolUsd, PYTH_RECEIVER_PROGRAM, pythSolUsd, solUsdProvider, PYTH_SOL_USD_FEED_ID, type SolUsdQuote } from "./price.js";
 import { rollup } from "./rollup.js";
 import { ceilCents, priceRun, type RunCostEstimator } from "./estimate.js";
 import type { PaymentGateway, TransferFields, VerifyResult } from "./solana-pay.js";
@@ -162,7 +162,7 @@ describe("POST /evaluations/quote", () => {
     const q = await post("/evaluations/quote", { agentId, taskIds: ["webhook-ledger"] });
     expect(q.status).toBe(503);
     expect(q.body.error).toMatch(/SOL\/USD price unavailable/);
-    expect(down).toHaveBeenCalledTimes(2);
+    expect(down).toHaveBeenCalledTimes(3);
   });
 
   it("refuses a task that is not runnable, an unknown agent, a private agent of another wallet, and the daily limit", async () => {
@@ -340,6 +340,21 @@ describe("evaluation-issuer", () => {
 });
 
 describe("price feeds", () => {
+  it("reads the Pyth SOL/USD PriceUpdateV2 account on Solana (owner, feed id, freshness)", async () => {
+    const now = Date.parse("2026-10-12T16:00:00Z");
+    const data = Buffer.alloc(134);
+    data[40] = 1; // Full verification
+    Buffer.from(PYTH_SOL_USD_FEED_ID, "hex").copy(data, 41);
+    data.writeBigInt64LE(10_899_115_697n, 73);
+    data.writeInt32LE(-8, 89);
+    data.writeBigInt64LE(BigInt(now / 1000 - 10), 93);
+    expect(parsePriceUpdateV2(data)).toMatchObject({ feedId: PYTH_SOL_USD_FEED_ID, fullyVerified: true });
+    const rpc = (owner: string) => vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ result: { value: { owner, data: [data.toString("base64"), "base64"] } } }) }));
+    expect(await pythOnChainSolUsd(rpc(PYTH_RECEIVER_PROGRAM), now)).toMatchObject({ solUsdRate: 108.991157, priceSource: "pyth" });
+    await expect(pythOnChainSolUsd(rpc("11111111111111111111111111111111"), now)).rejects.toThrow(/receiver/);
+    await expect(pythOnChainSolUsd(rpc(PYTH_RECEIVER_PROGRAM), now + 600_000)).rejects.toThrow(/stale/);
+  });
+
   it("reads Pyth Hermes (price × 10^expo) and refuses a stale price", async () => {
     const now = Date.parse("2026-10-12T16:00:00Z");
     const body = { parsed: [{ id: PYTH_SOL_USD_FEED_ID, price: { price: "10898000000", expo: -8, publish_time: now / 1000 - 5 } }] };
@@ -351,7 +366,7 @@ describe("price feeds", () => {
 
   it("falls back to CoinGecko when Pyth fails", async () => {
     const f = vi.fn(async (url: string) =>
-      url.includes("hermes") ? { ok: false, status: 500, json: async () => ({}) } : { ok: true, status: 200, json: async () => ({ solana: { usd: 110.5 } }) },
+      !url.includes("coingecko") ? { ok: false, status: 500, json: async () => ({}) } : { ok: true, status: 200, json: async () => ({ solana: { usd: 110.5 } }) },
     );
     expect(await solUsdProvider(f)()).toMatchObject({ solUsdRate: 110.5, priceSource: "coingecko" });
     expect(await coinGeckoSolUsd(f)).toMatchObject({ priceSource: "coingecko" });
