@@ -101,33 +101,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tkp-author-avatar,
-.tkp-agent-tile {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background: var(--tma-surface-raised);
-  border: 1px solid var(--tma-line-strong);
-  font-family: var(--tma-font-mono);
-  font-weight: 500;
-  color: var(--tma-text);
-  text-transform: uppercase;
-}
-.tkp-author-avatar {
-  border-radius: 50%;
-}
-.tkp-agent-tile {
-  border-radius: 7px;
-}
-.tkp-author-avatar img,
-.tkp-agent-tile img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
 .tkp-tags {
   display: flex;
   flex-wrap: wrap;

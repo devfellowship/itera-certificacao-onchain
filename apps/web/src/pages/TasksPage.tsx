@@ -11,9 +11,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../lib/api'
 import type { Tag, Task } from '../lib/api'
 import { publicTaskHref } from '../lib/task-links'
-import { Button, ButtonLink, Card, Chip, SearchInput, Table, TableEmpty, Tabs, TagPill, type Column } from '../tma/ui'
+import { AgentAvatar, Avatar, Button, ButtonLink, Card, Chip, SearchInput, Table, TableEmpty, Tabs, TagPill, type Column } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
-import { AgentTile, AuthorAvatar } from './tasks/people'
 import { editHref, TaskAction } from './tasks/TaskActions'
 import './tasks/tasks.css'
 
@@ -68,7 +67,7 @@ function columns(onDelete: (t: Task) => void): Column<Task>[] {
         const name = t.mine ? 'you' : (a?.name ?? '—')
         return (
           <span className="tkp-author" data-testid="task-author">
-            <AuthorAvatar name={a?.name ?? name} src={a?.avatarUrl} />
+            <Avatar size={20} shape="circle" name={a?.name ?? name} src={a?.avatarUrl} />
             <span className="tkp-author__name">{name}</span>
           </span>
         )
@@ -94,7 +93,7 @@ function columns(onDelete: (t: Task) => void): Column<Task>[] {
       render: (t) =>
         t.bestResult ? (
           <span className="tkp-best" data-testid="task-best">
-            <AgentTile name={t.bestResult.agent.name} initials={t.bestResult.agent.initials} src={t.bestResult.agent.avatarUrl} />
+            <AgentAvatar size={28} id={t.bestResult.agent.id} name={t.bestResult.agent.name} src={t.bestResult.agent.avatarUrl} author={t.bestResult.agent.author ?? null} />
             <span className="tkp-best__name">{t.bestResult.agent.name}</span>
             <span className="tkp-best__score">{t.bestResult.score.toFixed(1)}</span>
           </span>

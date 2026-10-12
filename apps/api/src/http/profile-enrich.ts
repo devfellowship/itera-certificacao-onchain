@@ -11,7 +11,7 @@ import type { Profile } from "../domain/catalog-store.js";
  *
  *   `<x>Wallet: "…"`  →  `<x>Profile: {wallet, username, displayName, avatarUrl}`
  *   `owner_wallet`    →  `owner_profile`
- *   `wallet` + `displayName`/`handle` in the same object (a profile-shaped object) → `username`, `avatarUrl`
+ *   `wallet` + `displayName`/`handle`/`username`/`avatarUrl` in the same object (a profile-shaped object) → fills them
  *   `wallet` elsewhere → `walletProfile`
  *
  * Agent pictures (Tainan TG 21086) ride the same pass: an agent-shaped object (string `initials` and
@@ -116,7 +116,7 @@ export function enrichWithProfiles(body: unknown, profiles: Map<string, PublicPr
       const p = profiles.get(o[k] as string);
       if (!p) continue;
       if (k === "wallet") {
-        if ("displayName" in o || "handle" in o || "username" in o) {
+        if ("displayName" in o || "handle" in o || "username" in o || "avatarUrl" in o) {
           if (o.username === undefined || o.username === null) o.username = p.username;
           if (o.avatarUrl === undefined || o.avatarUrl === null) o.avatarUrl = p.avatarUrl;
           if (o.displayName === undefined || o.displayName === null) o.displayName = p.displayName;

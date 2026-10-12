@@ -209,7 +209,7 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
       const ov = overviews?.get(t.id);
       const p = t.ownerWallet ? (profiles.get(t.ownerWallet) ?? null) : null;
       const author = t.ownerWallet
-        ? { wallet: t.ownerWallet, name: p?.displayName ?? p?.handle ?? shortWallet(t.ownerWallet), handle: p?.handle ?? null, avatarUrl: null, isDfl: false }
+        ? { wallet: t.ownerWallet, name: p?.displayName ?? p?.handle ?? shortWallet(t.ownerWallet), handle: p?.handle ?? null, username: p?.handle ?? null, avatarUrl: p?.avatarUrl ?? null, isDfl: false }
         : { wallet: null, name: DFL_AUTHOR.name, handle: null, avatarUrl: DFL_AUTHOR.avatarUrl, isDfl: true };
       return {
         ...taskJson(t, wallet),

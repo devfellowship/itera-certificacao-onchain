@@ -364,7 +364,7 @@ describe("GET /tasks?include=overview (U35)", () => {
   }
 
   it("adds author, agentsCount and the best result, with the ranking visibility rules", async () => {
-    store.profiles.set(ME, { wallet: ME, displayName: "Bruno Lima", handle: "bruno", createdAt: null, updatedAt: null });
+    store.profiles.set(ME, { wallet: ME, displayName: "Bruno Lima", handle: "bruno", avatarUrl: null, avatarKey: null, bio: null, createdAt: null, updatedAt: null });
     const dup = store.tasks[0]!;
     const mine = store.tasks[2]!;
     const rank = new FakeRankingStore();

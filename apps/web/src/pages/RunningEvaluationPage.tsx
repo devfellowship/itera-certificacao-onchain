@@ -342,7 +342,7 @@ export function RunningEvaluationPage() {
         <div className="re-agent__kv">
           <span className="tma-label">Model</span>
           <span className="re-agent__v">
-            <ModelLabel model={modelText(d.model)} label={modelLabel} size={16} />
+            <ModelLabel model={modelText(d.model)} label={modelLabel} size={20} />
           </span>
         </div>
         {repoShort && (

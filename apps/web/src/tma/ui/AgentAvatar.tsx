@@ -12,10 +12,10 @@ import { initialsOf } from './Avatar'
  * Rule (TG 21095): next to an AgentAvatar with a badge, the "by {author}" text is the name only.
  */
 
-export type AgentAvatarSize = 80 | 72 | 64 | 44 | 40
-const RADIUS: Record<AgentAvatarSize, number> = { 80: 16, 72: 14, 64: 13, 44: 10, 40: 9 }
-const BADGE: Record<AgentAvatarSize, number> = { 80: 26, 72: 24, 64: 22, 44: 18, 40: 16 }
-const FONT: Record<AgentAvatarSize, number> = { 80: 24, 72: 22, 64: 20, 44: 14, 40: 13 }
+export type AgentAvatarSize = 80 | 72 | 64 | 44 | 40 | 28
+const RADIUS: Record<AgentAvatarSize, number> = { 80: 16, 72: 14, 64: 13, 44: 10, 40: 9, 28: 6 }
+const BADGE: Record<AgentAvatarSize, number> = { 80: 26, 72: 24, 64: 22, 44: 18, 40: 16, 28: 12 }
+const FONT: Record<AgentAvatarSize, number> = { 80: 24, 72: 22, 64: 20, 44: 14, 40: 13, 28: 11 }
 
 export interface AgentAvatarAuthor {
   name?: string | null
