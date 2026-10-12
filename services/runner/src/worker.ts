@@ -1,5 +1,7 @@
 // The runner worker: claims queued runs and executes them in the sandbox (shared contract "Job protocol").
-//   DATABASE_URL and ITERA_RUN_KEY_SECRET required. The model key is the user's (BYOK, runs.model_api_key_enc). See README.md "Worker".
+//   DATABASE_URL required. Model key: the run's own sealed key when the user gave one (BYOK,
+//   runs.model_api_key_enc + ITERA_RUN_KEY_SECRET), else ITERA's platform key ITERA_RUNNER_OPENROUTER_KEY
+//   (Tainan TG 20967: ITERA pays the model tokens). See README.md "Worker".
 import { mkdtemp, rm } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -17,8 +19,14 @@ export interface WorkerDeps {
   store: JobStore;
   workerId: string;
   repoRoot: string;
-  /** ITERA_RUN_KEY_SECRET: opens runs.model_api_key_enc (BYOK). */
-  runKeySecret: string;
+  /** ITERA_RUN_KEY_SECRET: opens runs.model_api_key_enc (BYOK). Absent → BYOK runs fail, platform runs work. */
+  runKeySecret?: string;
+  /**
+   * ITERA_RUNNER_OPENROUTER_KEY: ITERA's own OpenRouter key, used when the run has no BYOK key
+   * (Tainan TG 20967, plan 20261012-itera-testmyagent-ui-refactor Q2 = B). It goes only to the run's
+   * gateway container, never into the sandbox. The gateway caps the cost per run.
+   */
+  platformModelKey?: string;
   config: SandboxConfig;
   runAgent: typeof runAgent;
   /** Grades in a separate sandbox container (grade.ts). Throws on a grader failure. */
@@ -27,6 +35,15 @@ export interface WorkerDeps {
 
 function message(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).slice(0, 1000);
+}
+
+/** Billed model usage of the run: the gateway's measure (OpenRouter accounting), else opencode's own count. */
+export function runCost(agent: AgentRunResult): RunOutcome['cost'] {
+  const m = agent.modelUsage;
+  if (m && (m.calls > 0 || m.costUsd > 0)) return { costUsd: m.costUsd, tokensIn: m.tokensIn, tokensOut: m.tokensOut };
+  const u = agent.usage;
+  if (u.costUsd > 0 || u.inputTokens > 0 || u.outputTokens > 0) return { costUsd: u.costUsd, tokensIn: u.inputTokens, tokensOut: u.outputTokens };
+  return null;
 }
 
 /** Execute one claimed run to a terminal status. Never throws for a run-level failure. */
@@ -48,17 +65,22 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
   try {
     const job = await store.loadJob(claimed);
     let modelKey: string | null = null;
+    let keyError = 'no model API key is configured for this run (ITERA_RUNNER_OPENROUTER_KEY is not set on the runner)';
     if (job?.modelApiKeyEnc) {
+      // BYOK: the user's own key. A key that does not open is an error, never a silent switch to ITERA's key.
       try {
-        modelKey = decryptRunKey(job.modelApiKeyEnc, deps.runKeySecret);
+        modelKey = decryptRunKey(job.modelApiKeyEnc, deps.runKeySecret ?? '');
       } catch {
         modelKey = null;
+        keyError = "the run's own model API key (BYOK) could not be opened: start a new run";
       }
+    } else if (job) {
+      modelKey = deps.platformModelKey || null;
     }
     if (!job) {
       outcome = fail('run has no agent version with files and a model');
     } else if (!modelKey) {
-      outcome = fail('run has no usable model API key (BYOK): start a new run with your OpenRouter key');
+      outcome = fail(keyError);
     } else {
       agentDir = await mkdtemp(join(tmpdir(), 'itera-agent-'));
       const files = await materializeAgentFiles(job.files, agentDir);
@@ -91,6 +113,7 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
               evidenceManifest: { error: `grading failed: ${message(err)}`, runner: runnerEvidence(agent) },
               patch: agent.patch,
               actions: agent.actions,
+              cost: runCost(agent),
             });
           }
           if (manifest) {
@@ -104,6 +127,7 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
               error: statusError(status, manifest, agent.agentErrors),
               patch: agent.patch,
               actions: agent.actions,
+              cost: runCost(agent),
             };
           }
         }
@@ -171,8 +195,10 @@ async function main(): Promise<void> {
   const { ensureEvaluatorBundle, gradeInSandbox } = await import('./grade.js');
 
   const databaseUrl = process.env.DATABASE_URL;
-  const runKeySecret = process.env.ITERA_RUN_KEY_SECRET;
-  if (!databaseUrl || !runKeySecret) throw new Error('DATABASE_URL and ITERA_RUN_KEY_SECRET are required');
+  const runKeySecret = process.env.ITERA_RUN_KEY_SECRET || undefined;
+  const platformModelKey = process.env.ITERA_RUNNER_OPENROUTER_KEY || undefined;
+  if (!databaseUrl) throw new Error('DATABASE_URL is required');
+  if (!runKeySecret && !platformModelKey) throw new Error('set ITERA_RUNNER_OPENROUTER_KEY (platform key) and/or ITERA_RUN_KEY_SECRET (BYOK)');
 
   const repoRoot = resolve(process.env.ITERA_REPO_ROOT ?? resolve(import.meta.dirname, '..', '..', '..'));
   // Same TLS setup as apps/api/src/domain/pool.ts: pinned Supabase pooler CA, no sslmode in the URL.
@@ -191,7 +217,10 @@ async function main(): Promise<void> {
   const orphans = await removeOrphans();
   // One worker replica: any run still `running` at boot belongs to a dead process.
   const reaped = process.env.ITERA_RUNNER_SINGLETON === 'false' ? 0 : await store.reapStale(0);
-  log({ event: 'boot', workerId, image: config.image, wallMs: config.wallMs, orphansRemoved: orphans, runsReaped: reaped });
+  log({
+    event: 'boot', workerId, image: config.image, wallMs: config.wallMs, maxCostUsd: config.maxCostUsd,
+    platformKey: Boolean(platformModelKey), byok: Boolean(runKeySecret), orphansRemoved: orphans, runsReaped: reaped,
+  });
 
   const controller = new AbortController();
   for (const sig of ['SIGTERM', 'SIGINT'] as const) {
@@ -201,7 +230,7 @@ async function main(): Promise<void> {
     });
   }
   await workerLoop(
-    { store, workerId, repoRoot, runKeySecret, config, runAgent, grade: (o) => gradeInSandbox({ ...o, config }) },
+    { store, workerId, repoRoot, runKeySecret, platformModelKey, config, runAgent, grade: (o) => gradeInSandbox({ ...o, config }) },
     {
       concurrency: Number(process.env.ITERA_RUNNER_CONCURRENCY ?? 2),
       pollMs: Number(process.env.ITERA_RUNNER_POLL_MS ?? 3000),

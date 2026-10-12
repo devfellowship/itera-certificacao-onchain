@@ -54,9 +54,21 @@ export class PgJobStore implements JobStore {
       const updated = await client.query(
         `update public.runs
             set status = $3, phase = $4, evidence_manifest = $5, score_total = $6, error = $7, completed_at = now(),
-                model_api_key_enc = null
+                model_api_key_enc = null,
+                model_cost_usd = $8, model_tokens_in = $9, model_tokens_out = $10
           where id = $1 and worker_id = $2 and status = 'running'`,
-        [runId, workerId, outcome.status, outcome.phase, JSON.stringify(outcome.evidenceManifest), outcome.scoreTotal, outcome.error],
+        [
+          runId,
+          workerId,
+          outcome.status,
+          outcome.phase,
+          JSON.stringify(outcome.evidenceManifest),
+          outcome.scoreTotal,
+          outcome.error,
+          outcome.cost?.costUsd ?? null,
+          outcome.cost?.tokensIn ?? null,
+          outcome.cost?.tokensOut ?? null,
+        ],
       );
       if (updated.rowCount !== 1) {
         // The run was reaped or re-claimed meanwhile: write nothing.

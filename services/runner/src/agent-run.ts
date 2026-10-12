@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseOpencodeEvents } from './trace.js';
 import { runInSandbox, type SandboxConfig } from './sandbox.js';
+import type { ModelUsage } from './model-usage.js';
 import type { AgentUsage, RunAction } from './types.js';
 import { diffAgainstBaseline, prepareWorkspace } from './workspace.js';
 
@@ -14,6 +15,10 @@ export interface AgentRunResult {
   durationMs: number;
   actions: RunAction[];
   usage: AgentUsage;
+  /** Usage measured by the gateway from OpenRouter's own accounting (the billed cost). Null if unknown. */
+  modelUsage: ModelUsage | null;
+  /** True when the run's cost cap (ITERA_RUN_MAX_COST_USD) stopped the agent. */
+  costCapped: boolean;
   agentErrors: string[];
   patch: string;
 }
@@ -52,6 +57,12 @@ export async function runAgent(opts: {
     const agentErrors = [...trace.errors];
     if (sandbox.timedOut) agentErrors.push(`agent wall limit reached (${Math.round(opts.config.wallMs / 1000)} s)`);
     else if (sandbox.exitCode !== 0) agentErrors.push(`opencode exited with code ${sandbox.exitCode}`);
+    const costCapped = sandbox.modelUsage?.capStopped === true;
+    if (costCapped) {
+      agentErrors.push(
+        `model cost cap reached: US$${sandbox.modelUsage!.costUsd.toFixed(4)} spent, cap US$${sandbox.modelUsage!.maxCostUsd} per run (ITERA_RUN_MAX_COST_USD); the gateway refused further model calls`,
+      );
+    }
     return {
       scenarioId: opts.scenarioId,
       model: opts.model,
@@ -61,6 +72,8 @@ export async function runAgent(opts: {
       durationMs: sandbox.durationMs,
       actions: trace.actions,
       usage: trace.usage,
+      modelUsage: sandbox.modelUsage,
+      costCapped,
       agentErrors,
       patch,
     };

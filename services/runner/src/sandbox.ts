@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { exec, pipe } from './exec.js';
+import { parseGatewayUsage, type ModelUsage } from './model-usage.js';
 import { WORKSPACE_IN_SANDBOX } from './trace.js';
 
 export const SANDBOX_UID = 10001;
@@ -18,7 +19,11 @@ export interface SandboxConfig {
   memory: string;
   cpus: string;
   pidsLimit: number;
+  /** Hard model-cost cap of ONE run, in USD (ITERA_RUN_MAX_COST_USD). The gateway refuses calls above it. */
+  maxCostUsd: number;
 }
+
+export const DEFAULT_MAX_COST_USD = 0.5;
 
 export function defaultSandboxConfig(env: NodeJS.ProcessEnv = process.env): SandboxConfig {
   return {
@@ -28,7 +33,13 @@ export function defaultSandboxConfig(env: NodeJS.ProcessEnv = process.env): Sand
     memory: env.ITERA_SANDBOX_MEMORY ?? '2g',
     cpus: env.ITERA_SANDBOX_CPUS ?? '2',
     pidsLimit: Number(env.ITERA_SANDBOX_PIDS ?? 512),
+    maxCostUsd: positiveNumber(env.ITERA_RUN_MAX_COST_USD, DEFAULT_MAX_COST_USD),
   };
+}
+
+function positiveNumber(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  return value !== undefined && value !== '' && Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 export function normalizeModel(model: string): string {
@@ -85,6 +96,7 @@ export function buildGatewayArgs(opts: { name: string; config: SandboxConfig }):
     '-e', 'ITERA_UPSTREAM_KEY',
     '-e', `ITERA_UPSTREAM=${opts.config.upstream}`,
     '-e', `ITERA_GATEWAY_PORT=${GATEWAY_PORT}`,
+    '-e', `ITERA_RUN_MAX_COST_USD=${opts.config.maxCostUsd}`,
     '--entrypoint', 'node', opts.config.image, '/opt/itera/model-gateway.mjs',
   ];
 }
@@ -134,6 +146,8 @@ export interface SandboxResult {
   exitCode: number;
   timedOut: boolean;
   durationMs: number;
+  /** Model usage measured by the run's gateway (OpenRouter `usage`), or null when the gateway log has none. */
+  modelUsage: ModelUsage | null;
 }
 
 /**
@@ -194,7 +208,10 @@ export async function runInSandbox(opts: {
     if (copyOut.fromCode !== 0 || copyOut.toCode !== 0) throw new Error(`copy-out failed: ${copyOut.stderr.slice(0, 300)}`);
 
     const inspect = await docker(['inspect', '-f', '{{.State.ExitCode}}', name]);
+    // The gateway logs its running total after each model call; the last line is the run's usage.
+    const gwLogs = await docker(['logs', gateway]);
     return {
+      modelUsage: parseGatewayUsage(gwLogs.stdout),
       events: run.stdout,
       stderrTail: run.stderr.slice(-2000),
       exitCode: run.timedOut ? 124 : Number(inspect.stdout.trim() || run.code),

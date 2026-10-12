@@ -35,7 +35,8 @@ npx tsx services/runner/src/run-once.ts \
 | Runs cannot reach each other | Yes | One network and one gateway per run, both removed after the run. |
 | Privileges and resources | Yes | `--cap-drop ALL`, `no-new-privileges`, non-root uid 10001, `--memory 2g` (no swap), `--cpus 2`, `--pids-limit 512`. |
 | Wall limit | Yes | 300 s (`ITERA_RUN_WALL_MS`), then `docker kill`. The partial tree is still diffed and graded. |
-| Which model the agent calls | **No** | The gateway forwards any `/api/v1/` call. The agent can call another OpenRouter model, or spend more tokens than needed, inside the 300 s. The key is the user's own (BYOK), so the cost is the user's; a credit limit on that key bounds it. |
+| Which model the agent calls | **No** | The gateway forwards any `/api/v1/` call. The agent can call another OpenRouter model inside the 300 s. |
+| Model cost per run | Yes (hard cap) | The gateway reads OpenRouter's `usage` (tokens + `cost` in USD) of every response and keeps the run's total. When the total reaches `ITERA_RUN_MAX_COST_USD` (default 0.50), it answers `402` to every further model call; the run ends `timeout` with the error `model cost cap reached: ...`. A call already in flight can finish, so the total can pass the cap by the cost of that one call. |
 | What the agent sends to the model | **No** | The workspace content goes to the model provider. The workspace holds only the public fixture and the agent's own files. |
 | Reading the key's metadata | **No** | `GET /api/v1/key` answers with the key's label and usage, not the key value. |
 | Grading integrity against a hostile patch | **Partly** | The agent's code runs in the same grader container as vitest, so a hostile patch could tamper with the test report or the manifest file. It cannot reach the worker, the network, a secret or the database. A tampered result is still bounded by the patch, which is stored next to it and can be re-graded. |
@@ -47,9 +48,9 @@ The worker runs the shared-contract job protocol:
 
 1. **Claim.** `UPDATE runs SET status='running', phase='preparing', claimed_at=now(), worker_id=$1 WHERE id = (SELECT id FROM runs WHERE status='queued' ORDER BY started_at FOR UPDATE SKIP LOCKED LIMIT 1)`. `ITERA_RUNNER_CONCURRENCY` slots (default 2).
 2. **Load.** `agent_versions.files` (lane C snapshot) and `agents.model`. Only `AGENTS.md`, `CLAUDE.md` and `skills/**` are written; other paths are skipped; the total is capped at 512 KB.
-3. **BYOK key.** The API seals the caller's OpenRouter key into `runs.model_api_key_enc` (AES-256-GCM, key = HKDF-SHA256 of `ITERA_RUN_KEY_SECRET`). The worker opens it only to start the run's gateway. The finish transaction sets the column to NULL, and so does the reaper. No key → `infra_error`, the agent does not start.
+3. **Model key.** ITERA pays the model tokens (Tainan TG 20967): a run without its own key uses ITERA's platform key `ITERA_RUNNER_OPENROUTER_KEY`. BYOK stays possible: when `POST /runs` gets `modelApiKey`, the API seals it into `runs.model_api_key_enc` (AES-256-GCM, key = HKDF-SHA256 of `ITERA_RUN_KEY_SECRET`) and the worker uses that key instead. A sealed key that does not open is `infra_error` — never a silent switch to the platform key. Either key goes only into the run's gateway container. The finish transaction and the reaper set `model_api_key_enc` to NULL.
 4. **Phases.** `agent_running` → `grading` → `done`.
-5. **Finish (one transaction).** `status`, `evidence_manifest` (the evaluator manifest plus a `runner` block: model, tool-call count, tokens, cost, wall time), `score_total`, `completed_at`, an `observations` row (`mode='observed'`, `output_artifact_ref='patch.diff'`, the patch as content) and the `run_actions` rows.
+5. **Finish (one transaction).** `status`, `evidence_manifest` (the evaluator manifest plus a `runner` block: model, tool-call count, tokens, cost, wall time), `model_cost_usd` / `model_tokens_in` / `model_tokens_out` (the gateway's measure, from OpenRouter accounting; `db/migrations/0006_run_cost.sql`), `score_total`, `completed_at`, an `observations` row (`mode='observed'`, `output_artifact_ref='patch.diff'`, the patch as content) and the `run_actions` rows.
 6. **Status.** wall limit → `timeout`; empty patch → `fail`; out-of-scope patch → `invalid`; **a suite that executed 0 tests (public baseline, public after patch, or hidden) → `infra_error` with score 0** (the evaluator falls back to an empty suite when the vitest report does not parse, so 0 tests means "not measured"); grader failure or evaluator errors → `infra_error`; else `pass` when the score is above 0, `fail` otherwise.
 7. **Recovery.** At boot the worker removes orphan sandbox/gateway containers and networks, and marks every `running` run as `infra_error` (one replica; set `ITERA_RUNNER_SINGLETON=false` to turn this off). Every minute it reaps runs claimed more than `ITERA_RUNNER_STALE_MS` (15 min) ago.
 
@@ -60,8 +61,9 @@ The worker image (`services/runner/Dockerfile`, context = repo root) is Debian (
 | Variable | Default | Use |
 |---|---|---|
 | `DATABASE_URL` | — | Worker: same value as the API app. TLS with the pinned pooler CA (`apps/api/certs`). |
-| `ITERA_RUN_KEY_SECRET` | — | Worker and API: opens / seals the BYOK key. At least 32 characters. |
-| `ITERA_RUNNER_OPENROUTER_KEY` / `OPENROUTER_API_KEY` | — | `run-once.ts` only (local CLI). The worker uses the run's BYOK key. |
+| `ITERA_RUN_KEY_SECRET` | — | Worker and API: opens / seals the BYOK key. At least 32 characters. Optional when only platform-key runs are used. |
+| `ITERA_RUNNER_OPENROUTER_KEY` | — | ITERA's platform OpenRouter key (worker, and `run-once.ts`). Used for every run without a BYOK key. Infisical `/apps/itera-agent-credentials/ITERA_RUNNER_OPENROUTER_KEY`. |
+| `ITERA_RUN_MAX_COST_USD` | `0.50` | Hard model-cost cap of one run, enforced by the gateway. |
 | `ITERA_RUNNER_CONCURRENCY` / `ITERA_RUNNER_POLL_MS` / `ITERA_RUNNER_STALE_MS` | `2` / `3000` / `900000` | Worker loop. |
 | `ITERA_SANDBOX_IMAGE` | worker: built at boot; CLI: `itera-runner-sandbox:latest` | Image built from `sandbox/`. |
 | `ITERA_MODEL_UPSTREAM` | `https://openrouter.ai` | Gateway upstream. |
