@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Keypair } from "@solana/web3.js";
@@ -25,10 +26,11 @@ const payments: PaymentGateway = {
   buildTransferTx: async () => "AAAA",
   verify: async () => ({ ok: false, code: "not_found", message: "not found" }),
 };
+const LEDGER_CONTRACT = JSON.parse(readFileSync(new URL("../../../../benchmarks/webhook-ledger/task.json", import.meta.url), "utf-8"));
 const MCP_CONTRACT = {
   environment: {
     dir: "environment",
-    tools: { builtin: ["read", "edit"], mcp: [{ name: "postgres", transport: "http", image: "ghcr.io/itera/mcp-postgres:1", allowed_tools: ["query"] }] },
+    tools: { builtin: ["read", "edit"], mcp: [{ name: "postgres", catalog: "postgres@1", transport: "http", seed: "mcp/postgres/seed.json", allowed_tools: ["query"] }] },
     run_egress: ["model-gateway", "mcp"],
   },
 };
@@ -55,7 +57,7 @@ beforeEach(async () => {
   store.agents.push({ ...agent, id: privateAgentId, visibility: "private", requires: ["mcp:postgres"] });
   for (const id of [agentId, privateAgentId]) store.versions.push({ id: randomUUID(), agentId: id, commitSha: "9".repeat(40) });
   store.tasks.push(
-    { taskId: "webhook-ledger", taskVersionId: null, slug: "webhook-ledger", name: "Webhook ledger", packId: "webhook-ledger", packVersion: "1", isPublic: true, runnable: true },
+    { taskId: "webhook-ledger", taskVersionId: null, slug: "webhook-ledger", name: "Webhook ledger", packId: "webhook-ledger", packVersion: "1", isPublic: true, runnable: true, contract: LEDGER_CONTRACT },
     { taskId: "pg-task", taskVersionId: null, slug: "pg-task", name: "PG task", packId: "pg-task", packVersion: "1", isPublic: true, runnable: true, contract: MCP_CONTRACT },
     { taskId: "mine", taskVersionId: null, slug: "mine", name: "Mine", packId: "mine", packVersion: "1", isPublic: false, ownerWallet: OWNER, runnable: true },
   );
@@ -69,15 +71,16 @@ afterEach(async () => {
 });
 
 describe("task tool environment (U28)", () => {
-  it("reads the curated pack task.json: webhook-ledger declares built-in tools only", () => {
-    const env = taskToolEnvironment({ packId: "webhook-ledger" });
+  it("reads the stored contract: webhook-ledger declares built-in tools only", () => {
+    const env = taskToolEnvironment({ contract: LEDGER_CONTRACT });
     expect(env.mcp).toEqual([]);
     expect(env.builtin).toContain("bash");
     expect(env.run_egress).toEqual(["model-gateway"]);
   });
-  it("prefers the stored contract's environment; an unknown pack gets the default", () => {
-    expect(taskToolEnvironment({ packId: "pg-task", contract: MCP_CONTRACT }).mcp.map((s) => s.name)).toEqual(["postgres"]);
-    expect(taskToolEnvironment({ packId: "../etc", contract: { editable_paths: ["src/**"] } }).mcp).toEqual([]);
+  it("a contract without an environment block (old curated seed) gets the default", () => {
+    expect(taskToolEnvironment({ contract: MCP_CONTRACT }).mcp.map((s) => s.name)).toEqual(["postgres"]);
+    expect(taskToolEnvironment({ contract: { editable_paths: ["src/**"] } })).toMatchObject({ mcp: [], run_egress: ["model-gateway"] });
+    expect(taskToolEnvironment({ contract: null }).builtin).toHaveLength(7);
   });
 });
 
@@ -94,7 +97,7 @@ describe("GET /tasks/:idOrSlug/compatibility?agentId=", () => {
     expect(r.body).toMatchObject({ compatible: false, reasons: [{ code: "missing_mcp_server", requirement: "mcp:postgres" }] });
     const ok = await call("GET", `/tasks/pg-task/compatibility?agentId=${privateAgentId}`, OWNER);
     expect(ok.body).toMatchObject({ compatible: true, environment: { mcp: [{ name: "postgres", transport: "http", allowedTools: ["query"] }] } });
-    expect(JSON.stringify(ok.body)).not.toContain("ghcr.io"); // no image, seed or secret in the answer
+    expect(JSON.stringify(ok.body)).not.toContain("seed"); // no seed, image or secret in the answer
   });
   it("hides a private agent or a private task of another wallet, and checks agentId", async () => {
     expect((await call("GET", `/tasks/webhook-ledger/compatibility?agentId=${privateAgentId}`, OTHER)).status).toBe(404);

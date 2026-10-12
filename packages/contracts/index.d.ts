@@ -109,13 +109,15 @@ export interface McpServer {
   name: string;
   description?: string;
   transport: 'stdio' | 'http';
+  /** Itera catalog server, "name@version". Exactly one of catalog / image / command. */
+  catalog?: string;
   image?: string;
   command?: string[];
-  /** Bundle path of the seeded test state. */
+  /** Bundle path of the seeded test state, under mcp/<name>/ (never under environment/). */
   seed?: string;
-  /** The tools the agent may call; the runner hides the others. */
+  /** The tools the agent may call; the server enforces it (ITERA_MCP_ALLOWED_TOOLS). */
   allowed_tools: string[];
-  /** true = the Scorers (trusted plane) read the final state after the run. */
+  /** true = the mcp_state Scorer (trusted plane) reads the final state; assertions in tests/hidden/mcp/<name>/. */
   expose_state_to_scorer?: boolean;
   /** Names from environment.secrets injected into this sidecar. */
   secrets?: string[];

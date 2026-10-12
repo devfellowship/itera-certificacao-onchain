@@ -65,7 +65,11 @@ export function toolEnvironmentErrors(contract) {
     const at = `/environment/tools/mcp/${i}`;
     if (seen.has(s.name)) errors.push(`${at}/name ${s.name} is declared twice`);
     seen.add(s.name);
-    if (s.transport === 'http' && !egress.includes('mcp')) errors.push(`${at}/transport http needs "mcp" in environment.run_egress`);
+    // docs/architecture/mcp-sandbox.md: the scenario seed lives at mcp/<name>/ (task root), never
+    // under environment/ (copied into the agent workspace).
+    if (s.seed && s.seed !== `mcp/${s.name}` && !s.seed.startsWith(`mcp/${s.name}/`)) {
+      errors.push(`${at}/seed must be under mcp/${s.name}/ (the scenario folder at the task root)`);
+    }
     for (const name of s.secrets ?? []) {
       if (!declared.has(name)) errors.push(`${at}/secrets ${name} is not declared in environment.secrets`);
     }
@@ -73,6 +77,7 @@ export function toolEnvironmentErrors(contract) {
       errors.push(`${at}/seed must not be inside environment.dir (the agent would read the test state)`);
     }
   });
+  if (servers.length > 0 && !egress.includes('mcp')) errors.push('/environment/run_egress needs "mcp": the agent reaches the MCP sidecars over the run network');
   if (egress.includes('mcp') && servers.length === 0) errors.push('/environment/run_egress "mcp" needs at least one environment.tools.mcp server');
   return errors;
 }
@@ -125,10 +130,11 @@ export function parseAgentRequires(value) {
 export function checkCompatibility(env, requires) {
   /** @type {import('./index.js').CompatibilityReason[]} */
   const reasons = [];
-  const mcp = new Set(env.mcp.map((s) => s.name));
+  // A requirement names a server (task-local name) or a catalog server (name of name@version).
+  const mcp = new Set(env.mcp.flatMap((s) => [s.name, ...(s.catalog ? [s.catalog.split('@')[0]] : [])]));
   for (const req of requires) {
     const [kind, name] = req.split(':');
-    if (kind === 'mcp' && !mcp.has(name)) {
+    if (kind === 'mcp' && !mcp.has(/** @type {string} */ (name))) {
       reasons.push({ code: 'missing_mcp_server', requirement: req, message: `the agent requires the MCP server "${name}"; the task does not provide it` });
     } else if (kind === 'tool' && !env.builtin.includes(/** @type {any} */ (name))) {
       reasons.push({ code: 'missing_builtin_tool', requirement: req, message: `the agent requires the built-in tool "${name}"; the task does not allow it` });

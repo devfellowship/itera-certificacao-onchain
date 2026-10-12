@@ -13,7 +13,7 @@ import type { AgentForEval, EvaluationsStore, ResolvedTask } from "./store.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function compatibilityOf(agent: Pick<AgentForEval, "requires">, task: Pick<ResolvedTask, "packId" | "contract">): Compatibility & { environment: ToolEnvironment } {
+export function compatibilityOf(agent: Pick<AgentForEval, "requires">, task: Pick<ResolvedTask, "contract">): Compatibility & { environment: ToolEnvironment } {
   const environment = taskToolEnvironment(task);
   return { ...checkCompatibility(environment, agent.requires ?? []), environment };
 }

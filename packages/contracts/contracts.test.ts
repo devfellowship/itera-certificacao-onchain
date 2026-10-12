@@ -76,7 +76,8 @@ describe('task.schema.json environment block: the tool environment (ADR-11, U28)
     t.environment.tools = {
       builtin: ['read', 'edit', 'bash'],
       mcp: [
-        { name: 'postgres', transport: 'http', image: 'ghcr.io/itera/mcp-postgres:1', seed: 'mcp/postgres/seed.sql', allowed_tools: ['query', 'list_tables'], expose_state_to_scorer: true, secrets: ['PG_PASSWORD'] },
+        { name: 'helpdesk', catalog: 'helpdesk@1', transport: 'http', seed: 'mcp/helpdesk/seed.json', allowed_tools: ['search_tickets', 'issue_refund'], expose_state_to_scorer: true },
+        { name: 'postgres', transport: 'http', image: 'ghcr.io/itera/mcp-postgres@sha256:' + 'a'.repeat(64), seed: 'mcp/postgres/seed.sql', allowed_tools: ['query', 'list_tables'], expose_state_to_scorer: true, secrets: ['PG_PASSWORD'] },
         { name: 'http-mock', transport: 'stdio', command: ['node', 'mock.js'], allowed_tools: ['request'] },
       ],
     };
@@ -91,7 +92,7 @@ describe('task.schema.json environment block: the tool environment (ADR-11, U28)
     expect(toolEnvironment(ledger).builtin).toEqual([...BUILTIN_TOOLS]);
   });
 
-  it('accepts a task with two MCP servers', () => {
+  it('accepts a task with catalog, image and command MCP servers', () => {
     expect(validateTaskContract(withMcp())).toMatchObject({ ok: true });
   });
 
@@ -105,13 +106,16 @@ describe('task.schema.json environment block: the tool environment (ADR-11, U28)
   it('rejects a bad environment block (schema)', () => {
     for (const edit of [
       (t: any) => (t.environment.tools.builtin = ['webfetch']),
-      (t: any) => (t.environment.tools.mcp[0].transport = 'sse'),
-      (t: any) => delete t.environment.tools.mcp[0].allowed_tools,
-      (t: any) => (t.environment.tools.mcp[0].allowed_tools = []),
-      (t: any) => (t.environment.tools.mcp[1].image = 'x:1'), // image AND command
-      (t: any) => delete t.environment.tools.mcp[1].command, // neither
-      (t: any) => (t.environment.tools.mcp[0].seed = '../etc/passwd'),
-      (t: any) => (t.environment.tools.mcp[0].name = 'Bad Name'),
+      (t: any) => (t.environment.tools.mcp[1].transport = 'sse'),
+      (t: any) => delete t.environment.tools.mcp[1].allowed_tools,
+      (t: any) => (t.environment.tools.mcp[1].allowed_tools = []),
+      (t: any) => (t.environment.tools.mcp[2].image = 'x:1'), // image AND command
+      (t: any) => (t.environment.tools.mcp[0].image = 'x:1'), // catalog AND image
+      (t: any) => (t.environment.tools.mcp[0].catalog = 'helpdesk'), // no @version
+      (t: any) => (t.environment.tools.mcp[0].catalog = 'helpdesk@latest'),
+      (t: any) => delete t.environment.tools.mcp[2].command, // neither
+      (t: any) => (t.environment.tools.mcp[1].seed = '../etc/passwd'),
+      (t: any) => (t.environment.tools.mcp[1].name = 'Bad Name'),
       (t: any) => (t.environment.run_egress = ['mcp']), // no model-gateway
       (t: any) => (t.environment.run_egress = ['model-gateway', 'internet']),
       (t: any) => (t.environment.secrets = ['lower']),
@@ -125,12 +129,13 @@ describe('task.schema.json environment block: the tool environment (ADR-11, U28)
     }
   });
 
-  it('rejects what the schema cannot say: duplicate names, http without egress, undeclared secret, seed in the workspace', () => {
+  it('rejects what the schema cannot say: duplicate names, servers without mcp egress, undeclared secret, seed outside mcp/<name>/', () => {
     const cases: Array<[(t: any) => void, RegExp]> = [
-      [(t) => (t.environment.tools.mcp[1].name = 'postgres'), /declared twice/],
-      [(t) => (t.environment.run_egress = ['model-gateway']), /transport http needs "mcp"/],
+      [(t) => (t.environment.tools.mcp[2].name = 'postgres'), /declared twice/],
+      [(t) => (t.environment.run_egress = ['model-gateway']), /run_egress needs "mcp"/],
       [(t) => (t.environment.secrets = []), /PG_PASSWORD is not declared/],
-      [(t) => (t.environment.tools.mcp[0].seed = 'environment/seed.sql'), /must not be inside environment.dir/],
+      [(t) => (t.environment.tools.mcp[1].seed = 'environment/seed.sql'), /must be under mcp\/postgres\//],
+      [(t) => (t.environment.tools.mcp[0].seed = 'mcp/postgres/seed.json'), /must be under mcp\/helpdesk\//],
     ];
     for (const [edit, re] of cases) {
       const t = withMcp();
@@ -166,6 +171,14 @@ describe('agent requires + compatibility (U28)', () => {
     const r = checkCompatibility(env, ['mcp:postgres', 'tool:bash']);
     expect(r.compatible).toBe(false);
     expect(r.reasons).toEqual([expect.objectContaining({ code: 'missing_mcp_server', requirement: 'mcp:postgres' })]);
+  });
+
+  it('a requirement may name the catalog server (name of name@version)', () => {
+    const t = clone();
+    t.environment.tools.mcp = [{ name: 'support', catalog: 'helpdesk@1', transport: 'http', allowed_tools: ['search_tickets'] }];
+    t.environment.run_egress = ['model-gateway', 'mcp'];
+    expect(validateTaskContract(t).ok).toBe(true);
+    expect(checkCompatibility(toolEnvironment(t), ['mcp:helpdesk', 'mcp:support']).compatible).toBe(true);
   });
 
   it('a task that restricts built-ins refuses an agent that requires a missing one', () => {
