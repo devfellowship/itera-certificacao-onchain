@@ -20,6 +20,7 @@ COPY services/attestation/package.json services/attestation/package.json
 COPY services/evaluator/package.json services/evaluator/package.json
 COPY services/run-issuer/package.json services/run-issuer/package.json
 COPY services/runner/package.json services/runner/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
 RUN npm ci --omit=dev --workspace @itera/runner --include-workspace-root=false \
   && mkdir -p services/runner/node_modules
 
@@ -39,6 +40,8 @@ COPY services/runner/src services/runner/src
 COPY services/runner/sandbox services/runner/sandbox
 COPY services/evaluator/src services/evaluator/src
 COPY services/evaluator/package.json services/evaluator/package.json
+# task.json schema + Ajv validator (node_modules/@itera/contracts links here).
+COPY packages/contracts packages/contracts
 COPY benchmarks benchmarks
 COPY apps/api/certs apps/api/certs
 # Runs as root on purpose: it talks to the host Docker socket. No port, no domain.

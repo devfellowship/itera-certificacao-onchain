@@ -17,6 +17,7 @@
     "vitest": "2.1.8"
   },
   "dependencies": {
+    "@itera/contracts": "0.1.0",
     "esbuild": "0.23.1",
     "pg": "8.23.1",
     "tsx": "4.19.2"

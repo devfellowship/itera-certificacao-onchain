@@ -1,0 +1,34 @@
+{
+  "$schema": "../../packages/contracts/schemas/task.schema.json",
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/webhook-ledger",
+    "version": "1",
+    "description": "Idempotent settlement webhook: verify the HMAC signature, apply each event once, never regress a settled state.",
+    "authors": [{ "name": "ITERA" }],
+    "keywords": ["typescript", "webhooks", "idempotency", "hmac"]
+  },
+  "metadata": {
+    "title": "Idempotent settlement webhook",
+    "tags": { "tools": ["stripe-api"], "concepts": ["idempotency"] }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": ["npm", "ci", "--include=dev", "--no-audit", "--no-fund", "--ignore-scripts"],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048
+  },
+  "tests": { "public": "tests/public", "hidden": "tests/hidden" },
+  "solution": { "patch": "solution/solution.patch" },
+  "editable_paths": ["src/**"],
+  "protected_paths": ["tests/**", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.*"],
+  "verifier": {
+    "cmd": ["npx", "vitest", "run", "{tests}", "--reporter=json", "--outputFile={report}"],
+    "report": "vitest-json",
+    "timeout_sec": 120
+  },
+  "agent": { "timeout_sec": 300 },
+  "est_minutes": 6
+}

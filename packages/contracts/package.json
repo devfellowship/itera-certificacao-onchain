@@ -1,0 +1,25 @@
+{
+  "name": "@itera/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "JSON Schemas (2020-12) of testmyagent contracts and their Ajv validators.",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": { "types": "./index.d.ts", "default": "./index.js" },
+    "./schemas/*": "./schemas/*"
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
+  }
+}

@@ -1,161 +1,198 @@
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative, sep } from 'node:path';
-import { run } from './exec.js';
+import { join } from 'node:path';
 import { checkPatchScope } from './patch-scope.js';
 import { computeScore } from './score.js';
-import type { EvidenceManifest, TestSuiteResult } from './types.js';
-import { parseVitestJsonReport } from './vitest-report.js';
+import { EMPTY_SUITE, interpretRun, localExecutor, resolveCmd, type SuiteExecutor } from './suite.js';
+import { addTests, hashDirectory, loadTask, materializeWorkspace, scenarioDir, type LoadedTask } from './task.js';
+import type { EvidenceManifest, ExecutorInfo, TestSuiteResult } from './types.js';
 
-const EVALUATOR_VERSION = '0.1.0';
-const EMPTY_SUITE: TestSuiteResult = { total: 0, passed: 0, failed: 0, cases: [] };
+export const EVALUATOR_VERSION = '0.2.0';
+export const DEFAULT_INSTALL = ['npm', 'ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'];
+const INSTALL_TIMEOUT_MS = 180_000;
+
+/** git flags for every call on a tree that holds agent output: our config and hooks only. */
+const SAFE_GIT = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'core.symlinks=true'];
+const GIT_ID = ['-c', 'user.email=evaluator@itera.local', '-c', 'user.name=itera-evaluator'];
 
 export interface RunEvaluationOptions {
-  /** Absolute path to the monorepo root. */
-  repoRoot: string;
-  /** Scenario ID, e.g. "webhook-ledger". Must match a benchmarks/<id> directory. */
-  scenarioId: string;
-  /** Unified diff text, paths relative to the fixture root (e.g. "src/app.ts"). */
+  /** The task bundle (directory with task.json). Or give repoRoot + scenarioId for benchmarks/<id>. */
+  taskDir?: string;
+  repoRoot?: string;
+  scenarioId?: string;
+  /** Unified diff text, paths relative to the workspace root (e.g. "src/app.ts"). '' = no change. */
   patch: string;
+  /** Where each verifier run executes. Default: local child process (NOT a sandbox). */
+  executor?: SuiteExecutor;
   /** Keep the temp workspace after the run instead of deleting it (for debugging). */
   keepWorkspace?: boolean;
 }
 
-async function hashDirectory(dir: string): Promise<string> {
+interface RunResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+/** Spawn without a shell, with a scrubbed environment (no DATABASE_URL, no keys reach npm or git). */
+function run(cmd: string, args: string[], cwd: string, timeoutMs = 120_000): Promise<RunResult> {
+  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME ?? tmpdir(), TMPDIR: tmpdir(), LANG: 'C.UTF-8' };
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { cwd, env, shell: process.platform === 'win32' });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    child.stdout.on('data', (chunk) => (stdout += chunk.toString()));
+    child.stderr.on('data', (chunk) => (stderr = (stderr + chunk.toString()).slice(-8000)));
+    child.on('error', (err) => (clearTimeout(timer), reject(err)));
+    child.on('close', (code) => (clearTimeout(timer), resolve({ code: code ?? 1, stdout, stderr })));
+  });
+}
+
+const git = (args: string[], cwd: string) => run('git', [...SAFE_GIT, ...args], cwd);
+
+/** npm never runs lifecycle scripts on the trusted side, whatever task.json says. */
+export function installCommand(task: LoadedTask): string[] {
+  const argv = [...(task.contract.environment.install ?? DEFAULT_INSTALL)];
+  if (argv[0] === 'npm' && !argv.includes('--ignore-scripts')) argv.push('--ignore-scripts');
+  return argv;
+}
+
+/** sha256 of the canonical JSON of a value (object keys sorted). */
+export function canonicalDigest(value: unknown): string {
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])])) : v;
+  return createHash('sha256').update(JSON.stringify(canon(value))).digest('hex');
+}
+
+let evaluatorDigestCache: string | null = null;
+/** sha256 over the evaluator's own source files (not the tests): which grader code ran. */
+export async function evaluatorDigest(): Promise<string> {
+  if (evaluatorDigestCache) return evaluatorDigestCache;
+  const dir = import.meta.dirname;
   const hash = createHash('sha256');
-  const files: string[] = [];
-
-  async function walk(current: string): Promise<void> {
-    const entries = await readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist') continue;
-      const full = join(current, entry.name);
-      if (entry.isDirectory()) {
-        await walk(full);
-      } else {
-        files.push(full);
-      }
-    }
+  const files = (await readdir(dir)).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts')).sort();
+  for (const f of files) {
+    hash.update(f);
+    hash.update(await readFile(join(dir, f)));
   }
-
-  await walk(dir);
-  files.sort();
-  for (const file of files) {
-    hash.update(relative(dir, file).split(sep).join('/'));
-    hash.update(await readFile(file));
-  }
-  return hash.digest('hex');
+  evaluatorDigestCache = hash.digest('hex');
+  return evaluatorDigestCache;
 }
 
-async function runPublicTests(fixtureDir: string, outputFile: string): Promise<TestSuiteResult> {
-  await run('npx', ['vitest', 'run', 'tests/', '--reporter=json', `--outputFile=${outputFile}`], fixtureDir);
-  try {
-    return await parseVitestJsonReport(outputFile);
-  } catch {
-    return EMPTY_SUITE;
-  }
+/** The deployment's git commit, when it is known. Never guessed. */
+export function evaluatorCommit(env: NodeJS.ProcessEnv = process.env): string | null {
+  const value = env.ITERA_GIT_COMMIT ?? env.SOURCE_COMMIT ?? null;
+  return value && /^[0-9a-f]{7,40}$/.test(value) ? value : null;
 }
 
-async function runHiddenTests(fixtureDir: string, outputFile: string): Promise<TestSuiteResult> {
-  // fixture/vitest.config.ts already includes '../evaluator/hidden/**/*.test.ts' in its scope
-  // (see benchmarks/<scenario>/fixture/vitest.config.ts) — running vitest from the fixture dir
-  // picks up both suites unless scoped with a path filter, so filter explicitly to hidden only.
-  await run(
-    'npx',
-    ['vitest', 'run', '../evaluator/hidden/', '--reporter=json', `--outputFile=${outputFile}`],
-    fixtureDir,
-  );
-  try {
-    return await parseVitestJsonReport(outputFile);
-  } catch {
-    return EMPTY_SUITE;
+export function limitationsFor(executor: ExecutorInfo, task: LoadedTask): string[] {
+  const out = [
+    'The verifier runs the patched code in the same process as the tests. A patch can still change the test framework in memory; the evaluator cross-checks the report with the verifier exit code, so a full pass needs exit code 0.',
+    'One grading run per agent run; no repetition and no confidence interval.',
+  ];
+  if (executor.profile === 'local-process') out.unshift('Grading ran as a child process of the evaluator, not in a sandbox container.');
+  if (task.contract.task.name.startsWith('itera/')) {
+    out.push('The hidden tests of curated tasks are in a public repository: custody by path, not secrecy.');
   }
+  return out;
+}
+
+/** "/tmp/itera-eval-x/workspace/tests/hidden/a.test.ts" -> "tests/hidden/a.test.ts". */
+export function workspaceRelative(file: string, testsDir: string): string {
+  const posix = file.split('\\').join('/');
+  const idx = posix.lastIndexOf(`/${testsDir}/`);
+  if (idx >= 0) return posix.slice(idx + 1);
+  if (posix.startsWith(`${testsDir}/`)) return posix;
+  return posix.split('/').pop() ?? '';
 }
 
 export async function runEvaluation(options: RunEvaluationOptions): Promise<EvidenceManifest> {
+  const taskDir = options.taskDir ?? (options.repoRoot && options.scenarioId ? scenarioDir(options.repoRoot, options.scenarioId) : null);
+  if (!taskDir) throw new Error('runEvaluation needs taskDir, or repoRoot and scenarioId');
+  const task = await loadTask(taskDir);
+  const scenarioId = options.scenarioId ?? task.contract.task.name.split('/')[1]!;
+  const executor = options.executor ?? localExecutor();
+  const executorInfo = await executor.describe();
   const errors: string[] = [];
-  const scenarioDir = join(options.repoRoot, 'benchmarks', options.scenarioId);
-  const sourceFixtureDir = join(scenarioDir, 'fixture');
-  const sourceHiddenDir = join(scenarioDir, 'evaluator', 'hidden');
+  const verifier = task.contract.verifier;
+  const timeoutMs = verifier.timeout_sec * 1000;
+  const limits = { cpus: task.contract.environment.cpus, memoryMb: task.contract.environment.memory_mb };
 
   const workDir = await mkdtemp(join(tmpdir(), 'itera-eval-'));
-  const fixtureDir = join(workDir, 'fixture');
-  const evaluatorHiddenDir = join(workDir, 'evaluator', 'hidden');
+  const ws = join(workDir, 'workspace');
+
+  const runSuite = async (label: string, testsDir: string): Promise<TestSuiteResult> => {
+    const res = await executor.runSuite({ label, workspaceDir: ws, argv: resolveCmd(verifier.cmd, testsDir), timeoutMs, limits });
+    const { suite, error } = interpretRun(res, verifier.report);
+    if (error) errors.push(`${label}: ${error}`);
+    // Reports carry absolute paths of the grading host or container (/tmp/itera-eval-…). The
+    // manifest keeps only the workspace-relative path of each test file.
+    suite.cases = suite.cases.map((c) => ({ ...c, file: workspaceRelative(c.file, testsDir) }));
+    return suite;
+  };
+  const skipped = (): TestSuiteResult => ({ ...EMPTY_SUITE, cases: [], state: 'skipped' });
 
   try {
-    await cp(sourceFixtureDir, fixtureDir, { recursive: true });
+    // The agent-visible workspace: environment/ + public tests. Hashed before any install.
+    await materializeWorkspace(task, ws);
+    const fixtureHash = await hashDirectory(ws);
 
-    const fixtureHash = await hashDirectory(fixtureDir);
+    // Dependencies come from the lockfile, on the trusted side; lifecycle scripts never run.
+    const installCmd = installCommand(task);
+    const install = await run(installCmd[0]!, installCmd.slice(1), ws, INSTALL_TIMEOUT_MS);
+    if (install.code !== 0) errors.push(`install failed: ${install.stderr.slice(0, 500)}`);
 
-    // Baseline: fresh fixture, dependencies installed, before the patch is applied.
-    // --include=dev is required, not cosmetic: every benchmarks/<scenario>/fixture/package.json
-    // lists its own test runner (vitest) as a devDependency, and this process runs with
-    // NODE_ENV=production in the deployed API image (apps/api/Dockerfile) — npm's default
-    // omit-devDependencies-under-production-env behavior silently skipped installing vitest
-    // there, so `npx vitest run` below then failed with ERR_MODULE_NOT_FOUND. Caught during the
-    // first real PreparePage test (Tainan Fidelis, Discord #web3, 2026-10-12): that failure never
-    // surfaced as an error either, because runPublicTests/runHiddenTests catch a failed report
-    // parse and silently fall back to an empty suite (0/0/0) instead of recording it — a real
-    // grading run was coming back `pass` (score > 0 from non-test components) with every test
-    // count at zero, not an obvious infra_error. Fixing that silent fallback is a separate,
-    // bigger change (deciding how "fail" vs "infra_error" should distinguish a zero-case suite
-    // from a real empty one) — out of scope for this immediate fix.
-    const install = await run('npm', ['install', '--include=dev'], fixtureDir);
-    if (install.code !== 0) errors.push(`npm install failed: ${install.stderr.slice(0, 500)}`);
+    await writeFile(join(ws, '.gitignore'), 'node_modules/\n', 'utf-8');
+    await git(['init', '-q'], ws);
+    await git(['add', '-A'], ws);
+    await git([...GIT_ID, 'commit', '-q', '-m', 'baseline'], ws);
 
-    await writeFile(join(fixtureDir, '.gitignore'), 'node_modules/\n', 'utf-8');
-    await run('git', ['init', '-q'], fixtureDir);
-    await run('git', ['add', '-A'], fixtureDir);
-    await run('git', ['-c', 'user.email=evaluator@itera.local', '-c', 'user.name=itera-evaluator', 'commit', '-q', '-m', 'baseline'], fixtureDir);
-
-    const baselineReport = join(workDir, 'public-baseline.json');
-    const publicBaseline = await runPublicTests(fixtureDir, baselineReport);
+    const publicBaseline = await runSuite('public-baseline', task.contract.tests.public);
     const baselinePassingNames = new Set(publicBaseline.cases.filter((c) => c.passed).map((c) => c.name));
 
-    // Freeze the patch.
+    // Freeze the patch. It is applied HERE, on the trusted side, with git: the scope verdict never
+    // depends on anything that ran inside a grading container.
     const patchHash = createHash('sha256').update(options.patch).digest('hex');
     const patchFile = join(workDir, 'patch.diff');
     await writeFile(patchFile, options.patch, 'utf-8');
+    const emptyPatch = options.patch.trim() === '';
 
-    // --index stages the patch as part of applying it (including files it creates). A plain
-    // `git apply` without --index leaves new files untracked, and `git diff --name-only` only
-    // compares tracked content — so a patch that creates tests/evil.test.ts (or edits a
-    // gitignored path like node_modules/) applied cleanly but never showed up as a changed file,
-    // bypassing checkPatchScope entirely. `git diff --cached` after a staged apply sees it.
-    const apply = await run('git', ['apply', '--whitespace=nowarn', '--index', patchFile], fixtureDir);
-    if (apply.code !== 0) {
-      errors.push(`patch did not apply: ${apply.stderr.slice(0, 500)}`);
-    }
+    // --index stages the patch as part of applying it (including files it creates), so a new file
+    // under tests/ shows up in `git diff --cached`. --no-renames lists BOTH sides of a rename: a
+    // rename out of tests/ must count as a change to tests/.
+    const apply = emptyPatch ? { code: 0, stdout: '', stderr: '' } : await git(['apply', '--whitespace=nowarn', '--index', patchFile], ws);
+    if (apply.code !== 0) errors.push(`patch did not apply: ${apply.stderr.slice(0, 500)}`);
 
-    const diffNameOnly = await run('git', ['diff', '--cached', '--name-only'], fixtureDir);
-    const changedFiles = diffNameOnly.stdout
+    const nameOnly = await git(['diff', '--cached', '--no-renames', '--name-only'], ws);
+    const changedFiles = nameOnly.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+    const raw = await git(['diff', '--cached', '--no-renames', '--raw'], ws);
+    const symlinks = raw.stdout
       .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const patchScope = checkPatchScope(changedFiles);
+      .map((l) => l.match(/^:\d{6} (\d{6}) \S+ \S+ \S+\t(.+)$/))
+      .filter((m): m is RegExpMatchArray => !!m && m[1] === '120000')
+      .map((m) => m[2]!);
+    const patchScope = checkPatchScope(changedFiles, task.scope, symlinks);
 
-    const afterReport = join(workDir, 'public-after-patch.json');
-    const publicAfterPatch =
-      apply.code === 0 ? await runPublicTests(fixtureDir, afterReport) : EMPTY_SUITE;
+    const publicAfterPatch = apply.code === 0 ? await runSuite('public-after-patch', task.contract.tests.public) : skipped();
 
     const regressionCandidates = publicAfterPatch.cases.filter((c) => baselinePassingNames.has(c.name));
     const regressionRatio =
-      baselinePassingNames.size === 0
-        ? 1
-        : regressionCandidates.filter((c) => c.passed).length / baselinePassingNames.size;
+      baselinePassingNames.size === 0 ? 1 : regressionCandidates.filter((c) => c.passed).length / baselinePassingNames.size;
 
     // Mount the hidden tests only now that the patch is frozen.
-    await mkdir(evaluatorHiddenDir, { recursive: true });
-    const hiddenSourceStat = await stat(sourceHiddenDir).catch(() => null);
-    if (!hiddenSourceStat) {
-      errors.push(`no hidden tests found at ${sourceHiddenDir}`);
-    } else {
-      await cp(sourceHiddenDir, evaluatorHiddenDir, { recursive: true, filter: (src) => !src.endsWith('README.md') });
+    let hidden: TestSuiteResult = skipped();
+    if (apply.code === 0) {
+      // Undo anything the previous verifier run wrote into the tree (it matters for the local
+      // executor, which runs in place; the sandbox executor never writes back to this directory).
+      await git(['checkout', '--', '.'], ws);
+      await git(['clean', '-fdq'], ws);
+      await rm(join(ws, task.contract.tests.hidden), { recursive: true, force: true });
+      await addTests(task, ws, 'hidden');
+      hidden = await runSuite('hidden', task.contract.tests.hidden);
     }
-
-    const hiddenReport = join(workDir, 'hidden.json');
-    const hidden = apply.code === 0 ? await runHiddenTests(fixtureDir, hiddenReport) : EMPTY_SUITE;
 
     const score = computeScore({
       publicAfterPatch,
@@ -165,10 +202,17 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Evid
       runCompletedWithoutErrors: errors.length === 0,
     });
 
-    const manifest: EvidenceManifest = {
-      schema_version: '0.1.0',
+    const lock = await readFile(join(task.paths.environment, 'package-lock.json')).catch(() => null);
+    const environment = {
+      executor: executorInfo,
+      install_cmd: installCmd,
+      lockfile_sha256: lock ? createHash('sha256').update(lock).digest('hex') : null,
+    };
+
+    return {
+      schema_version: '0.2.0',
       evaluator_version: EVALUATOR_VERSION,
-      scenario_id: options.scenarioId,
+      scenario_id: scenarioId,
       generated_at: new Date().toISOString(),
       fixture_hash: fixtureHash,
       patch_hash: patchHash,
@@ -180,9 +224,20 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Evid
       },
       score,
       errors,
+      contract: {
+        schema_version: task.contract.schema_version,
+        name: task.contract.task.name,
+        version: task.contract.task.version,
+        contract_digest: task.contractDigest,
+        verifier_cmd: verifier.cmd,
+      },
+      environment,
+      environment_digest: canonicalDigest(environment),
+      evaluator_commit: evaluatorCommit(),
+      evaluator_digest: await evaluatorDigest(),
+      executor: { profile: executorInfo.profile },
+      limitations: limitationsFor(executorInfo, task),
     };
-
-    return manifest;
   } finally {
     if (!options.keepWorkspace) {
       await rm(workDir, { recursive: true, force: true });

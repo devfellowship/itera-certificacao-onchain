@@ -10,6 +10,7 @@ COPY services/attestation/package.json services/attestation/package.json
 COPY services/evaluator/package.json services/evaluator/package.json
 COPY services/run-issuer/package.json services/run-issuer/package.json
 COPY services/runner/package.json services/runner/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
 RUN npm ci
 COPY apps/api apps/api
 # domain/grader.ts spawns services/evaluator's CLI as a separate process (this repo's convention —
@@ -19,6 +20,7 @@ COPY apps/api apps/api
 # called this "Not built yet, explicitly out of scope"); added once a real end-to-end test
 # actually needed it (Tainan Fidelis, Discord #web3, 2026-10-12).
 COPY services/evaluator services/evaluator
+COPY packages/contracts packages/contracts
 COPY benchmarks benchmarks
 RUN npx turbo run build --filter=@itera/api \
   && npm prune --omit=dev
@@ -41,6 +43,8 @@ COPY --from=build /workspace/apps/api/package.json ./package.json
 COPY --from=build /workspace/apps/api/dist ./dist
 COPY --from=build /workspace/apps/api/certs ./certs
 COPY --from=build /workspace/services/evaluator ./services/evaluator
+# The evaluator validates task.json with @itera/contracts (node_modules/@itera/contracts links here).
+COPY --from=build /workspace/packages/contracts ./packages/contracts
 COPY --from=build /workspace/benchmarks ./benchmarks
 # Fonts for the NFT image (chain/nft-image.ts) — alpine ships no system fonts.
 COPY --from=build /workspace/apps/api/assets ./assets
