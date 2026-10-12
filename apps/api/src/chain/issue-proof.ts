@@ -25,7 +25,8 @@ export interface IssueProofDeps {
   minter?: Minter;
 }
 
-const PROOF_ELIGIBLE_STATUSES = new Set(["pass", "fail"]);
+/** A finished run with a graded manifest gets a proof; infra_error never has one. */
+const PROOF_ELIGIBLE_STATUSES = new Set(["pass", "fail", "invalid", "timeout"]);
 
 export async function issueProof(run: ProofRun, deps: IssueProofDeps): Promise<ProofRecord> {
   const { store } = deps;
@@ -33,7 +34,7 @@ export async function issueProof(run: ProofRun, deps: IssueProofDeps): Promise<P
   if (existing?.status === "confirmed") return existing;
 
   if (!PROOF_ELIGIBLE_STATUSES.has(run.status)) {
-    throw new ProofPreconditionError(`run is ${run.status}; only a pass or fail run gets a proof`);
+    throw new ProofPreconditionError(`run is ${run.status}; only a finished, graded run gets a proof`);
   }
   if (!run.ownerWallet) throw new ProofPreconditionError("run has no owner wallet");
   if (!run.runStartSig) throw new ProofPreconditionError("run has no run-start signature — sign the run-start Memo first");

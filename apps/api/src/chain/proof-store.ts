@@ -25,7 +25,7 @@ export interface ProofRun {
   runId: string;
   ownerWallet: string | null;
   runStartSig: string | null;
-  /** Terminal run status — only pass/fail runs get a proof. */
+  /** Run status — only a finished, graded run gets a proof. */
   status: string;
   evidenceManifest: unknown | null;
   scoreTotal: number | null;
