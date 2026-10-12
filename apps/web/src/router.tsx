@@ -89,6 +89,8 @@ export const routes = [
       { path: '/evaluations/:eid', element: <RunningEvaluationPage /> },
       { path: '/tasks', element: <MyTasksPage /> },
       { path: '/tasks/new', element: <TaskEditorPage /> },
+      { path: '/tasks/:id/edit', element: <TaskEditorPage /> },
+      // U30 replaces this with the public task page (/tasks/:slug, U32 decision).
       { path: '/tasks/:id', element: <TaskEditorPage /> },
     ],
   },

@@ -1,0 +1,229 @@
+/* Screen 10 My tasks (U20) — local layout only; colors through --tma-* tokens. Sizes from "10 My Tasks.dc.html". */
+.tmt-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+.tmt-head__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tmt-sub {
+  font-size: 15px;
+  color: var(--tma-text-muted);
+}
+.tmt .tma-table__row {
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+.tmt-task {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tmt-task__name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--tma-text);
+}
+.tmt-task__desc {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tmt-task__pin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  color: var(--tma-text-subtle);
+}
+.tmt-task__repo {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tmt-lock {
+  flex: none;
+  color: var(--tma-text-subtle);
+}
+.tmt-tests {
+  flex: none;
+  font-family: var(--tma-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tma-text-muted);
+  white-space: nowrap;
+}
+.tmt-tests--open {
+  color: var(--tma-warning-text);
+}
+.tmt-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tmt-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.tmt-status__sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1;
+}
+.tmt-num {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text);
+}
+.tmt-muted {
+  color: var(--tma-text-muted);
+}
+.tmt-best {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+  white-space: nowrap;
+}
+.tmt-best__score {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--tma-text);
+  font-variant-numeric: tabular-nums;
+}
+.tmt-actions {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.tmt-action {
+  font-size: 13px;
+  color: var(--tma-primary);
+  white-space: nowrap;
+}
+.tmt-action:hover {
+  color: var(--tma-primary-hover);
+}
+.tmt-action--off {
+  color: var(--tma-text-subtle);
+}
+.tmt-menu-btn {
+  border: 0;
+  background: none;
+  color: var(--tma-text-subtle);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 2px;
+  cursor: pointer;
+  border-radius: var(--tma-radius-xs);
+}
+.tmt-menu-btn:hover,
+.tmt-menu-btn[aria-expanded='true'] {
+  color: var(--tma-text);
+}
+.tmt-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-width: 140px;
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-surface-raised);
+  border: 1px solid var(--tma-line);
+  box-shadow: var(--tma-shadow-menu);
+}
+.tmt-menu__item {
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--tma-radius-sm);
+  color: var(--tma-text);
+  cursor: pointer;
+}
+.tmt-menu__item:hover {
+  background: var(--tma-surface);
+}
+.tmt-menu__item--danger {
+  color: var(--tma-danger-text);
+}
+.tmt-notice {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.tmt-empty-text {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+  max-width: 420px;
+}
+.tmt-skel {
+  display: block;
+  height: 14px;
+  border-radius: var(--tma-radius-xs);
+  background: var(--tma-surface-raised);
+  animation: tmt-pulse 1.4s ease-in-out infinite;
+}
+.tmt-skel--r {
+  margin-left: auto;
+}
+@keyframes tmt-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tmt-skel {
+    animation: none;
+  }
+}
+.tmt-explainers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding-top: 24px;
+}
+.tmt-explainer {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tmt-explainer__t {
+  font-size: 15px;
+  font-weight: 600;
+}
+.tmt-explainer__d {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+  text-wrap: pretty;
+}
+.tmt-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

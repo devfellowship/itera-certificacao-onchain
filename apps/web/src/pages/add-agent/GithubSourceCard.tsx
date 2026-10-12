@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { api } from '../../lib/api'
 import type { GithubCommit } from '../../lib/api'
 import { Badge, Button, Card, Field, Input, Select, StatusChip, type SelectOption } from '../../tma/ui'
 import { describeError } from './errors'
-import type { GithubSource, Validation } from './useGithubSource'
+import type { GithubPin, GithubSource, Validation } from './useGithubSource'
 
 const short = (sha: string) => sha.slice(0, 7)
 const fmtDate = (iso: string) => {
@@ -39,14 +39,24 @@ async function openInstall(onStarted: () => void): Promise<string | null> {
   }
 }
 
-function Disconnected({ gh }: { gh: GithubSource }) {
+/** Copy of the install card; the task editor (U20) swaps the third tile and the intro line. */
+export interface InstallCopy {
+  intro: string
+  tile3: { title: string; detail: string; mono?: boolean }
+}
+const AGENT_INSTALL_COPY: InstallCopy = {
+  intro: 'We read your agent from the repo, pinned to a commit, and run it on our infra. Read-only, on the repos you pick.',
+  tile3: { title: 'Point to agent files', detail: 'AGENTS.md, skills/', mono: true },
+}
+
+function Disconnected({ gh, copy }: { gh: GithubPin; copy: InstallCopy }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   return (
     <div className="ta-stack" style={{ gap: 20 }} data-testid="github-disconnected">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span className="ta-install__title">Install the testmyagent GitHub App</span>
-        <span className="ta-install__copy">We read your agent from the repo, pinned to a commit, and run it on our infra. Read-only, on the repos you pick.</span>
+        <span className="ta-install__copy">{copy.intro}</span>
       </div>
       <div className="ta-tiles">
         <div className="ta-tile ta-tile--on">
@@ -61,8 +71,8 @@ function Disconnected({ gh }: { gh: GithubSource }) {
         </div>
         <div className="ta-tile">
           <span className="ta-tile__n">03</span>
-          <span className="ta-tile__t">Point to agent files</span>
-          <span className="ta-tile__d ta-tile__d--mono">AGENTS.md, skills/</span>
+          <span className="ta-tile__t">{copy.tile3.title}</span>
+          <span className={copy.tile3.mono ? 'ta-tile__d ta-tile__d--mono' : 'ta-tile__d'}>{copy.tile3.detail}</span>
         </div>
       </div>
       <div className="ta-install__cta">
@@ -149,7 +159,7 @@ function ValidationRow({ gh }: { gh: GithubSource }) {
   )
 }
 
-function Connected({ gh }: { gh: GithubSource }) {
+function Connected({ gh, pathLabel, path, onPath, footer, repoAside }: { gh: GithubPin; pathLabel: string; path: string; onPath: (p: string) => void; footer?: ReactNode; repoAside?: ReactNode }) {
   const data = gh.source.data!
   const accounts = [...new Set(data.installations.map((i) => i.accountLogin).filter(Boolean))] as string[]
   const first = data.installations[0]
@@ -230,8 +240,8 @@ function Connected({ gh }: { gh: GithubSource }) {
         </Field>
       </div>
       <div className="ta-pair">
-        <Field label="Agent path" htmlFor="ta-path">
-          <Input id="ta-path" mono value={gh.agentPath} placeholder="." spellCheck={false} onChange={(e) => gh.setAgentPath(e.target.value)} />
+        <Field label={pathLabel} htmlFor="ta-path">
+          <Input id="ta-path" mono value={path} placeholder="." spellCheck={false} onChange={(e) => onPath(e.target.value)} />
         </Field>
         <Field label="Pinned commit" htmlFor="ta-commit" error={gh.commits.status === 'error' ? 'Could not load commits. The branch head is used.' : undefined}>
           <Select
@@ -245,25 +255,51 @@ function Connected({ gh }: { gh: GithubSource }) {
           />
         </Field>
       </div>
-      <ValidationRow gh={gh} />
+      {repoAside}
+      {footer}
     </div>
   )
 }
 
-export function GithubSourceCard({ gh }: { gh: GithubSource }) {
+/**
+ * Source card of a GitHub pin: install card when the App is not connected, else Repository,
+ * Branch, path and Pinned commit. 02 passes the agent path and its validation row; the task
+ * editor (U20) passes the task path and its layout check.
+ */
+export function GithubPinCard({
+  gh,
+  title,
+  badge,
+  pathLabel,
+  path,
+  onPath,
+  footer,
+  repoAside,
+  installCopy = AGENT_INSTALL_COPY,
+  testId = 'source-card',
+}: {
+  gh: GithubPin
+  title: ReactNode
+  /** Status badge when connected (02: Connected). */
+  badge: ReactNode
+  pathLabel: string
+  path: string
+  onPath: (p: string) => void
+  footer?: ReactNode
+  /** Rendered under the selects, before the footer (task editor: open / sealed tests label). */
+  repoAside?: ReactNode
+  installCopy?: InstallCopy
+  testId?: string
+}) {
   const { source } = gh
   const loading = source.status === 'loading' && !source.data
   const connected = (source.data?.installations.length ?? 0) > 0
   const failed = source.status === 'error' && !source.data
   return (
-    <Card className="ta-card" data-testid="source-card">
+    <Card className="ta-card" data-testid={testId}>
       <div className="ta-card__top">
-        <span className="tma-label">Source · GitHub</span>
-        {connected ? (
-          <StatusChip status="confirmed" dot />
-        ) : (
-          <Badge tone="neutral">{loading ? 'Checking' : 'Not connected'}</Badge>
-        )}
+        <span className="tma-label">{title}</span>
+        {connected ? badge : <Badge tone="neutral">{loading ? 'Checking' : 'Not connected'}</Badge>}
       </div>
       {loading && <SkeletonRow />}
       {failed && (
@@ -276,7 +312,26 @@ export function GithubSourceCard({ gh }: { gh: GithubSource }) {
           </div>
         </div>
       )}
-      {!loading && !failed && (connected ? <Connected gh={gh} /> : <Disconnected gh={gh} />)}
+      {!loading && !failed &&
+        (connected ? (
+          <Connected gh={gh} pathLabel={pathLabel} path={path} onPath={onPath} footer={footer} repoAside={repoAside} />
+        ) : (
+          <Disconnected gh={gh} copy={installCopy} />
+        ))}
     </Card>
+  )
+}
+
+export function GithubSourceCard({ gh }: { gh: GithubSource }) {
+  return (
+    <GithubPinCard
+      gh={gh}
+      title="Source · GitHub"
+      badge={<StatusChip status="confirmed" dot />}
+      pathLabel="Agent path"
+      path={gh.agentPath}
+      onPath={gh.setAgentPath}
+      footer={<ValidationRow gh={gh} />}
+    />
   )
 }
