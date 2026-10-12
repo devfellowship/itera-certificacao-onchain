@@ -37,6 +37,8 @@
  *   --evaluation <slug>   re-check an evaluation that is already issued (public slug or id); skips registration and payment
  *   --chrome <path>       Chrome binary (default /usr/bin/google-chrome when it exists, else Playwright's Chromium)
  *   --max-wait-min <n>    wait for the evaluation to be issued (default 15)
+ * --sample (U37): a FRESH wallet generated in memory (no secret needed) that never touched the GitHub
+ *   App: "Get test SOL" in the wallet menu, "Use sample repo" on Add agent and in the task editor.
  * Output: <out>/browser-e2e.json, <out>/browser-e2e.html (screenshots inline) and <out>/shots/*.jpg.
  * Exit code: 0 when every non-skipped step passes, 1 when one fails, 2 on a usage or setup error.
  *
@@ -69,6 +71,7 @@ const { values: argv } = parseArgs({
     treasury: { type: "string", default: DEFAULT_TREASURY },
     out: { type: "string", default: "e2e-report" },
     "no-pay": { type: "boolean", default: false },
+    sample: { type: "boolean", default: false },
     evaluation: { type: "string", default: "" },
     agent: { type: "string", default: "" },
     "agent-name": { type: "string", default: "Browser e2e demo agent" },
@@ -96,10 +99,11 @@ const NO_PAY = argv["no-pay"]!;
 const PRE_EVALUATION = argv.evaluation!;
 const PRE_AGENT = argv.agent!;
 
-const secretB58 = process.env.E2E_WALLET_SECRET_B58 ?? process.env.DEMO_WALLET_SECRET_B58;
+const SAMPLE = argv.sample === true;
+const secretB58 = SAMPLE ? "" : (process.env.E2E_WALLET_SECRET_B58 ?? process.env.DEMO_WALLET_SECRET_B58);
 delete process.env.E2E_WALLET_SECRET_B58;
 delete process.env.DEMO_WALLET_SECRET_B58;
-if (!secretB58) {
+if (!SAMPLE && !secretB58) {
   console.error("E2E_WALLET_SECRET_B58 (or DEMO_WALLET_SECRET_B58) is required: base58 secret key of the demo wallet.");
   process.exit(2);
 }
@@ -108,7 +112,8 @@ if (!secretB58) {
 // Wallet (Node side). The page never sees the secret.
 
 const ED25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
-const secretBytes = Uint8Array.from(getBase58Encoder().encode(secretB58));
+// --sample: a fresh in-memory wallet; its secret is never printed or written.
+const secretBytes = SAMPLE ? Keypair.generate().secretKey : Uint8Array.from(getBase58Encoder().encode(secretB58!));
 const keypair = Keypair.fromSecretKey(secretBytes);
 const PUB = keypair.publicKey.toBase58();
 const edKey = createPrivateKey({ key: Buffer.concat([ED25519_PKCS8_PREFIX, Buffer.from(secretBytes.subarray(0, 32))]), format: "der", type: "pkcs8" });
@@ -490,6 +495,21 @@ async function main(): Promise<void> {
     return `${rows} tasks in the catalog; ranked on ${c.facts.pickedTask}`;
   });
 
+  // ---- 3b. Faucet (--sample): "Get test SOL" in the wallet menu -----------------------------------------
+  if (SAMPLE) {
+    await step("faucet", "Wallet menu: Get test SOL funds the fresh wallet", async (c) => {
+      await page.getByTestId("account-trigger").click();
+      await page.getByTestId("account-menu").waitFor({ timeout: 15_000 });
+      await page.getByTestId("get-test-sol").click();
+      await page.getByTestId("faucet-sent").waitFor({ timeout: 90_000 });
+      c.facts.faucet = (await page.getByTestId("faucet-sent").innerText()).replace(/\s+/g, " ");
+      await c.verify("faucet", '[data-testid="account-menu"]', '[data-testid="faucet-sent"]', 1);
+      await page.keyboard.press("Escape");
+      await page.getByTestId("account-trigger").click();
+      return c.facts.faucet as string;
+    });
+  }
+
   // ---- 4. Add agent --------------------------------------------------------------------------------
   if (PRE_EVALUATION || PRE_AGENT) {
     await step("add-agent", "Add agent", async () => skip(PRE_AGENT ? `--agent given: reusing agent ${PRE_AGENT}` : "--evaluation given: registration and payment are skipped"));
@@ -497,8 +517,15 @@ async function main(): Promise<void> {
   } else {
     await step("add-agent", "Add agent: GitHub connected, repo / branch / commit / path, validate", async (c) => {
       await page.goto(WEB + "/agents/new", { waitUntil: "domcontentloaded" });
-      await page.getByTestId("github-connected").waitFor({ timeout: 45_000 });
-      await selectOption(page, "#ta-repo", REPO);
+      if (SAMPLE) {
+        // U37: no installation on this wallet: the sample repo button preselects the sample agent repo.
+        await page.getByTestId("use-sample-repo").click({ timeout: 45_000 });
+        await page.getByTestId("github-sample").waitFor({ timeout: 45_000 });
+        must((await page.getByTestId("sample-badge").count()) === 1, "no Sample badge on the Source card");
+      } else {
+        await page.getByTestId("github-connected").waitFor({ timeout: 45_000 });
+        await selectOption(page, "#ta-repo", REPO);
+      }
       await page.getByTestId("validation-ok").waitFor({ timeout: 90_000 });
       const branch = (await page.locator("#ta-branch").innerText()).trim();
       must(branch.length > 0 && !/no branches|loading/i.test(branch), `branch select shows "${branch}"`);
@@ -681,8 +708,21 @@ async function main(): Promise<void> {
     return `${rows.length} rows, ${issued} issued, spent "${c.facts.spent}"`;
   });
 
+  // ---- 10b. Task editor with the sample task repo (--sample) ------------------------------------------------
+  if (SAMPLE) {
+    await step("task-editor", "Task editor /tasks/new: Use sample repo reads the sample task repo (layout check)", async (c) => {
+      await page.goto(WEB + "/tasks/new", { waitUntil: "domcontentloaded" });
+      await page.getByTestId("use-sample-repo").click({ timeout: 45_000 });
+      await page.getByTestId("github-sample").waitFor({ timeout: 45_000 });
+      await c.verify("task-editor-sample", '[data-testid="task-editor"]', '[data-testid="github-sample"]', 1);
+      c.facts.repo = (await page.getByTestId("github-sample").locator(".ta-info").innerText()).replace(/\s+/g, " ");
+      return c.facts.repo as string;
+    });
+  }
+
   // ---- 11. My tasks ---------------------------------------------------------------------------------------
   await step("my-tasks", "My tasks (/tasks): the demo task is Ready", async (c) => {
+    if (SAMPLE) skip("--sample: a fresh wallet owns no task");
     await page.goto(WEB + "/tasks", { waitUntil: "domcontentloaded" });
     await c.verify("my-tasks", '[data-testid="my-tasks"]', '[data-testid="tasks-table-row"]', 1);
     const ready = await page.getByTestId("task-status-ready").count();
@@ -693,6 +733,7 @@ async function main(): Promise<void> {
   });
 
   await step("my-tasks", "Task editor: Environment card renders", async (c) => {
+    if (SAMPLE) skip("--sample: a fresh wallet owns no task");
     // The editor of the Ready task of My tasks (the demo task); a task the wallet owns is editable.
     await page.goto(WEB + "/tasks", { waitUntil: "domcontentloaded" });
     await page.getByTestId("tasks-table-row").first().waitFor({ timeout: 45_000 });
@@ -724,8 +765,9 @@ async function main(): Promise<void> {
     await img.waitFor({ timeout: 30_000 });
     const ok = await img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0);
     must(ok, "badge image did not load");
-    must(/!\[|\]\(/.test(await page.getByTestId("badge-snippet").innerText()), "badge Markdown snippet is empty");
-    return "badge image loaded, Markdown snippet present";
+    // U35 made the agent-detail badge copy-only: a "Copy Markdown" button, no visible snippet.
+    must((await page.getByTestId("copy-badge").count()) === 1, "Copy Markdown button missing on the badge card");
+    return "badge image loaded, Copy Markdown present";
   });
 
   // ---- 14. MCP task (pending GHCR public) --------------------------------------------------------------------
@@ -736,6 +778,7 @@ async function main(): Promise<void> {
     const pub = mcpPublic;
     c.facts.ghcrAnonymousPull = pub;
     if (!pub) skip(`anonymous pull of ghcr.io/${image} fails (images still private)`);
+    if (SAMPLE) skip("--sample: one paid run is the proof");
     if (!state.agentId || NO_PAY) skip("images are public, but this run does not pay (no agent or --no-pay)");
     await page.goto(`${WEB}/agents/${encodeURIComponent(state.agentId)}/evaluate?tasks=tsk_helpdesk_refunds`, { waitUntil: "domcontentloaded" });
     await page.getByTestId("quote-validity").waitFor({ timeout: 45_000 });
