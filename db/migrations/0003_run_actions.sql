@@ -29,7 +29,10 @@ comment on table public.run_actions is
 -- only to start the run's model gateway, and sets the column to NULL when the run ends.
 alter table public.runs add column if not exists model_api_key_enc text;
 
--- Same model as 0000_baseline: RLS on, no policy. The API and the worker connect as the owner.
+-- Same model as 0000_baseline: RLS on, no policy. The API and the worker connect as
+-- itera_api_service (also granted by 0005_api_role_grants.sql; repeated here so 0003 stands alone).
 alter table public.run_actions enable row level security;
+grant select, insert, update, delete on public.run_actions to itera_api_service;
+grant usage, select on sequence public.run_actions_id_seq to itera_api_service;
 
 commit;
