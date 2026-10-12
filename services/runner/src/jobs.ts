@@ -52,4 +52,16 @@ export interface JobStore {
   finish(runId: string, workerId: string, outcome: RunOutcome): Promise<void>;
   /** Marks `running` runs claimed before `olderThanMs` as infra_error and wipes their model key. Returns how many. */
   reapStale(olderThanMs: number): Promise<number>;
+  /** status + worker_id of the given runs (missing ids are absent from the map). */
+  runStates(runIds: string[]): Promise<Map<string, { status: string; workerId: string | null }>>;
+  /** Every run in `running`, with its worker. */
+  runningRuns(): Promise<Array<{ runId: string; workerId: string | null }>>;
+  /**
+   * A run whose worker is gone: requeue it ONCE as a free retry (status queued, error
+   * LOST_RUN_REQUEUED), or mark it infra_error when it was already requeued once. Conditional on
+   * the run still being `running` under `workerId`.
+   */
+  recoverLost(runId: string, workerId: string | null): Promise<'requeued' | 'failed' | 'skipped'>;
 }
+
+export const LOST_RUN_REQUEUED = 'requeued after a runner restart';

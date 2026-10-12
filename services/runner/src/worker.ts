@@ -147,6 +147,8 @@ export interface LoopOptions {
   pollMs: number;
   staleMs: number;
   signal: AbortSignal;
+  /** After `signal` aborts: how long to wait for in-flight runs before returning. Default 600 000. */
+  drainMs?: number;
 }
 
 /** Claim-and-run loop with `concurrency` slots. Resolves after `signal` aborts and in-flight runs end. */
@@ -184,14 +186,31 @@ export async function workerLoop(deps: WorkerDeps, opts: LoopOptions): Promise<v
     }
     await sleep(opts.pollMs);
   }
-  await Promise.all(inFlight);
+  // Graceful shutdown: no new claim after the abort; in-flight runs get `drainMs` to finish.
+  // A run still in flight after that is left `running`: the next worker requeues it once
+  // (orphans.ts recoverLostRuns), because this worker's container is then no longer live.
+  const drainMs = opts.drainMs ?? DEFAULT_DRAIN_MS;
+  if (inFlight.size > 0) {
+    log({ event: 'draining', inFlight: inFlight.size, drainMs });
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = await Promise.race([
+      Promise.all(inFlight).then(() => false),
+      new Promise<boolean>((r) => (timer = setTimeout(() => r(true), drainMs))),
+    ]);
+    clearTimeout(timer);
+    log(timedOut ? { event: 'drain_timeout', left: inFlight.size } : { event: 'drained' });
+  }
 }
+
+export const DEFAULT_DRAIN_MS = 600_000;
 
 async function main(): Promise<void> {
   const { default: pg } = await import('pg');
   const { readFileSync } = await import('node:fs');
   const { PgJobStore } = await import('./jobs.pg.js');
-  const { defaultSandboxConfig, ensureSandboxImage, removeOrphans } = await import('./sandbox.js');
+  const { defaultSandboxConfig, ensureSandboxImage } = await import('./sandbox.js');
+  const { exec } = await import('./exec.js');
+  const { removeOrphans, recoverLostRuns } = await import('./orphans.js');
   const { ensureEvaluatorBundle, gradeInSandbox } = await import('./grade.js');
 
   const databaseUrl = process.env.DATABASE_URL;
@@ -213,13 +232,16 @@ async function main(): Promise<void> {
     config.image = await ensureSandboxImage(join(repoRoot, 'services', 'runner', 'sandbox'));
   }
   await ensureEvaluatorBundle(repoRoot);
-  const workerId = `${process.env.ITERA_WORKER_NAME ?? 'itera-runner'}@${hostname()}`;
-  const orphans = await removeOrphans();
-  // One worker replica: any run still `running` at boot belongs to a dead process.
-  const reaped = process.env.ITERA_RUNNER_SINGLETON === 'false' ? 0 : await store.reapStale(0);
+  const selfHost = hostname();
+  const workerId = `${process.env.ITERA_WORKER_NAME ?? 'itera-runner'}@${selfHost}`;
+  // Safe during a rolling redeploy: runs of a still-live worker (the old one, draining) are kept.
+  const docker = (args: string[]) => exec('docker', args, { timeoutMs: 30_000 });
+  const recovered = await recoverLostRuns({ docker, store, selfHost });
+  const orphans = await removeOrphans({ docker, store, selfHost });
   log({
     event: 'boot', workerId, image: config.image, wallMs: config.wallMs, maxCostUsd: config.maxCostUsd,
-    platformKey: Boolean(platformModelKey), byok: Boolean(runKeySecret), orphansRemoved: orphans, runsReaped: reaped,
+    platformKey: Boolean(platformModelKey), byok: Boolean(runKeySecret), orphansRemoved: orphans.removed, orphansKept: orphans.kept,
+    runsRequeued: recovered.requeued, runsFailed: recovered.failed, runsOfLiveWorkers: recovered.keptLive,
   });
 
   const controller = new AbortController();
@@ -235,10 +257,13 @@ async function main(): Promise<void> {
       concurrency: Number(process.env.ITERA_RUNNER_CONCURRENCY ?? 2),
       pollMs: Number(process.env.ITERA_RUNNER_POLL_MS ?? 3000),
       staleMs: Number(process.env.ITERA_RUNNER_STALE_MS ?? 15 * 60_000),
+      drainMs: Number(process.env.ITERA_RUNNER_DRAIN_MS ?? DEFAULT_DRAIN_MS),
       signal: controller.signal,
     },
   );
   await pool.end();
+  log({ event: 'exit' });
+  process.exit(0);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {

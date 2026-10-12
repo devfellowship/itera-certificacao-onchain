@@ -1,4 +1,4 @@
-import type { ClaimedRun, JobStore, RunJob, RunOutcome, RunPhase } from './jobs.js';
+import { LOST_RUN_REQUEUED, type ClaimedRun, type JobStore, type RunJob, type RunOutcome, type RunPhase } from './jobs.js';
 
 interface FakeRun {
   job: RunJob | null;
@@ -8,6 +8,7 @@ interface FakeRun {
   workerId: string | null;
   claimedAt: number | null;
   startedAt: number;
+  error?: string | null;
 }
 
 /** In-memory JobStore for tests. Same semantics as PgJobStore. */
@@ -59,5 +60,30 @@ export class FakeJobStore implements JobStore {
       }
     }
     return n;
+  }
+
+  async runStates(runIds: string[]): Promise<Map<string, { status: string; workerId: string | null }>> {
+    const out = new Map<string, { status: string; workerId: string | null }>();
+    for (const id of runIds) {
+      const r = this.runs.get(id);
+      if (r) out.set(id, { status: r.status, workerId: r.workerId });
+    }
+    return out;
+  }
+
+  async runningRuns(): Promise<Array<{ runId: string; workerId: string | null }>> {
+    return [...this.runs.entries()].filter(([, r]) => r.status === 'running').map(([runId, r]) => ({ runId, workerId: r.workerId }));
+  }
+
+  async recoverLost(runId: string, workerId: string | null): Promise<'requeued' | 'failed' | 'skipped'> {
+    const run = this.runs.get(runId);
+    if (!run || run.status !== 'running' || run.workerId !== workerId) return 'skipped';
+    if (!run.error) {
+      Object.assign(run, { status: 'queued', phase: null, workerId: null, claimedAt: null, error: LOST_RUN_REQUEUED });
+      return 'requeued';
+    }
+    Object.assign(run, { status: 'infra_error', phase: 'done' });
+    if (run.job) run.job.modelApiKeyEnc = null;
+    return 'failed';
   }
 }
