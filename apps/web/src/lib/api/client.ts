@@ -86,6 +86,8 @@ export const api = {
   /** The page /connect/github/callback forwards GitHub's query (installation_id, code, state) here, with the session token. */
   githubCallback: (params: T.GithubCallbackParams) => request<T.GithubCallbackResponse>('/github/callback', { query: { ...params } }),
   githubAgentCandidates: (fullName: string, ref?: string) => request<unknown>(`/github/repos/${fullName}/agent-candidates`, { query: { ref } }),
+  /** Folders with a task.json at `ref` (a branch or a commit); many tasks in one repo (U34). */
+  githubTaskCandidates: (fullName: string, ref?: string) => request<T.TaskCandidatesResponse>(`/github/repos/${fullName}/task-candidates`, { query: { ref } }),
   githubBranches: (fullName: string) => request<T.GithubBranchesResponse>(`/github/repos/${fullName}/branches`),
   githubCommits: (fullName: string, branch: string, limit = 20) => request<T.GithubCommitsResponse>(`/github/repos/${fullName}/commits`, { query: { branch, limit } }),
 
@@ -140,7 +142,7 @@ export const api = {
   patchTask: (id: string, input: T.PatchTaskInput) => request<{ task: T.UserTaskDetail }>(`/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: json(input) }),
   deleteTask: (id: string) => request<{ id: string; deleted: boolean }>(`/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   createTaskVersion: (id: string, input: Partial<T.TaskSourceInput>) =>
-    request<{ version: T.UserTaskVersion; layout: T.TaskLayout }>(`/tasks/${encodeURIComponent(id)}/versions`, { method: 'POST', body: json(input) }),
+    request<{ version: T.UserTaskVersion; layout: T.TaskLayout; /** U34: true (HTTP 200) when the task folder did not change, `version` is then the existing latest version. */ unchanged?: boolean }>(`/tasks/${encodeURIComponent(id)}/versions`, { method: 'POST', body: json(input) }),
   validateTaskVersion: (id: string, version: number) => request<T.ValidateTaskResponse>(`/tasks/${encodeURIComponent(id)}/versions/${version}/validate`, { method: 'POST' }),
   taskValidation: (id: string, version: number) =>
     request<{ validation: T.TaskValidationRun; version: T.UserTaskVersion; taskStatus: T.TaskStatus }>(`/tasks/${encodeURIComponent(id)}/versions/${version}/validation`),

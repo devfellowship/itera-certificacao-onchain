@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { validateTaskContract, type TaskContract } from "@itera/contracts";
 import { OPEN_TESTS_LABEL, SEALED_TESTS_LABEL } from "../domain/reputation.js";
 import type { GitHubAppApi, TreeEntry } from "./app-client.js";
@@ -129,4 +130,91 @@ export async function readTaskLayout(
  */
 export function labelsFor(repoPrivate: boolean): string[] {
   return repoPrivate ? [SEALED_TESTS_LABEL] : [OPEN_TESTS_LABEL];
+}
+
+/**
+ * Content digest of one task folder (U34): sha256 over the sorted `relative path, mode, blob sha` lines of
+ * every file under the folder. The blob SHAs are content hashes, so the digest moves only when a file of
+ * THIS folder changes, was added, was removed or changed mode. A commit that touches a sibling folder of a
+ * multi-task repo leaves it unchanged. Same node_modules exclusion as readTaskLayout.
+ */
+export function folderDigest(entries: TreeEntry[], taskPath: string): string {
+  const prefix = taskPath === "." ? "" : `${taskPath}/`;
+  const lines = entries
+    .filter((e) => e.type !== "tree" && e.path.startsWith(prefix) && e.path.length > prefix.length)
+    .map((e) => ({ rel: e.path.slice(prefix.length), e }))
+    .filter(({ rel }) => !rel.split("/").includes("node_modules"))
+    .map(({ rel, e }) => `${rel}\t${e.mode}\t${e.sha}`)
+    .sort();
+  return createHash("sha256").update(lines.join("\n")).digest("hex");
+}
+
+export interface TaskCandidate {
+  /** Folder of the task.json, "." for the repo root. */
+  path: string;
+  /** task.name of the contract ("owner/slug") when task.json parsed. */
+  name: string | null;
+  /** Last segment of task.name. */
+  slug: string | null;
+  title: string | null;
+  /** The contract passes the JSON Schema. Layout entries are checked later by POST /tasks/layout. */
+  valid: boolean;
+  /** First schema or parse error when not valid. */
+  error: string | null;
+}
+
+export const TASK_CANDIDATES_MAX = 100;
+
+/**
+ * Folders that hold a task.json (U34). One git-tree call (the caller's listTree), then one blob read per
+ * task.json (capped at TASK_CANDIDATES_MAX, 64 KB each, 6 in parallel). A task.json inside another
+ * candidate folder (a fixture under environment/) and anything under node_modules are not candidates.
+ */
+export async function findTaskCandidates(
+  gh: GitHubAppApi,
+  installationId: number,
+  repoFullName: string,
+  entries: TreeEntry[],
+): Promise<{ candidates: TaskCandidate[]; capped: boolean }> {
+  const files = entries
+    .filter((e) => isBlob(e) && e.mode !== "120000" && (e.path === "task.json" || e.path.endsWith("/task.json")))
+    .filter((e) => !e.path.split("/").includes("node_modules"))
+    .map((e) => ({ e, dir: e.path === "task.json" ? "." : e.path.slice(0, -"/task.json".length) }))
+    .sort((a, b) => a.dir.localeCompare(b.dir));
+  const top = files.filter((f, i) => !files.slice(0, i).some((o) => o.dir === "." || f.dir.startsWith(`${o.dir}/`)));
+  const capped = top.length > TASK_CANDIDATES_MAX;
+  const picked = top.slice(0, TASK_CANDIDATES_MAX);
+  const out: TaskCandidate[] = new Array(picked.length);
+  let next = 0;
+  const worker = async () => {
+    for (let i = next++; i < picked.length; i = next++) {
+      const { e, dir } = picked[i]!;
+      const base = { path: dir, name: null, slug: null, title: null };
+      if ((e.size ?? 0) > TASK_JSON_MAX_BYTES) {
+        out[i] = { ...base, valid: false, error: "task.json is larger than 64 KB" };
+        continue;
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse((await gh.readBlob(installationId, repoFullName, e.sha)).toString("utf-8"));
+      } catch {
+        out[i] = { ...base, valid: false, error: "task.json is not valid JSON" };
+        continue;
+      }
+      const checked = validateTaskContract(parsed);
+      const raw = parsed as { task?: { name?: unknown }; metadata?: { title?: unknown } } | null;
+      const name = typeof raw?.task?.name === "string" ? raw.task.name : null;
+      const title = typeof raw?.metadata?.title === "string" ? raw.metadata.title : null;
+      out[i] = {
+        path: dir,
+        name,
+        slug: name ? (name.split("/").pop() ?? null) : null,
+        title,
+        valid: checked.ok,
+        error: checked.ok ? null : (checked.errors[0] ?? "task.json does not match the task schema"),
+      };
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, picked.length) }, worker));
+  return { candidates: out, capped };
 }

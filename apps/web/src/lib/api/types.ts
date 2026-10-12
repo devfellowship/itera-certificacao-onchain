@@ -113,6 +113,24 @@ export interface GithubBranch {
   shortSha?: string
   isDefault?: boolean
 }
+/** A folder of the repo that holds a task.json (U34, GET /github/repos/:o/:r/task-candidates). */
+export interface TaskCandidate {
+  /** "." for the repo root. */
+  path: string
+  name: string | null
+  slug: string | null
+  title: string | null
+  valid: boolean
+  /** First schema or parse error when not valid. */
+  error: string | null
+}
+export interface TaskCandidatesResponse {
+  repoFullName: string
+  commitSha: string
+  truncatedTree: boolean
+  capped: boolean
+  candidates: TaskCandidate[]
+}
 export interface GithubBranchesResponse {
   defaultBranch?: string
   branches: GithubBranch[]

@@ -18,6 +18,10 @@ const BOB = "11111111111111111111111111111111";
 const SHA1 = "1".repeat(40);
 const SHA2 = "2".repeat(40);
 const SHA_BROKEN = "3".repeat(40);
+// Multi-task repo (U34): tasks/a and tasks/b.
+const SHA_M1 = "4".repeat(40);
+const SHA_M2 = "5".repeat(40); // changes only tasks/b
+const SHA_M3 = "6".repeat(40); // changes tasks/a
 
 const contract = {
   schema_version: "1.0",
@@ -35,6 +39,20 @@ const contract = {
 };
 
 const blob = (path: string, sha: string, size = 10): TreeEntry => ({ path, type: "blob", mode: "100644", sha, size });
+
+const multiTree = (aSrc: string, bSrc: string): TreeEntry[] =>
+  ["a", "b"].flatMap((t) => {
+    const src = t === "a" ? aSrc : bSrc;
+    return [
+      blob(`tasks/${t}/task.json`, "task-json"),
+      blob(`tasks/${t}/instruction.md`, "x"),
+      blob(`tasks/${t}/environment/package.json`, "x"),
+      blob(`tasks/${t}/environment/src/money.ts`, src),
+      blob(`tasks/${t}/tests/public/money.test.ts`, "x"),
+      blob(`tasks/${t}/tests/hidden/money.test.ts`, "x"),
+      blob(`tasks/${t}/solution/solution.patch`, "x"),
+    ];
+  });
 
 /** In-memory GitHub: installation 7 on alice/tasks (public) and alice/sealed (private). */
 class FakeGitHub implements GitHubAppApi {
@@ -58,6 +76,9 @@ class FakeGitHub implements GitHubAppApi {
       ],
     ],
     [SHA2, []],
+    [SHA_M1, multiTree("a1", "b1")],
+    [SHA_M2, multiTree("a1", "b2")],
+    [SHA_M3, multiTree("a2", "b2")],
     [SHA_BROKEN, [blob("task.json", "task-json"), blob("instruction.md", "x"), blob("environment/package.json", "x")]],
   ]);
   async getInstallationAccount() {
@@ -75,7 +96,7 @@ class FakeGitHub implements GitHubAppApi {
   async resolveHead(_i: number, _r: string, ref?: string) {
     if (!ref || ref === "main") return SHA1;
     if (ref === "next") return SHA2;
-    const hit = [SHA1, SHA2, SHA_BROKEN].find((s) => s.startsWith(ref));
+    const hit = [SHA1, SHA2, SHA_BROKEN, SHA_M1, SHA_M2, SHA_M3].find((s) => s.startsWith(ref));
     if (hit) return hit;
     throw new GitHubApiError("no commit", 422);
   }
@@ -188,7 +209,8 @@ describe("My tasks API (U19)", () => {
     const { body } = await create();
     const id = body.task.id;
     const v2 = await call("POST", `/tasks/${id}/versions`, ALICE, { commitSha: SHA1.slice(0, 7) });
-    expect(v2.status).toBe(409); // same commit as version 1
+    expect(v2.status).toBe(200); // same commit as version 1 = same folder: the existing version comes back (U34)
+    expect(v2.body).toMatchObject({ unchanged: true, version: { version: 1 } });
     store.versions[0]!.runnable = true;
     const patched = await call("PATCH", `/tasks/${id}`, ALICE, { name: "Split evenly", tags: ["money-math"] });
     expect(patched.status).toBe(200);
@@ -206,7 +228,7 @@ describe("My tasks API (U19)", () => {
     const again = await call("POST", `/tasks/${id}/validate`, ALICE);
     expect(again.body).toMatchObject({ created: false, validationId: q.body.validationId });
     expect((await call("GET", `/tasks/${id}`, ALICE)).body.task.status).toBe("validating");
-    expect((await call("POST", `/tasks/${id}/versions`, ALICE, { branch: "main" })).status).toBe(409);
+    expect((await call("POST", `/tasks/${id}/versions`, ALICE, { branch: "main" })).status).toBe(409); // validating
 
     // The runner writes the result (simulated).
     const v = store.validations[0]!;
@@ -254,5 +276,29 @@ describe("My tasks API (U19)", () => {
     expect(normalizeTaskPath("/tasks/split/")).toBe("tasks/split");
     expect(() => normalizeTaskPath("../x")).toThrow();
     expect(labelsFor(true)).toEqual(["sealed-tests"]);
+  });
+
+  it("multi-task repo (U34): a commit that touches only another folder does not create a version", async () => {
+    const a = await call("POST", "/tasks", ALICE, { repoFullName: "alice/tasks", branch: "main", commitSha: SHA_M1, path: "tasks/a" });
+    const b = await call("POST", "/tasks", ALICE, { repoFullName: "alice/tasks", branch: "main", commitSha: SHA_M1, path: "tasks/b" });
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+
+    // SHA_M2 changed tasks/b only: task A stays at version 1 (200), task B gets version 2 (201).
+    const aSame = await call("POST", `/tasks/${a.body.task.id}/versions`, ALICE, { commitSha: SHA_M2 });
+    expect(aSame.status).toBe(200);
+    expect(aSame.body).toMatchObject({ unchanged: true, version: { version: 1, github: { commitSha: SHA_M1, path: "tasks/a" } } });
+    expect((await call("GET", `/tasks/${a.body.task.id}/versions`, ALICE)).body.versions).toHaveLength(1);
+    const bNew = await call("POST", `/tasks/${b.body.task.id}/versions`, ALICE, { commitSha: SHA_M2 });
+    expect(bNew.status).toBe(201);
+    expect(bNew.body).toMatchObject({ unchanged: false, version: { version: 2, github: { commitSha: SHA_M2 } } });
+
+    // SHA_M3 changed tasks/a: now A gets version 2 and B stays at version 2.
+    const aNew = await call("POST", `/tasks/${a.body.task.id}/versions`, ALICE, { commitSha: SHA_M3 });
+    expect(aNew.status).toBe(201);
+    expect(aNew.body.version).toMatchObject({ version: 2, github: { commitSha: SHA_M3 } });
+    const bSame = await call("POST", `/tasks/${b.body.task.id}/versions`, ALICE, { commitSha: SHA_M3 });
+    expect(bSame.status).toBe(200);
+    expect(bSame.body).toMatchObject({ unchanged: true, version: { version: 2 } });
   });
 });

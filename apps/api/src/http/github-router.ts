@@ -17,6 +17,7 @@ import {
 } from "../github/agent-files.js";
 import { GitHubApiError, GitHubAppClient, GitHubConfigError, githubAppConfigFromEnv, type GitHubAppApi } from "../github/app-client.js";
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAllowedModel } from "../github/models.js";
+import { findTaskCandidates } from "../github/task-layout.js";
 import { signInstallState, verifyInstallState } from "../github/state.js";
 import { requireWallet as defaultRequireWallet } from "./auth.js";
 
@@ -32,6 +33,7 @@ import { requireWallet as defaultRequireWallet } from "./auth.js";
  *   GET  /github/repos/:owner/:repo/branches           wallet — branches + head SHA (U8)
  *   GET  /github/repos/:owner/:repo/commits?branch=&limit=20  wallet — latest commits of a branch (U8)
  *   GET  /github/repos/:owner/:repo/agent-candidates?ref=     wallet — dirs with AGENTS.md / CLAUDE.md
+ *   GET  /github/repos/:owner/:repo/task-candidates?ref=      wallet — dirs with a task.json (U34, many tasks in one repo)
  *   POST /agents/validate {repoFullName, branch?, commit?, agentPath}  wallet — dry run of POST /agents (U8)
  *   POST /agents {repoFullName, agentPath, model, name, branch?, commit?, modelRelease?, description?, visibility?}
  *                                                      wallet — snapshot at the pinned commit (default: branch HEAD)
@@ -303,6 +305,27 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
       }
       const tree = await gh.listTree(installationId, repoFullName, commitSha);
       res.json({ repoFullName, commitSha, truncatedTree: tree.truncated, candidates: findAgentCandidates(tree.entries) });
+    }),
+  );
+
+  router.get(
+    "/github/repos/:owner/:repo/task-candidates",
+    requireWallet,
+    wrap(async (req, res) => {
+      const repoFullName = `${req.params.owner}/${req.params.repo}`;
+      const installationId = await installationFor(wallet(req), repoFullName);
+      const gh = github();
+      const ref = typeof req.query.ref === "string" && req.query.ref ? req.query.ref : undefined;
+      let commitSha: string;
+      if (ref === undefined) {
+        commitSha = await gh.resolveHead(installationId, repoFullName);
+      } else {
+        const asCommit = COMMIT_INPUT_RE.test(ref);
+        commitSha = (await resolveCommit(installationId, repoFullName, asCommit ? { commit: ref } : { branch: ref })).commitSha;
+      }
+      const tree = await gh.listTree(installationId, repoFullName, commitSha);
+      const { candidates, capped } = await findTaskCandidates(gh, installationId, repoFullName, tree.entries);
+      res.json({ repoFullName, commitSha, truncatedTree: tree.truncated, capped, candidates });
     }),
   );
 

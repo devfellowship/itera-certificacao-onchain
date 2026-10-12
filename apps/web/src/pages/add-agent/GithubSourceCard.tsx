@@ -159,7 +159,23 @@ function ValidationRow({ gh }: { gh: GithubSource }) {
   )
 }
 
-function Connected({ gh, pathLabel, path, onPath, footer, repoAside }: { gh: GithubPin; pathLabel: string; path: string; onPath: (p: string) => void; footer?: ReactNode; repoAside?: ReactNode }) {
+function Connected({
+  gh,
+  pathLabel,
+  path,
+  onPath,
+  footer,
+  repoAside,
+  pathOptions,
+}: {
+  gh: GithubPin
+  pathLabel: string
+  path: string
+  onPath: (p: string) => void
+  footer?: ReactNode
+  repoAside?: ReactNode
+  pathOptions?: SelectOption[]
+}) {
   const data = gh.source.data!
   const accounts = [...new Set(data.installations.map((i) => i.accountLogin).filter(Boolean))] as string[]
   const first = data.installations[0]
@@ -241,7 +257,21 @@ function Connected({ gh, pathLabel, path, onPath, footer, repoAside }: { gh: Git
       </div>
       <div className="ta-pair">
         <Field label={pathLabel} htmlFor="ta-path">
-          <Input id="ta-path" mono value={path} placeholder="." spellCheck={false} onChange={(e) => onPath(e.target.value)} />
+          {pathOptions && pathOptions.length > 0 ? (
+            <div className="ta-pathrow" data-testid="path-candidates">
+              <Select
+                id="ta-path-pick"
+                value={pathOptions.some((o) => o.value === path) ? path : null}
+                options={pathOptions}
+                onChange={onPath}
+                placeholder={`${pathOptions.length} ${pathOptions.length === 1 ? 'task' : 'tasks'} in repo`}
+                aria-label="Task folders found in the repository"
+              />
+              <Input id="ta-path" mono value={path} placeholder="." spellCheck={false} onChange={(e) => onPath(e.target.value)} />
+            </div>
+          ) : (
+            <Input id="ta-path" mono value={path} placeholder="." spellCheck={false} onChange={(e) => onPath(e.target.value)} />
+          )}
         </Field>
         <Field label="Pinned commit" htmlFor="ta-commit" error={gh.commits.status === 'error' ? 'Could not load commits. The branch head is used.' : undefined}>
           <Select
@@ -277,6 +307,7 @@ export function GithubPinCard({
   repoAside,
   installCopy = AGENT_INSTALL_COPY,
   testId = 'source-card',
+  pathOptions,
 }: {
   gh: GithubPin
   title: ReactNode
@@ -290,6 +321,8 @@ export function GithubPinCard({
   repoAside?: ReactNode
   installCopy?: InstallCopy
   testId?: string
+  /** Folders of the repo that hold a task (U34): a dropdown next to the path field that fills it. Hidden when empty. */
+  pathOptions?: SelectOption[]
 }) {
   const { source } = gh
   const loading = source.status === 'loading' && !source.data
@@ -314,7 +347,7 @@ export function GithubPinCard({
       )}
       {!loading && !failed &&
         (connected ? (
-          <Connected gh={gh} pathLabel={pathLabel} path={path} onPath={onPath} footer={footer} repoAside={repoAside} />
+          <Connected gh={gh} pathLabel={pathLabel} path={path} onPath={onPath} footer={footer} repoAside={repoAside} pathOptions={pathOptions} />
         ) : (
           <Disconnected gh={gh} copy={installCopy} />
         ))}

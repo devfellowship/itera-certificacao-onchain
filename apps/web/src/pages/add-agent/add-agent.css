@@ -325,3 +325,10 @@
 .ta-card .tma-badge {
   line-height: 1.55;
 }
+
+/* Task folder picker next to the path input (U34): shown only when the repo has task folders. */
+.ta-pathrow {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr);
+  gap: 8px;
+}
