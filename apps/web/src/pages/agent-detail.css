@@ -1,11 +1,11 @@
 /* Screen 08 Agent detail — local layout only; every color is a --tma-* token. */
 /*
  * The design page has no `box-sizing: border-box`: its bordered divs and pills are 1-2 px taller
- * than their declared height, and its nav is 57 px (56 + border). Fidelity is measured against
+ * than their declared height. Fidelity is measured against
  * the render, so the sizes below are the rendered ones (avatar 74, pills 30 / 24, rows 52 + 1).
  */
 .tad.tma-page {
-  padding-top: 41px;
+  padding-top: 40px;
   padding-bottom: 96px;
   gap: 32px;
 }
