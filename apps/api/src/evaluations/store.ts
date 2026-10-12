@@ -104,6 +104,8 @@ export interface EvaluationListRow extends EvaluationRecord {
   agentName: string;
   agentSlug: string | null;
   agentOwnerWallet: string | null;
+  /** profiles.display_name (or handle) of the agent's owner; null when the owner set none. */
+  agentAuthorName?: string | null;
 }
 
 export type EvalRunStatus = "pending" | "queued" | "running" | "pass" | "fail" | "invalid" | "timeout" | "infra_error" | "cancelled";

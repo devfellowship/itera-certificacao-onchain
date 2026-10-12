@@ -72,10 +72,12 @@ function toPayment(r: Row): PaymentRecord {
 
 const EVAL_SELECT = `
   select e.*, p.tx_sig as payment_tx_sig,
-         a.name as agent_name, a.slug as agent_slug, a.owner_wallet as agent_owner_wallet
+         a.name as agent_name, a.slug as agent_slug, a.owner_wallet as agent_owner_wallet,
+         coalesce(pr.display_name, pr.handle) as agent_author_name
     from public.evaluations e
     left join public.payments p on p.id = e.payment_id
-    left join public.agents a on a.id = e.agent_id`;
+    left join public.agents a on a.id = e.agent_id
+    left join public.profiles pr on pr.wallet = a.owner_wallet`;
 
 function toEvaluation(r: Row): EvaluationListRow {
   return {
@@ -114,6 +116,7 @@ function toEvaluation(r: Row): EvaluationListRow {
     agentName: r.agent_name ?? "agent",
     agentSlug: r.agent_slug ?? null,
     agentOwnerWallet: r.agent_owner_wallet ?? null,
+    agentAuthorName: r.agent_author_name ?? null,
   };
 }
 

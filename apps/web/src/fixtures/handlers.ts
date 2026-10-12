@@ -124,7 +124,7 @@ export const handlers = [
   http.post(u('/evaluations'), () => HttpResponse.json({ evaluationId: 'ev_queued', status: 'pending', runs: [] }, { status: 202 })),
   http.get(u('/evaluations'), ({ request }) => {
     const scope = new URL(request.url).searchParams.get('scope') ?? 'all'
-    const list = EVALUATIONS.filter((e) => scope === 'all' || (scope === 'mine-agents' ? e.agent.isMine : !e.agent.isMine))
+    const list = EVALUATIONS.filter((e) => scope === 'all' || (scope === 'my_agents' || scope === 'mine-agents' ? e.agent.isMine : !e.agent.isMine))
     return HttpResponse.json({ evaluations: list, totals: evaluationTotals(EVALUATIONS) })
   }),
   http.get(u('/evaluations/:id'), ({ params }) => {

@@ -233,16 +233,19 @@ export interface EvaluationListItem {
   id: string
   shortId: string
   slug: string | null
-  agent: { name: string; initials: string; authorName: string; isMine: boolean }
+  agent: { id?: string; slug?: string | null; name: string; initials: string; authorName: string; isMine: boolean }
   createdAt: string
   feeSol: string
+  feeLamports?: number
+  feeUsd?: number
   tasks: Array<{ id: string; name: string }>
   counts: OutcomeCounts
   score: number | null
   status: EvaluationStatus
   share: { kind: 'link' | 'private' | 'none'; url: string | null }
 }
-export type EvaluationScope = 'all' | 'mine-agents' | 'other-agents'
+/** The API names are all | my_agents | others; the hyphenated forms are accepted aliases. */
+export type EvaluationScope = 'all' | 'my_agents' | 'others' | 'mine-agents' | 'other-agents'
 export interface EvaluationsResponse {
   evaluations: EvaluationListItem[]
   totals: { spentLamports: number; spentSol: string; usd: number; counts: { all: number; mineAgents: number; otherAgents: number } }
