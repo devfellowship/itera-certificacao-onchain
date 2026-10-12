@@ -9,6 +9,8 @@ import { createEvaluationRequestsRouter } from "./http/evaluation-requests-route
 import { createEvaluationsRouter } from "./http/evaluations-router.js";
 import { createNftRouter } from "./http/nft-router.js";
 import { createGithubRouter, defaultGithubRouterDeps, type GithubRouterDeps } from "./http/github-router.js";
+import { createProofsRouter } from "./http/proofs-router.js";
+import type { ProofStore } from "./chain/proof-store.js";
 import { createTaskPacksRouter } from "./http/task-packs-router.js";
 import { createRunsRouter, type RunsRouterDeps } from "./http/runs-router.js";
 import type { Repository } from "./domain/repository.js";
@@ -49,6 +51,9 @@ const ROUTES = [
   "GET /agents",
   "GET /agents/:id",
   "POST /agents/:id/refresh",
+  "POST /runs/:id/start-signature",
+  "GET /proofs/:hash",
+  "GET /leaderboard?benchmark=&version=",
 ];
 
 /**
@@ -61,6 +66,8 @@ export interface AppOptions {
   runs?: Omit<RunsRouterDeps, "repo">;
   /** The GitHub App agent connector. Defaults to the Pg store + the GITHUB_APP_* env client. */
   github?: GithubRouterDeps;
+  /** Lane D proofs (start-signature, /proofs/:hash, /leaderboard). Mounted only when given. */
+  proofs?: ProofStore;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -113,6 +120,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createAgentEndpointManifestsRouter());
   app.use(createNftRouter());
   app.use(createGithubRouter(options.github ?? defaultGithubRouterDeps()));
+  if (options.proofs) app.use(createProofsRouter({ store: options.proofs }));
 
   return app;
 }

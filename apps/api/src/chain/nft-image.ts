@@ -43,7 +43,7 @@ export function nftSvg(input: NftImageInput): string {
   <text x="80" y="250" font-family="DejaVu Sans Mono" font-size="26" fill="#8a8378">BENCHMARK</text>
   <text x="80" y="300" font-family="DejaVu Sans" font-weight="bold" font-size="44" fill="#F4EDE2">${esc(clip(input.benchmark, 30))}</text>
   <text x="80" y="600" font-family="DejaVu Sans" font-weight="bold" font-size="260" fill="#3FD17F">${score}</text>
-  <text x="${90 + score.length * 166}" y="600" font-family="DejaVu Sans Mono" font-size="56" fill="#8a8378">/100</text>
+  <text x="${96 + score.length * 172}" y="600" font-family="DejaVu Sans Mono" font-size="56" fill="#8a8378">/100</text>
   <rect x="80" y="640" width="840" height="14" rx="7" fill="#2a2721"/>
   <rect x="80" y="640" width="${bar}" height="14" rx="7" fill="#3FD17F"/>
   <text x="80" y="730" font-family="DejaVu Sans Mono" font-size="24" fill="#8a8378">AGENT</text>
