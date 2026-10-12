@@ -11,6 +11,8 @@
  * Secrets come from the environment and are never printed or written to the report:
  *   E2E_WALLET_SECRET_B58   base58 ed25519 secret key (64 bytes) of the wallet that logs in and pays.
  *                           It must own a GitHub App installation that holds --repo, and hold ~0.01 SOL.
+ * --sample (U37): a FRESH wallet generated in memory (E2E_WALLET_SECRET_B58 is not needed), funded by
+ *          POST /faucet, that never touched the GitHub App: the agent comes from the sample repo.
  * Options: --no-pay stops before the payment (free steps only). --evaluation <id> re-verifies an
  *          evaluation that is already paid (no new payment): the quote and pay steps are skipped.
  * Output: <out>/api-e2e.json and <out>/api-e2e.md (default ./e2e-report).
@@ -47,6 +49,7 @@ const { values: argv } = parseArgs({
     "poll-timeout-min": { type: "string", default: "25" },
     out: { type: "string", default: "e2e-report" },
     "no-pay": { type: "boolean", default: false },
+    sample: { type: "boolean", default: false },
     evaluation: { type: "string", default: "" },
     help: { type: "boolean", default: false },
   },
@@ -66,8 +69,9 @@ const BASE_FEE_USD = Number(argv["base-fee-usd"]);
 const POLL_TIMEOUT_MS = Number(argv["poll-timeout-min"]) * 60_000;
 const OUT_DIR = argv.out!;
 
-const secretB58 = process.env.E2E_WALLET_SECRET_B58;
-if (!secretB58) {
+const SAMPLE = argv.sample === true;
+const secretB58 = SAMPLE ? "" : process.env.E2E_WALLET_SECRET_B58;
+if (!SAMPLE && !secretB58) {
   console.error("E2E_WALLET_SECRET_B58 is required (base58 secret key of the wallet that logs in and pays).");
   process.exit(2);
 }
@@ -94,7 +98,8 @@ function walletFromSecretBytes(secret: Uint8Array): Wallet {
   };
 }
 
-const wallet = walletFromSecretBytes(Uint8Array.from(getBase58Encoder().encode(secretB58)));
+// --sample: a fresh in-memory wallet; its secret is never printed or written.
+const wallet = SAMPLE ? walletFromSecretBytes(Keypair.generate().secretKey) : walletFromSecretBytes(Uint8Array.from(getBase58Encoder().encode(secretB58!)));
 /** A throwaway wallet that never holds funds: it proves one wallet cannot read another's data. */
 const stranger = walletFromSecretBytes(Keypair.generate().secretKey);
 
@@ -355,12 +360,40 @@ async function main(): Promise<void> {
     return `${r.json.models.length} models, default ${S.model}, estimate $${est.json.estimatedCostUsd} (${est.json.basis})`;
   });
 
-  // -- 5. GitHub routes (App installation owned by the wallet) ---------------------------------------
+  // -- 4b. Faucet (--sample): the fresh wallet gets test SOL ----------------------------------------
+  if (SAMPLE) {
+    await step("faucet", "POST /faucet funds the fresh wallet; a second call is refused", async (f) => {
+      const token = need(S.token, "a session");
+      const g = await http("POST", "/faucet", { token });
+      must(g.status === 200 && typeof g.json?.txSig === "string", `POST /faucet -> ${g.status} ${g.text.slice(0, 160)}`);
+      f.txSig = g.json.txSig;
+      f.lamports = g.json.lamports;
+      const deadline = Date.now() + 60_000;
+      let bal = 0;
+      while ((bal = await conn.getBalance(wallet.keypair.publicKey, "confirmed")) < g.json.lamports) {
+        must(Date.now() < deadline, `balance ${bal} after 60 s`);
+        await sleep(2_000);
+      }
+      const again = await http("POST", "/faucet", { token });
+      must(again.status === 409 || again.status === 429, `second POST /faucet -> ${again.status}`);
+      f.secondCall = again.status;
+      return `${g.json.sol} SOL, tx ${g.json.txSig.slice(0, 8)}…, second call ${again.status}`;
+    });
+  }
+
+  // -- 5. GitHub routes (App installation owned by the wallet; --sample: none, the sample repo) ------------
   const [owner, repoName] = REPO.split("/");
-  await step("github", `GET /github/installations and /github/repos include ${REPO}`, async (f) => {
+  await step("github", SAMPLE ? `no installation on this wallet; GET /github/sample-repos lists ${REPO}` : `GET /github/installations and /github/repos include ${REPO}`, async (f) => {
     const token = need(S.token, "a session");
     const i = await http("GET", "/github/installations", { token });
     must(i.status === 200, `/github/installations -> ${i.status}`);
+    if (SAMPLE) {
+      must(i.json.installations.length === 0, "the fresh wallet has an installation");
+      const sr = await http("GET", "/github/sample-repos");
+      must(sr.status === 200 && sr.json.agents.includes(REPO.toLowerCase()), `${REPO} is not a sample agent repo`);
+      f.installations = 0;
+      return "0 installations; sample repo listed";
+    }
     must(i.json.installations.some((x: any) => String(x.installationId) === argv["installation-id"]), `installation ${argv["installation-id"]} is not bound to this wallet`);
     const r = await http("GET", "/github/repos", { token });
     must(r.status === 200 && r.json.repos.some((x: any) => x.fullName === REPO || x.full_name === REPO), `${REPO} is not in /github/repos (${r.json?.repos?.map((x: any) => x.fullName ?? x.full_name).join(",")})`);
@@ -391,7 +424,7 @@ async function main(): Promise<void> {
     must(c.status === 200 && c.json.candidates.length > 0, `agent-candidates -> ${c.status}`);
     const agentPath = c.json.candidates[0].path ?? ".";
     f.agentPath = agentPath;
-    const v = await http("POST", "/agents/validate", { token, body: { repoFullName: REPO, agentPath, branch: defaultBranch, commit: headSha || undefined } });
+    const v = await http("POST", "/agents/validate", { token, body: { repoFullName: REPO, agentPath, branch: defaultBranch, commit: headSha || undefined, ...(SAMPLE ? { source: "sample" } : {}) } });
     must(v.status === 200 && v.json.ok === true && v.json.files.length > 0, `validate -> ${v.status} ${v.text.slice(0, 160)}`);
     must(v.json.commit === (headSha || v.json.commit) && typeof v.json.summary === "string", "validate lacks commit or summary");
     f.summary = v.json.summary;
@@ -404,11 +437,13 @@ async function main(): Promise<void> {
   await step("agent", "POST /agents (upsert on repo and path), GET /agents/:id, GET /agents", async (f) => {
     const token = need(S.token, "a session");
     const model = need(S.model, "a model");
-    const created = await http("POST", "/agents", { token, body: { repoFullName: REPO, agentPath: ".", branch: defaultBranch, model, visibility: "listed", name: "testmyagent-demo-agent", description: "Demo agent kept by the API e2e script." } });
+    const src = SAMPLE ? { source: "sample" } : {};
+    const created = await http("POST", "/agents", { token, body: { repoFullName: REPO, agentPath: ".", branch: defaultBranch, model, visibility: "listed", name: "testmyagent-demo-agent", description: "Demo agent kept by the API e2e script.", ...src } });
     must(created.status === 201 && UUID_RE.test(created.json?.agent?.id ?? ""), `POST /agents -> ${created.status} ${created.text.slice(0, 200)}`);
+    if (SAMPLE) must(created.json.agent.source === "sample" && created.json.agent.ownerWallet === wallet.address, "the sample agent is not source sample / owned by the fresh wallet");
     S.agent = created.json.agent;
     must(created.json.pinned?.commitSha, "no pinned commit");
-    const again = await http("POST", "/agents", { token, body: { repoFullName: REPO, agentPath: ".", branch: defaultBranch, model, visibility: "listed", name: "testmyagent-demo-agent" } });
+    const again = await http("POST", "/agents", { token, body: { repoFullName: REPO, agentPath: ".", branch: defaultBranch, model, visibility: "listed", name: "testmyagent-demo-agent", ...src } });
     must(again.status === 201 && again.json.agent.id === S.agent.id, "POST /agents is not idempotent on repo + path");
     const one = await http("GET", `/agents/${S.agent.id}`, { token });
     must(one.status === 200 && one.json.agent.id === S.agent.id, `GET /agents/:id -> ${one.status}`);
@@ -516,7 +551,8 @@ async function main(): Promise<void> {
     }
     if (!foreign) skip("no confirmed treasury transaction from another wallet to replay");
     const r = await http("POST", "/evaluations", { token: S.token, body: { reference: q.reference, txSig: foreign } });
-    must(r.status === 402, `foreign txSig -> ${r.status} ${r.text.slice(0, 160)}`);
+    // 402 (not this quote) or 409 (that tx already paid another quote): both refuse the replay.
+    must(r.status === 402 || r.status === 409, `foreign txSig -> ${r.status} ${r.text.slice(0, 160)}`);
   });
 
   // -- 8. Pay ---------------------------------------------------------------------------------------------------
