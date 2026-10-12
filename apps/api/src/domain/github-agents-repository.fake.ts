@@ -100,6 +100,7 @@ export class FakeGithubAgentsRepository implements GithubAgentsRepository {
       if (input[k] !== undefined) a[k] = input[k];
     }
     if (input.requires !== undefined) a.requires = [...input.requires];
+    if (input.source !== undefined) a.source = input.source;
     if (input.visibility === "listed" && !a.listedAt) a.listedAt = new Date().toISOString();
     if (a.status === undefined) a.status = "draft";
     if (!a.slug && input.slugBase) {

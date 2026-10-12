@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useSession, useSolBalance } from '../../auth/session'
 import { Avatar, Button, IconChevronDown, Lockup, middle } from '../ui'
+import { GetTestSol } from './GetTestSol'
 
 export type NavSection = 'agents' | 'evaluations' | 'tasks'
 
@@ -101,6 +102,8 @@ export function AccountMenu({ defaultOpen = false }: { defaultOpen?: boolean }) 
             <span className="tma-account__balance">
               {balance == null ? '—' : balance.toFixed(4)} <span className="tma-account__balance-unit">SOL · devnet</span>
             </span>
+            {/* U37: devnet faucet, so a fresh wallet can pay one evaluation. */}
+            <GetTestSol />
           </div>
           <div className="tma-account__section">
             <span className="tma-label">Wallet</span>

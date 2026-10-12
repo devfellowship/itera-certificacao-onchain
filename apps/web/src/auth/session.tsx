@@ -242,6 +242,13 @@ export function useSolBalance(): number | null {
   const { connection } = useConnection()
   const { wallet } = useSession()
   const [balance, setBalance] = useState<number | null>(FIXTURE_MODE ? FIXTURE_USER.balanceSol : null)
+  // U37: the faucet fires BALANCE_REFRESH_EVENT after a grant; every balance on screen reloads.
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const bump = () => setTick((n) => n + 1)
+    window.addEventListener(BALANCE_REFRESH_EVENT, bump)
+    return () => window.removeEventListener(BALANCE_REFRESH_EVENT, bump)
+  }, [])
   useEffect(() => {
     if (FIXTURE_MODE || !wallet) return
     let live = true
@@ -252,6 +259,12 @@ export function useSolBalance(): number | null {
     return () => {
       live = false
     }
-  }, [connection, wallet])
+  }, [connection, wallet, tick])
   return balance
+}
+
+/** U37: dispatch on window to make every useSolBalance() reload (after a faucet grant). */
+export const BALANCE_REFRESH_EVENT = 'tma:balance-refresh'
+export function refreshSolBalance() {
+  window.dispatchEvent(new Event(BALANCE_REFRESH_EVENT))
 }

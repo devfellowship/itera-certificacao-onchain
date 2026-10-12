@@ -25,6 +25,9 @@ import { startMcpCatalogSync } from "./domain/mcp-catalog.js";
 import { PgMcpCatalogStore } from "./domain/mcp-catalog-store.pg.js";
 import { avatarStorageFromEnv } from "./domain/avatar.js";
 import { PgAgentAvatarStore } from "./domain/agent-avatar-store.js";
+import { PgFaucetStore } from "./domain/faucet-store.pg.js";
+import { Web3FaucetChain } from "./chain/faucet-chain.js";
+import { faucetConfigFromEnv } from "./http/faucet-router.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const repo = new PgRepository(getPool());
@@ -84,6 +87,8 @@ createApp(repo, {
   // U36 (0015): profile pictures in the TestMyAgent Supabase Storage (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).
   avatarStorage: avatarStorageFromEnv(),
   agentAvatars: new PgAgentAvatarStore(getPool()),
+  // U37 (0016): devnet faucet from the hot signer.
+  faucet: { store: new PgFaucetStore(getPool), chain: new Web3FaucetChain(), config: faucetConfigFromEnv(), requireWallet },
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });

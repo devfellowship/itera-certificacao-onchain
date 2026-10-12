@@ -316,3 +316,39 @@ describe("My tasks API (U19)", () => {
     expect(bSame.body).toMatchObject({ unchanged: true, version: { version: 2 } });
   });
 });
+
+describe("sample task repos (U37)", () => {
+  let sServer: Server;
+  let sBase: string;
+  const sCall = async (method: string, path: string, wallet: string, body?: unknown) => {
+    const res = await fetch(`${sBase}${path}`, { method, headers: auth(wallet), body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: res.status, body: (await res.json()) as any };
+  };
+  beforeEach(async () => {
+    const installations = new FakeGithubAgentsRepository();
+    await installations.bindInstallation({ installationId: 7, ownerWallet: ALICE, accountLogin: "alice" });
+    sServer = createApp(new FakeRepository(), {
+      catalog,
+      myTasks: { store, catalog, github: () => new FakeGitHub(), installations, requireWallet, samples: { agents: [], tasks: ["alice/tasks"], installationId: 7 } },
+    }).listen(0);
+    await new Promise<void>((resolve) => sServer.once("listening", resolve));
+    sBase = `http://127.0.0.1:${(sServer.address() as AddressInfo).port}`;
+  });
+  afterEach(() => sServer.close());
+
+  it("a wallet with no installation creates a task from the sample repo; it owns the task, source sample", async () => {
+    const layout = await sCall("POST", "/tasks/layout", BOB, { repoFullName: "alice/tasks", branch: "main" });
+    expect(layout.body.pin.source).toBe("sample");
+    const { status, body } = await sCall("POST", "/tasks", BOB, { repoFullName: "alice/tasks", commitSha: SHA1, source: "sample" });
+    expect(status).toBe(201);
+    expect(body.task.source).toBe("sample");
+    expect(body.version.repoSource).toBe("sample");
+    expect(store.tasks[0]!.ownerWallet).toBe(BOB);
+  });
+
+  it("refuses a repo outside the allow-list on the sample path (403); the normal path stays 404 for a non-owner", async () => {
+    expect((await sCall("POST", "/tasks", BOB, { repoFullName: "alice/sealed", commitSha: SHA1, source: "sample" })).status).toBe(403);
+    expect((await sCall("POST", "/tasks", BOB, { repoFullName: "alice/sealed", commitSha: SHA1 })).status).toBe(404);
+    expect((await sCall("POST", "/tasks", ALICE, { repoFullName: "alice/sealed", commitSha: SHA1 })).body.task.source).toBe("github");
+  });
+});

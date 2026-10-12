@@ -3,7 +3,8 @@ import { api } from '../../lib/api'
 import type { GithubCommit } from '../../lib/api'
 import { Badge, Button, Card, Field, Input, Select, StatusChip, type SelectOption } from '../../tma/ui'
 import { describeError } from './errors'
-import type { GithubPin, GithubSource, Validation } from './useGithubSource'
+import { DEFAULT_SAMPLE_REPOS, type GithubPin, type GithubSource, type Validation } from './useGithubSource'
+import { useLoad } from './useLoad'
 
 const short = (sha: string) => sha.slice(0, 7)
 const fmtDate = (iso: string) => {
@@ -176,12 +177,12 @@ function Connected({
   repoAside?: ReactNode
   pathOptions?: SelectOption[]
 }) {
-  const data = gh.source.data!
+  const data = gh.sample ? { installations: [], repos: gh.repos } : gh.source.data!
   const accounts = [...new Set(data.installations.map((i) => i.accountLogin).filter(Boolean))] as string[]
   const first = data.installations[0]
   const n = data.repos.length
 
-  if (n === 0)
+  if (n === 0 && !gh.sample)
     return (
       <div className="ta-stack" data-testid="github-no-repos">
         <div className="ta-info">
@@ -230,15 +231,26 @@ function Connected({
   const commitLoading = gh.commits.status === 'loading' && !gh.commits.data
 
   return (
-    <div className="ta-stack" data-testid="github-connected">
-      <div className="ta-info">
-        <span>
-          App installed on <b>{accounts.join(', ') || 'your account'}</b> · {n} {n === 1 ? 'repo' : 'repos'} selected
-        </span>
-        <a href={`https://github.com/settings/installations/${first.installationId}`} target="_blank" rel="noreferrer">
-          Manage on GitHub ↗
-        </a>
-      </div>
+    <div className="ta-stack" data-testid={gh.sample ? 'github-sample' : 'github-connected'}>
+      {gh.sample ? (
+        <div className="ta-info">
+          <span>
+            Sample repo <b>{gh.repo?.fullName}</b> · no GitHub App install needed
+          </span>
+          <button type="button" className="ta-linkbtn" onClick={gh.leaveSample} data-testid="leave-sample">
+            Use my own repo
+          </button>
+        </div>
+      ) : (
+        <div className="ta-info">
+          <span>
+            App installed on <b>{accounts.join(', ') || 'your account'}</b> · {n} {n === 1 ? 'repo' : 'repos'} selected
+          </span>
+          <a href={`https://github.com/settings/installations/${first.installationId}`} target="_blank" rel="noreferrer">
+            Manage on GitHub ↗
+          </a>
+        </div>
+      )}
       <div className="ta-pair">
         <Field label="Repository" htmlFor="ta-repo">
           <Select id="ta-repo" value={gh.repo?.fullName ?? null} options={repoOptions} onChange={gh.setRepo} aria-label="Repository" />
@@ -325,14 +337,14 @@ export function GithubPinCard({
   pathOptions?: SelectOption[]
 }) {
   const { source } = gh
-  const loading = source.status === 'loading' && !source.data
-  const connected = (source.data?.installations.length ?? 0) > 0
-  const failed = source.status === 'error' && !source.data
+  const loading = source.status === 'loading' && !source.data && !gh.sample
+  const connected = gh.sample || (source.data?.installations.length ?? 0) > 0
+  const failed = source.status === 'error' && !source.data && !gh.sample
   return (
     <Card className="ta-card" data-testid={testId}>
       <div className="ta-card__top">
         <span className="tma-label">{title}</span>
-        {connected ? badge : <Badge tone="neutral">{loading ? 'Checking' : 'Not connected'}</Badge>}
+        {gh.sample ? <Badge tone="neutral" testId="sample-badge">Sample</Badge> : connected ? badge : <Badge tone="neutral">{loading ? 'Checking' : 'Not connected'}</Badge>}
       </div>
       {loading && <SkeletonRow />}
       {failed && (
@@ -352,6 +364,28 @@ export function GithubPinCard({
           <Disconnected gh={gh} copy={installCopy} />
         ))}
     </Card>
+  )
+}
+
+/**
+ * U37: "No repo handy?" notice under a GitHub source card. Picks a TestMyAgent sample repo, which any
+ * wallet can read without installing the App. Hidden while a sample repo is already picked.
+ */
+export function SampleRepoNotice({ gh, kind }: { gh: GithubPin; kind: 'agent' | 'task' }) {
+  const samples = useLoad(() => api.sampleRepos(), [])
+  if (gh.sample) return null
+  const list = samples.data?.[kind === 'agent' ? 'agents' : 'tasks'] ?? DEFAULT_SAMPLE_REPOS[kind === 'agent' ? 'agents' : 'tasks']
+  const repo = list[0]
+  if (!repo) return null
+  return (
+    <div className="ta-sample" data-testid="sample-repo-notice">
+      <span className="ta-sample__text">
+        No repo handy? Use our sample {kind} repo
+      </span>
+      <Button variant="secondary" size={30} onClick={() => gh.pickSampleRepo(repo)} data-testid="use-sample-repo">
+        Use sample repo
+      </Button>
+    </div>
   )
 }
 

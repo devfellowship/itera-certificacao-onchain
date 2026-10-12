@@ -147,6 +147,31 @@
 .ta-info a {
   white-space: nowrap;
 }
+/* U37: sample repo (any wallet, no install). */
+.ta-linkbtn {
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--tma-text);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.ta-sample {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--tma-radius-md);
+  border: 1px dashed var(--tma-line);
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.ta-sample__text {
+  min-width: 0;
+}
 .ta-verify {
   display: flex;
   align-items: center;

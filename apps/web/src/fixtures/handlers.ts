@@ -140,6 +140,14 @@ export const handlers = [
 
   // GitHub
   http.get(u('/github/install-url'), () => HttpResponse.json({ url: 'https://github.com/apps/testmyagent-watcher/installations/new', state: 'fixture' })),
+  // U37: sample repos (any wallet, no install) + devnet faucet.
+  http.get(u('/github/sample-repos'), () =>
+    HttpResponse.json({ agents: ['devfellowship/testmyagent-demo-agent'], tasks: ['devfellowship/testmyagent-demo-task'] }),
+  ),
+  http.get(u('/faucet'), () =>
+    HttpResponse.json({ cluster: 'devnet', amountLamports: 20_000_000, balanceLamports: Math.round(FIXTURE_USER.balanceSol * 1e9), eligible: false, nextAt: null }),
+  ),
+  http.post(u('/faucet'), () => HttpResponse.json({ error: 'this wallet already has 0.02 SOL or more', code: 'has_balance' }, { status: 409 })),
   http.get(u('/github/installations'), () => HttpResponse.json({ installations: [{ installationId: 1, accountLogin: 'settlewise-labs' }] })),
   http.get(u('/github/repos'), () => HttpResponse.json({ repos: [{ fullName: 'settlewise-labs/settlewise-agent', installationId: 1, accountLogin: 'settlewise-labs', private: true, defaultBranch: 'main' }] })),
   http.get(u('/github/callback'), () => HttpResponse.json({ installationId: 1, accountLogin: 'settlewise-labs', ownerWallet: FIXTURE_USER.wallet })),

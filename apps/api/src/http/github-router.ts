@@ -19,6 +19,7 @@ import { GitHubApiError, GitHubAppClient, GitHubConfigError, githubAppConfigFrom
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAllowedModel } from "../github/models.js";
 import { findTaskCandidates } from "../github/task-layout.js";
 import { signInstallState, verifyInstallState } from "../github/state.js";
+import { isSampleRepo, repoSourceOf, sampleInstallation, sampleReposFromEnv, SampleRepoError, type RepoSource, type SampleKind, type SampleRepos } from "../github/sample-repos.js";
 import { requireWallet as defaultRequireWallet } from "./auth.js";
 
 /**
@@ -26,6 +27,7 @@ import { requireWallet as defaultRequireWallet } from "./auth.js";
  * repos that hold agents; Itera reads AGENTS.md / CLAUDE.md / skills/** at a pinned commit SHA.
  *
  *   GET  /models                                       public — model allow-list
+ *   GET  /github/sample-repos                          public — U37: sample repos any wallet may use
  *   GET  /github/install-url                           wallet — install URL with signed state
  *   GET  /github/callback?installation_id&state&code   binds the installation to the wallet
  *   GET  /github/installations                         wallet
@@ -51,6 +53,8 @@ export interface GithubRouterDeps {
   stateSecret: () => string;
   /** U21 model access check (models.enabled in the DB). Absent → the static allow-list. */
   isModelAllowed?: (modelId: string) => Promise<boolean>;
+  /** U37: sample repos any wallet may read through the TestMyAgent installation. Absent → env defaults. */
+  samples?: SampleRepos;
 }
 
 export function defaultGithubRouterDeps(): GithubRouterDeps {
@@ -120,6 +124,8 @@ function wrap(fn: Handler): RequestHandler {
     } catch (e) {
       if (e instanceof HttpError) {
         res.status(e.status).json({ error: e.message, ...e.extra });
+      } else if (e instanceof SampleRepoError) {
+        res.status(e.status).json({ error: e.message });
       } else if (e instanceof SchemaNotReadyError) {
         res.status(503).json({ error: e.message });
       } else if (e instanceof GitHubConfigError) {
@@ -144,17 +150,46 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
   const router = Router();
   const { repo, github, requireWallet } = deps;
 
-  /** The installation that covers this repo must be bound to the caller's wallet. Answers 404
-   * otherwise, so a caller cannot probe which repos other wallets connected. */
-  async function installationFor(walletAddr: string, repoFullName: string): Promise<number> {
+  const samples = deps.samples ?? sampleReposFromEnv();
+
+  /**
+   * The installation to read `repoFullName` through.
+   *  - U37 sample repos: a repo on the sample allow-list (or `source: "sample"` asked explicitly) is
+   *    read through the TestMyAgent installation, whatever wallet calls. An explicit sample request
+   *    for a repo outside the allow-list is refused (403).
+   *  - Otherwise the installation that covers the repo must be bound to the caller's wallet. Answers
+   *    404 then, so a caller cannot probe which repos other wallets connected.
+   */
+  async function resolveInstallation(
+    walletAddr: string,
+    repoFullName: string,
+    opts: { kind?: SampleKind; sample?: boolean } = {},
+  ): Promise<{ installationId: number; source: RepoSource }> {
     if (!REPO_FULL_NAME_RE.test(repoFullName)) throw new HttpError(400, "repoFullName must look like owner/repo");
+    if (opts.sample || isSampleRepo(samples, repoFullName, opts.kind)) {
+      // Allow-list first: a refused repo never reaches GitHub.
+      if (!isSampleRepo(samples, repoFullName, opts.kind)) sampleInstallation(samples, repoFullName, opts.kind, null);
+      const covering = await github().getRepoInstallationId(repoFullName);
+      return { installationId: sampleInstallation(samples, repoFullName, opts.kind, covering), source: "sample" };
+    }
     const installationId = await github().getRepoInstallationId(repoFullName);
     const inst = installationId === null ? null : await repo.getInstallation(installationId);
     if (installationId === null || !inst || inst.ownerWallet !== walletAddr) {
       throw new HttpError(404, "repo not connected: install the TestMyAgent GitHub App on it from this wallet");
     }
-    return installationId;
+    return { installationId, source: "github" };
   }
+
+  async function installationFor(walletAddr: string, repoFullName: string, opts: { kind?: SampleKind; sample?: boolean } = {}): Promise<number> {
+    return (await resolveInstallation(walletAddr, repoFullName, opts)).installationId;
+  }
+
+  /** `source: "sample"` in a body or `?source=sample` in a query: the caller asks for the sample path. */
+  const wantsSample = (v: unknown) => v === "sample";
+  const withSource = <T extends { repoFullName: string }>(a: T & { source?: unknown }) => ({
+    ...a,
+    source: repoSourceOf(a.source, samples, a.repoFullName, "agent"),
+  });
 
   /**
    * The commit an agent is pinned to: `commit` when given (short SHAs are resolved and checked to
@@ -210,6 +245,10 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
 
   router.get("/models", (_req, res) => {
     res.json({ default: DEFAULT_AGENT_MODEL, models: AGENT_MODELS });
+  });
+
+  router.get("/github/sample-repos", (_req, res) => {
+    res.json({ agents: samples.agents, tasks: samples.tasks });
   });
 
   router.get(
@@ -293,7 +332,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     requireWallet,
     wrap(async (req, res) => {
       const repoFullName = `${req.params.owner}/${req.params.repo}`;
-      const installationId = await installationFor(wallet(req), repoFullName);
+      const installationId = await installationFor(wallet(req), repoFullName, { kind: "agent", sample: wantsSample(req.query.source) });
       const gh = github();
       const ref = typeof req.query.ref === "string" && req.query.ref ? req.query.ref : undefined;
       let commitSha: string;
@@ -313,7 +352,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     requireWallet,
     wrap(async (req, res) => {
       const repoFullName = `${req.params.owner}/${req.params.repo}`;
-      const installationId = await installationFor(wallet(req), repoFullName);
+      const installationId = await installationFor(wallet(req), repoFullName, { kind: "task", sample: wantsSample(req.query.source) });
       const gh = github();
       const ref = typeof req.query.ref === "string" && req.query.ref ? req.query.ref : undefined;
       let commitSha: string;
@@ -334,7 +373,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     requireWallet,
     wrap(async (req, res) => {
       const repoFullName = `${req.params.owner}/${req.params.repo}`;
-      const installationId = await installationFor(wallet(req), repoFullName);
+      const installationId = await installationFor(wallet(req), repoFullName, { sample: wantsSample(req.query.source) });
       const gh = github();
       const [meta, branches] = await Promise.all([gh.getRepo(installationId, repoFullName), gh.listBranches(installationId, repoFullName)]);
       // Default branch first, then by name: the select on 02 and on the task editor opens on it.
@@ -350,7 +389,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     requireWallet,
     wrap(async (req, res) => {
       const repoFullName = `${req.params.owner}/${req.params.repo}`;
-      const installationId = await installationFor(wallet(req), repoFullName);
+      const installationId = await installationFor(wallet(req), repoFullName, { sample: wantsSample(req.query.source) });
       const gh = github();
       const rawBranch = typeof req.query.branch === "string" && req.query.branch ? req.query.branch : undefined;
       if (rawBranch !== undefined && !isValidBranchName(rawBranch)) throw new HttpError(400, "branch is not a valid branch name");
@@ -375,7 +414,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     "/agents/validate",
     requireWallet,
     wrap(async (req, res) => {
-      const body = (req.body ?? {}) as { repoFullName?: unknown; agentPath?: unknown; branch?: unknown; commit?: unknown; commitSha?: unknown };
+      const body = (req.body ?? {}) as { repoFullName?: unknown; agentPath?: unknown; branch?: unknown; commit?: unknown; commitSha?: unknown; source?: unknown };
       if (typeof body.repoFullName !== "string") throw new HttpError(400, "repoFullName is required (owner/repo)");
       let agentPath: string;
       try {
@@ -383,12 +422,13 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
       } catch (e) {
         throw new HttpError(400, e instanceof AgentPathError ? e.message : "invalid agentPath");
       }
-      const installationId = await installationFor(wallet(req), body.repoFullName);
+      const { installationId, source } = await resolveInstallation(wallet(req), body.repoFullName, { kind: "agent", sample: wantsSample(body.source) });
       const { commitSha, branch } = await resolveCommit(installationId, body.repoFullName, { branch: body.branch, commit: body.commit ?? body.commitSha });
       const tree = await github().listTree(installationId, body.repoFullName, commitSha);
       const picked = selectAgentFiles(tree.entries, agentPath);
       const base = {
         repoFullName: body.repoFullName,
+        source,
         branch,
         agentPath,
         commit: commitSha,
@@ -435,6 +475,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
         description?: unknown;
         visibility?: unknown;
         requires?: unknown;
+        source?: unknown;
       };
       if (typeof body.repoFullName !== "string") throw new HttpError(400, "repoFullName is required (owner/repo)");
       const requires = body.requires === undefined || body.requires === null ? undefined : requiresOf(body.requires);
@@ -471,7 +512,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
         modelRelease = body.modelRelease;
       }
 
-      const installationId = await installationFor(walletAddr, body.repoFullName);
+      const { installationId, source } = await resolveInstallation(walletAddr, body.repoFullName, { kind: "agent", sample: wantsSample(body.source) });
       const pin = await resolveCommit(installationId, body.repoFullName, { branch: body.branch, commit: body.commit ?? body.commitSha });
       const snap = await snapshot(installationId, body.repoFullName, agentPath, pin.commitSha);
       const agent = await repo.upsertGithubAgent({ ownerWallet: walletAddr, name, installationId, repoFullName: body.repoFullName, agentPath, model });
@@ -484,10 +525,12 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
         ...(description !== undefined ? { description } : {}),
         ...(modelRelease !== undefined ? { modelRelease } : {}),
         ...(requires !== undefined ? { requires } : {}),
+        source,
         slugBase: slugify(name),
       });
+      const saved = await repo.getGithubAgent(agent.id);
       res.status(201).json({
-        agent: await repo.getGithubAgent(agent.id),
+        agent: saved && withSource(saved),
         version: { id: version.id, commitSha: version.commitSha, files: fileSummary(version.files), createdAt: version.createdAt },
         pinned: { branch: pin.branch, commitSha: snap.commitSha, shortSha: snap.commitSha.slice(0, 7) },
         summary: summarizeAgentFiles(version.files).summary,
@@ -501,7 +544,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     "/agents",
     requireWallet,
     wrap(async (req, res) => {
-      res.json({ agents: await repo.listGithubAgents(wallet(req)) });
+      res.json({ agents: (await repo.listGithubAgents(wallet(req))).map(withSource) });
     }),
   );
 
@@ -516,7 +559,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     "/agents/:id",
     requireWallet,
     wrap(async (req, res) => {
-      res.json({ agent: await ownAgent(req) });
+      res.json({ agent: withSource(await ownAgent(req)) });
     }),
   );
 
@@ -532,7 +575,8 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
       const requires = requiresOf(body.requires);
       const meta = await repo.updateAgentMeta(agent.id, { requires });
       if (meta.missing.includes("requires")) throw new HttpError(503, "requires is not stored until migration 0011_agent_requires is applied");
-      res.json({ agent: await repo.getGithubAgent(agent.id) });
+      const saved = await repo.getGithubAgent(agent.id);
+      res.json({ agent: saved && withSource(saved) });
     }),
   );
 
@@ -542,16 +586,17 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     wrap(async (req, res) => {
       const agent = await ownAgent(req);
       // Re-check the binding: the user may have uninstalled the App or moved the repo since.
-      const installationId = await installationFor(agent.ownerWallet, agent.repoFullName);
+      const installationId = await installationFor(agent.ownerWallet, agent.repoFullName, { kind: "agent", sample: agent.source === "sample" });
       // An agent registered on a branch refreshes to that branch's HEAD; older agents to the default branch.
       const pin = await resolveCommit(installationId, agent.repoFullName, { branch: agent.branch ?? undefined });
       const snap = await snapshot(installationId, agent.repoFullName, agent.agentPath, pin.commitSha);
       if (agent.pinnedCommit !== undefined) await repo.updateAgentMeta(agent.id, { pinnedCommit: snap.commitSha });
       const changed = agent.latestVersion?.commitSha !== snap.commitSha;
       const version = await repo.createAgentVersion({ agentId: agent.id, commitSha: snap.commitSha, files: snap.files, makeCurrent: true });
+      const saved = await repo.getGithubAgent(agent.id);
       res.json({
         changed,
-        agent: await repo.getGithubAgent(agent.id),
+        agent: saved && withSource(saved),
         version: { id: version.id, commitSha: version.commitSha, files: fileSummary(version.files), createdAt: version.createdAt },
       });
     }),
