@@ -9,6 +9,7 @@ import { requireWallet } from "./http/auth.js";
 import { startModelsSync, syncModels } from "./domain/models-sync.js";
 import { PgRepository } from "./domain/repository.pg.js";
 import { getPool } from "./domain/pool.js";
+import { PgRankingStore } from "./domain/agent-ranking-store.pg.js";
 import { PgRunsStore } from "./domain/runs-store.pg.js";
 import { evaluationsConfigFromEnv } from "./evaluations/config.js";
 import { runCostEstimator } from "./evaluations/estimate.js";
@@ -63,7 +64,7 @@ createApp(repo, {
     installations: new PgGithubAgentsRepository(getPool),
     requireWallet,
   },
-  catalogOptions: { syncModels: () => syncModels(catalog) },
+  catalogOptions: { syncModels: () => syncModels(catalog), ranking: new PgRankingStore(getPool) },
   evaluations: {
     store: evaluationsStore,
     config: evaluationsConfigFromEnv(),

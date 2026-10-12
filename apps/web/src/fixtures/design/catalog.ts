@@ -56,3 +56,17 @@ export const MODELS: Model[] = [
 export const PRICE = { usdPerRun: 0.1, solUsdRate: 108.98, priceSource: 'pyth' as const }
 export const lamportsFor = (runs: number) => Math.round(((runs * PRICE.usdPerRun) / PRICE.solUsdRate) * 1e9)
 export const solFor = (runs: number) => (lamportsFor(runs) / 1e9).toFixed(5)
+
+/** Authors of the catalog tasks on the Tasks page (designer reference, TG 21105). Mine = "you". */
+export const TASK_AUTHORS: Record<string, { name: string; dfl?: boolean }> = {
+  tsk_webhook_dup: { name: 'DevFellowship', dfl: true },
+  tsk_refund_race: { name: 'DevFellowship', dfl: true },
+  tsk_idem_keys: { name: 'Priya Raman' },
+  tsk_pg_index: { name: 'Ana Ferreira' },
+  tsk_gh_ci_fix: { name: 'DevFellowship', dfl: true },
+  tsk_gh_release: { name: 'Diego Santos' },
+  tsk_op_export: { name: 'Will' },
+  tsk_op_tokens: { name: 'Will' },
+  tsk_flaky_state: { name: 'Kenji Mori' },
+}
+export const DFL_ICON_URL = 'https://brand.devfellowship.com/downloads/dfl/dfl-icon-180.png'

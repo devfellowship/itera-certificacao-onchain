@@ -6,8 +6,6 @@
  * - modal: a centered dialog. The selection is a draft until "Apply" (`onApply`); "Cancel", the
  *   close button, Escape and a scrim click call `onClose`. Mount it only while it is open.
  * - inline: always visible. `selected` is controlled; every toggle calls `onChange`.
- * - mode "browse" (inline only, the All tab of /tasks): the public catalog as a list to read, not to
- *   pick. No checkboxes; a row opens the task's details page /tasks/:slug when it has one.
  *
  * Ids are catalog task ids. `onApply` and `onChange` also receive the selected Task objects.
  */
@@ -22,9 +20,9 @@ import { useTaskCatalog, type TaskCatalog } from './useTaskCatalog'
 
 export interface TaskFilterProps {
   variant?: 'modal' | 'inline'
-  mode?: 'rank' | 'run' | 'browse'
+  mode?: 'rank' | 'run'
   /** Selected task ids. */
-  selected?: string[]
+  selected: string[]
   /** Modal: the user pressed Apply. */
   onApply?: (ids: string[], tasks: Task[]) => void
   /** Inline: every toggle and Clear. */
@@ -43,7 +41,7 @@ const SOURCES: Array<{ id: Source; label: string }> = [
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-function metaOf(t: Task, mode: 'rank' | 'run' | 'browse'): string {
+function metaOf(t: Task, mode: 'rank' | 'run'): string {
   if (mode === 'run') {
     if (!t.runnable) return 'Not runnable'
     return `${t.hiddenTestsCount ?? '—'} tests · ~${t.estMinutes ?? '—'}m`
@@ -101,48 +99,14 @@ function TagList({ heading, tags, active, countOf, onToggle }: { heading: string
   )
 }
 
-/** Browse mode: one catalog task. A public task is a link to /tasks/:slug; any other is plain. */
-function BrowseRow({ task: t }: { task: Task }) {
-  const body = (
-    <>
-      <div className="tmf-row__main">
-        <span className="tmf-row__title">
-          <span className="tmf-row__name">{t.name}</span>
-          {t.mine && <span className="tmf-mine">Mine</span>}
-        </span>
-        <span className="tmf-row__desc">{t.description}</span>
-      </div>
-      <div className="tmf-row__tags">
-        {t.tags.map((g) => (
-          <span key={g.id} className="tmf-tag">
-            {g.name}
-          </span>
-        ))}
-      </div>
-      <span className="tmf-row__meta">{metaOf(t, 'browse')}</span>
-    </>
-  )
-  const href = publicTaskHref(t)
-  return href ? (
-    <Link to={href} className="tmf-row tmf-row--inline tmf-row--browse" data-testid="task-filter-row" data-task-id={t.id}>
-      {body}
-    </Link>
-  ) : (
-    <div className="tmf-row tmf-row--inline tmf-row--browse tmf-row--static" data-testid="task-filter-row" data-task-id={t.id}>
-      {body}
-    </div>
-  )
-}
-
-export function TaskFilter({ variant = 'modal', mode = 'rank', selected = [], onApply, onChange, onClose }: TaskFilterProps) {
+export function TaskFilter({ variant = 'modal', mode = 'rank', selected, onApply, onChange, onClose }: TaskFilterProps) {
   const state = useTaskCatalog()
   const catalog = state.status === 'ready' ? state.catalog : null
   const [q, setQ] = useState('')
   const [source, setSource] = useState<Source>('all')
   const [tag, setTag] = useState<string | null>(null)
   const [draft, setDraft] = useState<string[]>(selected)
-  const browse = mode === 'browse'
-  const inline = variant === 'inline' || browse
+  const inline = variant === 'inline'
   const ids = inline ? selected : draft
 
   useEffect(() => {
@@ -152,7 +116,7 @@ export function TaskFilter({ variant = 'modal', mode = 'rank', selected = [], on
     return () => document.removeEventListener('keydown', onKey)
   }, [inline, onClose])
 
-  const inSource = (t: Task) => (browse ? t.visibility === 'public' : source === 'all' || (source === 'mine' ? t.mine : !t.mine))
+  const inSource = (t: Task) => source === 'all' || (source === 'mine' ? t.mine : !t.mine)
   const visible = useMemo(() => {
     if (!catalog) return []
     const needle = q.trim().toLowerCase()
@@ -223,7 +187,6 @@ export function TaskFilter({ variant = 'modal', mode = 'rank', selected = [], on
       )}
       {catalog &&
         visible.map((t) => {
-          if (browse) return <BrowseRow key={t.id} task={t} />
           const on = ids.includes(t.id)
           const ok = selectable(t)
           return (
@@ -271,9 +234,9 @@ export function TaskFilter({ variant = 'modal', mode = 'rank', selected = [], on
 
   if (inline) {
     return (
-      <div className="tmf tmf-inline" data-testid={browse ? 'task-filter-browse' : 'task-filter-inline'}>
-        <div className={browse ? 'tmf-inline__bar tmf-inline__bar--browse' : 'tmf-inline__bar'}>
-          {!browse && <SourceControl source={source} onChange={setSource} catalog={catalog} layout="segmented" />}
+      <div className="tmf tmf-inline" data-testid="task-filter-inline">
+        <div className="tmf-inline__bar">
+          <SourceControl source={source} onChange={setSource} catalog={catalog} layout="segmented" />
           {search}
         </div>
         <div className="tmf-inline__body">
