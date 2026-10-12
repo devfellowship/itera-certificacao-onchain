@@ -897,7 +897,7 @@ textarea.tma-input {
 .tma-nav {
   position: relative;
   z-index: 20;
-  height: var(--tma-nav-height);
+  height: calc(var(--tma-nav-height) + 1px);
   padding: 0 32px;
   display: flex;
   align-items: center;
