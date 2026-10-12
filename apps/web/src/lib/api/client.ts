@@ -93,7 +93,7 @@ export const api = {
   agents: () => request<{ agents: T.Agent[] }>('/agents'),
   agent: (id: string) => request<{ agent: T.Agent }>(`/agents/${encodeURIComponent(id)}`),
   refreshAgent: (id: string) => request<{ changed: boolean; agent: T.Agent }>(`/agents/${encodeURIComponent(id)}/refresh`, { method: 'POST' }),
-  ranking: (query: T.RankingQuery = {}) => request<T.RankingResponse>('/agents/ranking', { query: { scope: query.scope, q: query.q, taskIds: query.taskIds } }),
+  ranking: (query: T.RankingQuery = {}) => request<T.RankingResponse>('/agents/ranking', { query: { scope: query.scope, q: query.q, taskIds: query.taskIds, tag: query.tag } }),
   agentProfile: (id: string) => request<unknown>(`/agents/${encodeURIComponent(id)}/profile`),
   agentMyResults: (id: string) => request<unknown>(`/agents/${encodeURIComponent(id)}/my-results`),
 
