@@ -13,6 +13,7 @@ const proofs = new PgProofStore(getPool());
 createApp(repo, {
   runs: {
     store: new PgRunsStore(getPool()),
+    runKeySecret: process.env.ITERA_RUN_KEY_SECRET,
     buildRunStartTx: runStartHook((id, version) => repo.getTaskPack(id, version)),
     proofIssuer: proofIssuerHook(proofs),
   },

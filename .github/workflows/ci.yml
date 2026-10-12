@@ -37,6 +37,7 @@ jobs:
       - run: docker build --tag itera-agent-credentials:ci .
       - run: docker build --file apps/api/Dockerfile --tag itera-agent-credentials-api:ci .
       - run: docker build --tag itera-runner-sandbox:ci services/runner/sandbox
+      - run: docker build --file services/runner/Dockerfile --tag itera-runner-worker:ci .
 
 # Deploys do not run here. The dedicated Dokploy (itera-agent-credentials-dokploy.devfellowship.com)
 # receives a GitHub repo webhook on push. Each Dokploy app rebuilds only when the push touches its

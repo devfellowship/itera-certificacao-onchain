@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCreateArgs, defaultSandboxConfig, keyFingerprint, normalizeModel } from './sandbox.js';
+import { buildCreateArgs, defaultSandboxConfig, buildGatewayArgs, normalizeModel } from './sandbox.js';
 
 describe('buildCreateArgs', () => {
   const config = defaultSandboxConfig({});
@@ -38,10 +38,12 @@ describe('normalizeModel', () => {
   });
 });
 
-describe('keyFingerprint', () => {
-  it('is short, stable and does not contain the key', () => {
-    expect(keyFingerprint('sk-or-v1-abc')).toMatch(/^[0-9a-f]{12}$/);
-    expect(keyFingerprint('sk-or-v1-abc')).toBe(keyFingerprint('sk-or-v1-abc'));
-    expect(keyFingerprint('sk-or-v1-abc')).not.toBe(keyFingerprint('sk-or-v1-abd'));
+describe('buildGatewayArgs', () => {
+  it('passes the BYOK key by name only and drops all capabilities', () => {
+    const args = buildGatewayArgs({ name: 'itera-gw-x', config: defaultSandboxConfig({}) });
+    expect(args[args.indexOf('ITERA_UPSTREAM_KEY') - 1]).toBe('-e');
+    expect(args.some((a) => a.startsWith('ITERA_UPSTREAM_KEY='))).toBe(false);
+    expect(args).toEqual(expect.arrayContaining(['--cap-drop', 'ALL', 'ITERA_UPSTREAM=https://openrouter.ai']));
+    expect(args.join(' ')).not.toMatch(/docker\.sock|-v |--volume|--mount/);
   });
 });

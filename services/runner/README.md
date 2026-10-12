@@ -29,24 +29,40 @@ npx tsx services/runner/src/run-once.ts \
 | Control | Enforced | How |
 |---|---|---|
 | No Docker socket, no host mounts | Yes | `docker create` has no `-v`/`--mount`; files go in and out with `docker cp`. |
-| No secret in the sandbox | Yes | The sandbox gets no environment secret. The model key lives only in the **model gateway** container, which adds the `Authorization` header to each upstream request. The sandbox config uses the placeholder key `sandbox-has-no-key`. |
+| No secret in the sandbox | Yes | The sandbox gets no environment secret. The model key lives only in the run's **model gateway** container (one per run), which adds the `Authorization` header to each upstream request. The sandbox config uses the placeholder key `sandbox-has-no-key`. |
 | No direct internet | Yes | Each run has its own `docker network create --internal` network: no gateway, no NAT. Measured: `https://example.com`, `https://1.1.1.1` and `https://openrouter.ai` all time out from the sandbox. |
 | Only the model API is reachable | Yes | The only other container on the run network is the gateway (`sandbox/model-gateway.mjs`). It forwards plain-HTTP requests under `/api/v1/` to `https://openrouter.ai` and answers `403` to every other path and to every `CONNECT` tunnel. |
-| Runs cannot reach each other | Yes | One network per run. The gateway joins it for the run and leaves after. |
+| Runs cannot reach each other | Yes | One network and one gateway per run, both removed after the run. |
 | Privileges and resources | Yes | `--cap-drop ALL`, `no-new-privileges`, non-root uid 10001, `--memory 2g` (no swap), `--cpus 2`, `--pids-limit 512`. |
 | Wall limit | Yes | 300 s (`ITERA_RUN_WALL_MS`), then `docker kill`. The partial tree is still diffed and graded. |
-| Which model the agent calls | **No** | The gateway forwards any `/api/v1/` call. The agent can call another OpenRouter model, or more tokens than needed, inside the 300 s. Limit the cost with a credit limit on the OpenRouter key. |
+| Which model the agent calls | **No** | The gateway forwards any `/api/v1/` call. The agent can call another OpenRouter model, or spend more tokens than needed, inside the 300 s. The key is the user's own (BYOK), so the cost is the user's; a credit limit on that key bounds it. |
 | What the agent sends to the model | **No** | The workspace content goes to the model provider. The workspace holds only the public fixture and the agent's own files. |
 | Reading the key's metadata | **No** | `GET /api/v1/key` answers with the key's label and usage, not the key value. |
 | Sandbox escape through a kernel or runtime bug | **No** | This is a plain `runc` container. gVisor or a VM would be stronger. |
+
+## Step 2: the worker (`src/worker.ts`)
+
+The worker runs the shared-contract job protocol:
+
+1. **Claim.** `UPDATE runs SET status='running', phase='preparing', claimed_at=now(), worker_id=$1 WHERE id = (SELECT id FROM runs WHERE status='queued' ORDER BY started_at FOR UPDATE SKIP LOCKED LIMIT 1)`. `ITERA_RUNNER_CONCURRENCY` slots (default 2).
+2. **Load.** `agent_versions.files` (lane C snapshot) and `agents.model`. Only `AGENTS.md`, `CLAUDE.md` and `skills/**` are written; other paths are skipped; the total is capped at 512 KB.
+3. **BYOK key.** The API seals the caller's OpenRouter key into `runs.model_api_key_enc` (AES-256-GCM, key = HKDF-SHA256 of `ITERA_RUN_KEY_SECRET`). The worker opens it only to start the run's gateway. The finish transaction sets the column to NULL, and so does the reaper. No key → `infra_error`, the agent does not start.
+4. **Phases.** `agent_running` → `grading` → `done`.
+5. **Finish (one transaction).** `status`, `evidence_manifest` (the evaluator manifest plus a `runner` block: model, tool-call count, tokens, cost, wall time), `score_total`, `completed_at`, an `observations` row (`mode='observed'`, `output_artifact_ref='patch.diff'`, the patch as content) and the `run_actions` rows.
+6. **Status.** wall limit → `timeout`; empty patch → `fail`; out-of-scope patch → `invalid`; evaluator errors → `infra_error`; else `pass` when the score is above 0, `fail` otherwise (same rules as the legacy `/evaluations` dispatch).
+7. **Recovery.** At boot the worker removes orphan sandbox/gateway containers and networks, and marks every `running` run as `infra_error` (one replica; set `ITERA_RUNNER_SINGLETON=false` to turn this off). Every minute it reaps runs claimed more than `ITERA_RUNNER_STALE_MS` (15 min) ago.
+
+The worker image (`services/runner/Dockerfile`, context = repo root) holds `benchmarks/`, `services/evaluator`, this package, git, GNU tar and the Docker CLI. It needs the host Docker socket. At boot it builds the sandbox image from `services/runner/sandbox/` with a content-hash tag, so a change there takes effect on the next deploy.
 
 ## Configuration (env)
 
 | Variable | Default | Use |
 |---|---|---|
-| `ITERA_RUNNER_OPENROUTER_KEY` / `OPENROUTER_API_KEY` | — | Model key. Only the gateway receives it. |
-| `ITERA_SANDBOX_IMAGE` | `itera-runner-sandbox:latest` | Image built from `sandbox/`. |
-| `ITERA_GATEWAY_CONTAINER` | `itera-runner-gateway` | Name of the long-lived gateway container. It is recreated when the key changes (label `itera.key-fp`, a 12-hex sha256 prefix). |
+| `DATABASE_URL` | — | Worker: same value as the API app. TLS with the pinned pooler CA (`apps/api/certs`). |
+| `ITERA_RUN_KEY_SECRET` | — | Worker and API: opens / seals the BYOK key. At least 32 characters. |
+| `ITERA_RUNNER_OPENROUTER_KEY` / `OPENROUTER_API_KEY` | — | `run-once.ts` only (local CLI). The worker uses the run's BYOK key. |
+| `ITERA_RUNNER_CONCURRENCY` / `ITERA_RUNNER_POLL_MS` / `ITERA_RUNNER_STALE_MS` | `2` / `3000` / `900000` | Worker loop. |
+| `ITERA_SANDBOX_IMAGE` | worker: built at boot; CLI: `itera-runner-sandbox:latest` | Image built from `sandbox/`. |
 | `ITERA_MODEL_UPSTREAM` | `https://openrouter.ai` | Gateway upstream. |
 | `ITERA_RUN_WALL_MS` | `300000` | Agent wall limit. |
 | `ITERA_SANDBOX_MEMORY` / `ITERA_SANDBOX_CPUS` / `ITERA_SANDBOX_PIDS` | `2g` / `2` / `512` | Sandbox limits. |

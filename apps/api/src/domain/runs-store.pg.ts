@@ -133,6 +133,7 @@ export class PgRunsStore implements RunsStore {
     taskPackVersion: string;
     nonce: string;
     dailyLimit: number;
+    modelApiKeyEnc: string;
   }): Promise<AsyncRun | null> {
     let client: PoolClient | null = null;
     try {
@@ -160,10 +161,10 @@ export class PgRunsStore implements RunsStore {
       );
       const inserted = await client.query<{ id: string }>(
         `insert into public.runs
-           (release_declaration_id, task_pack_id, task_pack_version, nonce, status, owner_wallet, agent_version_id)
-         values ($1, $2, $3, $4, 'queued', $5, $6)
+           (release_declaration_id, task_pack_id, task_pack_version, nonce, status, owner_wallet, agent_version_id, model_api_key_enc)
+         values ($1, $2, $3, $4, 'queued', $5, $6, $7)
          returning id`,
-        [release.rows[0]!.id, input.taskPackId, input.taskPackVersion, input.nonce, input.ownerWallet, input.agentVersion.id],
+        [release.rows[0]!.id, input.taskPackId, input.taskPackVersion, input.nonce, input.ownerWallet, input.agentVersion.id, input.modelApiKeyEnc],
       );
       await client.query("commit");
       return this.getRun(inserted.rows[0]!.id);

@@ -13,9 +13,10 @@ import {
   type ProofRecord,
   type RunsStore,
 } from "../domain/runs-store.js";
+import { encryptRunKey } from "../domain/run-key.js";
 import { requireWallet } from "./auth.js";
 
-/** Contract: "per-wallet limit 5 runs/day" (Itera pays for the model calls of the demo). */
+/** Contract: "per-wallet limit 5 runs/day". The caller pays the model tokens (BYOK, Tainan TG 20935). */
 export const RUNS_PER_WALLET_PER_DAY = Number(process.env.ITERA_RUNS_PER_WALLET_PER_DAY ?? 5);
 const LIST_LIMIT = 50;
 
@@ -26,10 +27,20 @@ export interface RunsRouterDeps {
   buildRunStartTx?: BuildRunStartTx;
   /** Lane D. Absent → publish answers 503. */
   proofIssuer?: ProofIssuer;
+  /**
+   * ITERA_RUN_KEY_SECRET. Seals the caller's model API key (BYOK, Tainan TG 20935: the user pays the
+   * model tokens). Absent → POST /runs answers 503.
+   */
+  runKeySecret?: string;
 }
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+/** A plausible API key: printable, no whitespace inside, bounded. The provider validates the rest. */
+export function isModelApiKey(value: unknown): value is string {
+  return typeof value === "string" && /^[\x21-\x7e]{20,512}$/.test(value.trim());
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -121,7 +132,7 @@ async function detailView(store: RunsStore, run: AsyncRun) {
           public: manifest.tests.public_after_patch,
           publicBaseline: manifest.tests.public_baseline,
           // Counts only. Hidden test names never leave the worker.
-          hidden: manifest.tests.hidden,
+          hidden: { total: manifest.tests.hidden.total, passed: manifest.tests.hidden.passed, failed: manifest.tests.hidden.failed },
         }
       : null,
     patchScope: manifest ? { changedFiles: manifest.patch_scope.changed_files, allowed: manifest.patch_scope.allowed } : null,
@@ -160,7 +171,7 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
     requireWallet,
     handle(async (req, res) => {
       const wallet = req.wallet!;
-      const body = (req.body ?? {}) as { agentId?: unknown; benchmarkId?: unknown; benchmarkVersion?: unknown };
+      const body = (req.body ?? {}) as { agentId?: unknown; benchmarkId?: unknown; benchmarkVersion?: unknown; modelApiKey?: unknown };
       if (!isNonEmptyString(body.agentId) || !UUID_RE.test(body.agentId)) {
         res.status(400).json({ error: "agentId (uuid) is required" });
         return;
@@ -169,6 +180,17 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
         res.status(400).json({ error: "benchmarkId and benchmarkVersion are required" });
         return;
       }
+      // BYOK: the run uses the caller's own OpenRouter key. It is stored sealed, used only by the
+      // worker's model gateway, wiped when the run ends, and never logged or returned.
+      if (!isModelApiKey(body.modelApiKey)) {
+        res.status(400).json({ error: "modelApiKey (your OpenRouter API key) is required" });
+        return;
+      }
+      if (!deps.runKeySecret) {
+        res.status(503).json({ error: "runs are not configured on this server (ITERA_RUN_KEY_SECRET)" });
+        return;
+      }
+      const modelApiKeyEnc = encryptRunKey(body.modelApiKey.trim(), deps.runKeySecret);
       const taskPack = await repo.getTaskPack(body.benchmarkId, body.benchmarkVersion);
       if (!taskPack) {
         res.status(404).json({ error: `unknown benchmark ${body.benchmarkId}/${body.benchmarkVersion}` });
@@ -196,6 +218,7 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
         taskPackVersion: taskPack.version,
         nonce: randomUUID(),
         dailyLimit: RUNS_PER_WALLET_PER_DAY,
+        modelApiKeyEnc,
       });
       if (!run) {
         res.status(429).json({ error: `daily limit reached: ${RUNS_PER_WALLET_PER_DAY} runs per wallet per 24h` });

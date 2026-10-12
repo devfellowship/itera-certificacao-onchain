@@ -1,0 +1,174 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import type { EvidenceManifest } from '../../evaluator/src/types.js';
+import type { AgentRunResult } from './agent-run.js';
+import { FakeJobStore } from './jobs.fake.js';
+import { CLAIM_SQL } from './jobs.pg.js';
+import { encryptRunKey } from './run-key.js';
+import { defaultSandboxConfig } from './sandbox.js';
+import { processRun, workerLoop, type WorkerDeps } from './worker.js';
+
+const PATCH = 'diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-a\n+b\n';
+
+function manifest(over: Partial<EvidenceManifest> = {}): EvidenceManifest {
+  const suite = { total: 1, passed: 1, failed: 0, cases: [] };
+  return {
+    schema_version: '0.1.0',
+    evaluator_version: '0.1.0',
+    scenario_id: 'webhook-ledger',
+    generated_at: '2026-10-12T00:00:00.000Z',
+    fixture_hash: 'f',
+    patch_hash: 'p',
+    patch_scope: { changed_files: ['src/app.ts'], allowed: true, violations: [] },
+    tests: { public_baseline: suite, public_after_patch: suite, hidden: suite },
+    score: { public_behavior: 20, hidden_behavior: 50, regression: 15, patch_integrity_and_scope: 10, reproducible_evidence: 5, total: 100 },
+    errors: [],
+    ...over,
+  };
+}
+
+function agentResult(over: Partial<AgentRunResult> = {}): AgentRunResult {
+  return {
+    scenarioId: 'webhook-ledger',
+    model: 'qwen/qwen3-coder',
+    agentFiles: ['AGENTS.md'],
+    timedOut: false,
+    exitCode: 0,
+    durationMs: 1000,
+    actions: [
+      { seq: 1, tool: 'read', target: 'src/app.ts', ok: true, occurredAt: '2026-10-12T00:00:01.000Z' },
+      { seq: 2, tool: 'edit', target: 'src/app.ts', ok: true, occurredAt: '2026-10-12T00:00:02.000Z' },
+    ],
+    usage: { steps: 2, inputTokens: 10, outputTokens: 5, costUsd: 0.001 },
+    agentErrors: [],
+    patch: PATCH,
+    ...over,
+  };
+}
+
+const SECRET = 's'.repeat(40);
+
+function setup(opts: { noKey?: boolean; agent?: Partial<AgentRunResult> | Error; manifest?: Partial<EvidenceManifest>; files?: Array<{ path: string; content: string }> } = {}) {
+  const store = new FakeJobStore();
+  const seen: { agentDir?: string; agentFiles?: string[]; key?: string } = {};
+  store.enqueue(
+    { runId: 'run-1', scenarioId: 'webhook-ledger', scenarioVersion: '1', agentVersionId: 'av-1' },
+    {
+      runId: 'run-1',
+      scenarioId: 'webhook-ledger',
+      scenarioVersion: '1',
+      agentVersionId: 'av-1',
+      model: 'qwen/qwen3-coder',
+      modelApiKeyEnc: opts.noKey ? null : encryptRunKey('sk-or-v1-user', SECRET),
+      files: opts.files ?? [{ path: 'AGENTS.md', content: '# agent' }, { path: '../escape.md', content: 'x' }],
+    },
+  );
+  const deps: WorkerDeps = {
+    store,
+    workerId: 'w1',
+    repoRoot: '/repo',
+    runKeySecret: SECRET,
+    config: defaultSandboxConfig({}),
+    runAgent: async (o) => {
+      seen.agentDir = o.agentDir;
+      seen.key = o.openrouterKey;
+      seen.agentFiles = [await readFile(join(o.agentDir, 'AGENTS.md'), 'utf-8')];
+      if (opts.agent instanceof Error) throw opts.agent;
+      return agentResult(opts.agent);
+    },
+    grade: async () => manifest(opts.manifest),
+  };
+  return { store, deps, seen };
+}
+
+describe('processRun', () => {
+  it('runs the agent, grades, and writes status, patch, manifest and actions through the phases', async () => {
+    const { store, deps, seen } = setup();
+    const claimed = (await store.claim('w1'))!;
+    const outcome = await processRun(deps, claimed);
+
+    expect(seen.agentFiles).toEqual(['# agent']);
+    expect(seen.key).toBe('sk-or-v1-user');
+    expect(store.runs.get('run-1')!.job!.modelApiKeyEnc).toBeNull();
+    expect(store.phases.map((p) => p.phase)).toEqual(['agent_running', 'grading']);
+    expect(outcome.status).toBe('pass');
+    expect(outcome.phase).toBe('done');
+    expect(outcome.scoreTotal).toBe(100);
+    expect(outcome.patch).toBe(PATCH);
+    expect(outcome.actions).toHaveLength(2);
+    expect((outcome.evidenceManifest as { runner: { tool_calls: number } }).runner.tool_calls).toBe(2);
+    expect(store.outcomes.get('run-1')).toEqual(outcome);
+    expect(store.runs.get('run-1')!.status).toBe('pass');
+  });
+
+  it('timeout: the agent hit the wall limit, the partial patch is still graded and stored', async () => {
+    const { store, deps } = setup({ agent: { timedOut: true, agentErrors: ['agent wall limit reached (300 s)'] } });
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('timeout');
+    expect(outcome.patch).toBe(PATCH);
+    expect(outcome.error).toContain('wall limit');
+  });
+
+  it('invalid: a patch outside src/ is rejected', async () => {
+    const { store, deps } = setup({ manifest: { patch_scope: { changed_files: ['tests/x.ts'], allowed: false, violations: ['tests/x.ts'] } } });
+    expect((await processRun(deps, (await store.claim('w1'))!)).status).toBe('invalid');
+  });
+
+  it('fail: the agent changed nothing', async () => {
+    const { store, deps } = setup({ agent: { patch: '' } });
+    expect((await processRun(deps, (await store.claim('w1'))!)).status).toBe('fail');
+  });
+
+  it('infra_error: the sandbox failed, with the error recorded and no patch', async () => {
+    const { store, deps } = setup({ agent: new Error('docker daemon down') });
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome).toMatchObject({ status: 'infra_error', phase: 'done', patch: null, actions: [] });
+    expect(outcome.error).toContain('docker daemon down');
+  });
+
+  it('infra_error: the agent version has no allowed file', async () => {
+    const { store, deps } = setup({ files: [{ path: 'secrets/.env', content: 'x' }] });
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('infra_error');
+    expect(outcome.error).toContain('no AGENTS.md');
+  });
+});
+
+describe('processRun BYOK', () => {
+  it('infra_error without running the agent when the run has no model key', async () => {
+    const { store, deps, seen } = setup({ noKey: true });
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('infra_error');
+    expect(outcome.error).toContain('BYOK');
+    expect(seen.key).toBeUndefined();
+  });
+  it('infra_error when the key was sealed with another secret', async () => {
+    const { store, deps, seen } = setup();
+    deps.runKeySecret = 'o'.repeat(40);
+    expect((await processRun(deps, (await store.claim('w1'))!)).status).toBe('infra_error');
+    expect(seen.key).toBeUndefined();
+  });
+});
+
+describe('workerLoop', () => {
+  it('claims every queued run and stops when aborted', async () => {
+    const { store, deps } = setup();
+    store.enqueue({ runId: 'run-2', scenarioId: 'webhook-ledger', scenarioVersion: '1', agentVersionId: null }, null);
+    const controller = new AbortController();
+    const loop = workerLoop(deps, { concurrency: 2, pollMs: 5, staleMs: 60_000, signal: controller.signal });
+    for (let i = 0; i < 100 && store.outcomes.size < 2; i++) await new Promise((r) => setTimeout(r, 5));
+    controller.abort();
+    await loop;
+    expect(store.runs.get('run-1')!.status).toBe('pass');
+    expect(store.runs.get('run-2')!.status).toBe('infra_error');
+  });
+});
+
+describe('CLAIM_SQL', () => {
+  it('is the contract claim: oldest queued run, FOR UPDATE SKIP LOCKED', () => {
+    const sql = CLAIM_SQL.replace(/\s+/g, ' ');
+    expect(sql).toContain("set status = 'running', phase = 'preparing', claimed_at = now(), worker_id = $1");
+    expect(sql).toContain("where status = 'queued' order by started_at for update skip locked limit 1");
+  });
+});

@@ -73,7 +73,7 @@ export async function prepareWorkspace(opts: {
     }
 
     if (opts.installDeps !== false) {
-      const install = await exec('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts'], { cwd: dir, timeoutMs: 180_000 });
+      const install = await exec('npm', ['ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'], { cwd: dir, timeoutMs: 180_000 });
       if (install.code !== 0) throw new Error(`npm ci failed: ${install.stderr.slice(0, 400)}`);
     }
 

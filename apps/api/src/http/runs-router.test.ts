@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.js";
+import { decryptRunKey } from "../domain/run-key.js";
 import { digestOf } from "../domain/digest.js";
 import type { EvidenceManifest } from "../domain/grader.js";
 import { FakeRepository } from "../domain/repository.fake.js";
@@ -33,6 +34,9 @@ const manifest: EvidenceManifest = {
   errors: ["hidden/idempotency.test.ts failed at /tmp/itera-run-abc/fixture/src/ledger.ts:12"],
 };
 
+const RUN_KEY_SECRET = "k".repeat(48);
+const USER_KEY = "sk-or-v1-0123456789abcdef0123456789abcdef";
+
 let server: Server;
 let baseUrl: string;
 let repo: FakeRepository;
@@ -45,7 +49,7 @@ function auth(wallet: string) {
 }
 
 async function start(withIssuer = true) {
-  server = createApp(repo, { runs: { store, ...(withIssuer ? { proofIssuer: issuer } : {}) } }).listen(0);
+  server = createApp(repo, { runs: { store, runKeySecret: RUN_KEY_SECRET, ...(withIssuer ? { proofIssuer: issuer } : {}) } }).listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -70,7 +74,7 @@ async function createRun(wallet = OWNER) {
   return fetch(`${baseUrl}/runs`, {
     method: "POST",
     headers: auth(wallet),
-    body: JSON.stringify({ agentId, benchmarkId: "webhook-ledger", benchmarkVersion: "1" }),
+    body: JSON.stringify({ agentId, benchmarkId: "webhook-ledger", benchmarkVersion: "1", modelApiKey: USER_KEY }),
   });
 }
 
@@ -100,12 +104,42 @@ describe("POST /runs", () => {
     expect(store.runs[0]).toMatchObject({ id: body.runId, ownerWallet: OWNER, status: "queued", agentVersionId: store.versions[0]!.id });
   });
 
+  it("BYOK: stores the caller's model key sealed, never returns it, and requires it", async () => {
+    const res = await createRun();
+    expect(res.status).toBe(202);
+    const text = await res.text();
+    expect(text).not.toContain(USER_KEY);
+    const { runId } = JSON.parse(text);
+    const sealed = store.modelKeys.get(runId)!;
+    expect(sealed.startsWith("v1.")).toBe(true);
+    expect(sealed).not.toContain(USER_KEY);
+    expect(decryptRunKey(sealed, RUN_KEY_SECRET)).toBe(USER_KEY);
+    const detail = await fetch(`${baseUrl}/runs/${runId}`, { headers: auth(OWNER) });
+    expect(await detail.text()).not.toContain(sealed);
+
+    const missing = await fetch(`${baseUrl}/runs`, {
+      method: "POST",
+      headers: auth(OWNER),
+      body: JSON.stringify({ agentId, benchmarkId: "webhook-ledger", benchmarkVersion: "1" }),
+    });
+    expect(missing.status).toBe(400);
+    expect((await missing.json()).error).toMatch(/modelApiKey/);
+  });
+
+  it("BYOK: 503 when the server has no ITERA_RUN_KEY_SECRET", async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    server = createApp(repo, { runs: { store } }).listen(0);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    expect((await createRun()).status).toBe(503);
+  });
+
   it("refuses an agent of another wallet, an unknown benchmark, and an agent without a version", async () => {
     expect((await createRun(OTHER)).status).toBe(403);
     const bad = await fetch(`${baseUrl}/runs`, {
       method: "POST",
       headers: auth(OWNER),
-      body: JSON.stringify({ agentId, benchmarkId: "nope", benchmarkVersion: "1" }),
+      body: JSON.stringify({ agentId, benchmarkId: "nope", benchmarkVersion: "1", modelApiKey: USER_KEY }),
     });
     expect(bad.status).toBe(404);
     store.versions = [];
