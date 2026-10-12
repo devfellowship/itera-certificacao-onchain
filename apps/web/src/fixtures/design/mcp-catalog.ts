@@ -11,7 +11,7 @@ export const MCP_CATALOG: McpCatalogServer[] = [
     "version": 1,
     "ref": "memory@1",
     "status": "published",
-    "image": "ghcr.io/devfellowship/itera-mcp-memory@sha256:9f2c1ab49f2c1ab49f2c1ab49f2c1ab49f2c1ab49f2c1ab49f2c1ab49f2c1ab4",
+    "image": "ghcr.io/devfellowship/testmyagent-mcp-memory@sha256:9f2c1ab49f2c1ab49f2c1ab49f2c1ab49f2c1ab49f2c1ab49f2c1ab49f2c1ab4",
     "transport": "stdio",
     "capabilities": [
       "memory",

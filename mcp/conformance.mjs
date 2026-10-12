@@ -2,7 +2,7 @@
 // Conformance test of one catalog image against the fixture-server contract
 // (docs/architecture/mcp-sandbox.md, registration step 2). Needs Docker. No npm dependency.
 //
-//   node mcp/conformance.mjs <name> <image>       e.g. node mcp/conformance.mjs helpdesk itera-mcp-helpdesk:ci
+//   node mcp/conformance.mjs <name> <image>       e.g. node mcp/conformance.mjs helpdesk testmyagent-mcp-helpdesk:ci
 //   node mcp/conformance.mjs <name> <image> --write-expected   (re)write fixtures/expected-export.json
 //
 // Checks: boots with the fixture seed on an --internal network only (no route out); 401 without the

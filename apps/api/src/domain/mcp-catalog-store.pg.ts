@@ -13,15 +13,16 @@ function rethrow(e: unknown): never {
 
 /**
  * Upsert: a new (name, version) is inserted; an `unpublished` row takes the new digest, tools and
- * manifest; a `published` row is immutable (only synced_at moves), and a digest that differs from
- * the published one is ignored, never written.
+ * manifest; a `published` row is immutable (only synced_at moves; its image name may change when the
+ * new repository serves the SAME digest), and a digest that differs from the published one is ignored.
  */
 const UPSERT_SQL = `
   insert into public.mcp_catalog
     (name, version, image, image_digest, status, transport, capabilities, tools_snapshot, manifest, commit_sha, synced_at)
   values ($1, $2, $3, $4, case when $4::text is null then 'unpublished' else 'published' end, $5, $6, $7, $8, $9, now())
   on conflict (name, version) do update set
-    image          = case when mcp_catalog.status = 'published' then mcp_catalog.image else excluded.image end,
+    -- A published row may move to a new repository name only with the SAME digest (same bytes).
+    image          = case when mcp_catalog.status <> 'published' or excluded.image_digest = mcp_catalog.image_digest then excluded.image else mcp_catalog.image end,
     image_digest   = case when mcp_catalog.status = 'published' then mcp_catalog.image_digest else excluded.image_digest end,
     status         = case when mcp_catalog.status in ('published', 'retired') then mcp_catalog.status else excluded.status end,
     transport      = case when mcp_catalog.status = 'published' then mcp_catalog.transport else excluded.transport end,

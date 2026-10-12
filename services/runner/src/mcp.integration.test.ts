@@ -1,6 +1,6 @@
 // U29 against real Docker: the MCP sidecar lifecycle, the mcp_state score and the validation-gate
 // `mcp` step on benchmarks/helpdesk-refunds, with the helpdesk image built from mcp/catalog.
-//   ITERA_DOCKER_TESTS=1 ITERA_MCP_HELPDESK_IMAGE=itera-mcp-helpdesk:ci npx vitest run src/mcp.integration.test.ts
+//   ITERA_DOCKER_TESTS=1 ITERA_MCP_HELPDESK_IMAGE=testmyagent-mcp-helpdesk:ci npx vitest run src/mcp.integration.test.ts
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -17,7 +17,7 @@ const lookup: McpCatalogLookup = async (name, version) => {
   const manifest = JSON.parse(await readFile(join(catalogDir, name, 'manifest.json'), 'utf-8'));
   if (manifest.version !== version) return null;
   const tools = JSON.parse(await readFile(join(catalogDir, name, 'tools.json'), 'utf-8'));
-  return { name, version, image: `ghcr.io/devfellowship/itera-mcp-${name}`, imageDigest: `sha256:${'0'.repeat(64)}`, manifest, tools, localImage: process.env.ITERA_MCP_HELPDESK_IMAGE };
+  return { name, version, image: `ghcr.io/devfellowship/testmyagent-mcp-${name}`, imageDigest: `sha256:${'0'.repeat(64)}`, manifest, tools, localImage: process.env.ITERA_MCP_HELPDESK_IMAGE };
 };
 
 async function withNetwork<T>(fn: (net: string, key: string, cleanup: Array<() => Promise<unknown>>) => Promise<T>): Promise<T> {

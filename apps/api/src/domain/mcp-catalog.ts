@@ -5,7 +5,7 @@
  * tools.json). The API image ships those two JSON files of every server. On boot and every 15 min
  * the API:
  *   1. reads every manifest + tools snapshot at the deployed commit;
- *   2. resolves ghcr.io/devfellowship/itera-mcp-<name>:<version> to its digest (anonymous pull token:
+ *   2. resolves ghcr.io/devfellowship/testmyagent-mcp-<name>:<version> to its digest (anonymous pull token:
  *      the packages are public, the repository is public);
  *   3. upserts one `mcp_catalog` row per (name, version) — 0013_mcp_catalog.sql.
  * A row that is already `published` never changes its digest, tools or manifest (a published version
@@ -16,7 +16,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const MCP_CATALOG_SYNC_INTERVAL_MS = 15 * 60 * 1000;
-export const MCP_IMAGE_REPO = "ghcr.io/devfellowship/itera-mcp-";
+export const MCP_IMAGE_REPO = "ghcr.io/devfellowship/testmyagent-mcp-";
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 

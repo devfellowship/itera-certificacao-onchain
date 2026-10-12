@@ -120,7 +120,7 @@ Steps:
 
 1. **PR** adds `mcp/catalog/<name>/`. A code owner reviews the tools, the seed schema and the license.
 2. **CI job `mcp-catalog`** (new, in `.github/workflows/ci.yml`, GitHub-hosted because the repo is public) builds every changed image and runs the conformance test against it: boot with a fixture seed, `401` without a token, `tools/list` equals `tools.json`, a disallowed tool is refused, the export equals the expected export, two runs give the same export, the container works on `--network none` plus the run network only.
-3. **On merge to `main`**, the same job pushes `ghcr.io/devfellowship/itera-mcp-<name>:<version>` and records the **digest**. It refuses to push a version tag that already exists, so a version never changes after it is published.
+3. **On merge to `main`**, the same job pushes `ghcr.io/devfellowship/testmyagent-mcp-<name>:<version>` and records the **digest**. It refuses to push a version tag that already exists, so a version never changes after it is published.
 4. **The API syncs** (on deploy and on a timer): it reads `mcp/catalog/*/manifest.json` and `tools.json` at the deployed commit, resolves each `<name>:<version>` to its digest in GHCR, and upserts one row per version in the table `mcp_catalog` (`name`, `version`, `image_digest`, `tools_snapshot`, `manifest`, `commit`, `status`). New migration, number taken at implementation time (the next free one after `0009_user_tasks`). Grants to `itera_api_service` in the same file, RLS on, no policies, no DB function.
 5. **A task pins** `<name>@<version>`. The task version stores the resolved digest and the `tools_snapshot`. The public task page (U30) shows that snapshot. A later catalog version does not change an existing task version.
 
