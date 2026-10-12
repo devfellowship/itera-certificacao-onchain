@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create the ITERA GitHub App</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 640px; margin: 48px auto; padding: 0 16px; background: #0b0d12; color: #e8eaf0; }
+  button { font: inherit; padding: 12px 20px; border-radius: 8px; border: 0; background: #7c5cff; color: #fff; cursor: pointer; }
+  pre { background: #151924; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  code { background: #151924; padding: 1px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Create the ITERA GitHub App</h1>
+<p>This page sends the App manifest below to GitHub. GitHub then shows a confirmation page for the
+<code>devfellowship</code> organization. Click <b>Create GitHub App</b> there.</p>
+<p>GitHub then redirects to <code>.../connect/github/app-created?code=...</code>. That page can show a 404:
+<b>copy the full address from the address bar</b> and send it to claude-main. The code expires in 1 hour.</p>
+<p>Permissions: <b>Contents: read</b> and <b>Metadata: read</b> only. No webhook. Public (any account can install).</p>
+<form id="f" method="post" action="https://github.com/organizations/devfellowship/settings/apps/new?state=itera-manifest">
+  <input type="hidden" name="manifest" id="manifest">
+  <button type="submit">Create the App on GitHub</button>
+</form>
+<h2>Manifest</h2>
+<pre id="m"></pre>
+<script>
+  const manifest = {"name": "ITERA Agent Proof", "url": "https://itera-agent-credentials.devfellowship.com", "description": "Read-only access to the repos that hold your coding agent (AGENTS.md, CLAUDE.md, skills/). ITERA runs the agent on a benchmark and issues an on-chain proof of the result.", "redirect_url": "https://itera-agent-credentials.devfellowship.com/connect/github/app-created", "callback_urls": ["https://itera-agent-credentials.devfellowship.com/connect/github/callback"], "setup_url": "https://itera-agent-credentials.devfellowship.com/connect/github/callback", "setup_on_update": true, "request_oauth_on_install": true, "public": true, "default_permissions": {"contents": "read", "metadata": "read"}, "default_events": []};
+  document.getElementById("manifest").value = JSON.stringify(manifest);
+  document.getElementById("m").textContent = JSON.stringify(manifest, null, 2);
+</script>
+</body>
+</html>

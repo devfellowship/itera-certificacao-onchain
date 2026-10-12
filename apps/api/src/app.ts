@@ -8,6 +8,7 @@ import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
 import { createEvaluationsRouter } from "./http/evaluations-router.js";
 import { createNftRouter } from "./http/nft-router.js";
+import { createGithubRouter, defaultGithubRouterDeps, type GithubRouterDeps } from "./http/github-router.js";
 import { createTaskPacksRouter } from "./http/task-packs-router.js";
 import { createRunsRouter, type RunsRouterDeps } from "./http/runs-router.js";
 import type { Repository } from "./domain/repository.js";
@@ -38,6 +39,16 @@ const ROUTES = [
   "POST /agent-endpoint-manifests",
   "GET /nft/:mint.json",
   "GET /nft/:mint.png",
+  "GET /models",
+  "GET /github/install-url",
+  "GET /github/callback",
+  "GET /github/installations",
+  "GET /github/repos",
+  "GET /github/repos/:owner/:repo/agent-candidates",
+  "POST /agents",
+  "GET /agents",
+  "GET /agents/:id",
+  "POST /agents/:id/refresh",
 ];
 
 /**
@@ -48,6 +59,8 @@ const ROUTES = [
 export interface AppOptions {
   /** The async wallet-owned runs flow. Mounted only when a RunsStore is given. */
   runs?: Omit<RunsRouterDeps, "repo">;
+  /** The GitHub App agent connector. Defaults to the Pg store + the GITHUB_APP_* env client. */
+  github?: GithubRouterDeps;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -99,6 +112,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createTaskPacksRouter(repo));
   app.use(createAgentEndpointManifestsRouter());
   app.use(createNftRouter());
+  app.use(createGithubRouter(options.github ?? defaultGithubRouterDeps()));
 
   return app;
 }
