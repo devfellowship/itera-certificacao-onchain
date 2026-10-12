@@ -5,7 +5,7 @@ import { type MyTasksStore, type TaskValidation, type UserTask, type UserTaskVer
 import type { GithubAgentsRepository } from "../domain/github-agents-repository.js";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { GitHubApiError, GitHubConfigError, type GitHubAppApi } from "../github/app-client.js";
-import { labelsFor, normalizeTaskPath, readTaskLayout, TaskPathError, type TaskLayout } from "../github/task-layout.js";
+import { folderDigest, labelsFor, normalizeTaskPath, readTaskLayout, TaskPathError, type TaskLayout } from "../github/task-layout.js";
 import { isRankedTask, unrankedReason } from "../domain/reputation.js";
 import { isValidBranchName } from "./github-router.js";
 import { optionalWallet } from "./auth.js";
@@ -24,7 +24,10 @@ import { optionalWallet } from "./auth.js";
  *   PATCH  /tasks/:id {name?, description?, tags?, estMinutes?}             owner — metadata only, versions never change
  *   DELETE /tasks/:id                                                      owner — soft delete
  *   GET    /tasks/:id/versions                                             owner
- *   POST   /tasks/:id/versions {repoFullName?, branch?, commitSha?, path?}  owner — a new pinned commit = a new version
+ *   POST   /tasks/:id/versions {repoFullName?, branch?, commitSha?, path?}  owner — a new pinned commit = a new version, only when
+ *                                                                            the task FOLDER changed (U34): the content digest of the folder
+ *                                                                            is compared with the latest version; same digest → 200 with that
+ *                                                                            version and `unchanged: true`, 201 for a new version
  *   POST   /tasks/:id/versions/:v/validate                                 owner — queue the gate (202)
  *   POST   /tasks/:id/validate                                             owner — same, latest version
  *   GET    /tasks/:id/versions/:v/validation                               owner — latest gate of that version
@@ -413,9 +416,27 @@ export function createMyTasksRouter(deps: MyTasksRouterDeps): Router {
       };
       const p = await pin(walletAddr, merged);
       if (!p.layout.ok) throw new HttpError(422, p.layout.error, { pin: pinJson(p), layout: layoutJson(p.layout) });
-      const same = versions.find((v) => v.repoFullName === p.repoFullName && v.commitSha === p.commitSha && v.repoPath === p.path);
-      if (same) {
-        throw new HttpError(409, `version ${same.version} already pins ${p.repoFullName}@${shortSha(p.commitSha)}`, { version: versionJson(same) });
+      // Multi-task repos (U34): a commit that touched another folder is not a new version of this task.
+      // Same pin → same folder; otherwise compare the content digest of the folder at both commits.
+      const prior = latest && latest.repoFullName === p.repoFullName && latest.repoPath === p.path ? latest : null;
+      if (prior) {
+        let unchanged = prior.commitSha === p.commitSha;
+        if (!unchanged) {
+          const gh = github();
+          const [now, before] = await Promise.all([
+            gh.listTree(p.installationId, p.repoFullName, p.commitSha),
+            gh.listTree(p.installationId, p.repoFullName, prior.commitSha),
+          ]);
+          unchanged = !now.truncated && !before.truncated && folderDigest(now.entries, p.path) === folderDigest(before.entries, p.path);
+        }
+        if (unchanged) {
+          res.status(200).json({ version: versionJson(prior), unchanged: true, layout: layoutJson(p.layout) });
+          return;
+        }
+      }
+      const sameCommit = versions.find((v) => v.repoFullName === p.repoFullName && v.commitSha === p.commitSha && v.repoPath === p.path);
+      if (sameCommit) {
+        throw new HttpError(409, `version ${sameCommit.version} already pins ${p.repoFullName}@${shortSha(p.commitSha)}`, { version: versionJson(sameCommit) });
       }
       const version = await store.addVersion(task.id, {
         installationId: p.installationId,
@@ -428,7 +449,7 @@ export function createMyTasksRouter(deps: MyTasksRouterDeps): Router {
         contract: p.layout.contract,
         createdBy: walletAddr,
       });
-      res.status(201).json({ version: versionJson(version), layout: layoutJson(p.layout) });
+      res.status(201).json({ version: versionJson(version), unchanged: false, layout: layoutJson(p.layout) });
     }),
   );
 

@@ -241,7 +241,8 @@ export function fixtureAddVersion(id: string, input: Partial<TaskSourceInput>) {
   if ('status' in r) return r
   if (!r.layout.ok || !r.contract) return { error: r.layout.error ?? 'layout check failed', status: 422 }
   const same = t.detail.versions.find((v) => v.github.commitSha === r.pin.commitSha && v.github.path === r.pin.path)
-  if (same) return { error: `version ${same.version} already pins ${r.pin.repoFullName}@${r.pin.shortSha}`, status: 409 }
+  // U34: same pin = same folder → the existing version comes back (HTTP 200, unchanged).
+  if (same) return { version: same, layout: r.layout, unchanged: true }
   const v = version(latest.version + 1, r.pin.path, r.pin.commitSha, r.contract, false, 0, new Date().toISOString())
   t.detail.versions.unshift(v)
   t.detail.latestVersion = v

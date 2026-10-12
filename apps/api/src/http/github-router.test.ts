@@ -20,6 +20,20 @@ const ALICE = "So11111111111111111111111111111111111111112";
 const BOB = "11111111111111111111111111111111";
 const SHA1 = "a".repeat(40);
 const SHA2 = "b".repeat(40);
+const SHA3 = "9".repeat(40);
+const VALID_TASK = {
+  schema_version: "1.0",
+  task: { name: "devfellowship/split-evenly", version: "1", description: "Money split." },
+  instruction: "instruction.md",
+  environment: { dir: "environment" },
+  tests: { public: "tests/public", hidden: "tests/hidden" },
+  solution: { patch: "solution/solution.patch" },
+  editable_paths: ["src/**"],
+  protected_paths: ["tests/**", "package.json"],
+  verifier: { cmd: ["npx", "vitest", "run", "{tests}", "--reporter=json", "--outputFile={report}"], timeout_sec: 60 },
+  agent: { timeout_sec: 300 },
+  est_minutes: 2,
+};
 
 /** In-memory GitHub: one installation (42) of the App on alice-org/agents. */
 class FakeGitHub implements GitHubAppApi {
@@ -34,6 +48,9 @@ class FakeGitHub implements GitHubAppApi {
     ["blob-skill", Buffer.from("skill body")],
     ["blob-readme", Buffer.from("not an agent file")],
     ["blob-sub-agents", Buffer.from("# sub agent")],
+    ["task-ok", Buffer.from(JSON.stringify(VALID_TASK))],
+    ["task-bad", Buffer.from(JSON.stringify({ schema_version: "1.0", task: { name: "x/bad", version: "1" } }))],
+    ["task-garbage", Buffer.from("{nope")],
   ]);
   trees = new Map<string, TreeEntry[]>([
     [
@@ -49,6 +66,17 @@ class FakeGitHub implements GitHubAppApi {
       ],
     ],
     [SHA2, [{ path: "AGENTS.md", type: "blob", mode: "100644", sha: "blob-sub-agents", size: 11 }]],
+    [
+      SHA3,
+      [
+        { path: "tasks/split-evenly/task.json", type: "blob", mode: "100644", sha: "task-ok", size: 300 },
+        { path: "tasks/split-evenly/environment/task.json", type: "blob", mode: "100644", sha: "task-ok", size: 300 },
+        { path: "tasks/zz-bad/task.json", type: "blob", mode: "100644", sha: "task-bad", size: 80 },
+        { path: "tasks/zz-garbage/task.json", type: "blob", mode: "100644", sha: "task-garbage", size: 5 },
+        { path: "tasks/other/readme.md", type: "blob", mode: "100644", sha: "blob-readme", size: 17 },
+        { path: "node_modules/pkg/task.json", type: "blob", mode: "100644", sha: "task-ok", size: 300 },
+      ],
+    ],
   ]);
 
   async getInstallationAccount(id: number) {
@@ -67,7 +95,8 @@ class FakeGitHub implements GitHubAppApi {
   async resolveHead(_i: number, _r: string, ref?: string) {
     if (!ref || ref === "main") return this.head;
     if (ref === "dev") return SHA2;
-    const hit = [SHA1, SHA2].find((sha) => /^[0-9a-f]{7,40}$/.test(ref) && sha.startsWith(ref));
+    if (ref === "tasks") return SHA3;
+    const hit = [SHA1, SHA2, SHA3].find((sha) => /^[0-9a-f]{7,40}$/.test(ref) && sha.startsWith(ref));
     if (hit) return hit;
     throw new GitHubApiError(`no commit ${ref}`, 404);
   }
@@ -389,6 +418,23 @@ describe("branches, commits, validate and the pinned POST /agents (U8)", () => {
     expect(dev.body.candidates).toEqual([{ path: ".", hasAgentsMd: true, hasClaudeMd: false, hasSkills: false }]);
     const bySha = await call("GET", `/github/repos/alice-org/agents/agent-candidates?ref=${SHA1.slice(0, 7)}`, { wallet: ALICE });
     expect(bySha.body.commitSha).toBe(SHA1);
+  });
+
+  it("task-candidates lists the folders with a task.json, with name, slug and the schema verdict (U34)", async () => {
+    await connectAlice();
+    const { status, body } = await call("GET", "/github/repos/alice-org/agents/task-candidates?ref=tasks", { wallet: ALICE });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ commitSha: SHA3, truncatedTree: false, capped: false });
+    // The task.json under environment/ (inside a candidate) and under node_modules are not candidates.
+    expect(body.candidates.map((c: { path: string }) => c.path)).toEqual(["tasks/split-evenly", "tasks/zz-bad", "tasks/zz-garbage"]);
+    expect(body.candidates[0]).toEqual({ path: "tasks/split-evenly", name: "devfellowship/split-evenly", slug: "split-evenly", title: null, valid: true, error: null });
+    expect(body.candidates[1]).toMatchObject({ path: "tasks/zz-bad", name: "x/bad", slug: "bad", valid: false });
+    expect(typeof body.candidates[1].error).toBe("string");
+    expect(body.candidates[2]).toMatchObject({ path: "tasks/zz-garbage", name: null, valid: false, error: "task.json is not valid JSON" });
+    // A repo without any task.json answers an empty list; another wallet gets 404.
+    expect((await call("GET", "/github/repos/alice-org/agents/task-candidates", { wallet: ALICE })).body.candidates).toEqual([]);
+    expect((await call("GET", "/github/repos/alice-org/agents/task-candidates?ref=tasks", { wallet: BOB })).status).toBe(404);
+    expect((await call("GET", "/github/repos/alice-org/agents/task-candidates?ref=tasks")).status).toBe(401);
   });
 
   it("validate: ok with the file list and summary at a SHA; a danger error for a path without AGENTS.md or CLAUDE.md", async () => {

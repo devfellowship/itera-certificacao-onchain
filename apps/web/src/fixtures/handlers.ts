@@ -83,6 +83,10 @@ export const handlers = [
       ],
     }),
   ),
+  // U34: the design fixture repo holds one task at its root; the folder dropdown stays hidden (design 10 shows the plain path field).
+  http.get(u('/github/repos/:owner/:repo/task-candidates'), ({ params }) =>
+    HttpResponse.json({ repoFullName: `${String(params.owner)}/${String(params.repo)}`, commitSha: '9f2c1ab4e7d0c3b5a8f6e2d1c0b9a8f7e6d5c4b3', truncatedTree: false, capped: false, candidates: [] }),
+  ),
   http.get(u('/github/repos/:owner/:repo/commits'), () =>
     HttpResponse.json({
       branch: 'main',
@@ -238,7 +242,8 @@ export const handlers = [
   http.post(u('/tasks/:id/versions'), async ({ params, request }) => {
     const r = fixtureAddVersion(String(params.id), (await request.json()) as Partial<TaskSourceInput>)
     if (!r) return notFound()
-    return 'status' in r ? HttpResponse.json({ error: r.error }, { status: r.status }) : HttpResponse.json(r, { status: 201 })
+    if ('status' in r) return HttpResponse.json({ error: r.error }, { status: r.status })
+    return HttpResponse.json(r, { status: 'unchanged' in r ? 200 : 201 })
   }),
   http.post(u('/tasks/:id/versions/:v/validate'), ({ params }) => {
     const r = fixtureValidate(String(params.id), Number(params.v))

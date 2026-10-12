@@ -21,6 +21,7 @@ import { GithubPinCard, type InstallCopy } from './add-agent/GithubSourceCard'
 import { cleanAgentPath, useGithubPin } from './add-agent/useGithubSource'
 import { useLoad } from './add-agent/useLoad'
 import { TestsLabel } from './task-editor/labels'
+import { useTaskCandidates } from './task-editor/useTaskCandidates'
 import { useTaskLayout, type LayoutCheck } from './task-editor/useTaskLayout'
 import './add-agent/add-agent.css'
 import './task-editor/task-editor.css'
@@ -535,6 +536,7 @@ export function TaskEditorPage() {
       ? { repoFullName: latest.github.repo, branch: latest.github.branch, commitSha: latest.github.commitSha, path: latest.github.path }
       : null
   const { check, retry } = useTaskLayout(sourceInput)
+  const taskFolders = useTaskCandidates(pin, editingSource)
   const read = check.phase === 'done' ? check.data : null
   const contract: TaskContract | null = read?.contract ?? (editingSource ? null : (latest?.contract ?? null))
   const testsVisibility: TestsVisibility | null = read?.pin.testsVisibility ?? (editingSource ? null : (latest?.testsVisibility ?? null))
@@ -761,6 +763,7 @@ export function TaskEditorPage() {
               pathLabel="Task path"
               path={path}
               onPath={setPath}
+              pathOptions={taskFolders.options}
               repoAside={<TestsAside visibility={testsVisibility} />}
               footer={layoutFooter}
               installCopy={INSTALL_COPY}
