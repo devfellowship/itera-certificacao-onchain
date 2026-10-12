@@ -385,3 +385,95 @@ describe("run result vocabulary (U22)", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe("GET /runs/:id/actions (screen 04 event log)", () => {
+  const row = (seq: number, target: string | null, over: Record<string, unknown> = {}) => ({
+    seq,
+    tool: "bash",
+    target,
+    ok: true,
+    occurredAt: new Date(Date.UTC(2026, 9, 12, 12, 0, seq)).toISOString(),
+    ...over,
+  });
+
+  it("is a public read, 404 for an unknown or unowned run, 400 for a bad cursor", async () => {
+    expect((await fetch(`${baseUrl}/runs/not-a-uuid/actions`)).status).toBe(404);
+    expect((await fetch(`${baseUrl}/runs/${randomUUID()}/actions`)).status).toBe(404);
+    const { runId } = await (await createRun()).json();
+    expect((await fetch(`${baseUrl}/runs/${runId}/actions?after_seq=-1`)).status).toBe(400);
+    expect((await fetch(`${baseUrl}/runs/${runId}/actions?after_seq=abc`)).status).toBe(400);
+    expect((await fetch(`${baseUrl}/runs/${runId}/actions?limit=201`)).status).toBe(400);
+    // No session header: the read is public.
+    const res = await fetch(`${baseUrl}/runs/${runId}/actions`);
+    expect(res.status).toBe(200);
+    // run_actions rows do not exist yet for a queued run: an empty page that matches the schema.
+    const body = await res.json();
+    expect(body).toEqual({ runId, afterSeq: 0, actions: [], hasMore: false, nextAfterSeq: 0 });
+    expect(validateApiResponse("runActions", body).ok).toBe(true);
+  });
+
+  it("pages by after_seq, 200 rows at most, and the page matches the schema", async () => {
+    const { runId } = await (await createRun()).json();
+    store.actionRows.set(runId, Array.from({ length: 450 }, (_, i) => row(i + 1, `src/file-${i + 1}.ts`)));
+    const first = await (await fetch(`${baseUrl}/runs/${runId}/actions`)).json();
+    expect(first.actions).toHaveLength(200);
+    expect(first.actions[0].seq).toBe(1);
+    expect(first).toMatchObject({ hasMore: true, nextAfterSeq: 200, afterSeq: 0 });
+    const second = await (await fetch(`${baseUrl}/runs/${runId}/actions?after_seq=${first.nextAfterSeq}`)).json();
+    expect(second.actions[0].seq).toBe(201);
+    expect(second).toMatchObject({ hasMore: true, nextAfterSeq: 400 });
+    const last = await (await fetch(`${baseUrl}/runs/${runId}/actions?after_seq=400`)).json();
+    expect(last.actions).toHaveLength(50);
+    expect(last).toMatchObject({ hasMore: false, nextAfterSeq: 450 });
+    // Nothing new: the cursor stays where it was.
+    const none = await (await fetch(`${baseUrl}/runs/${runId}/actions?after_seq=450`)).json();
+    expect(none).toMatchObject({ actions: [], hasMore: false, nextAfterSeq: 450 });
+    for (const page of [first, second, last, none]) expect(validateApiResponse("runActions", page)).toMatchObject({ ok: true });
+    // The count in GET /runs/:id and the rows agree.
+    finish(runId);
+    store.actions.delete(runId);
+    expect((await (await fetch(`${baseUrl}/runs/${runId}`)).json()).actionsCount).toBe(450);
+  });
+
+  it("sanitizes target: no absolute path, no secret, no URL query; the schema refuses a leak", async () => {
+    const { runId } = await (await createRun()).json();
+    const leaks = [
+      "cat /workspace/src/ledger.ts",
+      "cat /etc/passwd",
+      "ls /home/runner/work/app && cd ~/secrets",
+      "curl -H 'Authorization: Bearer sk-or-v1-abcdef0123456789abcdef0123456789' https://api.example.com/v1/x?api_key=abc123&u=1",
+      "curl https://user:hunter2@example.com/repo.git",
+      "OPENROUTER_API_KEY=sk-or-v1-0123456789abcdef0123456789abcdef node run.js",
+      "git push https://x-access-token:ghp_0123456789abcdefghijklmnopqrstuv@github.com/a/b.git",
+      "echo " + "A1".repeat(40),
+      "npm test -- --token abcdef123456 --reporter=json",
+      `grep -rn "secret" ${"x".repeat(900)}`,
+      "cat tests/hidden/ledger.hidden.test.ts",
+    ];
+    store.actionRows.set(runId, leaks.map((t, i) => row(i + 1, t)).concat([row(99, "src/ledger.ts"), row(100, null, { ok: null, tool: "web fetch!" })]));
+    const body = await (await fetch(`${baseUrl}/runs/${runId}/actions`)).json();
+    const all = JSON.stringify(body);
+    for (const bad of ["/workspace", "/etc/passwd", "/home/runner", "hunter2", "sk-or-v1", "ghp_0123", "api_key=abc123", "abcdef123456", "ledger.hidden", "~/secrets", "A1A1A1A1"]) {
+      expect(all).not.toContain(bad);
+    }
+    const byTarget = new Map<number, string | null>(body.actions.map((a: { seq: number; target: string | null }) => [a.seq, a.target]));
+    expect(byTarget.get(1)).toBe("cat <path>");
+    expect(byTarget.get(4)).toContain("Authorization: <redacted>");
+    expect(byTarget.get(4)).toContain("https://api.example.com/v1/x");
+    expect(byTarget.get(5)).toBe("curl https://example.com/repo.git");
+    expect(byTarget.get(6)).toBe("OPENROUTER_API_KEY=<redacted> node run.js");
+    expect(byTarget.get(10)!.length).toBeLessThanOrEqual(200);
+    expect(byTarget.get(99)).toBe("src/ledger.ts");
+    expect(byTarget.get(100)).toBeNull();
+    expect(body.actions.find((a: { seq: number }) => a.seq === 100)).toMatchObject({ tool: "webfetch", ok: null });
+    expect(validateApiResponse("runActions", body)).toMatchObject({ ok: true });
+  });
+
+  it("the schema itself refuses an unsanitized row", () => {
+    const page = (target: string) => ({ runId: "r", afterSeq: 0, hasMore: false, nextAfterSeq: 1, actions: [{ seq: 1, tool: "bash", target, ok: true, occurredAt: "2026-10-12T12:00:00.000Z" }] });
+    expect(validateApiResponse("runActions", page("cat src/a.ts")).ok).toBe(true);
+    for (const bad of ["cat /workspace/src/a.ts", "ls ~/x/y", "curl -H 'Authorization: Bearer abcdef123456'", "export K=sk-or-v1-abcdef0123456789abcd", "x".repeat(201), "two\nlines"]) {
+      expect(validateApiResponse("runActions", page(bad)).ok).toBe(false);
+    }
+  });
+});

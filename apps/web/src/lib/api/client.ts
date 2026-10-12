@@ -110,6 +110,8 @@ export const api = {
 
   // Runs [EXISTING]
   run: (id: string) => request<T.Run>(`/runs/${encodeURIComponent(id)}`),
+  /** Tool calls of the agent, public read. `afterSeq` is the cursor (rows with seq > afterSeq). */
+  runActions: (id: string, afterSeq = 0) => request<T.RunActionsResponse>(`/runs/${encodeURIComponent(id)}/actions`, { query: { after_seq: afterSeq || undefined }, auth: false }),
   runStartSignature: (id: string, wireTransactionBase64: string) => request<unknown>(`/runs/${encodeURIComponent(id)}/start-signature`, { method: 'POST', body: json({ wireTransactionBase64 }) }),
   publishRun: (id: string) => request<{ proofHash: string; status: string }>(`/runs/${encodeURIComponent(id)}/publish`, { method: 'POST' }),
 

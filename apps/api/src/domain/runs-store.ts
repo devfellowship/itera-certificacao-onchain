@@ -79,6 +79,15 @@ export interface ProofRecord {
   error: string | null;
 }
 
+/** One row of run_actions: a tool call of the agent. `target` is RAW here; the router sanitizes it. */
+export interface RunActionRow {
+  seq: number;
+  tool: string;
+  target: string | null;
+  ok: boolean | null;
+  occurredAt: string;
+}
+
 export interface RunsStore {
   getAgent(agentId: string): Promise<OwnedAgent | null>;
   latestAgentVersion(agentId: string): Promise<AgentVersionRef | null>;
@@ -108,6 +117,11 @@ export interface RunsStore {
   getPatch(runId: string): Promise<string | null>;
   /** Number of recorded agent tool calls, or null when run_actions does not exist yet. */
   countActions(runId: string): Promise<number | null>;
+  /**
+   * Tool calls of the run with seq > afterSeq, in seq order, at most `limit` rows.
+   * Null when run_actions does not exist yet (a decoration for a read, like countActions).
+   */
+  listActions(runId: string, afterSeq: number, limit: number): Promise<RunActionRow[] | null>;
   /** The proof row, or null when there is none or the proofs table does not exist yet. */
   getProof(runId: string): Promise<ProofRecord | null>;
   /**

@@ -169,6 +169,22 @@ export const handlers = [
     if (!i) return notFound()
     return HttpResponse.json({ runId: params.id, status: 'running', phase: 'agent_running', scoreTotal: null, modelCostUsd: null, actionsCount: 4 + i, proof: null })
   }),
+  // U23: the agent's tool calls for the event log. The design mocks log no individual calls (their "Called agent"
+  // lines are task-level events), so every design run answers an empty page and the 04 states stay pixel-true.
+  // `run_calls` is a sample run with three calls, to exercise the after_seq cursor in fixture mode.
+  http.get(u('/runs/:id/actions'), ({ params, request }) => {
+    const afterSeq = Number(new URL(request.url).searchParams.get('after_seq') ?? 0) || 0
+    const all =
+      params.id === 'run_calls'
+        ? [
+            { seq: 1, tool: 'read', target: 'src/ledger.ts', ok: true, occurredAt: '2026-10-12T14:00:05.000Z' },
+            { seq: 2, tool: 'edit', target: 'src/ledger.ts', ok: true, occurredAt: '2026-10-12T14:00:21.000Z' },
+            { seq: 3, tool: 'bash', target: 'npm test', ok: false, occurredAt: '2026-10-12T14:00:40.000Z' },
+          ]
+        : []
+    const actions = all.filter((a) => a.seq > afterSeq)
+    return HttpResponse.json({ runId: params.id, afterSeq, actions, hasMore: false, nextAfterSeq: actions.length ? actions[actions.length - 1]!.seq : afterSeq })
+  }),
   http.post(u('/evaluations/:id/cancel'), () => HttpResponse.json({ status: 'cancelled' })),
 
   // Public surface
