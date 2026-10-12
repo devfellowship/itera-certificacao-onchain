@@ -157,37 +157,54 @@ export interface Agent {
   listedAt?: string | null
   [extra: string]: unknown
 }
+/**
+ * Row of GET /agents/ranking (U8, PR #50). `rank` counts only scored rows over the whole result;
+ * `when` is an ISO timestamp (listedAt, else createdAt); `coverage` is null when no task is selected;
+ * the run cost is null when no task is selected, and `runCostSol` is null when the rate is unknown.
+ * The optional fields are on the real API and absent from the design fixtures.
+ */
 export interface RankingRow {
+  rank?: number | null
   id: string
-  slug: string
+  slug: string | null
   name: string
   initials: string
   authorName: string
+  authorWallet?: string
   isMine: boolean
-  when: string
-  description: string
+  when: string | null
+  description: string | null
+  model?: string
   modelLabel: string
   draft: boolean
+  visibility?: string
   score: number | null
   taskCount: number
-  coverage: { k: number; n: number; perTask: boolean[] }
-  runCostUsd: number
-  runCostLamports: number
-  runCostSol: string
+  coverage: { k: number; n: number; perTask: boolean[] } | null
+  runCostUsd: number | null
+  runCostLamports: number | null
+  runCostSol: string | null
 }
 export interface PriceInfo {
   usdPerRun: number
-  solUsdRate: number
-  priceSource: PriceSource
+  solUsdRate: number | null
+  priceSource: PriceSource | null
+  at?: string | null
+  /** The ranking price is indicative; the quote of POST /evaluations/quote is the binding one. */
+  indicative?: boolean
 }
 export interface RankingResponse {
   rows: RankingRow[]
+  counts?: { all: number; mine: number }
+  selection?: { taskIds: string[]; tag: string | null }
   price: PriceInfo
 }
 export interface RankingQuery {
   scope?: 'all' | 'mine'
   q?: string
   taskIds?: string[]
+  /** Adds the tasks of one tag to the selection. */
+  tag?: string
 }
 
 // ---------- Evaluations and payments ----------
