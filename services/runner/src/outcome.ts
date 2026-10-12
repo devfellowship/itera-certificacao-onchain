@@ -20,7 +20,13 @@ export function finalStatus(agent: Pick<AgentRunResult, 'timedOut' | 'patch'> & 
   const hidden = manifest.tests.hidden;
   // A suite whose report was not trusted measured nothing (the evaluator also records an error).
   if (hidden.state !== undefined && hidden.state !== 'ok') return 'infra_error';
-  return allHiddenPassed(hidden) ? 'pass' : 'fail';
+  return allHiddenPassed(hidden) && allMcpStateHolds(manifest) ? 'pass' : 'fail';
+}
+
+/** ADR-11: with a scored MCP server, PASS also needs every final-state assertion to hold. */
+export function allMcpStateHolds(manifest: Pick<EvidenceManifest, 'mcp'>): boolean {
+  const servers = manifest.mcp?.servers ?? [];
+  return servers.every((s) => s.assertions === null || (s.assertions.total > 0 && s.assertions.passed === s.assertions.total));
 }
 
 /**

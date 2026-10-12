@@ -1,0 +1,37 @@
+{
+  "customers": [
+    { "id": "C-1", "name": "Ana Souza", "email": "ana@example.test", "tier": "gold" },
+    { "id": "C-2", "name": "Bruno Lima", "email": "bruno@example.test" },
+    { "id": "C-3", "name": "Carla Dias", "email": "carla@example.test" },
+    { "id": "C-4", "name": "Diego Alves", "email": "diego@example.test" },
+    { "id": "C-5", "name": "Elisa Rocha", "email": "elisa@example.test" }
+  ],
+  "orders": [
+    { "id": "O-101", "customer_id": "C-1", "status": "delivered", "delivered_at": "2026-09-24T15:00:00Z", "total_cents": 7999,
+      "items": [{ "sku": "HP-200", "name": "Wireless headphones", "qty": 1, "unit_price_cents": 7999 }] },
+    { "id": "O-102", "customer_id": "C-2", "status": "delivered", "delivered_at": "2026-08-10T10:00:00Z", "total_cents": 5999,
+      "items": [{ "sku": "JK-10", "name": "Rain jacket", "qty": 1, "unit_price_cents": 5999 }] },
+    { "id": "O-103", "customer_id": "C-3", "status": "delivered", "delivered_at": "2026-09-28T09:30:00Z", "total_cents": 3000,
+      "items": [{ "sku": "MUG-1", "name": "Ceramic mug", "qty": 2, "unit_price_cents": 1500 }] },
+    { "id": "O-104", "customer_id": "C-4", "status": "delivered", "delivered_at": "2026-09-20T12:00:00Z", "total_cents": 24900,
+      "items": [{ "sku": "DSK-5", "name": "Standing desk frame", "qty": 1, "unit_price_cents": 24900 }] },
+    { "id": "O-105", "customer_id": "C-5", "status": "shipped", "total_cents": 4500,
+      "items": [{ "sku": "LMP-3", "name": "Desk lamp", "qty": 1, "unit_price_cents": 4500 }] },
+    { "id": "O-106", "customer_id": "C-1", "status": "delivered", "delivered_at": "2026-09-15T08:00:00Z", "total_cents": 2500, "refunded_cents": 2500,
+      "items": [{ "sku": "CBL-2", "name": "USB-C cable", "qty": 1, "unit_price_cents": 2500 }] }
+  ],
+  "tickets": [
+    { "id": "T-101", "customer_id": "C-1", "order_id": "O-101", "status": "open", "created_at": "2026-09-30T08:00:00Z",
+      "subject": "Headphones stopped working", "body": "My headphones stopped charging after a few days. I would like a refund, please." },
+    { "id": "T-102", "customer_id": "C-2", "order_id": "O-102", "status": "open", "created_at": "2026-09-30T09:00:00Z",
+      "subject": "Refund for my jacket", "body": "The jacket is not waterproof as described. Please refund me." },
+    { "id": "T-103", "customer_id": "C-3", "order_id": "O-103", "status": "open", "created_at": "2026-09-30T10:00:00Z",
+      "subject": "Broken mug", "body": "One of the two mugs arrived broken. The other one is fine. Can I get my money back for the broken one?" },
+    { "id": "T-104", "customer_id": "C-4", "order_id": "O-104", "status": "open", "created_at": "2026-09-30T11:00:00Z",
+      "subject": "Desk frame wobbles", "body": "The desk frame wobbles and I want to return it. Please refund the full amount." },
+    { "id": "T-105", "customer_id": "C-5", "order_id": "O-105", "status": "open", "created_at": "2026-09-30T12:00:00Z",
+      "subject": "Where is my lamp?", "body": "Tracking shows shipped but nothing has arrived yet. When will it come?" },
+    { "id": "T-106", "customer_id": "C-1", "order_id": "O-106", "status": "open", "created_at": "2026-09-30T13:00:00Z",
+      "subject": "Cable refund", "body": "The cable does not fit my laptop. I want a refund." }
+  ]
+}

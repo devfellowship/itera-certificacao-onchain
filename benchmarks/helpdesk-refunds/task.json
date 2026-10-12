@@ -1,0 +1,52 @@
+{
+  "$schema": "../../packages/contracts/schemas/task.schema.json",
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/helpdesk-refunds",
+    "version": "1",
+    "description": "Process the refund requests of a support inbox through the helpdesk MCP server and follow the refund policy exactly.",
+    "authors": [{ "name": "ITERA" }],
+    "keywords": ["mcp", "customer-support", "refunds", "policy"]
+  },
+  "metadata": {
+    "title": "Refund requests in the help desk inbox",
+    "tags": { "tools": ["mcp-helpdesk"], "concepts": ["money-math"] }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": ["npm", "ci", "--include=dev", "--no-audit", "--no-fund", "--ignore-scripts"],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048,
+    "tools": {
+      "builtin": ["read", "write", "edit", "search", "list", "todo"],
+      "mcp": [
+        {
+          "name": "helpdesk",
+          "description": "The shop's help desk: customers, orders, tickets and refunds (Itera catalog fixture).",
+          "catalog": "helpdesk@1",
+          "transport": "http",
+          "seed": "mcp/helpdesk/seed.json",
+          "allowed_tools": ["search_tickets", "get_customer", "get_order", "issue_refund", "close_ticket", "add_note"],
+          "expose_state_to_scorer": true,
+          "startup_timeout_sec": 30
+        }
+      ]
+    },
+    "run_egress": ["model-gateway", "mcp"],
+    "secrets": [],
+    "resources": { "cpus": 2, "memory_mb": 2048, "pids": 512 }
+  },
+  "tests": { "public": "tests/public", "hidden": "tests/hidden" },
+  "solution": { "patch": "solution/solution.patch" },
+  "editable_paths": ["src/**"],
+  "protected_paths": ["tests/**", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.*"],
+  "verifier": {
+    "cmd": ["npx", "vitest", "run", "{tests}", "--reporter=json", "--outputFile={report}"],
+    "report": "vitest-json",
+    "timeout_sec": 120
+  },
+  "agent": { "timeout_sec": 300 },
+  "est_minutes": 4
+}

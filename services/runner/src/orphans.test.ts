@@ -16,7 +16,9 @@ function fakeDocker(state: { containers: string[]; networks: string[]; liveHosts
     if (args[0] === 'inspect') return { code: 0, stdout: state.liveHosts.includes(args.at(-1)!) ? 'true\n' : 'false\n', stderr: '' };
     if (args[0] === 'ps') {
       const role = args.find((a) => a.startsWith('label='))!;
-      const names = state.containers.filter((n) => (role.endsWith('model-gateway') ? n.startsWith('itera-gw-') : !n.startsWith('itera-gw-')));
+      const names = state.containers.filter((n) =>
+        role.endsWith('model-gateway') ? n.startsWith('itera-gw-') : role.endsWith('mcp-sidecar') ? n.startsWith('itera-mcp-') : !n.startsWith('itera-gw-') && !n.startsWith('itera-mcp-'),
+      );
       return { code: 0, stdout: names.map((n) => `id-${n} ${n}`).join('\n'), stderr: '' };
     }
     if (args[0] === 'network' && args[1] === 'ls') return { code: 0, stdout: state.networks.map((n) => `nid-${n} ${n}`).join('\n'), stderr: '' };

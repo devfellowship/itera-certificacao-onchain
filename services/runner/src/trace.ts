@@ -27,7 +27,16 @@ function targetOf(input: Record<string, unknown> | undefined): string | null {
  * A `tool_use` event is emitted once per tool call, when the call finishes
  * (state.status = completed | error). Lines that are not JSON are ignored.
  */
-export function parseOpencodeEvents(text: string): ParsedTrace {
+/**
+ * The target of an MCP tool call (`<server>_<tool>` in opencode): the compact arguments, so the run
+ * log shows which ticket, order or entity the agent touched.
+ */
+function mcpTarget(input: Record<string, unknown> | undefined): string | null {
+  if (!input || Object.keys(input).length === 0) return null;
+  return truncate(JSON.stringify(input));
+}
+
+export function parseOpencodeEvents(text: string, mcpServers: readonly string[] = []): ParsedTrace {
   const actions: RunAction[] = [];
   const errors: string[] = [];
   const usage = { steps: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
@@ -44,10 +53,12 @@ export function parseOpencodeEvents(text: string): ParsedTrace {
     if (event?.type === 'tool_use' && event.part?.type === 'tool') {
       const state = event.part.state ?? {};
       const started = typeof state.time?.start === 'number' ? state.time.start : event.timestamp;
+      const tool = String(event.part.tool ?? 'unknown');
+      const isMcp = mcpServers.some((m) => tool.startsWith(`${m}_`));
       actions.push({
         seq: actions.length + 1,
-        tool: String(event.part.tool ?? 'unknown'),
-        target: targetOf(state.input),
+        tool,
+        target: isMcp ? mcpTarget(state.input) : targetOf(state.input),
         ok: state.status === 'completed',
         occurredAt: new Date(typeof started === 'number' ? started : Date.now()).toISOString(),
       });

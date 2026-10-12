@@ -20,7 +20,8 @@ import { runEvaluation } from '../../evaluator/src/runner.js';
 import type { SuiteExecutor, SuiteRunRequest } from '../../evaluator/src/suite.js';
 import { scenarioDir } from '../../evaluator/src/task.js';
 import type { EvidenceManifest, ExecutorInfo } from '../../evaluator/src/types.js';
-import { validateTask, type ValidationResult } from '../../evaluator/src/validate.js';
+import { validateTask, type McpGate, type ValidationResult } from '../../evaluator/src/validate.js';
+import type { McpServerEvidence } from '../../evaluator/src/mcp-state.js';
 import { exec, pipe } from './exec.js';
 import type { SandboxConfig } from './sandbox.js';
 
@@ -175,16 +176,18 @@ export async function gradeInSandbox(opts: {
   taskDir?: string;
   patch: string;
   config: SandboxConfig;
+  /** ADR-11: the scored final state of the task's MCP servers (mcp-sidecar.ts mcpEvidence). */
+  mcp?: McpServerEvidence[];
 }): Promise<EvidenceManifest> {
   const taskDir = opts.taskDir ?? scenarioDir(opts.repoRoot, opts.scenarioId);
   try {
-    return await runEvaluation({ taskDir, scenarioId: opts.scenarioId, patch: opts.patch, executor: sandboxExecutor(opts) });
+    return await runEvaluation({ taskDir, scenarioId: opts.scenarioId, patch: opts.patch, executor: sandboxExecutor(opts), mcp: opts.mcp });
   } catch (err) {
     throw new GraderError(err instanceof Error ? err.message : String(err));
   }
 }
 
 /** The validation gate of a user task (ADR-8), with every verifier run in a grading container. */
-export function validateTaskInSandbox(opts: { runId: string; taskDir: string; config: SandboxConfig; repeats?: number }): Promise<ValidationResult> {
-  return validateTask({ taskDir: opts.taskDir, repeats: opts.repeats, executor: sandboxExecutor(opts) });
+export function validateTaskInSandbox(opts: { runId: string; taskDir: string; config: SandboxConfig; repeats?: number; mcpGate?: McpGate }): Promise<ValidationResult> {
+  return validateTask({ taskDir: opts.taskDir, repeats: opts.repeats, executor: sandboxExecutor(opts), mcpGate: opts.mcpGate });
 }

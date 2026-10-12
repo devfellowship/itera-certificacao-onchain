@@ -32,6 +32,8 @@ export interface ScoreBreakdown {
   regression: number;
   patch_integrity_and_scope: number;
   reproducible_evidence: number;
+  /** ADR-11: points of the mcp_state Scorer (only for a task whose MCP state is scored). */
+  mcp_state?: number;
   total: number;
 }
 
@@ -142,6 +144,8 @@ export interface EvalLog {
   };
   score: ScoreBreakdown;
   errors: string[];
+  /** ADR-11: per MCP server, digests and counts of the final-state check (the raw export stays private). */
+  mcp?: { weight: number; servers: import('./mcp-state.js').McpServerEvidence[] };
   /** The task contract the run was graded against (task.json). */
   contract?: {
     schema_version: string;

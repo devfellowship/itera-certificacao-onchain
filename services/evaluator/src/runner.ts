@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkPatchScope } from './patch-scope.js';
 import { computeScore, runScorers, SCORERS } from './score.js';
+import { MCP_STATE_WEIGHT, mcpStateScore, type McpServerEvidence } from './mcp-state.js';
 import { EMPTY_SUITE, interpretRun, localExecutor, resolveCmd, type SuiteExecutor } from './suite.js';
 import { addTests, hashDirectory, loadTask, materializeWorkspace, scenarioDir, type LoadedTask } from './task.js';
-import type { EvalLog, ExecutorInfo, TestSuiteResult } from './types.js';
+import type { EvalLog, ExecutorInfo, Score, TestSuiteResult } from './types.js';
 
 export const EVALUATOR_VERSION = '0.2.0';
 export const DEFAULT_INSTALL = ['npm', 'ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'];
@@ -28,6 +29,12 @@ export interface RunEvaluationOptions {
   executor?: SuiteExecutor;
   /** Keep the temp workspace after the run instead of deleting it (for debugging). */
   keepWorkspace?: boolean;
+  /**
+   * ADR-11: final state of the task's MCP servers, already evaluated on the worker (mcp-state.ts).
+   * Present only for a task with `expose_state_to_scorer` servers. The `mcp_state` Scorer then
+   * weighs MCP_STATE_WEIGHT of the total and the code scorers weigh the rest.
+   */
+  mcp?: McpServerEvidence[];
 }
 
 interface RunResult {
@@ -195,6 +202,10 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
       hidden = await runSuite('hidden', task.contract.tests.hidden);
     }
 
+    const mcpEvidence = options.mcp && options.mcp.length > 0 ? options.mcp : null;
+    const mcpScore = mcpEvidence ? mcpStateScore(mcpEvidence) : null;
+    if (mcpScore && mcpScore.value === null) errors.push(`mcp_state: ${mcpScore.explanation}`);
+
     const scoreInputs = {
       publicAfterPatch,
       hidden,
@@ -202,8 +213,20 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
       patchScopeAllowed: patchScope.allowed,
       runCompletedWithoutErrors: errors.length === 0,
     };
-    const score = computeScore(scoreInputs);
-    const scores = runScorers(scoreInputs);
+    const codeScore = computeScore(scoreInputs);
+    const scores: Record<string, Score> = runScorers(scoreInputs);
+    // With MCP state: the code scorers keep their own points (diagnostics) and the total becomes
+    // (100 − MCP_STATE_WEIGHT) % of the code total + the mcp_state points. A scope violation is still 0.
+    const score =
+      mcpScore === null
+        ? codeScore
+        : {
+            ...codeScore,
+            mcp_state: mcpScore.value ?? 0,
+            total: patchScope.allowed ? Math.round((codeScore.total * (100 - MCP_STATE_WEIGHT)) / 100) + (mcpScore.value ?? 0) : 0,
+          };
+    if (mcpScore) scores.mcp_state = mcpScore;
+    const scorerNames = [...SCORERS.map((x) => x.name), ...(mcpScore ? ['mcp_state'] : [])];
 
     const lock = await readFile(join(task.paths.environment, 'package-lock.json')).catch(() => null);
     const environment = {
@@ -232,6 +255,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
       },
       score,
       errors,
+      ...(mcpEvidence ? { mcp: { weight: MCP_STATE_WEIGHT, servers: mcpEvidence } } : {}),
       contract: {
         schema_version: task.contract.schema_version,
         name: task.contract.task.name,
@@ -254,7 +278,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
         task_digest: task.contractDigest,
         created: startedAt,
         dataset: { name: task.contract.task.name, samples: 1 },
-        scorers: SCORERS.map((x) => x.name),
+        scorers: scorerNames,
         evaluator,
         environment_digest: environmentDigest,
       },
@@ -263,13 +287,14 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
         steps: [
           { solver: 'install', params: { cmd: installCmd } },
           { solver: 'agent', params: {} },
+          ...(mcpEvidence ? [{ solver: 'mcp_state', params: { servers: mcpEvidence.map((m) => m.server) } }] : []),
           { solver: 'verifier', params: { cmd: verifier.cmd, suites: ['public-baseline', 'public-after-patch', 'hidden'] } },
         ],
       },
       results: {
         total_samples: 1,
         completed_samples: errors.length === 0 ? 1 : 0,
-        scores: SCORERS.map((x) => ({ name: x.name, scorer: x.name, metrics: { value: { name: 'value' as const, value: scores[x.name].value } } })),
+        scores: scorerNames.map((n) => ({ name: n, scorer: n, metrics: { value: { name: 'value' as const, value: scores[n]!.value } } })),
       },
       stats: { started_at: startedAt, completed_at: completedAt },
       samples: [

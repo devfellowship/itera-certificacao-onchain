@@ -14,6 +14,10 @@ import type { ClaimedRun, JobStore, RunOutcome } from './jobs.js';
 import { evalLogOf, finalStatus, runnerEvidence, statusError } from './outcome.js';
 import { decryptRunKey } from './run-key.js';
 import type { SandboxConfig } from './sandbox.js';
+import { toolEnvironment } from '@itera/contracts';
+import { scenarioDir } from '../../evaluator/src/task.js';
+import type { McpServerEvidence } from '../../evaluator/src/mcp-state.js';
+import { mcpEvidence, planSidecars, type McpCatalogLookup, type McpSidecarPlan } from './mcp-sidecar.js';
 import { fetchTaskFolder, GitHubReadError, isUserPack, type TaskRepoReader } from './task-source.js';
 import type { ClaimedValidation, UserTaskStore, ValidationOutcome } from './user-tasks.js';
 
@@ -34,7 +38,9 @@ export interface WorkerDeps {
   config: SandboxConfig;
   runAgent: typeof runAgent;
   /** Grades in a separate sandbox container (grade.ts). Throws on a grader failure. */
-  grade: (opts: { runId: string; repoRoot: string; scenarioId: string; taskDir?: string; patch: string }) => Promise<EvidenceManifest>;
+  grade: (opts: { runId: string; repoRoot: string; scenarioId: string; taskDir?: string; patch: string; mcp?: McpServerEvidence[] }) => Promise<EvidenceManifest>;
+  /** ADR-11: pins a task's `catalog: name@version` to a published image digest (mcp_catalog). */
+  mcpCatalog?: McpCatalogLookup;
   /** U19 user tasks: the validation queue and the pins (0009_user_tasks.sql). Absent → no user task work. */
   userTasks?: UserTaskStore;
   /** Reads a user task folder at its pinned commit through the GitHub App. Null → user tasks fail with a clear error. */
@@ -171,6 +177,22 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
           taskError = `user task could not be read: ${message(err)}`;
         }
       }
+      // ADR-11: the task's tool environment. Each MCP server must resolve to a published catalog
+      // digest BEFORE the agent starts; a server that cannot run stops the run as infra_error.
+      let mcpPlans: McpSidecarPlan[] = [];
+      let builtinTools: readonly string[] | undefined;
+      if (!taskError) {
+        // A bundle that does not load fails in runAgent with its own error; here only the MCP plan can fail.
+        const task = await loadTask(taskDir ?? scenarioDir(deps.repoRoot, job.scenarioId)).catch(() => null);
+        if (task) {
+          builtinTools = toolEnvironment(task.contract).builtin;
+          try {
+            mcpPlans = await planSidecars(task, deps.mcpCatalog);
+          } catch (err) {
+            taskError = `tool environment: ${message(err)}`;
+          }
+        }
+      }
       if (taskError) {
         outcome = fail(taskError);
       } else if (files.written.length === 0) {
@@ -188,6 +210,8 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
             openrouterKey: modelKey,
             config: deps.config,
             taskDir,
+            mcp: mcpPlans,
+            builtinTools,
           });
         } catch (err) {
           outcome = fail(`sandbox failed: ${message(err)}`);
@@ -196,7 +220,9 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
           await store.setPhase(job.runId, workerId, 'grading');
           let manifest: EvidenceManifest | null = null;
           try {
-            manifest = await deps.grade({ runId: job.runId, repoRoot: deps.repoRoot, scenarioId: job.scenarioId, taskDir, patch: agent.patch });
+            // The final MCP state is scored here, on the worker; only digests and counts go on.
+            const mcp = mcpPlans.length > 0 ? mcpEvidence(mcpPlans, agent.mcp ?? []) : undefined;
+            manifest = await deps.grade({ runId: job.runId, repoRoot: deps.repoRoot, scenarioId: job.scenarioId, taskDir, patch: agent.patch, ...(mcp ? { mcp } : {}) });
           } catch (err) {
             // Keep the agent's evidence (patch, actions) even when grading fails.
             outcome = fail(`grading failed: ${message(err)}`, {
@@ -318,6 +344,7 @@ async function main(): Promise<void> {
   const { exec } = await import('./exec.js');
   const { removeOrphans, recoverLostRuns } = await import('./orphans.js');
   const { gradeInSandbox, validateTaskInSandbox } = await import('./grade.js');
+  const { mcpGate } = await import('./mcp-gate.js');
   const { PgUserTaskStore } = await import('./user-tasks.pg.js');
   const { GitHubTaskReader } = await import('./task-source.js');
 
@@ -344,6 +371,10 @@ async function main(): Promise<void> {
   const workerId = `${process.env.ITERA_WORKER_NAME ?? 'itera-runner'}@${selfHost}`;
   // Safe during a rolling redeploy: runs of a still-live worker (the old one, draining) are kept.
   const docker = (args: string[]) => exec('docker', args, { timeoutMs: 30_000 });
+  // U29: register benchmarks/* bundles in task_packs (the service role can; a migration cannot).
+  const { registerCuratedPacks } = await import('./curated-packs.js');
+  const packs = await registerCuratedPacks(pool, repoRoot).catch((err) => ({ inserted: 0, known: 0, errors: [message(err)] }));
+  log({ event: 'curated_packs', ...packs });
   const recovered = await recoverLostRuns({ docker, store, selfHost });
   const orphans = await removeOrphans({ docker, store, selfHost });
   log({
@@ -363,10 +394,12 @@ async function main(): Promise<void> {
     {
       store, workerId, repoRoot, runKeySecret, platformModelKey, config, runAgent,
       grade: (o) => gradeInSandbox({ ...o, config }),
+      // U29: MCP catalog digests (0013_mcp_catalog.sql).
+      mcpCatalog: (name, version) => store.mcpCatalog(name, version),
       // U19 user tasks (needs 0009_user_tasks.sql; ITERA_USER_TASKS=off disables the queue).
       userTasks: process.env.ITERA_USER_TASKS === 'off' ? undefined : new PgUserTaskStore(pool),
       taskReader: taskReader,
-      validate: (o) => validateTaskInSandbox({ ...o, config }),
+      validate: (o) => validateTaskInSandbox({ ...o, config, mcpGate: mcpGate({ lookup: (n, v) => store.mcpCatalog(n, v), runId: o.runId }) }),
     },
     {
       concurrency: Number(process.env.ITERA_RUNNER_CONCURRENCY ?? 2),

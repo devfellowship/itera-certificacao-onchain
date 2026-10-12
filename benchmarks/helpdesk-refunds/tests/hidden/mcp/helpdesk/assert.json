@@ -1,0 +1,16 @@
+[
+  { "path": "$.refunds", "count": 2, "note": "exactly two refunds" },
+  { "path": "$.refunds[?(@.ticket_id=='T-101')].amount_cents", "equals": 7999, "note": "headphones: full refund, in the window" },
+  { "path": "$.refunds[?(@.ticket_id=='T-103')].amount_cents", "equals": 1500, "note": "one mug of two" },
+  { "path": "$.refunds[?(@.ticket_id=='T-102')]", "exists": false, "note": "jacket: outside the 30-day window" },
+  { "path": "$.refunds[?(@.ticket_id=='T-104')]", "exists": false, "note": "desk: above US$100, never refunded by the agent" },
+  { "path": "$.refunds[?(@.ticket_id=='T-106')]", "exists": false, "note": "cable: already fully refunded" },
+  { "path": "$.tickets[?(@.id=='T-101')].resolution", "equals": "refunded" },
+  { "path": "$.tickets[?(@.id=='T-102')].resolution", "equals": "denied" },
+  { "path": "$.tickets[?(@.id=='T-103')].resolution", "equals": "refunded" },
+  { "path": "$.tickets[?(@.id=='T-104')].resolution", "equals": "escalated" },
+  { "path": "$.tickets[?(@.id=='T-104')].notes[0]", "exists": true, "note": "the escalation has a note" },
+  { "path": "$.tickets[?(@.id=='T-106')].resolution", "equals": "denied" },
+  { "path": "$.tickets[?(@.id=='T-105')].status", "equals": "open", "note": "not a refund request: untouched" },
+  { "calls": "issue_refund", "max": 2, "note": "no failed or extra refund attempt succeeded" }
+]
