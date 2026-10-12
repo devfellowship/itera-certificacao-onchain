@@ -36,6 +36,22 @@ create table if not exists public.payments (
   created_at        timestamptz not null default now()
 );
 create index if not exists payments_payer_wallet_idx on public.payments (payer_wallet, created_at desc);
+-- One wallet prompt per evaluation (claude-main, 2026-10-12): the quote pre-allocates the
+-- evaluation id and the run ids, and the payment tx carries one Memo
+-- `itera-eval:v1:{evaluation_id, run_ids[], agent repo/commit, model, tasks}` next to the transfer.
+-- That tx signature becomes runs.run_start_sig; each run's proof nonce = sha256(sig || ':' || run_id).
+alter table public.payments add column if not exists planned_evaluation_id uuid;
+alter table public.payments add column if not exists planned_run_ids       jsonb;
+alter table public.payments add column if not exists agent_version_id      uuid;
+alter table public.payments add column if not exists model_id              text;
+alter table public.payments add column if not exists tasks                 jsonb;
+alter table public.payments add column if not exists memo                  text;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'payments_planned_evaluation_id_key') then
+    alter table public.payments add constraint payments_planned_evaluation_id_key unique (planned_evaluation_id);
+  end if;
+end $$;
 
 create table if not exists public.evaluations (
   id                uuid primary key default gen_random_uuid(),
@@ -96,6 +112,10 @@ alter table public.runs add column if not exists evaluation_id   uuid;
 alter table public.runs add column if not exists task_id         text;
 alter table public.runs add column if not exists task_version_id text;
 alter table public.runs add column if not exists seq             int;
+-- POST /evaluations/:id/cancel moves queued runs to `cancelled`. The worker claims `queued` only.
+alter table public.runs drop constraint if exists runs_status_check;
+alter table public.runs add constraint runs_status_check
+  check (status in ('pending', 'queued', 'running', 'pass', 'fail', 'invalid', 'timeout', 'infra_error', 'cancelled'));
 -- A free retry (Gate Q1) points at the run it replaces.
 alter table public.runs add column if not exists retry_of_run_id uuid;
 do $$
