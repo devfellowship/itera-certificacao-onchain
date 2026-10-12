@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { validateTaskContract } from './index.js';

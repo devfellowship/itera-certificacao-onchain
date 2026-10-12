@@ -1,0 +1,14 @@
+TestMyAgent MCP catalog fixtures
+Copyright 2026 Itera / DevFellowship
+
+This product includes software developed at Itera / DevFellowship
+(https://github.com/devfellowship/itera-certificacao-onchain).
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file in this directory.
+
+This notice and the LICENSE file in this directory also cover the shared fixture base in
+mcp/base, which the catalog images ship and which already declares Apache-2.0 (mcp/base/LICENSE-NOTICE).
+Files are not added inside mcp/base or inside a catalog entry, because a published catalog version is immutable.
+
+Third-party code keeps its own license: see mcp/catalog/memory/LICENSE.upstream and
+mcp/base/LICENSE-NOTICE.

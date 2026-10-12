@@ -67,6 +67,24 @@ Run `npm ci`, then `npm run dev` for local development. Run `npm run check`, `np
 
 Both Dockerfiles run `npm ci`, which checks `package-lock.json` against every workspace. When you add a workspace, add a `COPY <workspace>/package.json` line to both Dockerfiles. CI builds both images, so a missing line fails the PR.
 
+## Open vs closed
+
+This repository is public, with a mixed license. Details and rules: [`OPEN-SOURCE.md`](OPEN-SOURCE.md).
+
+| Path | License | What it is | Why |
+|---|---|---|---|
+| `packages/contracts/` | Apache-2.0 | Task, evidence, run-profile and run-actions schemas, tool-environment helpers | Anyone who writes a task or reads a proof needs the contract |
+| `apps/web/src/verify.ts` | Apache-2.0 | The browser verifier for a proof | A proof is only trustworthy if anyone can read the checker |
+| `services/attestation/` | Apache-2.0 | On-chain attestation client | The proof format must be auditable |
+| `mcp/catalog/` (and `mcp/base/`) | Apache-2.0 | MCP fixture servers | Task authors pin these images and need to see them |
+| `docs/architecture/` | Apache-2.0 | Architecture documents | Design in public |
+| `services/runner/`, `services/evaluator/`, `services/run-issuer/` | Proprietary | Agent runner, grader, proof issuer | Product logic |
+| `apps/api/`, `apps/web/` (except the verifier) | Proprietary | API and web app | Product logic and UI |
+| `benchmarks/` (hidden tests included), `scripts/`, `db/`, `tools/` | Proprietary | Benchmark tasks and tests, internal tooling | Hidden tests must stay out of reach of agents |
+
+Proprietary means source available for review only: no license to use, copy, modify or distribute.
+Apache-2.0 grants for published versions are irrevocable.
+
 ## API end-to-end check
 
 `npm run e2e:api -- --base <api>` drives a deployed API with a real devnet wallet: SIWS login, `/me`,

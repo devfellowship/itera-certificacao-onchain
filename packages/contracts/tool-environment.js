@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 // The tool environment of a task (ADR-11, plan 20261012-itera-testmyagent-ui-refactor, U28):
 // which harness built-in tools and which MCP servers the agent may call during a run, and the
 // compatibility check of an agent's `requires` against it. Pure functions, no I/O.

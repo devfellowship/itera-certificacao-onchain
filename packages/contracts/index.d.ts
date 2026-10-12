@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 /** Parsed task.json — see schemas/task.schema.json (the schema is the source of truth). */
 export interface TaskContract {
   $schema?: string;

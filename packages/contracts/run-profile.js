@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 // Runner run profile (Valkyrie agent-contract boundaries): schema + Ajv validator.
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';

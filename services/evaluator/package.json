@@ -1,6 +1,7 @@
 {
   "name": "@itera/evaluator",
   "private": true,
+  "license": "UNLICENSED",
   "version": "0.2.0",
   "type": "module",
   "scripts": {

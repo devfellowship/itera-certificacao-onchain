@@ -1,0 +1,10 @@
+Copyright (c) 2026 Itera / DevFellowship. All rights reserved.
+
+Source available for review only. No license is granted to use, copy, modify or
+distribute this repository, except the directories listed in OPEN-SOURCE.md, which
+are licensed under the Apache License, Version 2.0 (each carries its own LICENSE
+and NOTICE file).
+
+Closed: services/runner, services/evaluator, services/run-issuer, apps/api, apps/web
+(except apps/web/src/verify.ts), benchmarks (including hidden tests), scripts, db, tools,
+and every other path not listed in OPEN-SOURCE.md.

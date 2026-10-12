@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 /**
  * Build-order item 5 (Samuel's brief): pin the evidence manifest to IPFS and derive the
  * `manifest_sha256` that gets anchored on-chain.

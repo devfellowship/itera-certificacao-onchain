@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 import { describe, expect, it } from 'vitest';
 import { manifestToAttestationData } from './manifest.js';
 import type { EvidenceManifestSummary } from './manifest.js';

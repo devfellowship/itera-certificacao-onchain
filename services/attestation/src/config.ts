@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 import { SchemaDataType } from '@solana/attestation';
 
 export const CONFIG = {

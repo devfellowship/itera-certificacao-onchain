@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Itera / DevFellowship
 /**
  * Samuel's build-order item 3: idempotent setup (safe to re-run on every deploy, never fails
  * with AccountAlreadyInitialized) + the hot-signer/authority key split.
