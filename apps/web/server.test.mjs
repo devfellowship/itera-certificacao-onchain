@@ -24,3 +24,18 @@ test('injects OG and Twitter meta for a profile', () => {
   assert.ok(out.includes('<div id="root"></div>'))
   assert.equal(out.match(/<title>/g).length, 1)
 })
+
+test('GET /b/<slug>.svg redirects to the API badge, and only for a plain .svg name', async () => {
+  const { handle } = await import('./server.mjs')
+  const call = async (url) => {
+    const out = { status: 0, headers: {} }
+    await handle({ url, method: 'GET', headers: {} }, { writeHead: (s, h) => Object.assign(out, { status: s, headers: h }), end: () => {} })
+    return out
+  }
+  const ok = await call('/b/settlewise-7f3a.svg')
+  assert.equal(ok.status, 302)
+  assert.equal(ok.headers.Location, 'https://itera-agent-credentials-api.devfellowship.com/b/settlewise-7f3a.svg')
+  assert.match(ok.headers['Cache-Control'], /max-age=300/)
+  const bad = await call('/b/..%2Fsecret')
+  assert.notEqual(bad.status, 302)
+})

@@ -300,6 +300,13 @@ describe("agent profile HTTP", () => {
     expect([...bodies][0]).toContain("not found");
   });
 
+  it("badge: /b/:slug.svg falls back to an agent slug", async () => {
+    const r = await getSvg("/b/ledgerline.svg");
+    expect(r.status).toBe(200);
+    expect(r.body).toContain("100.0 · 2 tasks");
+    expect((await getSvg("/b/secret.svg")).status).toBe(404);
+  });
+
   it("badge: a public issued evaluation by /b/:slug.svg and /badge/evaluations/:slug.svg", async () => {
     for (const path of ["/b/ev-1.svg", "/badge/evaluations/ev-1.svg"]) {
       const r = await getSvg(path);
