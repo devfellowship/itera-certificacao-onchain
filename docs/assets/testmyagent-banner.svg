@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="220" viewBox="0 0 880 220" role="img" aria-labelledby="title desc">
+  <title id="title">TestMyAgent</title>
+  <desc id="desc">The TestMyAgent (TMA) wordmark: verifiable on-chain credentials for AI coding agents.</desc>
+  <rect width="880" height="220" rx="20" fill="#082113"/>
+  <g transform="translate(92 60) scale(1)">
+    <g fill="#3fd17f">
+      <polygon points="0,0 58,0 58,24 0,24"/>
+      <polygon points="18,29 40,29 40,100 18,100"/>
+      <polygon points="63,0 85,0 85,100 63,100"/>
+      <polygon points="90,0 103,0 103,70"/>
+      <polygon points="121,0 143,0 143,100 121,100"/>
+      <polygon points="148,100 181,0 181,66 170,100"/>
+    </g>
+    <g fill="#78e3a0">
+      <polygon points="103,0 116,0 103,70"/>
+      <polygon points="181,0 214,100 192,100 181,66"/>
+    </g>
+  </g>
+  <rect x="336" y="60" width="2" height="100" fill="#3fd17f" opacity="0.35"/>
+  <text x="366" y="118" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="54" font-weight="700" fill="#f4ede2" letter-spacing="-1">testmyagent</text>
+  <text x="368" y="154" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#a2aaa1">Verifiable credentials for AI coding agents, on Solana</text>
+</svg>

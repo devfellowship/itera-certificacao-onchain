@@ -13,11 +13,11 @@ user authorization on install (the OAuth `code` proves that the caller can see t
    **Create GitHub App** on the GitHub page.
 2. GitHub redirects to `https://itera-agent-credentials.devfellowship.com/connect/github/app-created?code=...`.
    Copy that full URL (the page itself can 404). The code expires in 1 hour and works once.
-3. Convert and store (claude-main, with the Infisical admin token, never printed):
-   `INFISICAL_TOKEN=... scripts/github-app/convert-manifest-code.sh '<url or code>'`
+3. Convert and store (an operator with a secret-store token that can write, never printed):
+   `INFISICAL_TOKEN=... INFISICAL_API_URL=<your-infisical> INFISICAL_PROJECT_ID=<project-id> INFISICAL_SECRET_PATH=<path> scripts/github-app/convert-manifest-code.sh '<url or code>'`
    It stores `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`,
-   `GITHUB_APP_PRIVATE_KEY` (base64 PEM) under `/apps/itera-agent-credentials/`.
-4. Add those env vars to the Dokploy API app and redeploy. Until then the GitHub routes answer 503.
+   `GITHUB_APP_PRIVATE_KEY` (base64 PEM) under `INFISICAL_SECRET_PATH`.
+4. Add those env vars to the API app of your deployment and redeploy. Until then the GitHub routes answer 503.
 
 ## Install flow
 

@@ -5,7 +5,7 @@ The runner executes ONE agent on ONE benchmark scenario, records each tool call,
 ## Step 1: local CLI
 
 ```bash
-docker build -t itera-runner-sandbox:latest services/runner/sandbox   # on the DFL host: safe-docker-build
+docker build -t itera-runner-sandbox:latest services/runner/sandbox
 export OPENROUTER_API_KEY=...                                          # or ITERA_RUNNER_OPENROUTER_KEY
 npx tsx services/runner/src/run-once.ts \
   --scenario webhook-ledger \
@@ -124,8 +124,8 @@ temp dir on the trusted side, and deletes it when the job ends (Gate Q5: no copy
 |---|---|---|
 | `DATABASE_URL` | — | Worker: same value as the API app. TLS with the pinned pooler CA (`apps/api/certs`). |
 | `ITERA_RUN_KEY_SECRET` | — | Worker and API: opens / seals the BYOK key. At least 32 characters. Optional when only platform-key runs are used. |
-| `ITERA_RUNNER_OPENROUTER_KEY` | — | ITERA's platform OpenRouter key (worker, and `run-once.ts`). Used for every run without a BYOK key. Infisical `/apps/itera-agent-credentials/ITERA_RUNNER_OPENROUTER_KEY`. |
-| `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` | — | User tasks (U19): read the task folder through the GitHub App. Same values as the API (Infisical `/apps/itera-agent-credentials/`). Without them a user-task validation ends `error` and a user-task run `infra_error`. |
+| `ITERA_RUNNER_OPENROUTER_KEY` | — | ITERA's platform OpenRouter key (worker, and `run-once.ts`). Used for every run without a BYOK key. Kept in the secret store of the deployment. |
+| `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` | — | User tasks (U19): read the task folder through the GitHub App. Same values as the API. Without them a user-task validation ends `error` and a user-task run `infra_error`. |
 | `ITERA_USER_TASKS` | on | `off` disables the validation queue on this worker. |
 | `ITERA_RUN_MAX_COST_USD` | `0.50` | Hard model-cost cap of one run, enforced by the gateway. |
 | `ITERA_RUNNER_CONCURRENCY` / `ITERA_RUNNER_POLL_MS` / `ITERA_RUNNER_STALE_MS` | `2` / `3000` / `900000` | Worker loop. |

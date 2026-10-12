@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 
 /**
- * IPFS pinning seam. Pinata is the only implementation today (env `PINATA_JWT`). The token is not
- * in Infisical yet, so `pinnerFromEnv()` returns null when it is missing and `issueProof` records
+ * IPFS pinning seam. Pinata is the only implementation today (env `PINATA_JWT`). The token is
+ * optional: `pinnerFromEnv()` returns null when it is missing and `issueProof` records
  * the proof as `failed` with `ipfs not configured`. Nothing here ever invents a CID.
  */
 export interface Pinner {

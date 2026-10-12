@@ -46,9 +46,8 @@ jobs:
           ITERA_SANDBOX_IMAGE: itera-runner-sandbox:ci
       - run: docker build --file services/runner/Dockerfile --tag itera-runner-worker:ci .
 
-# Deploys do not run here. The dedicated Dokploy (itera-agent-credentials-dokploy.devfellowship.com)
-# receives a GitHub repo webhook on push. Each Dokploy app rebuilds only when the push touches its
-# watch paths. See README "CI and deployment".
+# Deploys do not run here. The deploy platform receives a GitHub repo webhook on push. Each app
+# rebuilds only when the push touches its watch paths. See README "Deployment".
 
   # MCP catalog (docs/architecture/mcp-sandbox.md, registration steps 2–3): build every image under
   # mcp/catalog/, run the conformance test against real Docker, and on main publish each version to
