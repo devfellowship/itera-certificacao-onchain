@@ -483,6 +483,27 @@ describe("branches, commits, validate and the pinned POST /agents (U8)", () => {
     expect(body.warnings[0]).toMatch(/description/);
   });
 
+  it("U28: requires is a chip field — POST /agents stores it normalized, PATCH /agents/:id replaces it, GET returns it; owner only", async () => {
+    await connectAlice();
+    const { status, body } = await call("POST", "/agents", { wallet: ALICE, body: { repoFullName: "alice-org/agents", name: "Needs PG", requires: ["Postgres", "tool:bash"] } });
+    expect(status).toBe(201);
+    expect(body.agent.requires).toEqual(["mcp:postgres", "tool:bash"]);
+    const id = body.agent.id;
+    const p = await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: { requires: ["mcp:calendar"] } });
+    expect(p.status).toBe(200);
+    expect(p.body.agent.requires).toEqual(["mcp:calendar"]);
+    expect((await call("GET", `/agents/${id}`, { wallet: ALICE })).body.agent.requires).toEqual(["mcp:calendar"]);
+    expect((await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: { requires: [] } })).body.agent.requires).toEqual([]);
+    expect((await call("PATCH", `/agents/${id}`, { wallet: BOB, body: { requires: [] } })).status).toBe(404);
+    expect((await call("PATCH", `/agents/${id}`, { body: { requires: [] } })).status).toBe(401);
+    expect((await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: { requires: ["tool:webfetch"] } })).status).toBe(400);
+    expect((await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: { requires: "postgres" } })).status).toBe(400);
+    expect((await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: {} })).status).toBe(400);
+    expect((await call("POST", "/agents", { wallet: ALICE, body: { repoFullName: "alice-org/agents", name: "y", requires: ["bad name"] } })).status).toBe(400);
+    ghRepo.metaColumns = false;
+    expect((await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: { requires: [] } })).status).toBe(503);
+  });
+
   it("GET /agents/:id answers 404 (not 500) for a non-uuid id", async () => {
     expect((await call("GET", "/agents/not-a-uuid", { wallet: ALICE })).status).toBe(404);
   });

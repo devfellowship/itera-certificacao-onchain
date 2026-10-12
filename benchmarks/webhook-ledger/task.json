@@ -18,7 +18,11 @@
     "install": ["npm", "ci", "--include=dev", "--no-audit", "--no-fund", "--ignore-scripts"],
     "allow_internet": false,
     "cpus": 2,
-    "memory_mb": 2048
+    "memory_mb": 2048,
+    "tools": { "builtin": ["read", "write", "edit", "bash", "search", "list", "todo"], "mcp": [] },
+    "run_egress": ["model-gateway"],
+    "secrets": [],
+    "resources": { "cpus": 2, "memory_mb": 2048, "pids": 512 }
   },
   "tests": { "public": "tests/public", "hidden": "tests/hidden" },
   "solution": { "patch": "solution/solution.patch" },

@@ -66,7 +66,7 @@
       "allOf": [{ "$ref": "#/$defs/relPath" }, { "pattern": "\\.md$" }]
     },
     "environment": {
-      "description": "Harbor [environment]. `dir` holds the starting repository (the agent workspace root).",
+      "description": "Harbor [environment]. `dir` holds the starting repository (the agent workspace root); its meaning does not change. `cpus` and `memory_mb` (Harbor) bound the grading containers. `tools`, `run_egress`, `secrets` and `resources` are the TOOL ENVIRONMENT of the agent run (ADR-11, Inspect AI / Valkyrie vocabulary, see docs/contracts/GLOSSARY.md). They are optional: without them a task gets the default environment (every built-in tool, no MCP server, egress to the model gateway only). The runner is the harness: per run it starts each declared MCP server as a sidecar, and the agent cannot add a server or a tool.",
       "type": "object",
       "additionalProperties": false,
       "required": ["dir"],
@@ -81,7 +81,53 @@
           "const": false
         },
         "cpus": { "type": "number", "exclusiveMinimum": 0, "maximum": 4 },
-        "memory_mb": { "type": "integer", "minimum": 256, "maximum": 4096 }
+        "memory_mb": { "type": "integer", "minimum": 256, "maximum": 4096 },
+        "tools": {
+          "description": "Inspect: the tools given to the Solver. The runner writes the harness config (opencode `tools` and `mcp`) from this block only.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "builtin": {
+              "description": "Allow-list of the harness built-in tools, in neutral names (opencode names: GLOSSARY.md). Absent = all of them. There is no web tool: the run has no internet.",
+              "type": "array",
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/builtinTool" }
+            },
+            "mcp": {
+              "description": "MCP servers that the runner starts per run as sidecars on the sandbox network, with seeded test state and a temporary token.",
+              "type": "array",
+              "maxItems": 5,
+              "items": { "$ref": "#/$defs/mcpServer" }
+            }
+          }
+        },
+        "run_egress": {
+          "description": "Valkyrie run egress, task side. What the agent sandbox can reach while it runs: `model-gateway` (always) = the per-run model gateway; `mcp` = the MCP sidecars of this task (required when the task declares one). Nothing else. The runner intersects it with the run profile.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["model-gateway", "mcp"] },
+          "contains": { "const": "model-gateway" }
+        },
+        "secrets": {
+          "description": "Valkyrie `secrets`: NAMES only, never values. The platform resolves each per run and injects it only into the MCP sidecars that list it (tools.mcp[].secrets), never into the agent sandbox.",
+          "type": "array",
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/secretName" }
+        },
+        "resources": {
+          "description": "Valkyrie `resources`: upper limits of the AGENT sandbox for this task. The runner uses the lower of this and the run profile.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpus": { "type": "number", "exclusiveMinimum": 0, "maximum": 8 },
+            "memory_mb": { "type": "integer", "minimum": 256, "maximum": 16384 },
+            "pids": { "type": "integer", "minimum": 16, "maximum": 4096 }
+          }
+        }
       }
     },
     "tests": {
@@ -187,6 +233,73 @@
       "maxItems": 40,
       "items": { "type": "string", "minLength": 1, "maxLength": 300 }
     },
-    "tag": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,23}$" }
+    "tag": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,23}$" },
+    "builtinTool": {
+      "description": "A harness built-in tool (neutral name). search = grep + glob, todo = todowrite + todoread in opencode.",
+      "enum": ["read", "write", "edit", "bash", "search", "list", "todo"]
+    },
+    "secretName": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+    "mcpServer": {
+      "description": "One MCP server of the task (docs/architecture/mcp-sandbox.md). Exactly one of `catalog` (an Itera catalog server pinned as name@version; the task version stores the resolved digest and tools snapshot), `image` (a reviewed custom image pinned by digest) or `command` (an argv run inside our fixture base image in the sidecar; the agent sandbox never spawns an MCP process). Scenario files: seed in `mcp/<name>/`, scorer assertions in `tests/hidden/mcp/<name>/`, reference call sequence in `solution/mcp-calls.jsonl`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "transport", "allowed_tools"],
+      "oneOf": [{ "required": ["catalog"] }, { "required": ["image"] }, { "required": ["command"] }],
+      "properties": {
+        "name": {
+          "description": "Unique in the task. The harness shows the tools as <name>_<tool>.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+        },
+        "description": { "type": "string", "maxLength": 280 },
+        "catalog": {
+          "description": "Itera catalog server, name@version (mcp/catalog/<name>/manifest.json; a published version never changes).",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,31}@[1-9][0-9]{0,5}$"
+        },
+        "transport": {
+          "description": "The server's native transport. `http` = streamable HTTP; `stdio` = our base image bridges stdio to HTTP inside the sidecar. The agent always reaches the sidecar over HTTP on the run network (run_egress mcp).",
+          "enum": ["stdio", "http"]
+        },
+        "image": {
+          "description": "OCI image reference, pinned by tag or digest.",
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]{1,128})?(@sha256:[0-9a-f]{64})?$"
+        },
+        "command": { "$ref": "#/$defs/argv" },
+        "seed": {
+          "description": "Bundle path of the test state that the worker copies to the sidecar before start: `mcp/<name>/…` at the task root. Never under environment/ (the runner copies that into the agent workspace).",
+          "$ref": "#/$defs/relPath"
+        },
+        "allowed_tools": {
+          "description": "The tools of this server that the agent may call. The SERVER enforces it (ITERA_MCP_ALLOWED_TOOLS: hidden from tools/list, a call is refused); the harness deny list is a convenience only.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" }
+        },
+        "expose_state_to_scorer": {
+          "description": "true = after the run the worker exports the server's final state (/itera/export) to the mcp_state Scorer (trusted plane), with the assertions in tests/hidden/mcp/<name>/. The agent never reads it.",
+          "type": "boolean",
+          "default": false
+        },
+        "secrets": {
+          "description": "Names from environment.secrets that this sidecar receives.",
+          "type": "array",
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/secretName" }
+        },
+        "startup_timeout_sec": {
+          "description": "Wall limit for the server to start and answer list_tools.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "default": 30
+        }
+      }
+    }
   }
 }

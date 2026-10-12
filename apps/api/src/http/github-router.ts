@@ -1,3 +1,4 @@
+import { parseAgentRequires } from "@itera/contracts";
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import { requiredSecret } from "../config.js";
 import { PgGithubAgentsRepository } from "../domain/github-agents-repository.pg.js";
@@ -35,6 +36,7 @@ import { requireWallet as defaultRequireWallet } from "./auth.js";
  *   POST /agents {repoFullName, agentPath, model, name, branch?, commit?, modelRelease?, description?, visibility?}
  *                                                      wallet — snapshot at the pinned commit (default: branch HEAD)
  *   GET  /agents                                       wallet — my agents
+ *   PATCH /agents/:id {requires}                       owner  — U28 agent requires (chip field, screen 02)
  *   GET  /agents/:id                                   owner  — agent + latest version file list
  *   POST /agents/:id/refresh                           owner  — new version at the new HEAD
  */
@@ -102,6 +104,13 @@ export function slugify(name: string): string | null {
 type Handler = (req: Request, res: Response) => Promise<void>;
 
 /** Maps domain errors to JSON responses; never leaks a stack or a token. */
+/** U28: the `requires` chip field, normalized ("postgres" → "mcp:postgres"). 400 on a bad entry. */
+function requiresOf(value: unknown): string[] {
+  const r = parseAgentRequires(value);
+  if (!r.ok) throw new HttpError(400, r.errors.join("; "));
+  return r.value;
+}
+
 function wrap(fn: Handler): RequestHandler {
   return async (req, res) => {
     try {
@@ -402,8 +411,10 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
         modelRelease?: unknown;
         description?: unknown;
         visibility?: unknown;
+        requires?: unknown;
       };
       if (typeof body.repoFullName !== "string") throw new HttpError(400, "repoFullName is required (owner/repo)");
+      const requires = body.requires === undefined || body.requires === null ? undefined : requiresOf(body.requires);
       let agentPath: string;
       try {
         agentPath = normalizeAgentPath(body.agentPath);
@@ -449,6 +460,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
         visibility,
         ...(description !== undefined ? { description } : {}),
         ...(modelRelease !== undefined ? { modelRelease } : {}),
+        ...(requires !== undefined ? { requires } : {}),
         slugBase: slugify(name),
       });
       res.status(201).json({
@@ -482,6 +494,22 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     requireWallet,
     wrap(async (req, res) => {
       res.json({ agent: await ownAgent(req) });
+    }),
+  );
+
+  // U28 (ADR-11): the agent's requirements — MCP servers / built-in tools it needs from a task.
+  // Stored on the agent (not parsed from AGENTS.md). The quote refuses a task that lacks one.
+  router.patch(
+    "/agents/:id",
+    requireWallet,
+    wrap(async (req, res) => {
+      const agent = await ownAgent(req);
+      const body = (req.body ?? {}) as { requires?: unknown };
+      if (body.requires === undefined) throw new HttpError(400, "nothing to update: send requires (array)");
+      const requires = requiresOf(body.requires);
+      const meta = await repo.updateAgentMeta(agent.id, { requires });
+      if (meta.missing.includes("requires")) throw new HttpError(503, "requires is not stored until migration 0011_agent_requires is applied");
+      res.json({ agent: await repo.getGithubAgent(agent.id) });
     }),
   );
 

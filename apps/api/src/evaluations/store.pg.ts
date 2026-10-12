@@ -149,8 +149,9 @@ export class PgEvaluationsStore implements EvaluationsStore {
   async getAgent(agentId: string): Promise<AgentForEval | null> {
     try {
       const { rows } = await this.pool.query(
-        `select id, owner_wallet, name, slug, repo_full_name, agent_path, model, model_release, visibility, pinned_commit
-           from public.agents where id = $1`,
+        `select a.id, a.owner_wallet, a.name, a.slug, a.repo_full_name, a.agent_path, a.model, a.model_release, a.visibility, a.pinned_commit,
+                to_jsonb(a) -> 'requires' as requires
+           from public.agents a where a.id = $1`,
         [agentId],
       );
       const r = rows[0];
@@ -166,6 +167,8 @@ export class PgEvaluationsStore implements EvaluationsStore {
         modelRelease: r.model_release,
         visibility: r.visibility,
         pinnedCommit: r.pinned_commit,
+        // to_jsonb: the column exists only after 0011_agent_requires.
+        requires: Array.isArray(r.requires) ? r.requires.filter((x: unknown): x is string => typeof x === "string") : [],
       };
     } catch (e) {
       rethrow(e);
@@ -193,7 +196,7 @@ export class PgEvaluationsStore implements EvaluationsStore {
     try {
       const { rows } = await this.pool.query(
         `select t.id::text as task_id, t.slug, t.name, t.visibility, tv.id::text as task_version_id, tv.version,
-                tv.pack_id, tv.pack_version, tv.runnable
+                tv.pack_id, tv.pack_version, tv.runnable, t.owner_wallet, tv.contract
            from public.tasks t
            join lateral (select * from public.task_versions v where v.task_id = t.id order by v.version desc limit 1) tv on true
           where t.id::text = $1 or t.slug = $1
@@ -211,6 +214,8 @@ export class PgEvaluationsStore implements EvaluationsStore {
           packVersion: r.pack_version ?? "",
           isPublic: r.visibility === "public",
           runnable: Boolean(r.runnable) && Boolean(r.pack_id) && Boolean(r.pack_version),
+          ownerWallet: r.owner_wallet ?? null,
+          contract: r.contract ?? null,
         };
       }
     } catch (e) {

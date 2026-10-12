@@ -33,6 +33,8 @@ export interface GithubAgent {
   modelRelease?: string | null;
   listedAt?: string | null;
   createdAt?: string | null;
+  /** ADR-11 / U28 (0011_agent_requires): "mcp:<server>" | "tool:<builtin>". Absent until 0011 is applied. */
+  requires?: string[];
 }
 
 /** Fields POST /agents may set beyond the 0002 columns (U8). */
@@ -44,6 +46,8 @@ export interface AgentMetaInput {
   modelRelease?: string | null;
   /** kebab-case base; the store appends 4 hex when it is taken. */
   slugBase?: string | null;
+  /** U28: normalized with parseAgentRequires (@itera/contracts). */
+  requires?: string[];
 }
 
 export interface AgentMetaResult {

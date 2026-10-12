@@ -66,6 +66,40 @@ the per-run configuration from it. The opencode harness is one built-in profile
 | `secrets` | `secrets` (names only) | platform-injected, into the gateway, never into the sandbox |
 | — | `timeouts`, `resources` | wall limits, cpus, memory, pids |
 
+## Tool environment of a task (ADR-11, U28)
+
+`task.json` `environment` keeps Harbor's meaning: `dir` is the agent workspace root, `cpus` and
+`memory_mb` bound the grading containers. ADR-11 adds the **tool environment** of the agent run:
+what the Solver may call. All keys are optional; a task without them gets the default (every
+built-in tool, no MCP server, egress to the model gateway only). Sidecar design:
+`docs/architecture/mcp-sandbox.md` (U33). Schema:
+`packages/contracts/schemas/task.schema.json`; helpers: `packages/contracts/tool-environment.js`.
+
+| Our field (`environment.…`) | Source vocabulary | Meaning |
+|---|---|---|
+| `tools.builtin` | Inspect: the tools given to the Solver | Allow-list of harness built-ins: `read`, `write`, `edit`, `bash`, `search`, `list`, `todo` |
+| `tools.mcp[]` | Inspect: MCP tools of the Solver; Valkyrie: services the benchmark owns | MCP servers the runner starts per run as sidecars (U29) |
+| `tools.mcp[].catalog` / `image` / `command` | Valkyrie `install_cmd`/`run_cmd` boundary | Exactly one: an Itera catalog server pinned `name@version`, a reviewed custom image by digest, or an argv run in our fixture base image inside the sidecar |
+| `tools.mcp[].transport` | MCP | The server's native transport: `http`, or `stdio` bridged to HTTP inside the sidecar. The agent always reaches the sidecar over HTTP |
+| `tools.mcp[].seed` | Inspect: Sample `setup` / `files` | Test state copied into the sidecar before start. Path `mcp/<name>/…` at the task root, never under `environment/` |
+| `tools.mcp[].allowed_tools` | Inspect: tool list of the Solver | The only tools of that server the agent can call. The **server** enforces it (`ITERA_MCP_ALLOWED_TOOLS`) |
+| `tools.mcp[].expose_state_to_scorer` | Inspect: trusted plane (Scorer reads sandbox state) | The worker exports the final state (`/itera/export`) to the `mcp_state` Scorer; assertions in `tests/hidden/mcp/<name>/`; reference calls in `solution/mcp-calls.jsonl` |
+| `run_egress` | Valkyrie `run_egress` (task side) | `model-gateway` (always), `mcp` (required when the task declares a server). Intersected with the run profile |
+| `secrets` | Valkyrie `secrets` | Names only; injected into the MCP sidecars that list them, never into the agent sandbox |
+| `resources` | Valkyrie `resources` | Upper limits of the agent sandbox; the runner takes the lower of task and run profile |
+
+Neutral built-in name → opencode tool names (`OPENCODE_BUILTIN_TOOLS`): `read` → read, `write` →
+write, `edit` → edit + patch, `bash` → bash, `search` → grep + glob, `list` → list, `todo` →
+todowrite + todoread. There is no web tool: the run has no internet.
+
+**Agent `requires`** (`agents.requires`, migration `0011_agent_requires.sql`): what the agent
+needs from a task, entries `mcp:<server>` or `tool:<builtin>` (a bare name means `mcp:<name>`).
+A requirement matches a server by its task-local `name` or by its catalog name. A chip field on screen 02, stored on the agent (`POST /agents`, `PATCH /agents/:id`, returned by
+`GET /agents/:id`), not parsed from AGENTS.md. **Compatibility** (`checkCompatibility`): every
+requirement must be offered by the task. `GET /tasks/:idOrSlug/compatibility?agentId=` answers
+`{ compatible, reasons[] }`; `POST /evaluations/quote` refuses an incompatible pair with
+`422 { code: "incompatible", incompatible: [{ taskId, slug, reasons }] }`, before any payment.
+
 ## Harbor task layout (the Task contract)
 
 See `services/evaluator/README.md` for the full mapping of `task.json` fields to Harbor's

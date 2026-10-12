@@ -7,6 +7,7 @@ import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
 import { createLegacyGoneRouter, RETIRED_ROUTES } from "./http/legacy-gone-router.js";
 import { createEvaluationsV2Router, type EvaluationsRouterDeps } from "./evaluations/router.js";
+import { createCompatibilityRouter } from "./evaluations/compatibility.js";
 import { createNftRouter } from "./http/nft-router.js";
 import { createAgentsRankingRouter, defaultAgentsRankingRouterDeps, type AgentsRankingRouterDeps } from "./http/agents-ranking-router.js";
 import { createAgentProfileRouter, defaultAgentProfileRouterDeps, type AgentProfileRouterDeps } from "./http/agent-profile-router.js";
@@ -66,6 +67,8 @@ const ROUTES = [
   "POST /agents",
   "GET /agents",
   "GET /agents/:id",
+  "PATCH /agents/:id",
+  "GET /tasks/:idOrSlug/compatibility?agentId=",
   "GET /agents/:idOrSlug/profile",
   "GET /agents/:idOrSlug/my-results",
   "GET /badge/agents/:slug.svg",
@@ -170,6 +173,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   if (options.evaluations) app.use(createEvaluationsV2Router(options.evaluations));
   // Retired vendor-endpoint flow: 410 Gone (no local grading in this process).
   app.use(createLegacyGoneRouter());
+  // U28: GET /tasks/:idOrSlug/compatibility (no collision with the catalog's GET /tasks/:idOrSlug).
+  if (options.evaluations) app.use(createCompatibilityRouter({ store: options.evaluations.store }));
   app.use(createCredentialsRouter(repo));
   app.use(createEvaluationRequestsRouter(repo));
   app.use(createTaskPacksRouter(repo));
