@@ -12,22 +12,14 @@ This repository holds the coding-agent evaluation proof of concept for the Colos
   for every route/field name below). `PORT` sets the port (default `3000`).
   - `GET /`: service status as JSON. `GET /health`: minimal liveness check, used by the Dockerfile
     `HEALTHCHECK`, not rate-limited or CORS-gated. `GET /hello-world`: plain text.
-  - **Vendor-side, requires the `x-operator-key` header** (`ITERA_API_OPERATOR_KEY` — a shared
-    secret, not a full auth system; see `apps/api/src/config.ts` `operatorApiKey()` for why):
-    `POST /evaluations` (idempotent on `idempotencyKey` in the body; creates a `pending` run for a
-    known task pack — only `webhook-ledger`/`1` is seeded), `POST /evaluations/:id/dispatch`
-    (sends the challenge to the vendor's HTTPS endpoint, validated against SSRF via
-    `apps/api/src/domain/network-guard.ts` — refuses non-HTTPS and any hostname resolving to a
-    private/loopback/link-local/metadata address; freezes the returned patch as an Observation;
-    runs the real grader via `apps/api/src/domain/grader.ts`, which spawns `services/evaluator`'s
-    own CLI as a **separate process**, matching this repo's convention of not cross-importing
-    between services; resolves the run to `pass`/`fail`/`invalid`/`timeout`/`infra_error` — a scope
-    violation is `invalid`, per the doc's own error-flow section, not a `fail` indistinguishable
-    from a legitimately failing patch. Synchronous and blocking, ~15-90s per call — no async
-    worker/queue in this MVP), `GET /evaluations/:id/events` (observed request/response trail plus
-    the real `evidenceManifest`/`scoreTotal` once dispatched), `POST /evaluations/:id/publish`
-    (redacts and appends a new `claim_manifests` row; 409 if the run is still `pending` —
-    publishing an unresolved run would mean asserting a result nothing graded).
+  - **Retired (410 Gone)**: the first vendor-endpoint flow (`POST /evaluations` with an
+    `idempotencyKey` body, `POST /evaluations/:id/dispatch`, `GET /evaluations/:id/events`,
+    `POST /evaluations/:id/publish`, `POST /agent-endpoint-manifests`). It graded the vendor's
+    patch as a local process inside the API container, outside the grader sandbox. These routes
+    now answer `410` with a pointer to the new flow (`apps/api/src/http/legacy-gone-router.ts`).
+    The new flow is evaluations v2 (`POST /evaluations/quote`, pay, `POST /evaluations`
+    with `reference` + `txSig`, `GET /evaluations/:id`): the runner runs the agent and a separate
+    no-network container runs the grader. The API image carries no evaluator and no `benchmarks/`.
   - **Buyer-side, public and read-only**: `GET /credentials/:id`, `GET /credentials/:id/verify`
     (recomputes the manifest digest for real, AND reads the real on-chain attestation via
     `apps/api/src/domain/solana-attestation.ts`'s `verifyOnChain` — confirms program owner,
@@ -64,13 +56,6 @@ This repository holds the coding-agent evaluation proof of concept for the Colos
     Routes depend on the `Repository` interface (`apps/api/src/domain/repository.ts`), never on
     `pg` directly — tests inject `FakeRepository` (in-memory), production wires `PgRepository`, so
     the test suite needs no live database.
-  - **Not built yet, explicitly out of scope for this slice**: the production Docker image
-    (`apps/api/Dockerfile`) only copies `apps/api` — it has no `benchmarks/` fixtures, no
-    `services/evaluator` source, and no `git`/`npm` guaranteed at runtime, so
-    `POST /evaluations/:id/dispatch` only works when `apps/api` runs from a full repository
-    checkout (confirmed locally via `npm run dev -w @itera/api`, including a real devnet
-    attestation issuance + on-chain verification round-trip; not yet confirmed in the deployed
-    container). A real gap, not a hidden one.
 - `packages/`: shared JavaScript packages as the product grows.
 - `services/`: separate services, including a possible Python evaluation service.
 - `benchmarks/`: three candidate coding scenarios and the planned in-repo fixture/evaluator boundary.

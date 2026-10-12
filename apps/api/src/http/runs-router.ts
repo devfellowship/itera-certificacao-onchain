@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isEvidenceManifest, runResult } from "@itera/contracts";
 import { Router, type Request, type Response } from "express";
 import { digestOf } from "../domain/digest.js";
-import type { EvidenceManifest } from "../domain/grader.js";
+import type { EvidenceManifest } from "../domain/evidence-manifest.js";
 import type { Repository } from "../domain/repository.js";
 import {
   SchemaNotReadyError,

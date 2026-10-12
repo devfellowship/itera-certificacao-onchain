@@ -3,10 +3,9 @@ import express, { type Express } from "express";
 import rateLimit from "express-rate-limit";
 import { CORS_ALLOWED_ORIGINS, RATE_LIMIT } from "./config.js";
 import { createAuthRouter } from "./http/auth.js";
-import { createAgentEndpointManifestsRouter } from "./http/agent-endpoint-manifests-router.js";
 import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
-import { createEvaluationsRouter } from "./http/evaluations-router.js";
+import { createLegacyGoneRouter, RETIRED_ROUTES } from "./http/legacy-gone-router.js";
 import { createEvaluationsV2Router, type EvaluationsRouterDeps } from "./evaluations/router.js";
 import { createNftRouter } from "./http/nft-router.js";
 import { createAgentsRankingRouter, defaultAgentsRankingRouterDeps, type AgentsRankingRouterDeps } from "./http/agents-ranking-router.js";
@@ -44,15 +43,11 @@ const ROUTES = [
   "GET /evaluations?scope=all|my_agents|others",
   "GET /evaluations/:id",
   "POST /evaluations/:id/cancel",
-  "POST /evaluations/:id/dispatch",
-  "GET /evaluations/:id/events",
-  "POST /evaluations/:id/publish",
   "GET /credentials/:id",
   "GET /credentials/:id/verify",
   "GET /credentials/:id/export",
   "POST /evaluation-requests",
   "GET /task-packs",
-  "POST /agent-endpoint-manifests",
   "GET /nft/:mint.json",
   "GET /nft/:mint.png",
   "GET /models",
@@ -153,6 +148,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
       status: "ok",
       version: API_VERSION,
       routes: ROUTES,
+      retired: RETIRED_ROUTES,
     });
   });
 
@@ -162,14 +158,14 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
 
   app.use(createAuthRouter());
   if (options.runs) app.use(createRunsRouter({ repo, ...options.runs }));
-  // Before the legacy vendor router: both answer POST /evaluations (the v2 one falls through on a
-  // legacy body).
+  // Before the 410 router: both answer POST /evaluations (the v2 one falls through on a legacy
+  // body).
   if (options.evaluations) app.use(createEvaluationsV2Router(options.evaluations));
-  app.use(createEvaluationsRouter(repo));
+  // Retired vendor-endpoint flow: 410 Gone (no local grading in this process).
+  app.use(createLegacyGoneRouter());
   app.use(createCredentialsRouter(repo));
   app.use(createEvaluationRequestsRouter(repo));
   app.use(createTaskPacksRouter(repo));
-  app.use(createAgentEndpointManifestsRouter());
   app.use(createNftRouter());
   if (options.catalog) app.use(createCatalogRouter(options.catalog, options.catalogOptions));
   const githubDeps = options.github ?? defaultGithubRouterDeps();

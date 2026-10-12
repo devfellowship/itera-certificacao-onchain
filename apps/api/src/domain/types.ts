@@ -48,8 +48,8 @@ export interface Run {
   status: TaskStatus;
   attempts: number;
   idempotencyKey: string | null;
-  // Populated by POST /evaluations/:id/dispatch once the real grader (services/evaluator,
-  // spawned as a subprocess — see domain/grader.ts) has run. Null until then.
+  // Legacy column. The retired POST /evaluations/:id/dispatch filled it; no code path writes it now
+  // (grading runs in the runner's sandbox). Null until then.
   evidenceManifest: unknown | null;
   scoreTotal: number | null;
   startedAt: string;
@@ -62,7 +62,7 @@ export interface Observation {
   requestDigest: string | null;
   responseDigest: string | null;
   outputArtifactRef: string | null;
-  // The raw patch text the vendor's endpoint returned, frozen at dispatch time — the grader runs
+  // The raw patch text the vendor's endpoint returned, frozen at dispatch time (retired legacy flow) — the grader ran
   // against exactly these bytes. Null for an observation that isn't the dispatch response itself.
   outputArtifactContent: string | null;
   mode: "observed" | "vendor_declared";

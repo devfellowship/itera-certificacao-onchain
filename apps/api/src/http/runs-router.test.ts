@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.js";
 import { decryptRunKey } from "../domain/run-key.js";
 import { digestOf } from "../domain/digest.js";
-import type { EvidenceManifest } from "../domain/grader.js";
+import type { EvidenceManifest } from "../domain/evidence-manifest.js";
 import { FakeRepository } from "../domain/repository.fake.js";
 import { FakeRunsStore } from "../domain/runs-store.fake.js";
 import type { ProofIssuer } from "../domain/runs-store.js";

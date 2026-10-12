@@ -13,39 +13,26 @@ COPY services/runner/package.json services/runner/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 RUN npm ci
 COPY apps/api apps/api
-# domain/grader.ts spawns services/evaluator's CLI as a separate process (this repo's convention —
-# never cross-imported), and that CLI shells out to `npm install`/`vitest` inside a fresh copy of
-# benchmarks/<scenario>/fixture at grading time — so both services/evaluator's full source AND
-# benchmarks/ need to ship in the image, not just apps/api. Previously missing entirely (README
-# called this "Not built yet, explicitly out of scope"); added once a real end-to-end test
-# actually needed it (Tainan Fidelis, Discord #web3, 2026-10-12).
-COPY services/evaluator services/evaluator
+# The API no longer grades anything: the legacy local grader (POST /evaluations/:id/dispatch) was
+# retired, grading runs in the runner's no-network sandbox. So neither services/evaluator nor
+# benchmarks/ ship in this image (the hidden tests never sit next to the API process).
 COPY packages/contracts packages/contracts
-COPY benchmarks benchmarks
 RUN npx turbo run build --filter=@itera/api \
   && npm prune --omit=dev
 
 FROM node:24-alpine
 ENV NODE_ENV=production PORT=3000
 # domain/manifests-repo.ts spawns `git` (and `GIT_SSH_COMMAND` needs `ssh`) to commit into the
-# public manifests repo, and services/evaluator/src/runner.ts spawns `git` too (diffing the
-# fixture before/after the patch) — node:24-alpine has neither by default, so every route calling
-# commitMarkdownFile() AND every real grading run failed in production with "spawn git ENOENT"
-# until this line (Tainan Fidelis, Discord #web3, 2026-10-12, first real PreparePage test).
+# public manifests repo — node:24-alpine has neither by default, so every route calling
+# commitMarkdownFile() failed in production with "spawn git ENOENT" until this line.
 RUN apk add --no-cache git openssh-client
 WORKDIR /app
-# grader.ts spawns `npx tsx services/evaluator/src/cli.ts` with this as cwd — see
-# apps/api/src/domain/paths.ts for why REPO_ROOT can't be derived from this file's own location
-# alone in this flattened image layout.
-ENV ITERA_REPO_ROOT=/app
 COPY --from=build /workspace/node_modules ./node_modules
 COPY --from=build /workspace/apps/api/package.json ./package.json
 COPY --from=build /workspace/apps/api/dist ./dist
 COPY --from=build /workspace/apps/api/certs ./certs
-COPY --from=build /workspace/services/evaluator ./services/evaluator
-# The evaluator validates task.json with @itera/contracts (node_modules/@itera/contracts links here).
+# @itera/contracts (node_modules/@itera/contracts links here).
 COPY --from=build /workspace/packages/contracts ./packages/contracts
-COPY --from=build /workspace/benchmarks ./benchmarks
 # Fonts for the NFT image (chain/nft-image.ts) — alpine ships no system fonts.
 COPY --from=build /workspace/apps/api/assets ./assets
 USER node
