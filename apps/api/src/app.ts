@@ -21,6 +21,7 @@ import type { ProofStore } from "./chain/proof-store.js";
 import { createCatalogRouter, modelAccessCheck, type CatalogRouterOptions } from "./http/catalog-router.js";
 import type { CatalogStore } from "./domain/catalog-store.js";
 import { createTaskPacksRouter } from "./http/task-packs-router.js";
+import { createMyTasksRouter, type MyTasksRouterDeps } from "./http/my-tasks-router.js";
 import { createRunsRouter, type RunsRouterDeps } from "./http/runs-router.js";
 import type { Repository } from "./domain/repository.js";
 
@@ -80,6 +81,16 @@ const ROUTES = [
   "GET /leaderboard?benchmark=&version=",
   "GET /tasks?source=&tag=&kind=&runnable=&q=",
   "GET /tasks/:idOrSlug",
+  "POST /tasks/layout",
+  "POST /tasks",
+  "PATCH /tasks/:id",
+  "DELETE /tasks/:id",
+  "GET /tasks/:id/versions",
+  "POST /tasks/:id/versions",
+  "POST /tasks/:id/versions/:v/validate",
+  "POST /tasks/:id/validate",
+  "GET /tasks/:id/versions/:v/validation",
+  "GET /tasks/:id/validations/:validationId",
   "GET /tags?kind=",
   "GET /me",
   "PATCH /me",
@@ -112,6 +123,8 @@ export interface AppOptions {
   /** U5 catalog (tasks, tags, models from DB, profile). Mounted before the GitHub router so its
    * GET /models (DB) wins over the static one. */
   catalog?: CatalogStore;
+  /** U19 My tasks (needs 0009_user_tasks). Mounted before the catalog: its owner GET /tasks/:id wins. */
+  myTasks?: MyTasksRouterDeps;
   /** U21: the on-demand OpenRouter sync and the admin allow-list. */
   catalogOptions?: CatalogRouterOptions;
   /** Evaluations v2 (quote, Solana Pay, batch of runs). Mounted only when given. */
@@ -179,6 +192,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createEvaluationRequestsRouter(repo));
   app.use(createTaskPacksRouter(repo));
   app.use(createNftRouter());
+  if (options.myTasks) app.use(createMyTasksRouter(options.myTasks));
   if (options.catalog) app.use(createCatalogRouter(options.catalog, options.catalogOptions));
   const githubDeps = options.github ?? defaultGithubRouterDeps();
   // U21: POST /agents checks the model against models.enabled (DB) when the catalog is wired.

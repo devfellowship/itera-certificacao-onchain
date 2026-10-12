@@ -46,7 +46,8 @@ const TASKS_SQL = `
             join public.release_declarations rd on rd.id = r.release_declaration_id
            where tv.task_id = t.id and tv.pack_id is not null)::int as agents_run_count
     from public.tasks t
-   where (t.visibility = 'public' or (t.owner_wallet is not null and t.owner_wallet = $1))`;
+   where (t.visibility = 'public' or (t.owner_wallet is not null and t.owner_wallet = $1))
+     and t.deleted_at is null`; // 0009_user_tasks: DELETE /tasks/:id is a soft delete
 
 type TaskRow = {
   id: string;

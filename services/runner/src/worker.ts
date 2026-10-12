@@ -5,13 +5,17 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { loadTask, taskDigests } from '../../evaluator/src/task.js';
 import type { EvidenceManifest } from '../../evaluator/src/types.js';
+import type { ValidationResult } from '../../evaluator/src/validate.js';
 import { materializeAgentFiles } from './agent-files.js';
 import { runAgent, type AgentRunResult } from './agent-run.js';
 import type { ClaimedRun, JobStore, RunOutcome } from './jobs.js';
 import { evalLogOf, finalStatus, runnerEvidence, statusError } from './outcome.js';
 import { decryptRunKey } from './run-key.js';
 import type { SandboxConfig } from './sandbox.js';
+import { fetchTaskFolder, GitHubReadError, isUserPack, type TaskRepoReader } from './task-source.js';
+import type { ClaimedValidation, UserTaskStore, ValidationOutcome } from './user-tasks.js';
 
 const log = (entry: Record<string, unknown>) => console.log(JSON.stringify({ at: new Date().toISOString(), ...entry }));
 
@@ -30,7 +34,78 @@ export interface WorkerDeps {
   config: SandboxConfig;
   runAgent: typeof runAgent;
   /** Grades in a separate sandbox container (grade.ts). Throws on a grader failure. */
-  grade: (opts: { runId: string; repoRoot: string; scenarioId: string; patch: string }) => Promise<EvidenceManifest>;
+  grade: (opts: { runId: string; repoRoot: string; scenarioId: string; taskDir?: string; patch: string }) => Promise<EvidenceManifest>;
+  /** U19 user tasks: the validation queue and the pins (0009_user_tasks.sql). Absent → no user task work. */
+  userTasks?: UserTaskStore;
+  /** Reads a user task folder at its pinned commit through the GitHub App. Null → user tasks fail with a clear error. */
+  taskReader?: TaskRepoReader | null;
+  /** The validation gate in grading containers (grade.ts validateTaskInSandbox). */
+  validate?: (opts: { runId: string; taskDir: string; repeats: number }) => Promise<ValidationResult>;
+}
+
+const NO_GITHUB = 'the runner cannot read user tasks: GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY are not set';
+
+/**
+ * Fetch a user task (pack `user-<task_version_id>`) at its pinned commit into `dir` and check that
+ * the bytes are the ones the gate validated (environment and hidden-test digests). Returns the task
+ * directory. Throws with a message for the run's error.
+ */
+export async function materializeUserTask(deps: WorkerDeps, packId: string, dir: string): Promise<string> {
+  if (!deps.userTasks) throw new Error('user tasks are not enabled on this runner');
+  if (!deps.taskReader) throw new Error(NO_GITHUB);
+  const pin = await deps.userTasks.pinOfPack(packId);
+  if (!pin) throw new Error(`user task ${packId} is unknown or did not pass the validation gate`);
+  await fetchTaskFolder(deps.taskReader, pin, dir);
+  const digests = await taskDigests(await loadTask(dir));
+  if ((pin.hiddenDigest && digests.hidden_tests !== pin.hiddenDigest) || (pin.fixtureDigest && digests.environment !== pin.fixtureDigest)) {
+    throw new Error('the task content at the pinned commit differs from the validated digests');
+  }
+  return dir;
+}
+
+/** Gate result of a task folder that could not be accepted at all (no check ran). */
+export function folderRejected(detail: string): ValidationResult {
+  const notRun = { ok: false, detail: 'not checked' };
+  return {
+    status: 'invalid',
+    checks: {
+      contract: { ok: false, detail },
+      baseline_hidden_fails: { ...notRun, hidden_total: 0, hidden_failed: 0 },
+      solution_passes: { ...notRun, public: '0/0', hidden: '0/0', scope_allowed: false },
+      repeatable: { ...notRun, runs: 0, identical: false },
+      verifier_time: { ...notRun, max_ms: 0, budget_ms: 0 },
+    },
+    digests: null,
+    environment_digest: null,
+    duration_ms: 0,
+  };
+}
+
+/** Run the validation gate of one claimed user task version. Never throws. */
+export async function processValidation(deps: WorkerDeps, claimed: ClaimedValidation): Promise<ValidationOutcome> {
+  let outcome: ValidationOutcome;
+  let root: string | null = null;
+  try {
+    if (!deps.taskReader) throw new GitHubReadError(NO_GITHUB);
+    if (!deps.validate) throw new GitHubReadError('the validation gate is not configured on this runner');
+    root = await mkdtemp(join(tmpdir(), 'itera-task-'));
+    const taskDir = join(root, 'task');
+    try {
+      await fetchTaskFolder(deps.taskReader, claimed.pin, taskDir);
+    } catch (err) {
+      if (err instanceof GitHubReadError) throw err;
+      // The folder itself is not acceptable (symlink, size, no task.json): the version is invalid.
+      return (outcome = { status: 'invalid', result: folderRejected(message(err)), error: null });
+    }
+    const result = await deps.validate({ runId: claimed.id, taskDir, repeats: claimed.repeats });
+    outcome = { status: result.status, result, error: null };
+  } catch (err) {
+    outcome = { status: 'error', result: null, error: message(err) };
+  } finally {
+    if (root) await rm(root, { recursive: true, force: true });
+    if (deps.userTasks) await deps.userTasks.finishValidation(claimed.id, deps.workerId, outcome!).catch((err) => log({ event: 'validation_finish_failed', id: claimed.id, error: message(err) }));
+  }
+  return outcome!;
 }
 
 function message(err: unknown): string {
@@ -62,6 +137,7 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
 
   let outcome: RunOutcome;
   let agentDir: string | null = null;
+  let userTaskRoot: string | null = null;
   try {
     const job = await store.loadJob(claimed);
     let modelKey: string | null = null;
@@ -84,7 +160,20 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
     } else {
       agentDir = await mkdtemp(join(tmpdir(), 'itera-agent-'));
       const files = await materializeAgentFiles(job.files, agentDir);
-      if (files.written.length === 0) {
+      // U19: a user task is read from GitHub at its pinned commit, for this run only.
+      let taskDir: string | undefined;
+      let taskError: string | null = null;
+      if (isUserPack(job.scenarioId)) {
+        userTaskRoot = await mkdtemp(join(tmpdir(), 'itera-task-'));
+        try {
+          taskDir = await materializeUserTask(deps, job.scenarioId, join(userTaskRoot, 'task'));
+        } catch (err) {
+          taskError = `user task could not be read: ${message(err)}`;
+        }
+      }
+      if (taskError) {
+        outcome = fail(taskError);
+      } else if (files.written.length === 0) {
         outcome = fail('the agent version has no AGENTS.md, CLAUDE.md or skills/ file');
       } else {
         await store.setPhase(job.runId, workerId, 'agent_running');
@@ -98,6 +187,7 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
             model: job.model,
             openrouterKey: modelKey,
             config: deps.config,
+            taskDir,
           });
         } catch (err) {
           outcome = fail(`sandbox failed: ${message(err)}`);
@@ -106,7 +196,7 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
           await store.setPhase(job.runId, workerId, 'grading');
           let manifest: EvidenceManifest | null = null;
           try {
-            manifest = await deps.grade({ runId: job.runId, repoRoot: deps.repoRoot, scenarioId: job.scenarioId, patch: agent.patch });
+            manifest = await deps.grade({ runId: job.runId, repoRoot: deps.repoRoot, scenarioId: job.scenarioId, taskDir, patch: agent.patch });
           } catch (err) {
             // Keep the agent's evidence (patch, actions) even when grading fails.
             outcome = fail(`grading failed: ${message(err)}`, {
@@ -137,6 +227,7 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
     outcome = fail(message(err));
   } finally {
     if (agentDir) await rm(agentDir, { recursive: true, force: true });
+    if (userTaskRoot) await rm(userTaskRoot, { recursive: true, force: true });
   }
   await store.finish(claimed.runId, workerId, outcome!);
   return outcome!;
@@ -167,6 +258,8 @@ export async function workerLoop(deps: WorkerDeps, opts: LoopOptions): Promise<v
         lastReap = Date.now();
         const reaped = await deps.store.reapStale(opts.staleMs);
         if (reaped > 0) log({ event: 'reaped', count: reaped });
+        const reapedValidations = deps.userTasks ? await deps.userTasks.reapStaleValidations(opts.staleMs) : 0;
+        if (reapedValidations > 0) log({ event: 'reaped_validations', count: reapedValidations });
       }
       if (inFlight.size < opts.concurrency) {
         const claimed = await deps.store.claim(deps.workerId);
@@ -176,6 +269,18 @@ export async function workerLoop(deps: WorkerDeps, opts: LoopOptions): Promise<v
           const p: Promise<void> = processRun(deps, claimed)
             .then((o) => log({ event: 'finished', runId: claimed.runId, status: o.status, score: o.scoreTotal, actions: o.actions.length, ms: Date.now() - started, error: o.error }))
             .catch((err) => log({ event: 'finish_failed', runId: claimed.runId, error: message(err) }))
+            .finally(() => inFlight.delete(p));
+          inFlight.add(p);
+          continue;
+        }
+        // U19: the validation gate of a user task shares the run slots (runs first).
+        const validation = deps.userTasks ? await deps.userTasks.claimValidation(deps.workerId) : null;
+        if (validation) {
+          log({ event: 'validation_claimed', id: validation.id, taskVersionId: validation.taskVersionId, repo: validation.pin.repoFullName, commit: validation.pin.commitSha.slice(0, 7) });
+          const started = Date.now();
+          const p: Promise<void> = processValidation(deps, validation)
+            .then((o) => log({ event: 'validation_finished', id: validation.id, status: o.status, ms: Date.now() - started, error: o.error }))
+            .catch((err) => log({ event: 'validation_failed', id: validation.id, error: message(err) }))
             .finally(() => inFlight.delete(p));
           inFlight.add(p);
           continue;
@@ -212,7 +317,9 @@ async function main(): Promise<void> {
   const { defaultSandboxConfig, ensureSandboxImage } = await import('./sandbox.js');
   const { exec } = await import('./exec.js');
   const { removeOrphans, recoverLostRuns } = await import('./orphans.js');
-  const { gradeInSandbox } = await import('./grade.js');
+  const { gradeInSandbox, validateTaskInSandbox } = await import('./grade.js');
+  const { PgUserTaskStore } = await import('./user-tasks.pg.js');
+  const { GitHubTaskReader } = await import('./task-source.js');
 
   const databaseUrl = process.env.DATABASE_URL;
   const runKeySecret = process.env.ITERA_RUN_KEY_SECRET || undefined;
@@ -232,6 +339,7 @@ async function main(): Promise<void> {
   if (!process.env.ITERA_SANDBOX_IMAGE) {
     config.image = await ensureSandboxImage(join(repoRoot, 'services', 'runner', 'sandbox'));
   }
+  const taskReader = GitHubTaskReader.fromEnv();
   const selfHost = hostname();
   const workerId = `${process.env.ITERA_WORKER_NAME ?? 'itera-runner'}@${selfHost}`;
   // Safe during a rolling redeploy: runs of a still-live worker (the old one, draining) are kept.
@@ -240,7 +348,7 @@ async function main(): Promise<void> {
   const orphans = await removeOrphans({ docker, store, selfHost });
   log({
     event: 'boot', workerId, image: config.image, wallMs: config.wallMs, maxCostUsd: config.maxCostUsd,
-    platformKey: Boolean(platformModelKey), byok: Boolean(runKeySecret), orphansRemoved: orphans.removed, orphansKept: orphans.kept,
+    platformKey: Boolean(platformModelKey), byok: Boolean(runKeySecret), userTasksGithub: Boolean(taskReader), orphansRemoved: orphans.removed, orphansKept: orphans.kept,
     runsRequeued: recovered.requeued, runsFailed: recovered.failed, runsOfLiveWorkers: recovered.keptLive,
   });
 
@@ -252,7 +360,14 @@ async function main(): Promise<void> {
     });
   }
   await workerLoop(
-    { store, workerId, repoRoot, runKeySecret, platformModelKey, config, runAgent, grade: (o) => gradeInSandbox({ ...o, config }) },
+    {
+      store, workerId, repoRoot, runKeySecret, platformModelKey, config, runAgent,
+      grade: (o) => gradeInSandbox({ ...o, config }),
+      // U19 user tasks (needs 0009_user_tasks.sql; ITERA_USER_TASKS=off disables the queue).
+      userTasks: process.env.ITERA_USER_TASKS === 'off' ? undefined : new PgUserTaskStore(pool),
+      taskReader: taskReader,
+      validate: (o) => validateTaskInSandbox({ ...o, config }),
+    },
     {
       concurrency: Number(process.env.ITERA_RUNNER_CONCURRENCY ?? 2),
       pollMs: Number(process.env.ITERA_RUNNER_POLL_MS ?? 3000),

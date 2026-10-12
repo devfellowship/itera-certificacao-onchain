@@ -99,7 +99,9 @@ export function createProofsRouter(deps: ProofsRouterDeps): Router {
         res.status(400).json({ error: "benchmark is required: GET /leaderboard?benchmark=<id>[&version=<v>]" });
         return;
       }
-      const entries = await store.leaderboard(benchmark, version);
+      // U19: user tasks (pack ids user-<task_version_id>) are never ranked here; the store query
+      // excludes them too.
+      const entries = benchmark.startsWith("user-") ? [] : await store.leaderboard(benchmark, version);
       res.json({
         benchmark,
         version,

@@ -125,6 +125,8 @@ export class PgProofStore implements ProofStore {
           where p.status = 'confirmed' and p.manifest_sha256 is not null
             and p.ranked  -- U27 sealed-test rule: open-tests / public-repo tasks never enter a leaderboard
             and r.task_pack_id = $1 and ($2::text is null or r.task_pack_version = $2)
+            -- U19: never a run on a user task (pack ids user-<task_version_id>, 0009_user_tasks).
+            and r.task_pack_id not like 'user-%'
           order by coalesce(av.agent_id::text, r.id::text), r.score_total desc nulls last, p.created_at asc
        ) best
        order by score_total desc nulls last, created_at asc
