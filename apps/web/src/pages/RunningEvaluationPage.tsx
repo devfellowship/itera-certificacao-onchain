@@ -97,6 +97,18 @@ export function RunningEvaluationPage() {
   const { eid = '' } = useParams()
   const navigate = useNavigate()
   const session = useSession()
+  // U36: the model column of the agent card shows the catalog label ("Claude Haiku 4.5"), not the id.
+  const [modelLabels, setModelLabels] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let live = true
+    api
+      .models()
+      .then((r) => live && setModelLabels(Object.fromEntries(r.models.map((m) => [m.id, m.label]))))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
   const [detail, setDetail] = useState<Detail | null>(null)
   const [fetchedAt, setFetchedAt] = useState(0)
   const [error, setError] = useState<{ status: number; message: string } | null>(null)
@@ -243,7 +255,7 @@ export function RunningEvaluationPage() {
   // U36 (TG 21092): agent card under the title — AgentAvatar, author, model, source, tasks · fee.
   const mine = !!session.wallet && d.agent.authorWallet === session.wallet
   const authorName = mine ? 'you' : d.agent.authorProfile?.displayName ?? (d.agent.authorProfile?.username ? `@${d.agent.authorProfile.username}` : d.agent.authorWallet ? middle(d.agent.authorWallet, 4, 4) : null)
-  const modelLabel = typeof d.model === 'string' ? d.model : d.model.id
+  const modelLabel = typeof d.model === 'string' ? d.model : (modelLabels[d.model.id] ?? d.model.id)
   const repoShort = d.agent.repo ? d.agent.repo.split('/').pop() : null
 
   // Error banner: a timed-out run (INVALID) or a platform fault after the free retry.
