@@ -104,7 +104,7 @@ describe("POST /runs", () => {
     expect(store.runs[0]).toMatchObject({ id: body.runId, ownerWallet: OWNER, status: "queued", agentVersionId: store.versions[0]!.id });
   });
 
-  it("BYOK: stores the caller's model key sealed, never returns it, and requires it", async () => {
+  it("BYOK: stores the caller's model key sealed and never returns it", async () => {
     const res = await createRun();
     expect(res.status).toBe(202);
     const text = await res.text();
@@ -117,21 +117,38 @@ describe("POST /runs", () => {
     const detail = await fetch(`${baseUrl}/runs/${runId}`, { headers: auth(OWNER) });
     expect(await detail.text()).not.toContain(sealed);
 
-    const missing = await fetch(`${baseUrl}/runs`, {
+    const bad = await fetch(`${baseUrl}/runs`, {
+      method: "POST",
+      headers: auth(OWNER),
+      body: JSON.stringify({ agentId, benchmarkId: "webhook-ledger", benchmarkVersion: "1", modelApiKey: "short" }),
+    });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/modelApiKey/);
+  });
+
+  it("platform key: without modelApiKey the run is queued with no sealed key (ITERA pays the tokens)", async () => {
+    const res = await fetch(`${baseUrl}/runs`, {
       method: "POST",
       headers: auth(OWNER),
       body: JSON.stringify({ agentId, benchmarkId: "webhook-ledger", benchmarkVersion: "1" }),
     });
-    expect(missing.status).toBe(400);
-    expect((await missing.json()).error).toMatch(/modelApiKey/);
+    expect(res.status).toBe(202);
+    const { runId } = await res.json();
+    expect(store.modelKeys.has(runId)).toBe(false);
   });
 
-  it("BYOK: 503 when the server has no ITERA_RUN_KEY_SECRET", async () => {
+  it("BYOK: 503 when the server has no ITERA_RUN_KEY_SECRET, but a platform run still works", async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     server = createApp(repo, { runs: { store } }).listen(0);
     await new Promise<void>((resolve) => server.once("listening", resolve));
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     expect((await createRun()).status).toBe(503);
+    const platform = await fetch(`${baseUrl}/runs`, {
+      method: "POST",
+      headers: auth(OWNER),
+      body: JSON.stringify({ agentId, benchmarkId: "webhook-ledger", benchmarkVersion: "1" }),
+    });
+    expect(platform.status).toBe(202);
   });
 
   it("refuses an agent of another wallet, an unknown benchmark, and an agent without a version", async () => {
@@ -255,5 +272,61 @@ describe("POST /runs/:id/publish", () => {
 describe("redactText", () => {
   it("removes tmp paths and hidden test names", () => {
     expect(redactText("boom at /tmp/x/y.ts:3 in hidden/a.test.ts")).toBe("boom at <tmp>:3 in <hidden-test>");
+  });
+});
+
+describe("model cost", () => {
+  it("GET /runs/:id shows modelCostUsd and tokens (null until measured)", async () => {
+    const { runId } = await (await createRun()).json();
+    let body = await (await fetch(`${baseUrl}/runs/${runId}`)).json();
+    expect(body.modelCostUsd).toBeNull();
+    expect(body.modelTokens).toBeNull();
+    finish(runId);
+    Object.assign(store.runs[0]!, { modelCostUsd: 0.0421, modelTokensIn: 380000, modelTokensOut: 9000 });
+    body = await (await fetch(`${baseUrl}/runs/${runId}`)).json();
+    expect(body.modelCostUsd).toBe(0.0421);
+    expect(body.modelTokens).toEqual({ in: 380000, out: 9000 });
+  });
+
+  it("GET /models/:id/estimate: average of recorded runs of (task, model)", async () => {
+    for (const cost of [0.04, 0.06]) {
+      const { runId } = await (await createRun()).json();
+      finish(runId);
+      const run = store.runs.find((r) => r.id === runId)!;
+      Object.assign(run, {
+        evidenceManifest: { ...manifest, runner: { model: "qwen/qwen3-coder" } },
+        modelCostUsd: cost,
+        modelTokensIn: 100000,
+        modelTokensOut: 5000,
+      });
+    }
+    for (const path of ["qwen/qwen3-coder", "qwen%2Fqwen3-coder"]) {
+      const res = await fetch(`${baseUrl}/models/${path}/estimate?task=webhook-ledger&version=1`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        model: "qwen/qwen3-coder",
+        estimatedCostUsd: 0.05,
+        basis: "history",
+        sampleSize: 2,
+        tokens: { in: 100000, out: 5000 },
+        runFeeUsd: 0.1,
+      });
+    }
+  });
+
+  it("GET /models/:id/estimate: list price × default token budget when there is no history", async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    const prices = vi.fn(async (id: string) => (id === "anthropic/claude-haiku-4.5" ? { prompt: 1e-6, completion: 5e-6 } : null));
+    server = createApp(repo, { runs: { store, runKeySecret: RUN_KEY_SECRET, prices } }).listen(0);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const res = await fetch(`${baseUrl}/models/anthropic/claude-haiku-4.5/estimate?task=webhook-ledger&version=1`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ basis: "list_price", sampleSize: 0, pricePerMillionTokens: { prompt: 1, completion: 5 } });
+    expect(body.estimatedCostUsd).toBeCloseTo(body.tokens.in * 1e-6 + body.tokens.out * 5e-6, 6);
+    expect((await fetch(`${baseUrl}/models/nobody/none/estimate?task=webhook-ledger&version=1`)).status).toBe(404);
+    expect((await fetch(`${baseUrl}/models/anthropic/claude-haiku-4.5/estimate`)).status).toBe(400);
+    expect((await fetch(`${baseUrl}/models/bad%20id/estimate?task=t&version=1`)).status).toBe(400);
   });
 });

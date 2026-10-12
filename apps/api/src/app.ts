@@ -42,6 +42,7 @@ const ROUTES = [
   "GET /nft/:mint.json",
   "GET /nft/:mint.png",
   "GET /models",
+  "GET /models/:id/estimate?task=&version=",
   "GET /github/install-url",
   "GET /github/callback",
   "GET /github/installations",

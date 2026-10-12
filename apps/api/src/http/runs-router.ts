@@ -14,10 +14,25 @@ import {
   type RunsStore,
 } from "../domain/runs-store.js";
 import { encryptRunKey } from "../domain/run-key.js";
+import { openRouterPrices, type PriceLookup } from "../domain/model-prices.js";
 import { requireWallet } from "./auth.js";
 
-/** Contract: "per-wallet limit 5 runs/day". The caller pays the model tokens (BYOK, Tainan TG 20935). */
+/**
+ * Contract: "per-wallet limit 5 runs/day". ITERA pays the model tokens (Tainan TG 20967, plan
+ * 20261012-itera-testmyagent-ui-refactor Q2 = B); BYOK (`modelApiKey`) stays optional.
+ */
 export const RUNS_PER_WALLET_PER_DAY = Number(process.env.ITERA_RUNS_PER_WALLET_PER_DAY ?? 5);
+
+/** The run fee today (US$). ITERA subsidizes the model tokens inside it. */
+export const RUN_FEE_USD = 0.1;
+/** Same default as the runner gateway's hard cap (services/runner, ITERA_RUN_MAX_COST_USD). */
+export const RUN_MAX_COST_USD = Number(process.env.ITERA_RUN_MAX_COST_USD ?? 0.5);
+/**
+ * Token budget of one run, for an estimate without history (list price × budget). Calibrated on the
+ * first platform-key run of webhook-ledger; real history replaces it as soon as a (task, model) has runs.
+ */
+export const DEFAULT_RUN_TOKENS_IN = Number(process.env.ITERA_ESTIMATE_TOKENS_IN ?? 400_000);
+export const DEFAULT_RUN_TOKENS_OUT = Number(process.env.ITERA_ESTIMATE_TOKENS_OUT ?? 12_000);
 const LIST_LIMIT = 50;
 
 export interface RunsRouterDeps {
@@ -32,6 +47,12 @@ export interface RunsRouterDeps {
    * model tokens). Absent → POST /runs answers 503.
    */
   runKeySecret?: string;
+  /** OpenRouter list prices for GET /models/:id/estimate. Defaults to the public model list. */
+  prices?: PriceLookup;
+}
+
+function round6(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -105,6 +126,8 @@ function summaryView(run: AsyncRun) {
     agentVersionId: run.agentVersionId,
     createdAt: run.startedAt,
     completedAt: run.completedAt,
+    /** Model cost in USD, as billed by OpenRouter and measured by the runner. Null = not measured (yet). */
+    modelCostUsd: run.modelCostUsd ?? null,
   };
 }
 
@@ -138,6 +161,7 @@ async function detailView(store: RunsStore, run: AsyncRun) {
     patchScope: manifest ? { changedFiles: manifest.patch_scope.changed_files, allowed: manifest.patch_scope.allowed } : null,
     patch,
     actionsCount,
+    modelTokens: run.modelTokensIn == null && run.modelTokensOut == null ? null : { in: run.modelTokensIn ?? 0, out: run.modelTokensOut ?? 0 },
     errors: errors.map(redactText),
     proof: proofView(proof),
   };
@@ -180,17 +204,21 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
         res.status(400).json({ error: "benchmarkId and benchmarkVersion are required" });
         return;
       }
-      // BYOK: the run uses the caller's own OpenRouter key. It is stored sealed, used only by the
+      // ITERA pays the model tokens by default: no key → the runner uses ITERA's platform key.
+      // BYOK (optional): the caller's own OpenRouter key. It is stored sealed, used only by the
       // worker's model gateway, wiped when the run ends, and never logged or returned.
-      if (!isModelApiKey(body.modelApiKey)) {
-        res.status(400).json({ error: "modelApiKey (your OpenRouter API key) is required" });
-        return;
+      let modelApiKeyEnc: string | null = null;
+      if (body.modelApiKey !== undefined && body.modelApiKey !== null && body.modelApiKey !== "") {
+        if (!isModelApiKey(body.modelApiKey)) {
+          res.status(400).json({ error: "modelApiKey is not a valid OpenRouter API key (omit it to let ITERA pay the model tokens)" });
+          return;
+        }
+        if (!deps.runKeySecret) {
+          res.status(503).json({ error: "BYOK is not configured on this server (ITERA_RUN_KEY_SECRET); omit modelApiKey" });
+          return;
+        }
+        modelApiKeyEnc = encryptRunKey(body.modelApiKey.trim(), deps.runKeySecret);
       }
-      if (!deps.runKeySecret) {
-        res.status(503).json({ error: "runs are not configured on this server (ITERA_RUN_KEY_SECRET)" });
-        return;
-      }
-      const modelApiKeyEnc = encryptRunKey(body.modelApiKey.trim(), deps.runKeySecret);
       const taskPack = await repo.getTaskPack(body.benchmarkId, body.benchmarkVersion);
       if (!taskPack) {
         res.status(404).json({ error: `unknown benchmark ${body.benchmarkId}/${body.benchmarkVersion}` });
@@ -245,6 +273,60 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
         }
       }
       res.status(202).json({ runId: run.id, status: "queued", runStartMemo, ...(runStartMemoError ? { runStartMemoError } : {}) });
+    }),
+  );
+
+  // GET /models/:id/estimate?task=&version= — estimated model cost of ONE run (USD). Public.
+  // The model id has a slash (vendor/model): both the raw and the %2F-encoded forms work.
+  // history = average recorded cost of finished runs of (task, model); else list price × default budget.
+  // Informational: it supports a future dynamic price (cost + margin). It changes no charge.
+  const prices = deps.prices ?? openRouterPrices();
+  router.get(
+    /^\/models\/(.+)\/estimate$/,
+    handle(async (req, res) => {
+      const raw = String((req.params as Record<string, string>)[0] ?? "");
+      let model: string;
+      try {
+        model = decodeURIComponent(raw);
+      } catch {
+        model = raw;
+      }
+      const task = typeof req.query.task === "string" ? req.query.task : "";
+      const version = typeof req.query.version === "string" ? req.query.version : "";
+      if (!/^[A-Za-z0-9._:~-]+\/[A-Za-z0-9._:~-]+$/.test(model) || model.length > 200) {
+        res.status(400).json({ error: "model id must look like vendor/model" });
+        return;
+      }
+      if (!task || !version) {
+        res.status(400).json({ error: "task and version query parameters are required" });
+        return;
+      }
+      const base = { model, task, version, currency: "USD", runFeeUsd: RUN_FEE_USD, maxCostPerRunUsd: RUN_MAX_COST_USD };
+      const stats = await store.costStats(task, version, model);
+      if (stats.runs > 0 && stats.avgCostUsd !== null) {
+        res.json({
+          ...base,
+          estimatedCostUsd: round6(stats.avgCostUsd),
+          basis: "history",
+          sampleSize: stats.runs,
+          tokens: { in: Math.round(stats.avgTokensIn ?? 0), out: Math.round(stats.avgTokensOut ?? 0) },
+        });
+        return;
+      }
+      const price = await prices(model);
+      if (!price) {
+        res.status(404).json({ ...base, error: "no recorded runs and no OpenRouter list price for this model" });
+        return;
+      }
+      const cost = price.prompt * DEFAULT_RUN_TOKENS_IN + price.completion * DEFAULT_RUN_TOKENS_OUT;
+      res.json({
+        ...base,
+        estimatedCostUsd: round6(Math.min(cost, RUN_MAX_COST_USD)),
+        basis: "list_price",
+        sampleSize: 0,
+        tokens: { in: DEFAULT_RUN_TOKENS_IN, out: DEFAULT_RUN_TOKENS_OUT },
+        pricePerMillionTokens: { prompt: round6(price.prompt * 1e6), completion: round6(price.completion * 1e6) },
+      });
     }),
   );
 
