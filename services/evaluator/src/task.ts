@@ -118,6 +118,12 @@ export async function loadTask(taskDir: string): Promise<LoadedTask> {
   for (const [key, path] of Object.entries(paths)) {
     if (!(await exists(path))) throw new TaskError(`task.json names ${key} at ${relative(dir, path)}, which does not exist`);
   }
+  // ADR-11: the seeded state of each MCP server must be in the bundle (the runner loads it; U29).
+  for (const server of contract.environment.tools?.mcp ?? []) {
+    if (server.seed && !(await exists(inside(dir, server.seed)))) {
+      throw new TaskError(`task.json names the seed of MCP server ${server.name} at ${server.seed}, which does not exist`);
+    }
+  }
   // Walk the whole bundle once: refuses symlinks and special files everywhere, and package-manager
   // config files (a .npmrc can point npm at another registry and expand variables into requests).
   for (const file of await listFiles(dir, SKIP_GENERATED)) {

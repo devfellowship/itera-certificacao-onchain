@@ -16,12 +16,14 @@
  * falls through to it.
  */
 import { randomUUID } from "node:crypto";
+import type { Compatibility } from "@itera/contracts";
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { encryptRunKey } from "../domain/run-key.js";
 import { requireWallet } from "../http/auth.js";
 import { isModelApiKey } from "../http/runs-router.js";
 import { lamportsToSol, round4, usdToLamports, type EvaluationsConfig } from "./config.js";
+import { compatibilityOf } from "./compatibility.js";
 import { buildEvaluationMemo } from "./memo.js";
 import { priceRun, type RunCostEstimator } from "./estimate.js";
 import { PriceUnavailableError, type SolUsdProvider } from "./price.js";
@@ -142,6 +144,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         return;
       }
       const tasks: EvalTask[] = [];
+      const incompatible: Array<{ taskId: string; slug: string; reasons: Compatibility["reasons"] }> = [];
       for (const id of taskIds) {
         const t = await store.resolveTask(id);
         if (!t) {
@@ -152,8 +155,19 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
           res.status(409).json({ error: `task ${t.slug} is not runnable yet` });
           return;
         }
-        const { runnable: _r, ...task } = t;
+        // ADR-11 / U28: an incompatible agent/task pair is refused here, before any payment.
+        const c = compatibilityOf(agent, t);
+        if (!c.compatible) incompatible.push({ taskId: t.taskId, slug: t.slug, reasons: c.reasons });
+        const { runnable: _r, ownerWallet: _o, contract: _c, ...task } = t;
         tasks.push(task);
+      }
+      if (incompatible.length > 0) {
+        res.status(422).json({
+          error: `the agent is not compatible with ${incompatible.length === 1 ? `task ${incompatible[0]!.slug}` : `${incompatible.length} tasks`}: ${incompatible.flatMap((x) => x.reasons.map((r) => r.message)).join("; ")}`,
+          code: "incompatible",
+          incompatible,
+        });
+        return;
       }
       const recent = await store.countRecentRuns(wallet);
       if (recent + tasks.length > config.runsPerWalletPerDay) {

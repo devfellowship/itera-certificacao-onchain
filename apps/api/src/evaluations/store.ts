@@ -22,6 +22,10 @@ export interface EvalTask {
 
 export interface ResolvedTask extends EvalTask {
   runnable: boolean;
+  /** tasks.owner_wallet (user tasks); null for curated tasks. */
+  ownerWallet?: string | null;
+  /** task_versions.contract (the task.json, or a partial one for curated seeds). U28 reads its environment. */
+  contract?: unknown;
 }
 
 export interface AgentForEval {
@@ -35,6 +39,8 @@ export interface AgentForEval {
   modelRelease: string | null;
   visibility: "private" | "listed";
   pinnedCommit: string | null;
+  /** U28 (0011_agent_requires): "mcp:<server>" | "tool:<builtin>". [] before 0011. */
+  requires?: string[];
 }
 
 export interface PaymentRecord {

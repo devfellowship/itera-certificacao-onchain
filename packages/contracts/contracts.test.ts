@@ -67,3 +67,111 @@ describe('runResult (state kept apart from verdict)', () => {
     expect(runResult('fail', { result: { state: 'completed', verdict: 'fail', scored: true } })).toEqual({ state: 'completed', verdict: 'fail', scored: true });
   });
 });
+
+import { checkCompatibility, parseAgentRequires, toolEnvironment, DEFAULT_TOOL_ENVIRONMENT, OPENCODE_BUILTIN_TOOLS, BUILTIN_TOOLS } from './index.js';
+
+describe('task.schema.json environment block: the tool environment (ADR-11, U28)', () => {
+  const withMcp = () => {
+    const t = clone();
+    t.environment.tools = {
+      builtin: ['read', 'edit', 'bash'],
+      mcp: [
+        { name: 'postgres', transport: 'http', image: 'ghcr.io/itera/mcp-postgres:1', seed: 'mcp/postgres/seed.sql', allowed_tools: ['query', 'list_tables'], expose_state_to_scorer: true, secrets: ['PG_PASSWORD'] },
+        { name: 'http-mock', transport: 'stdio', command: ['node', 'mock.js'], allowed_tools: ['request'] },
+      ],
+    };
+    t.environment.run_egress = ['model-gateway', 'mcp'];
+    t.environment.secrets = ['PG_PASSWORD'];
+    return t;
+  };
+
+  it('webhook-ledger declares built-in tools only', () => {
+    expect(ledger.environment.tools.mcp).toEqual([]);
+    expect(ledger.environment.run_egress).toEqual(['model-gateway']);
+    expect(toolEnvironment(ledger).builtin).toEqual([...BUILTIN_TOOLS]);
+  });
+
+  it('accepts a task with two MCP servers', () => {
+    expect(validateTaskContract(withMcp())).toMatchObject({ ok: true });
+  });
+
+  it('keeps the environment/ dir semantics: old task.json without the new keys still validates and gets the defaults', () => {
+    const t = clone();
+    for (const k of ['tools', 'run_egress', 'secrets', 'resources']) delete t.environment[k];
+    expect(validateTaskContract(t).ok).toBe(true);
+    expect(toolEnvironment(t)).toEqual({ ...DEFAULT_TOOL_ENVIRONMENT, builtin: [...BUILTIN_TOOLS], mcp: [], run_egress: ['model-gateway'], secrets: [], resources: {} });
+  });
+
+  it('rejects a bad environment block (schema)', () => {
+    for (const edit of [
+      (t: any) => (t.environment.tools.builtin = ['webfetch']),
+      (t: any) => (t.environment.tools.mcp[0].transport = 'sse'),
+      (t: any) => delete t.environment.tools.mcp[0].allowed_tools,
+      (t: any) => (t.environment.tools.mcp[0].allowed_tools = []),
+      (t: any) => (t.environment.tools.mcp[1].image = 'x:1'), // image AND command
+      (t: any) => delete t.environment.tools.mcp[1].command, // neither
+      (t: any) => (t.environment.tools.mcp[0].seed = '../etc/passwd'),
+      (t: any) => (t.environment.tools.mcp[0].name = 'Bad Name'),
+      (t: any) => (t.environment.run_egress = ['mcp']), // no model-gateway
+      (t: any) => (t.environment.run_egress = ['model-gateway', 'internet']),
+      (t: any) => (t.environment.secrets = ['lower']),
+      (t: any) => (t.environment.secrets = { PG_PASSWORD: 'value' }), // names only, never values
+      (t: any) => (t.environment.resources = { pids: 1 }),
+      (t: any) => (t.environment.tools.extra = true),
+    ]) {
+      const t = withMcp();
+      edit(t);
+      expect(validateTaskContract(t).ok, edit.toString()).toBe(false);
+    }
+  });
+
+  it('rejects what the schema cannot say: duplicate names, http without egress, undeclared secret, seed in the workspace', () => {
+    const cases: Array<[(t: any) => void, RegExp]> = [
+      [(t) => (t.environment.tools.mcp[1].name = 'postgres'), /declared twice/],
+      [(t) => (t.environment.run_egress = ['model-gateway']), /transport http needs "mcp"/],
+      [(t) => (t.environment.secrets = []), /PG_PASSWORD is not declared/],
+      [(t) => (t.environment.tools.mcp[0].seed = 'environment/seed.sql'), /must not be inside environment.dir/],
+    ];
+    for (const [edit, re] of cases) {
+      const t = withMcp();
+      edit(t);
+      const r = validateTaskContract(t);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errors.join(' ')).toMatch(re);
+    }
+    const t = clone();
+    t.environment.run_egress = ['model-gateway', 'mcp'];
+    expect(validateTaskContract(t).ok).toBe(false); // mcp egress without a server
+  });
+
+  it('maps every neutral built-in tool to opencode names', () => {
+    expect(Object.keys(OPENCODE_BUILTIN_TOOLS).sort()).toEqual([...BUILTIN_TOOLS].sort());
+  });
+});
+
+describe('agent requires + compatibility (U28)', () => {
+  it('normalizes the chip field: bare name = mcp:<name>, lower case, de-duplicated', () => {
+    expect(parseAgentRequires(['Postgres', 'mcp:postgres', 'tool:bash'])).toEqual({ ok: true, value: ['mcp:postgres', 'tool:bash'] });
+    expect(parseAgentRequires([]).ok).toBe(true);
+    expect(parseAgentRequires('postgres').ok).toBe(false);
+    expect(parseAgentRequires(['tool:webfetch']).ok).toBe(false);
+    expect(parseAgentRequires(['skill:x']).ok).toBe(false);
+    expect(parseAgentRequires(Array.from({ length: 21 }, (_, i) => `s${i}`)).ok).toBe(false);
+  });
+
+  it('webhook-ledger (built-in only) is compatible with no requirement and with tool:bash, not with an MCP requirement', () => {
+    const env = toolEnvironment(ledger);
+    expect(checkCompatibility(env, [])).toEqual({ compatible: true, reasons: [] });
+    expect(checkCompatibility(env, ['tool:bash']).compatible).toBe(true);
+    const r = checkCompatibility(env, ['mcp:postgres', 'tool:bash']);
+    expect(r.compatible).toBe(false);
+    expect(r.reasons).toEqual([expect.objectContaining({ code: 'missing_mcp_server', requirement: 'mcp:postgres' })]);
+  });
+
+  it('a task that restricts built-ins refuses an agent that requires a missing one', () => {
+    const t = clone();
+    t.environment.tools.builtin = ['read', 'edit'];
+    const r = checkCompatibility(toolEnvironment(t), ['tool:bash']);
+    expect(r).toMatchObject({ compatible: false, reasons: [{ code: 'missing_builtin_tool', requirement: 'tool:bash' }] });
+  });
+});

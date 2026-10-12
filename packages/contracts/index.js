@@ -3,6 +3,7 @@
 // evaluator CLI (tsx) and the API (tsc output) all import the same file.
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { toolEnvironmentErrors } from './tool-environment.js';
 
 const require = createRequire(import.meta.url);
 /** @type {typeof import('ajv/dist/2020.js').default} */
@@ -47,9 +48,16 @@ function check(fn, value) {
   return { ok: false, errors: formatErrors(fn.errors) };
 }
 
-/** Validate a parsed task.json against schemas/task.schema.json. @param {unknown} value */
+/**
+ * Validate a parsed task.json against schemas/task.schema.json, plus the tool-environment rules a
+ * schema cannot say (unique MCP names, http needs run_egress mcp, declared secrets, seed outside
+ * the workspace). @param {unknown} value
+ */
 export function validateTaskContract(value) {
-  return check(validateTaskFn, value);
+  const r = check(validateTaskFn, value);
+  if (!r.ok) return r;
+  const errors = toolEnvironmentErrors(r.value);
+  return errors.length > 0 ? { ok: false, errors } : r;
 }
 
 /** Validate a runs.evidence_manifest (the per-run EvalLog). @param {unknown} value */
@@ -111,3 +119,13 @@ export function runResult(status, manifest) {
   }
 }
 export { validateRunProfile, runProfileSchema } from './run-profile.js';
+export {
+  BUILTIN_TOOLS,
+  OPENCODE_BUILTIN_TOOLS,
+  DEFAULT_TOOL_ENVIRONMENT,
+  MAX_REQUIRES,
+  toolEnvironment,
+  toolEnvironmentErrors,
+  parseAgentRequires,
+  checkCompatibility,
+} from './tool-environment.js';

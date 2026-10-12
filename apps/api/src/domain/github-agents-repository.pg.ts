@@ -53,6 +53,7 @@ const META_COLUMNS = {
   modelRelease: "model_release",
   listedAt: "listed_at",
   createdAt: "created_at",
+  requires: "requires",
 } as const;
 
 function metaOf(json: Record<string, unknown> | null): Partial<GithubAgent> {
@@ -122,6 +123,7 @@ class PgGithubAgentsQueries implements GithubAgentsRepository {
       ["branch", "branch"],
       ["pinnedCommit", "pinned_commit"],
       ["modelRelease", "model_release"],
+      ["requires", "requires"],
     ];
     for (const [key, column] of fields) {
       if (input[key] === undefined) continue;

@@ -21,6 +21,11 @@ export interface TaskContract {
     allow_internet?: false;
     cpus?: number;
     memory_mb?: number;
+    /** ADR-11 tool environment of the agent run (optional; see toolEnvironment() for the defaults). */
+    tools?: { builtin?: BuiltinTool[]; mcp?: McpServer[] };
+    run_egress?: RunEgress[];
+    secrets?: string[];
+    resources?: { cpus?: number; memory_mb?: number; pids?: number };
   };
   tests: { public: string; hidden: string };
   solution: { patch: string };
@@ -91,3 +96,59 @@ export declare function runResult(
   status: string,
   manifest?: { result?: { state: string; verdict: string; scored: boolean } } | null,
 ): { state: RunState; verdict: RunVerdict | null; scored: boolean };
+
+// --- Tool environment (ADR-11, U28). Inspect: the tools given to the Solver; Valkyrie: run_egress,
+// secrets, resources. Schema: schemas/task.schema.json (environment.tools …).
+
+/** Harness built-in tool, neutral name. opencode names: OPENCODE_BUILTIN_TOOLS. */
+export type BuiltinTool = 'read' | 'write' | 'edit' | 'bash' | 'search' | 'list' | 'todo';
+export type RunEgress = 'model-gateway' | 'mcp';
+
+/** One MCP server that the runner starts per run as a sidecar (exactly one of image / command). */
+export interface McpServer {
+  name: string;
+  description?: string;
+  transport: 'stdio' | 'http';
+  image?: string;
+  command?: string[];
+  /** Bundle path of the seeded test state. */
+  seed?: string;
+  /** The tools the agent may call; the runner hides the others. */
+  allowed_tools: string[];
+  /** true = the Scorers (trusted plane) read the final state after the run. */
+  expose_state_to_scorer?: boolean;
+  /** Names from environment.secrets injected into this sidecar. */
+  secrets?: string[];
+  startup_timeout_sec?: number;
+}
+
+/** The normalized tool environment of a task (defaults filled in). */
+export interface ToolEnvironment {
+  builtin: BuiltinTool[];
+  mcp: Array<McpServer & { expose_state_to_scorer: boolean }>;
+  run_egress: RunEgress[];
+  secrets: string[];
+  resources: { cpus?: number; memory_mb?: number; pids?: number };
+}
+
+export interface CompatibilityReason {
+  code: 'missing_mcp_server' | 'missing_builtin_tool';
+  /** The agent requirement that is not met, e.g. "mcp:postgres". */
+  requirement: string;
+  message: string;
+}
+
+export interface Compatibility {
+  compatible: boolean;
+  reasons: CompatibilityReason[];
+}
+
+export declare const BUILTIN_TOOLS: readonly BuiltinTool[];
+export declare const OPENCODE_BUILTIN_TOOLS: Readonly<Record<BuiltinTool, string[]>>;
+export declare const DEFAULT_TOOL_ENVIRONMENT: Readonly<ToolEnvironment>;
+export declare const MAX_REQUIRES: number;
+export declare function toolEnvironment(contract: { environment?: Record<string, unknown> } | null | undefined): ToolEnvironment;
+export declare function toolEnvironmentErrors(contract: TaskContract): string[];
+/** Agent `requires`: "mcp:<server>" | "tool:<builtin>"; a bare name means mcp:<name>. */
+export declare function parseAgentRequires(value: unknown): Validation<string[]>;
+export declare function checkCompatibility(env: ToolEnvironment, requires: readonly string[]): Compatibility;
