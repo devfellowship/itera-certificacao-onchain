@@ -37,9 +37,11 @@ export async function runAgent(opts: {
   model: string;
   openrouterKey: string;
   config: SandboxConfig;
+  /** A user task fetched at its pinned commit (U19). Default: benchmarks/<scenarioId>. */
+  taskDir?: string;
 }): Promise<AgentRunResult> {
-  const prompt = await scenarioPrompt(opts.repoRoot, opts.scenarioId);
-  const ws = await prepareWorkspace({ repoRoot: opts.repoRoot, scenarioId: opts.scenarioId, agentDir: opts.agentDir, installCmd: opts.config.profile.install_cmd });
+  const prompt = await scenarioPrompt(opts.repoRoot, opts.scenarioId, opts.taskDir);
+  const ws = await prepareWorkspace({ repoRoot: opts.repoRoot, scenarioId: opts.scenarioId, taskDir: opts.taskDir, agentDir: opts.agentDir, installCmd: opts.config.profile.install_cmd });
   try {
     const outDir = join(ws.root, 'agent-out');
     const sandbox = await runInSandbox({

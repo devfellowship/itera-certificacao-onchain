@@ -99,6 +99,25 @@ The per-run configuration is a **run profile**, `profiles/<name>.json`, validate
 
 The `ITERA_RUN_WALL_MS`, `ITERA_SANDBOX_MEMORY`, `ITERA_SANDBOX_CPUS` and `ITERA_SANDBOX_PIDS` variables below still override the profile. `install_egress` is declarative today: the trusted-side install runs with the worker's network, and the lockfile check of `services/evaluator` (`resolved` URLs on `registry.npmjs.org`) is what holds it to the registry for task bundles.
 
+## User tasks (U19) — read from GitHub at the pinned commit, never stored
+
+A user task version is a GitHub repo + branch + commit + folder (`task_versions`, Gate Q4). The worker
+reads that folder through the TestMyAgent GitHub App with an installation token, for every job, into a
+temp dir on the trusted side, and deletes it when the job ends (Gate Q5: no copy at rest).
+
+- **Validation gate** — `POST /tasks/:id/versions/:v/validate` queues a `task_validations` row. The
+  worker claims it (`FOR UPDATE SKIP LOCKED`, sharing the run slots, runs first), fetches the folder,
+  and runs `validateTaskInSandbox` (baseline: hidden tests FAIL; solution: every case PASSES; 3
+  identical repeats; every verifier run inside `verifier.timeout_sec`). One transaction then writes
+  the result, the digests and `runnable` on the version, a task pack `user-<task_version_id>` / `1`
+  when ready, and the task status. A folder that cannot be accepted (symlink, submodule, no
+  `task.json`, above 1000 files / 5 MB) is `invalid`; GitHub or Docker failing is `error` (not judged).
+- **Runs** — a run whose pack id starts with `user-` fetches the folder at the same commit, checks
+  that the environment and hidden-test digests equal the ones the gate pinned, then runs the agent
+  and grades exactly as for a curated task (`taskDir`). The agent workspace still holds only
+  `environment/` + the public tests (`src/user-tasks.test.ts` proves no hidden-test file or byte
+  reaches it).
+
 ## Configuration (env)
 
 | Variable | Default | Use |
@@ -106,6 +125,8 @@ The `ITERA_RUN_WALL_MS`, `ITERA_SANDBOX_MEMORY`, `ITERA_SANDBOX_CPUS` and `ITERA
 | `DATABASE_URL` | — | Worker: same value as the API app. TLS with the pinned pooler CA (`apps/api/certs`). |
 | `ITERA_RUN_KEY_SECRET` | — | Worker and API: opens / seals the BYOK key. At least 32 characters. Optional when only platform-key runs are used. |
 | `ITERA_RUNNER_OPENROUTER_KEY` | — | ITERA's platform OpenRouter key (worker, and `run-once.ts`). Used for every run without a BYOK key. Infisical `/apps/itera-agent-credentials/ITERA_RUNNER_OPENROUTER_KEY`. |
+| `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` | — | User tasks (U19): read the task folder through the GitHub App. Same values as the API (Infisical `/apps/itera-agent-credentials/`). Without them a user-task validation ends `error` and a user-task run `infra_error`. |
+| `ITERA_USER_TASKS` | on | `off` disables the validation queue on this worker. |
 | `ITERA_RUN_MAX_COST_USD` | `0.50` | Hard model-cost cap of one run, enforced by the gateway. |
 | `ITERA_RUNNER_CONCURRENCY` / `ITERA_RUNNER_POLL_MS` / `ITERA_RUNNER_STALE_MS` | `2` / `3000` / `900000` | Worker loop. |
 | `ITERA_SANDBOX_IMAGE` | worker: built at boot; CLI: `itera-runner-sandbox:latest` | Image built from `sandbox/`. |

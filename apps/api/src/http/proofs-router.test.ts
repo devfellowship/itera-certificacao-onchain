@@ -168,6 +168,14 @@ describe("GET /leaderboard", () => {
     const other = (await (await fetch(`${base}/leaderboard?benchmark=other`)).json()) as { entries: unknown[] };
     expect(other.entries).toEqual([]);
   });
+
+  it("never returns a run on a user task (U19)", async () => {
+    const pack = "user-0b6f1c2e-0000-4000-8000-000000000001";
+    store.runs.set("u1", run({ runId: "u1", agentId: "agent-u", agentRepo: "acme/agent-u", scoreTotal: 100, benchmarkId: pack, benchmarkVersion: "1" }));
+    await store.upsertProof({ runId: "u1", ownerWallet: OWNER, manifestSha256: "e".repeat(64), evidenceCid: "c", attestationAddress: "a", nftMint: "M-u1", txSig: "t", status: "confirmed", error: null });
+    const body = (await (await fetch(`${base}/leaderboard?benchmark=${pack}`)).json()) as { entries: unknown[] };
+    expect(body.entries).toEqual([]);
+  });
 });
 
 describe("U27 leaderboard and proof provenance", () => {

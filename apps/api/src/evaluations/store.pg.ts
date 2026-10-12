@@ -198,8 +198,8 @@ export class PgEvaluationsStore implements EvaluationsStore {
         `select t.id::text as task_id, t.slug, t.name, t.visibility, tv.id::text as task_version_id, tv.version,
                 tv.pack_id, tv.pack_version, tv.runnable, t.owner_wallet, tv.contract
            from public.tasks t
-           join lateral (select * from public.task_versions v where v.task_id = t.id order by v.version desc limit 1) tv on true
-          where t.id::text = $1 or t.slug = $1
+           join lateral (select * from public.task_versions v where v.task_id = t.id order by v.runnable desc, v.version desc limit 1) tv on true
+          where (t.id::text = $1 or t.slug = $1) and t.deleted_at is null
           limit 1`,
         [idOrSlug],
       );

@@ -177,6 +177,16 @@ describe("POST /evaluations/quote", () => {
   });
 });
 
+describe("POST /evaluations/quote on a user task (U19)", () => {
+  it("only the owner of a private task can quote it; another wallet gets 404", async () => {
+    store.tasks.push({ taskId: "u-task", taskVersionId: "v1", slug: "u-task", name: "Mine", packId: "user-v1", packVersion: "1", isPublic: false, ownerWallet: OWNER, runnable: true });
+    expect((await post("/evaluations/quote", { agentId, taskIds: ["u-task"] }, OTHER)).status).toBe(404);
+    const q = await post("/evaluations/quote", { agentId, taskIds: ["u-task"] });
+    expect(q.status).toBe(201);
+    expect(q.body.tasks[0]).not.toHaveProperty("ownerWallet");
+  });
+});
+
 describe("POST /evaluations", () => {
   it("queues the runs only after the transfer validates, with run_start_sig = the payment tx", async () => {
     const { q, txSig } = await quoteAndPay();

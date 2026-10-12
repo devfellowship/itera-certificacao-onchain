@@ -147,7 +147,8 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
       const incompatible: Array<{ taskId: string; slug: string; reasons: Compatibility["reasons"] }> = [];
       for (const id of taskIds) {
         const t = await store.resolveTask(id);
-        if (!t) {
+        // U19: a private (user) task exists only for its owner.
+        if (!t || (!t.isPublic && t.ownerWallet != null && t.ownerWallet !== wallet)) {
           res.status(404).json({ error: `unknown task ${id}` });
           return;
         }

@@ -2,6 +2,10 @@ import { createApp } from "./app.js";
 import { PgProofStore } from "./chain/proof-store.pg.js";
 import { proofIssuerHook, runStartHook } from "./chain/runs-hooks.js";
 import { PgCatalogStore } from "./domain/catalog-store.pg.js";
+import { PgGithubAgentsRepository } from "./domain/github-agents-repository.pg.js";
+import { PgMyTasksStore } from "./domain/my-tasks-store.pg.js";
+import { GitHubAppClient, githubAppConfigFromEnv } from "./github/app-client.js";
+import { requireWallet } from "./http/auth.js";
 import { startModelsSync, syncModels } from "./domain/models-sync.js";
 import { PgRepository } from "./domain/repository.pg.js";
 import { getPool } from "./domain/pool.js";
@@ -31,6 +35,8 @@ const proofIssuer = proofIssuerHook(proofs, reputation);
 const evaluationsStore = new PgEvaluationsStore(getPool());
 createEvaluationIssuer({ store: evaluationsStore, runs: runsStore, proofIssuer }).start();
 
+let tasksGithub: GitHubAppClient | null = null;
+
 createApp(repo, {
   runs: {
     store: runsStore,
@@ -41,6 +47,14 @@ createApp(repo, {
   proofs,
   // Needs db/migrations/0007_catalog.sql (GET /models falls back to the static list without it).
   catalog,
+  // U19 My tasks (needs 0009_user_tasks.sql).
+  myTasks: {
+    store: new PgMyTasksStore(getPool()),
+    catalog,
+    github: () => (tasksGithub ??= new GitHubAppClient(githubAppConfigFromEnv())),
+    installations: new PgGithubAgentsRepository(getPool),
+    requireWallet,
+  },
   catalogOptions: { syncModels: () => syncModels(catalog) },
   evaluations: {
     store: evaluationsStore,
