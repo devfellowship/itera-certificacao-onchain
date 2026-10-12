@@ -31,7 +31,7 @@ vi.mock("./domain/manifests-repo.js", () => ({
   ManifestsRepoError: class ManifestsRepoError extends Error {},
 }));
 
-import { API_VERSION, createApp, SERVICE_NAME } from "./app.js";
+import { API_VERSION, createApp, PRODUCT_NAME, SERVICE_NAME } from "./app.js";
 import { FakeRepository } from "./domain/repository.fake.js";
 import { gradePatch } from "./domain/grader.js";
 import { issueScoreAttestation, verifyOnChain } from "./domain/solana-attestation.js";
@@ -70,6 +70,8 @@ describe("api routes", () => {
     expect(res.headers.get("content-type")).toMatch(/application\/json/);
     const body = await res.json();
     expect(body.service).toBe(SERVICE_NAME);
+    expect(body.name).toBe(PRODUCT_NAME);
+    expect(JSON.stringify(body)).not.toMatch(/itera/i);
     expect(body.status).toBe("ok");
     expect(body.version).toBe(API_VERSION);
     expect(body.routes).toContain("POST /evaluations");

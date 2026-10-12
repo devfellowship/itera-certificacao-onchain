@@ -37,10 +37,10 @@ export async function readOnChainProof(nftMint: string, rpc: Rpc<SolanaRpcApi> =
   if (!metadata || metadata.__kind !== "TokenMetadata") throw new NotAnIteraProof("mint has no token metadata");
   const attestationAddress = metadata.additionalMetadata.get("attestation");
   const schemaAddress = metadata.additionalMetadata.get("schema");
-  if (!attestationAddress || schemaAddress !== CHAIN.RUN_RESULT_SCHEMA_PDA) throw new NotAnIteraProof("not an Itera run-result-v2 NFT");
+  if (!attestationAddress || schemaAddress !== CHAIN.RUN_RESULT_SCHEMA_PDA) throw new NotAnIteraProof("not a TestMyAgent run-result-v2 NFT");
 
   const attestation = await fetchMaybeAttestation(rpc, attestationAddress as Address);
-  if (!attestation.exists || attestation.data.credential !== CHAIN.CREDENTIAL_PDA) throw new NotAnIteraProof("attestation is not from the Itera credential");
+  if (!attestation.exists || attestation.data.credential !== CHAIN.CREDENTIAL_PDA) throw new NotAnIteraProof("attestation is not from the TestMyAgent credential");
   const schema = await fetchMaybeSchema(rpc, CHAIN.RUN_RESULT_SCHEMA_PDA);
   if (!schema.exists) throw new NotAnIteraProof("schema not found");
   const data = deserializeAttestationData(schema.data, attestation.data.data) as RunResultData;

@@ -80,7 +80,7 @@ function wrap(fn: Handler): RequestHandler {
       } else if (e instanceof SchemaNotReadyError) {
         res.status(503).json({ error: e.message });
       } else if (e instanceof GitHubConfigError) {
-        res.status(503).json({ error: "the Itera GitHub App is not configured on this server yet" });
+        res.status(503).json({ error: "the TestMyAgent GitHub App is not configured on this server yet" });
       } else if (e instanceof GitHubApiError) {
         const status = e.status === 404 ? 404 : 502;
         res.status(status).json({ error: status === 404 ? "not found on GitHub" : "GitHub request failed", githubStatus: e.status });
@@ -108,7 +108,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     const installationId = await github().getRepoInstallationId(repoFullName);
     const inst = installationId === null ? null : await repo.getInstallation(installationId);
     if (installationId === null || !inst || inst.ownerWallet !== walletAddr) {
-      throw new HttpError(404, "repo not connected: install the Itera GitHub App on it from this wallet");
+      throw new HttpError(404, "repo not connected: install the TestMyAgent GitHub App on it from this wallet");
     }
     return installationId;
   }
@@ -191,7 +191,7 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
         throw new HttpError(403, "the GitHub user who authorized this flow cannot access that installation");
       }
       const account = await gh.getInstallationAccount(installationId);
-      if (!account) throw new HttpError(404, "installation not found for the Itera GitHub App");
+      if (!account) throw new HttpError(404, "installation not found for the TestMyAgent GitHub App");
       const bound = await repo.bindInstallation({ installationId, ownerWallet: walletAddr, accountLogin: account.login || null });
       if (!bound) throw new HttpError(409, "this installation is already connected to another wallet");
       res.json({ installationId, accountLogin: bound.accountLogin, ownerWallet: bound.ownerWallet });

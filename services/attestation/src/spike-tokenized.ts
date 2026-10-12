@@ -62,8 +62,8 @@ const RUN_RESULT_SCHEMA = {
 // — it only changes how Phantom renders the token — and can be swapped in later without touching
 // any on-chain account.
 const TOKEN_CONFIG = {
-  NAME: 'Itera Run Result',
-  SYMBOL: 'ITERA',
+  NAME: 'TestMyAgent Run Result',
+  SYMBOL: 'TMA',
   METADATA_URI: 'https://example.com/itera-run-result-metadata.json',
 } as const;
 

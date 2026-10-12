@@ -47,8 +47,11 @@ describe("NFT routes", () => {
     const res = await fetch(`${base}/nft/${MINT}.json`);
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
-    const body = (await res.json()) as { symbol: string; image: string; attributes: Array<{ trait_type: string; value: unknown }> };
-    expect(body.symbol).toBe("ITERA");
+    const body = (await res.json()) as { name: string; description: string; symbol: string; image: string; attributes: Array<{ trait_type: string; value: unknown }> };
+    expect(body.symbol).toBe("TMA");
+    expect(body.name).toMatch(/^TestMyAgent Run Result · /);
+    expect(body.description).toMatch(/^TestMyAgent proof\./);
+    expect(`${body.name} ${body.description} ${body.symbol}`).not.toMatch(/itera/i); // URLs keep the itera-agent-credentials* domains (DNS unchanged)
     expect(body.image).toMatch(new RegExp(`/nft/${MINT}\\.png$`));
     const attrs = Object.fromEntries(body.attributes.map((a) => [a.trait_type, a.value]));
     expect(attrs).toMatchObject({ benchmark: "webhook-ledger", score: 87, agent: "acme/agent", model: "anthropic/claude-sonnet-4.5" });
@@ -61,7 +64,7 @@ describe("NFT routes", () => {
     expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(5_000);
   });
 
-  it("answers 404 for a mint that is not an Itera proof", async () => {
+  it("answers 404 for a mint that is not a TestMyAgent proof", async () => {
     const res = await fetch(`${base}/nft/So11111111111111111111111111111111111111112.json`);
     expect(res.status).toBe(404);
   });

@@ -15,8 +15,8 @@ export const CHAIN = {
   WSS_URL: process.env.ITERA_SOLANA_WSS_URL ?? "wss://api.devnet.solana.com",
   CREDENTIAL_PDA: "Dh9NF2L2Ua2u4TUzKRX5u8S5DDCBLNA7aVkunteXt7A3" as Address,
   RUN_RESULT_SCHEMA_PDA: "3FGWK6AsxtXje8r4Eq3rq3GPdoRd3ifx5UN9oKm4w94x" as Address,
-  TOKEN_NAME: "Itera Run Result",
-  TOKEN_SYMBOL: "ITERA",
+  TOKEN_NAME: "TestMyAgent Run Result",
+  TOKEN_SYMBOL: "TMA",
 } as const;
 
 /** Prefix of every run-start Memo. The rest of the memo is the JSON of RunStartMemoPayload. */

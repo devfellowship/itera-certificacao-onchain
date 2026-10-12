@@ -27,5 +27,5 @@ createApp(repo, {
   catalog,
   catalogOptions: { syncModels: () => syncModels(catalog) },
 }).listen(port, () => {
-  console.log(`itera-agent-credentials-api listening on port ${port}`);
+  console.log(`testmyagent-api listening on port ${port}`);
 });

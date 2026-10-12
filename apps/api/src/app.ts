@@ -17,7 +17,9 @@ import { createTaskPacksRouter } from "./http/task-packs-router.js";
 import { createRunsRouter, type RunsRouterDeps } from "./http/runs-router.js";
 import type { Repository } from "./domain/repository.js";
 
-export const SERVICE_NAME = "itera-agent-credentials-api";
+export const SERVICE_NAME = "testmyagent-api";
+export const PRODUCT_NAME = "TestMyAgent";
+export const SERVICE_DESCRIPTION = "TestMyAgent API: verifiable, per-task evidence for coding agents.";
 export const API_VERSION = "0.4.0";
 
 const ROUTES = [
@@ -116,6 +118,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.get("/", (_req, res) => {
     res.json({
       service: SERVICE_NAME,
+      name: PRODUCT_NAME,
+      description: SERVICE_DESCRIPTION,
       status: "ok",
       version: API_VERSION,
       routes: ROUTES,
