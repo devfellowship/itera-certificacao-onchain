@@ -80,6 +80,8 @@ export interface RunsStore {
     taskPackVersion: string;
     nonce: string;
     dailyLimit: number;
+    /** The caller's model API key, sealed with run-key.ts (BYOK). The worker wipes it when the run ends. */
+    modelApiKeyEnc: string;
   }): Promise<AsyncRun | null>;
   getRun(id: string): Promise<AsyncRun | null>;
   listRunsByOwner(wallet: string, limit: number): Promise<AsyncRun[]>;

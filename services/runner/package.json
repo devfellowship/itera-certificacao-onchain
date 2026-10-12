@@ -6,12 +6,18 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "run-once": "tsx src/run-once.ts"
+    "run-once": "tsx src/run-once.ts",
+    "worker": "tsx src/worker.ts",
+    "start": "tsx src/worker.ts"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
-    "tsx": "4.19.2",
+    "@types/pg": "8.23.1",
     "typescript": "5.7.2",
     "vitest": "2.1.8"
+  },
+  "dependencies": {
+    "pg": "8.23.1",
+    "tsx": "4.19.2"
   }
 }

@@ -14,6 +14,8 @@ export class FakeRunsStore implements RunsStore {
   agents: OwnedAgent[] = [];
   versions: (AgentVersionRef & { createdAt: number })[] = [];
   runs: AsyncRun[] = [];
+  /** runs.model_api_key_enc by run id (BYOK). */
+  modelKeys = new Map<string, string>();
   patches = new Map<string, string>();
   actions = new Map<string, number>();
   proofs = new Map<string, ProofRecord>();
@@ -48,6 +50,7 @@ export class FakeRunsStore implements RunsStore {
     taskPackVersion: string;
     nonce: string;
     dailyLimit: number;
+    modelApiKeyEnc: string;
   }): Promise<AsyncRun | null> {
     this.guard();
     const since = Date.now() - 24 * 60 * 60 * 1000;
@@ -70,6 +73,7 @@ export class FakeRunsStore implements RunsStore {
       completedAt: null,
     };
     this.runs.push(run);
+    this.modelKeys.set(run.id, input.modelApiKeyEnc);
     return run;
   }
 

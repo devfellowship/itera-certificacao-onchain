@@ -12,8 +12,6 @@ export const GATEWAY_PORT = 3128;
 export interface SandboxConfig {
   /** Image built from services/runner/sandbox/Dockerfile. */
   image: string;
-  /** Name of the long-lived model gateway container (same image, runs model-gateway.mjs). */
-  gatewayContainer: string;
   /** The only upstream the gateway forwards to. */
   upstream: string;
   wallMs: number;
@@ -25,7 +23,6 @@ export interface SandboxConfig {
 export function defaultSandboxConfig(env: NodeJS.ProcessEnv = process.env): SandboxConfig {
   return {
     image: env.ITERA_SANDBOX_IMAGE ?? 'itera-runner-sandbox:latest',
-    gatewayContainer: env.ITERA_GATEWAY_CONTAINER ?? 'itera-runner-gateway',
     upstream: env.ITERA_MODEL_UPSTREAM ?? 'https://openrouter.ai',
     wallMs: Number(env.ITERA_RUN_WALL_MS ?? DEFAULT_WALL_MS),
     memory: env.ITERA_SANDBOX_MEMORY ?? '2g',
@@ -41,7 +38,7 @@ export function normalizeModel(model: string): string {
 
 /**
  * `docker create` arguments for one agent run. The sandbox gets NO secret: the model key lives
- * only in the gateway container, which adds it to each upstream request.
+ * only in the run's gateway container, which adds it to each upstream request.
  */
 export function buildCreateArgs(opts: {
   name: string;
@@ -74,30 +71,60 @@ async function docker(args: string[], env?: NodeJS.ProcessEnv, timeoutMs?: numbe
   return exec('docker', args, { env, timeoutMs });
 }
 
-/** A short fingerprint of the key, stored as a label, so a rotated key recreates the gateway. */
-export function keyFingerprint(key: string): string {
-  return createHash('sha256').update(key).digest('hex').slice(0, 12);
+/**
+ * `docker run` arguments for the run's model gateway (same image, runs model-gateway.mjs).
+ * One gateway per run: each run carries its own BYOK key. The key goes by NAME (`-e ITERA_UPSTREAM_KEY`):
+ * docker reads the value from the environment of the docker CLI process, so it never appears in argv.
+ */
+export function buildGatewayArgs(opts: { name: string; config: SandboxConfig }): string[] {
+  return [
+    'run', '-d', '--name', opts.name,
+    '--label', 'itera.role=model-gateway',
+    '--network', 'bridge',
+    '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--memory', '256m', '--pids-limit', '128',
+    '-e', 'ITERA_UPSTREAM_KEY',
+    '-e', `ITERA_UPSTREAM=${opts.config.upstream}`,
+    '-e', `ITERA_GATEWAY_PORT=${GATEWAY_PORT}`,
+    '--entrypoint', 'node', opts.config.image, '/opt/itera/model-gateway.mjs',
+  ];
 }
 
-async function ensureGateway(config: SandboxConfig, key: string): Promise<void> {
-  const fp = keyFingerprint(key);
-  const inspect = await docker(['inspect', '-f', '{{.State.Running}} {{index .Config.Labels "itera.key-fp"}}', config.gatewayContainer]);
-  if (inspect.code === 0 && inspect.stdout.trim() === `true ${fp}`) return;
-  if (inspect.code === 0) await docker(['rm', '-f', config.gatewayContainer]);
-  const started = await docker(
-    [
-      'run', '-d', '--name', config.gatewayContainer, '--restart', 'unless-stopped',
-      '--label', 'itera.role=model-gateway', '--label', `itera.key-fp=${fp}`,
-      '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--memory', '256m',
-      // The key goes by NAME: docker reads the value from this process's environment, not argv.
-      '-e', 'ITERA_UPSTREAM_KEY',
-      '-e', `ITERA_UPSTREAM=${config.upstream}`,
-      '-e', `ITERA_GATEWAY_PORT=${GATEWAY_PORT}`,
-      '--entrypoint', 'node', config.image, '/opt/itera/model-gateway.mjs',
-    ],
-    { ...process.env, ITERA_UPSTREAM_KEY: key },
-  );
-  if (started.code !== 0) throw new Error(`model gateway did not start: ${started.stderr.slice(0, 300)}`);
+/** Remove sandbox containers and run networks that a crashed worker left behind. */
+export async function removeOrphans(): Promise<number> {
+  const ids: string[] = [];
+  for (const role of ['agent-sandbox', 'model-gateway']) {
+    const ps = await docker(['ps', '-aq', '--filter', `label=itera.role=${role}`]);
+    ids.push(...ps.stdout.split('\n').map((s) => s.trim()).filter(Boolean));
+  }
+  if (ids.length > 0) await docker(['rm', '-f', ...ids]);
+  const nets = await docker(['network', 'ls', '-q', '--filter', 'label=itera.role=sandbox-net']);
+  for (const id of nets.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
+    const inspect = await docker(['network', 'inspect', '-f', '{{range $k, $v := .Containers}}{{$v.Name}} {{end}}', id]);
+    for (const name of inspect.stdout.split(' ').map((s) => s.trim()).filter(Boolean)) {
+      await docker(['network', 'disconnect', '-f', id, name]);
+    }
+    await docker(['network', 'rm', id]);
+  }
+  return ids.length;
+}
+
+/**
+ * Make sure the sandbox image for `contextDir` exists. The tag is a hash of the directory's
+ * files, so a changed sandbox/ builds a new image and the old one is never reused by mistake.
+ */
+export async function ensureSandboxImage(contextDir: string, repo = 'itera-runner-sandbox'): Promise<string> {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const hash = createHash('sha256');
+  for (const name of (await readdir(contextDir)).sort()) {
+    hash.update(name);
+    hash.update(await readFile(`${contextDir}/${name}`));
+  }
+  const tag = `${repo}:${hash.digest('hex').slice(0, 12)}`;
+  const inspect = await docker(['image', 'inspect', '-f', '{{.Id}}', tag]);
+  if (inspect.code === 0) return tag;
+  const build = await docker(['build', '-q', '-t', tag, contextDir], undefined, 900_000);
+  if (build.code !== 0) throw new Error(`sandbox image build failed: ${build.stderr.slice(-500)}`);
+  return tag;
 }
 
 export interface SandboxResult {
@@ -126,16 +153,18 @@ export async function runInSandbox(opts: {
 }): Promise<SandboxResult> {
   const id = opts.runId.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40);
   const name = `itera-run-${id}`;
+  const gateway = `itera-gw-${id}`;
   const network = `itera-sbx-${id}`;
   const cleanup: Array<() => Promise<unknown>> = [];
   try {
-    await ensureGateway(opts.config, opts.openrouterKey);
     const net = await docker(['network', 'create', '--internal', '--label', 'itera.role=sandbox-net', network]);
     if (net.code !== 0) throw new Error(`network create failed: ${net.stderr.slice(0, 300)}`);
     cleanup.push(() => docker(['network', 'rm', network]));
-    const join = await docker(['network', 'connect', '--alias', GATEWAY_ALIAS, network, opts.config.gatewayContainer]);
+    const gw = await docker(buildGatewayArgs({ name: gateway, config: opts.config }), { ...process.env, ITERA_UPSTREAM_KEY: opts.openrouterKey });
+    if (gw.code !== 0) throw new Error(`model gateway did not start: ${gw.stderr.slice(0, 300)}`);
+    cleanup.unshift(() => docker(['rm', '-f', gateway]));
+    const join = await docker(['network', 'connect', '--alias', GATEWAY_ALIAS, network, gateway]);
     if (join.code !== 0) throw new Error(`gateway network connect failed: ${join.stderr.slice(0, 300)}`);
-    cleanup.unshift(() => docker(['network', 'disconnect', '-f', network, opts.config.gatewayContainer]));
 
     const created = await docker(buildCreateArgs({ name, network, model: opts.model, prompt: opts.prompt, config: opts.config }));
     if (created.code !== 0) throw new Error(`sandbox create failed: ${created.stderr.slice(0, 300)}`);
