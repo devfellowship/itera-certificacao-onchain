@@ -182,7 +182,8 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
     if (!runStartTx) {
       fail('run-start-exists', 'Run-start transaction exists and is confirmed', `No confirmed transaction found for signature ${data.run_start_sig}.`);
     } else {
-      const memoLogged = JSON.stringify(runStartTx).includes(data.scenario_id);
+      // @solana/kit returns u64 fields as bigint, which JSON.stringify cannot serialize.
+      const memoLogged = JSON.stringify(runStartTx, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)).includes(data.scenario_id);
       if (!memoLogged) {
         fail('run-start-exists', 'Run-start transaction exists and is confirmed', 'Transaction found, but its Memo does not mention this scenario_id.');
       } else {
@@ -193,16 +194,22 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
     skip('run-start-exists', 'Run-start transaction exists and is confirmed', `RPC call failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  // --- Check 7 (rest): exactly one holder, balance 1. Same resilience reasoning as check 5.
-  try {
-    const { value: largestAccounts } = await rpc.getTokenLargestAccounts(attestationMint).send();
-    if (largestAccounts.length !== 1 || largestAccounts[0].amount !== '1') {
-      fail('single-holder', 'Exactly one holder, balance 1', `Found ${largestAccounts.length} account(s): ${largestAccounts.map((a) => `${a.address}=${a.amount}`).join(', ')}`);
-    } else {
-      pass('single-holder', 'Exactly one holder, balance 1', `Held by ${largestAccounts[0].address}.`);
+  // --- Check 7 (rest): exactly one holder, balance 1. Read from the mint account itself: with
+  // decimals 0 and supply 1, at most one token account can hold the token, and it holds exactly 1.
+  // getTokenLargestAccounts is only used to name the holder: the public devnet RPC blocks that
+  // method outright (measured 2026-10-12: HTTP 429, x-ratelimit-method-limit: 0), so it can never
+  // be the source of the verdict.
+  if (mint.data.decimals !== 0 || mint.data.supply !== 1n) {
+    fail('single-holder', 'Exactly one holder, balance 1', `Mint has decimals ${mint.data.decimals} and supply ${mint.data.supply}; expected 0 and 1.`);
+  } else {
+    let holder = 'holder address not available from this RPC';
+    try {
+      const { value: largestAccounts } = await rpc.getTokenLargestAccounts(attestationMint).send();
+      if (largestAccounts[0]) holder = `held by token account ${largestAccounts[0].address}`;
+    } catch {
+      // Naming the holder is optional; the supply already proves the property.
     }
-  } catch (error) {
-    skip('single-holder', 'Exactly one holder, balance 1', `RPC call failed: ${error instanceof Error ? error.message : String(error)}`);
+    pass('single-holder', 'Exactly one holder, balance 1', `Supply 1, decimals 0 — ${holder}.`);
   }
 
   // --- Check 4: sha256 of the pinned manifest's raw bytes matches manifest_sha256 on-chain.
