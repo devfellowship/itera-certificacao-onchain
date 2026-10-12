@@ -16,6 +16,12 @@ RUN npx turbo run build --filter=@itera/api \
 
 FROM node:24-alpine
 ENV NODE_ENV=production PORT=3000
+# domain/manifests-repo.ts spawns `git` (and `GIT_SSH_COMMAND` needs `ssh`) to commit into the
+# public manifests repo — node:24-alpine has neither by default, so every route that calls
+# commitMarkdownFile() (POST /evaluation-requests, POST /agent-endpoint-manifests) failed in
+# production with "spawn git ENOENT" until this line (Tainan Fidelis, Discord #web3, 2026-10-12,
+# first real PreparePage test).
+RUN apk add --no-cache git openssh-client
 WORKDIR /app
 COPY --from=build /workspace/node_modules ./node_modules
 COPY --from=build /workspace/apps/api/package.json ./package.json
