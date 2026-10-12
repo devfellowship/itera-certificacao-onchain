@@ -11,6 +11,8 @@ import { createNftRouter } from "./http/nft-router.js";
 import { createGithubRouter, defaultGithubRouterDeps, type GithubRouterDeps } from "./http/github-router.js";
 import { createProofsRouter } from "./http/proofs-router.js";
 import type { ProofStore } from "./chain/proof-store.js";
+import { createCatalogRouter } from "./http/catalog-router.js";
+import type { CatalogStore } from "./domain/catalog-store.js";
 import { createTaskPacksRouter } from "./http/task-packs-router.js";
 import { createRunsRouter, type RunsRouterDeps } from "./http/runs-router.js";
 import type { Repository } from "./domain/repository.js";
@@ -55,6 +57,11 @@ const ROUTES = [
   "POST /runs/:id/start-signature",
   "GET /proofs/:hash",
   "GET /leaderboard?benchmark=&version=",
+  "GET /tasks?source=&tag=&kind=&runnable=&q=",
+  "GET /tasks/:idOrSlug",
+  "GET /tags?kind=",
+  "GET /me",
+  "PATCH /me",
 ];
 
 /**
@@ -69,6 +76,9 @@ export interface AppOptions {
   github?: GithubRouterDeps;
   /** Lane D proofs (start-signature, /proofs/:hash, /leaderboard). Mounted only when given. */
   proofs?: ProofStore;
+  /** U5 catalog (tasks, tags, models from DB, profile). Mounted before the GitHub router so its
+   * GET /models (DB) wins over the static one. */
+  catalog?: CatalogStore;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -120,6 +130,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createTaskPacksRouter(repo));
   app.use(createAgentEndpointManifestsRouter());
   app.use(createNftRouter());
+  if (options.catalog) app.use(createCatalogRouter(options.catalog));
   app.use(createGithubRouter(options.github ?? defaultGithubRouterDeps()));
   if (options.proofs) app.use(createProofsRouter({ store: options.proofs }));
 
