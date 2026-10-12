@@ -834,6 +834,13 @@ textarea.tma-input {
   font-weight: 500;
   color: var(--tma-text);
   text-transform: uppercase;
+  overflow: hidden;
+}
+.tma-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 /* ---------- Modal ---------- */

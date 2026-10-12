@@ -6,7 +6,7 @@ export { Card, CardHeader, SectionLabel, KeyValue, CodePanel, EventLogRow, type 
 export { Table, TableEmpty, type Column } from './Table'
 export { Badge, StatusChip, STATUS_WORDS, TagPill, Chip, RemovableChip, type Tone, type StatusWord } from './Badge'
 export { Tabs, Segmented, Stepper, Breadcrumb, type TabItem } from './Navigation'
-export { Avatar, initialsOf } from './Avatar'
+export { Avatar, initialsOf, type AvatarProps } from './Avatar'
 export { Logo, Lockup } from './Logo'
 export { Modal } from './Modal'
 export * from './icons'
