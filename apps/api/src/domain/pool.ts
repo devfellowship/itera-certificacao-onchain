@@ -7,10 +7,14 @@ import { databaseUrl } from "../config.js";
 let pool: Pool | null = null;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// AWS RDS's public global CA bundle (Supabase's Postgres/Supavisor pooler runs on RDS) —
-// https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem, vendored here so a real
-// certificate-chain check (verify-full) works without depending on Node's default trust store,
-// which doesn't include this chain on every platform this runs on.
+// Supabase's own pooler CA chain (Supavisor, the service behind *.pooler.supabase.com) — NOT an
+// AWS RDS cert, despite the underlying Postgres running on RDS; confirmed via
+// `openssl s_client -connect aws-1-us-west-2.pooler.supabase.com:5432 -starttls postgres
+// -showcerts`, which shows issuer "O=Supabase Inc, CN=Supabase Intermediate 2021 CA" — the AWS
+// RDS public bundle does NOT validate against this chain. Captured straight from the pooler host
+// (3-cert chain: leaf + intermediate + root) and vendored here so a real certificate-chain check
+// (verify-full) works without depending on Node's default trust store, which doesn't include this
+// chain on every platform this runs on.
 const CA_BUNDLE = readFileSync(join(__dirname, "../../certs/supabase-pooler-ca-bundle.pem"), "utf-8");
 
 /**
