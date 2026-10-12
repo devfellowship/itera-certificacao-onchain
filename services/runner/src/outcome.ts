@@ -48,3 +48,29 @@ export function runnerEvidence(agent: AgentRunResult) {
     agent_errors: agent.agentErrors,
   };
 }
+
+/**
+ * The stored EvalLog of a graded run: the evaluator's log plus the Solver (Inspect vocabulary: the
+ * agent = repo files + model + opencode), its stats, and the run result (state kept apart from the
+ * verdict; an infra_error run is UNSCORED, never a zero).
+ */
+export function evalLogOf(manifest: EvidenceManifest, agent: AgentRunResult, status: FinalStatus) {
+  const solver = { name: 'opencode', model: agent.model, agent_files: agent.agentFiles };
+  const state = status === 'timeout' ? 'timeout' : status === 'infra_error' ? 'infra_error' : 'completed';
+  const verdict = status === 'infra_error' ? 'inconclusive' : status === 'timeout' ? 'invalid' : status;
+  return {
+    ...manifest,
+    runner: runnerEvidence(agent),
+    ...(manifest.eval ? { eval: { ...manifest.eval, solver } } : {}),
+    ...(manifest.plan
+      ? { plan: { ...manifest.plan, steps: manifest.plan.steps.map((s) => (s.solver === 'agent' ? { solver: 'agent', params: { name: 'opencode', model: agent.model } } : s)) } }
+      : {}),
+    ...(manifest.stats ? { stats: { ...manifest.stats, model_usage: agent.modelUsage ?? agent.usage } } : {}),
+    result: {
+      state,
+      verdict,
+      scored: status !== 'infra_error',
+      ...(status === 'infra_error' ? { reason: 'grading did not measure the run' } : {}),
+    },
+  };
+}

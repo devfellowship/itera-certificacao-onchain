@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/evidence-statement.json",
+  "title": "Pinned evidence document, schema itera-evidence/v2: an in-toto Statement v1",
+  "description": "The bytes pinned to IPFS and hashed into the on-chain manifest_sha256 (unchanged semantics: sha256 of these exact bytes). Envelope: in-toto Statement v1 (https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md), no DSSE. Documents pinned before this version use schema itera-evidence/v1 (no envelope) and stay valid.",
+  "type": "object",
+  "required": ["_type", "subject", "predicateType", "predicate"],
+  "properties": {
+    "_type": { "const": "https://in-toto.io/Statement/v1" },
+    "subject": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "digest"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "digest": {
+            "type": "object",
+            "required": ["sha256"],
+            "properties": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+          }
+        }
+      }
+    },
+    "predicateType": { "const": "https://testmyagent.com/evidence/v2" },
+    "predicate": {
+      "type": "object",
+      "required": ["schema", "run", "manifest"],
+      "properties": {
+        "schema": { "const": "itera-evidence/v2" },
+        "run": {
+          "type": "object",
+          "required": ["run_id", "run_start_sig", "benchmark_id"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "run_start_sig": { "type": ["string", "null"] },
+            "benchmark_id": { "type": "string" },
+            "benchmark_version": { "type": ["string", "null"] }
+          }
+        },
+        "manifest": { "$ref": "evidence-manifest.json" }
+      }
+    }
+  }
+}

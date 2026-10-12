@@ -247,12 +247,30 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
     // Evidence documents from the API proof path (schema itera-evidence/v1, apps/api/src/chain/
     // evidence.ts) also name the run-start signature they belong to. Older manifests do not, so
     // this check only runs when the field is present.
-    const boundSig = (manifest as { run?: { run_start_sig?: unknown } } | null)?.run?.run_start_sig;
+    // From 2026-10-12 the document is an in-toto Statement v1 (schema itera-evidence/v2): the run
+    // binding sits under `predicate`, and `subject[0].digest.sha256` must equal the canonical sha256
+    // of `predicate.manifest`. Older v1 documents have the binding at the top level.
+    const doc = manifest as {
+      _type?: unknown;
+      run?: { run_start_sig?: unknown };
+      subject?: Array<{ digest?: { sha256?: unknown } }>;
+      predicate?: { run?: { run_start_sig?: unknown }; manifest?: unknown };
+    } | null;
+    const isStatement = doc?._type === 'https://in-toto.io/Statement/v1';
+    const boundSig = isStatement ? doc?.predicate?.run?.run_start_sig : doc?.run?.run_start_sig;
     if (typeof boundSig === 'string') {
+      const subjectDigest = isStatement ? doc?.subject?.[0]?.digest?.sha256 : undefined;
+      const predicateDigest = isStatement ? await sha256Hex(new TextEncoder().encode(canonicalJson(doc?.predicate?.manifest))) : undefined;
       if (boundSig !== data.run_start_sig) {
         fail('evidence-binding', 'Evidence names the same run-start transaction', `Evidence says ${boundSig}, chain says ${data.run_start_sig}.`);
+      } else if (isStatement && subjectDigest !== predicateDigest) {
+        fail('evidence-binding', 'Evidence names the same run-start transaction', `in-toto subject digest ${String(subjectDigest)} does not match the evaluation log (${predicateDigest}).`);
       } else {
-        pass('evidence-binding', 'Evidence names the same run-start transaction', 'run_start_sig matches.');
+        pass(
+          'evidence-binding',
+          'Evidence names the same run-start transaction',
+          isStatement ? 'run_start_sig matches; in-toto subject digest matches the evaluation log.' : 'run_start_sig matches.',
+        );
       }
     }
     return done(manifest);
@@ -303,4 +321,14 @@ export async function verifyProof(
   const mint = typeof proof === 'string' ? proof : proof.nftMint;
   if (!mint) throw new Error('This proof has no NFT yet (status pending or failed) — nothing on chain to verify.');
   return runVerification(rpc, mint.trim() as Address);
+}
+
+/** Canonical JSON (object keys sorted), the same as apps/api/src/domain/digest.ts canonicalStringify. */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }

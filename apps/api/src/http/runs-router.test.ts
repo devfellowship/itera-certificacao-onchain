@@ -10,6 +10,7 @@ import { FakeRepository } from "../domain/repository.fake.js";
 import { FakeRunsStore } from "../domain/runs-store.fake.js";
 import type { ProofIssuer } from "../domain/runs-store.js";
 import { issueSessionToken } from "./auth.js";
+import { validateApiResponse } from "@itera/contracts";
 import { publicSuiteView, redactText } from "./runs-router.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -215,6 +216,10 @@ describe("GET /runs", () => {
     const text = JSON.stringify(body);
     expect(text).not.toContain("/tmp/");
     expect(text).not.toContain("idempotency.test");
+    // U22: the response matches packages/contracts/schemas/api/run-detail.schema.json (Ajv), and
+    // the operational state is kept apart from the verdict.
+    expect(validateApiResponse("runDetail", body)).toEqual({ ok: true, value: body });
+    expect(body.result).toEqual({ state: "completed", verdict: "pass", scored: true });
     expect((await fetch(`${baseUrl}/runs/${randomUUID()}`)).status).toBe(404);
     expect((await fetch(`${baseUrl}/runs/not-a-uuid`)).status).toBe(404);
   });
@@ -353,5 +358,30 @@ describe("publicSuiteView", () => {
     });
     expect(JSON.stringify(view)).not.toContain("/tmp/");
     expect(publicSuiteView({ total: 1, passed: 1, failed: 0 })).toEqual({ total: 1, passed: 1, failed: 0 });
+  });
+});
+
+describe("run result vocabulary (U22)", () => {
+  it("an infra_error run is inconclusive and UNSCORED; a queued run has no verdict; both match the schema", async () => {
+    const { runId } = await (await createRun()).json();
+    let body = await (await fetch(`${baseUrl}/runs/${runId}`)).json();
+    expect(body.result).toEqual({ state: "queued", verdict: null, scored: false });
+    expect(validateApiResponse("runDetail", body).ok).toBe(true);
+    finish(runId);
+    store.runs.find((r) => r.id === runId)!.status = "infra_error";
+    body = await (await fetch(`${baseUrl}/runs/${runId}`)).json();
+    expect(body.result).toEqual({ state: "infra_error", verdict: "inconclusive", scored: false });
+    expect(validateApiResponse("runDetail", body).ok).toBe(true);
+  });
+
+  it("the schema refuses a response that leaks a worker path", () => {
+    const leaked = {
+      runId: "r", status: "pass", phase: "done", scoreTotal: 1, benchmark: { id: "b" }, createdAt: null, ownerWallet: null,
+      score: { parts: null }, patchScope: null, proof: null, result: { state: "completed", verdict: "pass", scored: true },
+      tests: { public: { total: 1, passed: 1, failed: 0, cases: [{ name: "t", file: "/tmp/itera-eval-x/workspace/tests/a.test.ts", passed: true }] }, publicBaseline: { total: 1, passed: 1, failed: 0 }, hidden: { total: 1, passed: 1, failed: 0 } },
+      errors: ["failed at /tmp/itera-run-abc/fixture/src/x.ts:1"],
+    };
+    const r = validateApiResponse("runDetail", leaked);
+    expect(r.ok).toBe(false);
   });
 });

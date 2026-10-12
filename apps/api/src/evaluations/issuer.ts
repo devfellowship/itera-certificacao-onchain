@@ -8,7 +8,7 @@
  */
 import { digestOf } from "../domain/digest.js";
 import type { ProofIssuer, RunsStore } from "../domain/runs-store.js";
-import { criteriaFromManifest, isGradedManifest } from "../http/runs-router.js";
+import { criteriaFromManifest, hasEvalLog } from "../http/runs-router.js";
 import { needsProof, rollup, slotsOf } from "./rollup.js";
 import type { EvaluationsStore } from "./store.js";
 
@@ -60,7 +60,7 @@ export function createEvaluationIssuer(deps: EvaluationIssuerDeps) {
         if (now() - (lastAttempt.get(r.id) ?? 0) < retryMs) continue;
         lastAttempt.set(r.id, now());
         const run = await deps.runs.getRun(r.id);
-        if (!run || !isGradedManifest(run.evidenceManifest)) continue;
+        if (!run || !hasEvalLog(run.evidenceManifest)) continue;
         const [agent, agentVersion] = await Promise.all([
           run.agentId ? deps.runs.getAgent(run.agentId) : Promise.resolve(null),
           run.agentVersionId ? deps.runs.getAgentVersion(run.agentVersionId) : Promise.resolve(null),

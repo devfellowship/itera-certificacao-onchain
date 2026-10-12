@@ -47,7 +47,83 @@ export interface ExecutorInfo {
   controls: string[];
 }
 
-export interface EvidenceManifest {
+// ---------------------------------------------------------------------------------------------
+// Inspect AI vocabulary (UKGovernmentBEIS/inspect_ai, MIT; names only, no code):
+//   Task = task.json bundle · Sample = one instance of the task (input = instruction, target =
+//   "the hidden tests pass") · Solver = the agent (repo files + model + opencode, services/runner) ·
+//   Scorer = one grader (score.ts SCORERS) · Score = value + explanation + metadata ·
+//   EvalLog = the per-run log = our evidence manifest (eval spec, plan, results, stats, samples).
+// See docs/contracts/GLOSSARY.md.
+// ---------------------------------------------------------------------------------------------
+
+/** Inspect `Score`: value + explanation + metadata. value null = UNSCORED (never a silent zero). */
+export interface Score {
+  value: number | null;
+  answer?: string | null;
+  explanation?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Inspect `EvalSpec` (subset): what was evaluated, pinned. */
+export interface EvalSpec {
+  task: string;
+  task_version: string;
+  /** sha256 of task.json. */
+  task_digest: string;
+  created: string;
+  dataset: { name: string; samples: number };
+  scorers: string[];
+  evaluator: { version: string; digest: string; commit: string | null };
+  environment_digest: string;
+  /** Filled by the runner: the Solver (agent + model + harness). */
+  solver?: { name: string; model: string | null; agent_files: string[] };
+}
+
+/** Inspect `EvalPlan`: the steps that produced the Sample output. */
+export interface EvalPlan {
+  name: string;
+  steps: Array<{ solver: string; params: Record<string, unknown> }>;
+}
+
+/** Inspect `EvalResults` (subset). */
+export interface EvalResults {
+  total_samples: number;
+  completed_samples: number;
+  scores: Array<{ name: string; scorer: string; metrics: { value: { name: 'value'; value: number | null } } }>;
+}
+
+/** Inspect `EvalStats` (subset). */
+export interface EvalStats {
+  started_at: string;
+  completed_at: string;
+  model_usage?: Record<string, unknown>;
+}
+
+/** Inspect `EvalSample` (subset). Our run has exactly one sample. */
+export interface EvalSample {
+  id: string;
+  epoch: number;
+  /** sha256 of the instruction (the prompt itself lives in the task bundle). */
+  input: string;
+  target: string;
+  scores: Record<string, Score>;
+  metadata: Record<string, unknown>;
+}
+
+/** Operational state kept apart from the verdict (analysis vocabulary). */
+export interface RunResult {
+  state: 'completed' | 'timeout' | 'infra_error';
+  verdict: 'pass' | 'fail' | 'invalid' | 'inconclusive';
+  /** false = score.total measures nothing (UNSCORED). */
+  scored: boolean;
+  reason?: string;
+}
+
+/**
+ * The per-run EvalLog = `runs.evidence_manifest`. Legacy keys (scenario_id … errors) stay for the
+ * API and the proofs already minted; the Inspect-shaped blocks (version … samples) are additive.
+ */
+export interface EvalLog {
   schema_version: string;
   evaluator_version: string;
   scenario_id: string;
@@ -90,4 +166,17 @@ export interface EvidenceManifest {
   executor?: { profile: ExecutorInfo['profile'] };
   /** What this evidence does NOT prove. */
   limitations?: string[];
+  /** Inspect EvalLog blocks. */
+  version?: 2;
+  status?: 'success' | 'error';
+  eval?: EvalSpec;
+  plan?: EvalPlan;
+  results?: EvalResults;
+  stats?: EvalStats;
+  samples?: EvalSample[];
+  /** Set by the runner from the final status. */
+  result?: RunResult;
 }
+
+/** @deprecated old name of EvalLog; kept for existing imports. */
+export type EvidenceManifest = EvalLog;

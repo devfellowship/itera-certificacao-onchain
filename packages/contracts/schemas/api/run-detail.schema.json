@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/api/run-detail.json",
+  "title": "GET /runs/:id response",
+  "description": "Backward compatible: every field of the earlier response stays. New: result {state, verdict, scored} and evidence {executorProfile, environmentDigest, contractDigest, limitations}. No server path may leak: test files are workspace-relative and errors carry no /tmp or worker path.",
+  "type": "object",
+  "required": ["runId", "status", "phase", "scoreTotal", "benchmark", "createdAt", "ownerWallet", "score", "tests", "patchScope", "errors", "proof", "result"],
+  "properties": {
+    "runId": { "type": "string" },
+    "status": { "enum": ["pending", "queued", "running", "pass", "fail", "invalid", "timeout", "infra_error", "cancelled"] },
+    "phase": { "type": ["string", "null"] },
+    "scoreTotal": { "type": ["number", "null"] },
+    "benchmark": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } },
+    "createdAt": { "type": ["string", "null"] },
+    "completedAt": { "type": ["string", "null"] },
+    "ownerWallet": { "type": ["string", "null"] },
+    "score": { "type": "object", "required": ["parts"] },
+    "tests": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["public", "publicBaseline", "hidden"],
+          "properties": {
+            "public": { "$ref": "#/$defs/publicSuite" },
+            "publicBaseline": { "$ref": "#/$defs/publicSuite" },
+            "hidden": {
+              "description": "Counts only: hidden test names never leave the worker.",
+              "type": "object",
+              "required": ["total", "passed", "failed"],
+              "additionalProperties": false,
+              "properties": { "total": { "type": "integer" }, "passed": { "type": "integer" }, "failed": { "type": "integer" } }
+            }
+          }
+        }
+      ]
+    },
+    "patchScope": { "type": ["object", "null"] },
+    "errors": { "type": "array", "items": { "$ref": "#/$defs/noServerPath" } },
+    "proof": { "type": ["object", "null"] },
+    "result": {
+      "description": "Operational state kept apart from the verdict. verdict null while the run is not finished.",
+      "type": "object",
+      "required": ["state", "verdict", "scored"],
+      "properties": {
+        "state": { "enum": ["queued", "running", "completed", "timeout", "infra_error", "cancelled"] },
+        "verdict": { "enum": ["pass", "fail", "invalid", "inconclusive", null] },
+        "scored": { "type": "boolean" }
+      }
+    },
+    "evidence": {
+      "type": ["object", "null"],
+      "properties": {
+        "executorProfile": { "type": ["string", "null"] },
+        "environmentDigest": { "type": ["string", "null"] },
+        "contractDigest": { "type": ["string", "null"] },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "noServerPath": {
+      "type": "string",
+      "not": { "pattern": "(^|[\\s'\"(])/(tmp|var/folders|private/var|workspace|app|root|home)/" }
+    },
+    "publicSuite": {
+      "type": "object",
+      "required": ["total", "passed", "failed"],
+      "properties": {
+        "total": { "type": "integer" },
+        "passed": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "file", "passed"],
+            "properties": {
+              "name": { "$ref": "#/$defs/noServerPath" },
+              "file": { "allOf": [{ "$ref": "#/$defs/noServerPath" }, { "not": { "pattern": "^/" } }] },
+              "passed": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

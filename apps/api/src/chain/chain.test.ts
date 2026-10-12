@@ -146,8 +146,8 @@ describe("issueProof", () => {
     await issueProof(run({ runId: "33333333-3333-4333-8333-333333333333", evaluationId: "e1", slotRunId: slot }), { store: new FakeProofStore(), pinner, minter });
     expect(minter.calls[1]!.nonceSeed).toBe(`5sig:${slot}`);
     const evidence = JSON.parse(new TextDecoder().decode(pinner.pinned[1]));
-    expect(evidence.run).toMatchObject({ evaluation_id: "e1", slot_run_id: slot });
-    expect(JSON.parse(new TextDecoder().decode(pinner.pinned[0])).run.evaluation_id).toBeUndefined();
+    expect(evidence.predicate.run).toMatchObject({ evaluation_id: "e1", slot_run_id: slot });
+    expect(JSON.parse(new TextDecoder().decode(pinner.pinned[0])).predicate.run.evaluation_id).toBeUndefined();
   });
 
   it("records failed 'ipfs not configured' without a pinner — and never invents a CID", async () => {
@@ -172,7 +172,7 @@ describe("issueProof", () => {
     const pinnedText = new TextDecoder().decode(pinner.pinned[0]);
     expect(pinnedText).not.toContain("SECRET hidden case");
     expect(pinnedText).not.toContain("/tmp/");
-    expect(JSON.parse(pinnedText).run.run_start_sig).toBe("5sig");
+    expect(JSON.parse(pinnedText).predicate.run.run_start_sig).toBe("5sig");
     expect(minter.calls[0]).toMatchObject({
       recipient: run().ownerWallet,
       data: { evidence_cid: "bafy1", scenario_id: "webhook-ledger", score_total: 95, run_start_sig: "5sig", manifest_sha256: first.manifestSha256 },

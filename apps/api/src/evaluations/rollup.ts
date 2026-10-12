@@ -5,7 +5,7 @@
  * attempt of a slot is the effective run.
  */
 import { digestOf } from "../domain/digest.js";
-import { isGradedManifest } from "../http/runs-router.js";
+import { hasEvalLog } from "../http/runs-router.js";
 import type { EvalProof, EvalRun, EvaluationRecord, EvaluationStatus, RollupColumns } from "./store.js";
 
 export type UiState = "queued" | "running" | "issuing" | "issued" | "error" | "cancelled";
@@ -45,7 +45,7 @@ export function isTerminal(run: EvalRun): boolean {
 
 /** A run that gets a proof: finished, graded, and signed (its run_start_sig = the payment tx). */
 export function needsProof(run: EvalRun): boolean {
-  return PROOF_STATUSES.has(run.status) && isGradedManifest(run.evidenceManifest) && Boolean(run.runStartSig);
+  return PROOF_STATUSES.has(run.status) && hasEvalLog(run.evidenceManifest) && Boolean(run.runStartSig);
 }
 
 export function outcomeOf(run: EvalRun): Outcome {
@@ -81,7 +81,7 @@ function stageOf(run: EvalRun): TaskStage {
 }
 
 function hiddenTests(run: EvalRun): { passed: number; total: number } | null {
-  return isGradedManifest(run.evidenceManifest)
+  return hasEvalLog(run.evidenceManifest)
     ? { passed: run.evidenceManifest.tests.hidden.passed, total: run.evidenceManifest.tests.hidden.total }
     : null;
 }

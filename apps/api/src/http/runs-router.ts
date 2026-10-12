@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isEvidenceManifest, runResult } from "@itera/contracts";
 import { Router, type Request, type Response } from "express";
 import { digestOf } from "../domain/digest.js";
 import type { EvidenceManifest } from "../domain/grader.js";
@@ -66,16 +67,12 @@ export function isModelApiKey(value: unknown): value is string {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function isGradedManifest(value: unknown): value is EvidenceManifest {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "scenario_id" in value &&
-    "patch_hash" in value &&
-    "score" in value &&
-    "tests" in value &&
-    "patch_scope" in value
-  );
+/**
+ * True when `value` is a graded EvalLog (runs.evidence_manifest): Ajv against
+ * packages/contracts/schemas/evidence-manifest.schema.json. Replaces the hand-written key check.
+ */
+export function hasEvalLog(value: unknown): value is EvidenceManifest {
+  return isEvidenceManifest(value);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -156,8 +153,24 @@ function summaryView(run: AsyncRun) {
   };
 }
 
+/** Pinned-evidence keys of the EvalLog (evaluator >= 0.2.0), for the run page. Null when absent. */
+function evidenceView(m: EvidenceManifest) {
+  const x = m as EvidenceManifest & {
+    executor?: { profile?: string };
+    environment_digest?: string;
+    contract?: { contract_digest?: string };
+    limitations?: string[];
+  };
+  return {
+    executorProfile: x.executor?.profile ?? null,
+    environmentDigest: x.environment_digest ?? null,
+    contractDigest: x.contract?.contract_digest ?? null,
+    limitations: Array.isArray(x.limitations) ? x.limitations.map((l) => redactText(String(l))) : [],
+  };
+}
+
 async function detailView(store: RunsStore, run: AsyncRun) {
-  const manifest = isGradedManifest(run.evidenceManifest) ? run.evidenceManifest : null;
+  const manifest = hasEvalLog(run.evidenceManifest) ? run.evidenceManifest : null;
   const [patch, actionsCount, proof] = await Promise.all([store.getPatch(run.id), store.countActions(run.id), store.getProof(run.id)]);
   const errors: string[] = [];
   if (manifest) errors.push(...manifest.errors);
@@ -189,6 +202,9 @@ async function detailView(store: RunsStore, run: AsyncRun) {
     modelTokens: run.modelTokensIn == null && run.modelTokensOut == null ? null : { in: run.modelTokensIn ?? 0, out: run.modelTokensOut ?? 0 },
     errors: errors.map(redactText),
     proof: proofView(proof),
+    /** Operational state kept apart from the verdict; scored=false means score.total measures nothing. */
+    result: runResult(run.status, manifest as { result?: { state: string; verdict: string; scored: boolean } } | null),
+    evidence: manifest ? evidenceView(manifest) : null,
   };
 }
 
@@ -405,7 +421,7 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
         res.status(409).json({ error: `run is ${run.status}; publish needs a finished run` });
         return;
       }
-      if (!isGradedManifest(run.evidenceManifest)) {
+      if (!hasEvalLog(run.evidenceManifest)) {
         res.status(409).json({ error: `run ended as ${run.status} without a graded evidence manifest; nothing to prove` });
         return;
       }

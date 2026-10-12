@@ -9,7 +9,7 @@ import { readFile } from 'node:fs/promises';
 import { runEvaluation } from './runner.js';
 import type { SuiteExecutor } from './suite.js';
 import { loadTask, taskDigests, TaskError } from './task.js';
-import type { EvidenceManifest, TestSuiteResult } from './types.js';
+import type { EvalLog, TestSuiteResult } from './types.js';
 
 export interface GateCheck {
   ok: boolean;
@@ -31,11 +31,11 @@ export interface ValidationResult {
 }
 
 const ratio = (s: TestSuiteResult) => `${s.passed}/${s.total}`;
-const suites = (m: EvidenceManifest) => [m.tests.public_baseline, m.tests.public_after_patch, m.tests.hidden];
-const fingerprint = (m: EvidenceManifest) =>
+const suites = (m: EvalLog) => [m.tests.public_baseline, m.tests.public_after_patch, m.tests.hidden];
+const fingerprint = (m: EvalLog) =>
   JSON.stringify([ratio(m.tests.public_after_patch), ratio(m.tests.hidden), m.score.total, m.patch_scope.allowed, m.errors.length]);
 /** Errors without test names or paths: the first words of each line only. */
-const safeErrors = (m: EvidenceManifest) => m.errors.map((e) => e.split(':')[0]).join(', ');
+const safeErrors = (m: EvalLog) => m.errors.map((e) => e.split(':')[0]).join(', ');
 
 export async function validateTask(opts: { taskDir: string; executor?: SuiteExecutor; repeats?: number }): Promise<ValidationResult> {
   const started = Date.now();
@@ -71,7 +71,7 @@ export async function validateTask(opts: { taskDir: string; executor?: SuiteExec
   }
   const budgetMs = task.contract.verifier.timeout_sec * 1000;
   result.checks.verifier_time.budget_ms = budgetMs;
-  const manifests: EvidenceManifest[] = [];
+  const manifests: EvalLog[] = [];
 
   // (i) baseline: no patch at all.
   const baseline = await runEvaluation({ taskDir: opts.taskDir, patch: '', executor: opts.executor });
@@ -92,7 +92,7 @@ export async function validateTask(opts: { taskDir: string; executor?: SuiteExec
 
   // (ii) + (iii) the reference solution, `repeats` times.
   const solution = await readFile(task.paths.solution, 'utf-8');
-  const runs: EvidenceManifest[] = [];
+  const runs: EvalLog[] = [];
   for (let i = 0; i < repeats; i++) {
     runs.push(await runEvaluation({ taskDir: opts.taskDir, patch: solution, executor: opts.executor }));
   }
