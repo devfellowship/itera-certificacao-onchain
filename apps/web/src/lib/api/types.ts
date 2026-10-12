@@ -61,12 +61,32 @@ export interface Task {
   /** [EXT U5] e.g. `sealed-tests` | `open-tests` (Gate Q7: label only). */
   labels?: string[]
   version?: number | null
+  /** [EXT U35, `include=overview`] who wrote it (curated tasks: DevFellowship). */
+  author?: TaskAuthor
+  /** [EXT U35, `include=overview`] distinct visible agents with a counted result. */
+  agentsCount?: number
+  /** [EXT U35, `include=overview`] top counted result; null when none. */
+  bestResult?: TaskBestResult | null
+}
+export interface TaskAuthor {
+  wallet: string | null
+  name: string
+  handle: string | null
+  /** U36 profile picture; the DFL icon for curated tasks. */
+  avatarUrl: string | null
+  isDfl: boolean
+}
+export interface TaskBestResult {
+  agent: { id: string; slug: string | null; name: string; initials: string; avatarUrl: string | null; author: { name: string; wallet: string; avatarUrl: string | null } }
+  score: number
 }
 export interface TasksQuery {
   source?: TaskSource
   q?: string
   tag?: string
   mode?: 'rank' | 'run'
+  /** `overview` adds author, agentsCount and bestResult to every task (Tasks page). */
+  include?: 'overview'
 }
 export interface TasksResponse {
   tasks: Task[]

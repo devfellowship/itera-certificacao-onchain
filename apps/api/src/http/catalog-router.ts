@@ -7,6 +7,7 @@ import {
   type Profile,
   type Tag,
 } from "../domain/catalog-store.js";
+import { shortWallet, taskOverviews, type RankingStore } from "../domain/agent-ranking.js";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import type { ModelsSyncResult } from "../domain/models-sync.js";
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAllowedModel } from "../github/models.js";
@@ -15,7 +16,7 @@ import { optionalWallet, requireWallet } from "./auth.js";
 /**
  * Catalog routes (U5, plan 20261012-itera-testmyagent-ui-refactor). Tables: 0007_catalog.sql.
  *
- *   GET   /tasks?source=all|curated|public|mine&tag=&kind=itera|user&runnable=true|false&q=   optional auth
+ *   GET   /tasks?source=all|curated|public|mine&tag=&kind=itera|user&runnable=true|false&q=&include=overview   optional auth
  *   GET   /tasks/:idOrSlug                                                                 optional auth
  *   GET   /tags?kind=tool|concept                                                          optional auth
  *   GET   /models?all=1                                                                    public
@@ -42,6 +43,9 @@ const handle =
       next(e);
     });
   };
+
+/** Author of a curated (TestMyAgent) task. Same icon the profile seed uses for the DFL profiles (U36). */
+export const DFL_AUTHOR = { name: "DevFellowship", avatarUrl: "https://brand.devfellowship.com/downloads/dfl/dfl-icon-180.png" } as const;
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v.trim() : undefined);
 
@@ -148,6 +152,8 @@ export function modelAccessCheck(store: CatalogStore): (modelId: string) => Prom
 }
 
 export interface CatalogRouterOptions {
+  /** Ranking data for `GET /tasks?include=overview` (author, agents count, best result). Without it the flag adds only the author. */
+  ranking?: RankingStore;
   /** Runs one OpenRouter sync (POST /admin/models/sync). Absent → 503. */
   syncModels?: () => Promise<ModelsSyncResult>;
   /** Wallets allowed to call admin routes. Default: ITERA_ADMIN_WALLETS (comma separated). */
@@ -164,6 +170,42 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
   const router = Router();
   const adminWallets = opts.adminWallets ?? envAdminWallets;
   const canAccess = modelAccessCheck(store);
+
+  /** U35 Tasks page: author profile, agents count and best result per task, computed here from the runs (not in SQL). */
+  const withOverview = async (tasks: CatalogTask[], wallet: string | null) => {
+    const owners = [...new Set(tasks.map((t) => t.ownerWallet).filter((w): w is string => w !== null))];
+    const profiles = new Map<string, Profile | null>(await Promise.all(owners.map(async (w) => [w, await store.getProfile(w).catch(() => null)] as const)));
+    let overviews: ReturnType<typeof taskOverviews> | null = null;
+    if (opts.ranking) {
+      // Best effort: a task row is useful without its best result when the runs schema is not ready.
+      overviews = await opts.ranking.load(wallet ?? "").then((data) => taskOverviews(data, wallet ?? "", tasks), () => null);
+    }
+    return tasks.map((t) => {
+      const ov = overviews?.get(t.id);
+      const p = t.ownerWallet ? (profiles.get(t.ownerWallet) ?? null) : null;
+      const author = t.ownerWallet
+        ? { wallet: t.ownerWallet, name: p?.displayName ?? p?.handle ?? shortWallet(t.ownerWallet), handle: p?.handle ?? null, avatarUrl: null, isDfl: false }
+        : { wallet: null, name: DFL_AUTHOR.name, handle: null, avatarUrl: DFL_AUTHOR.avatarUrl, isDfl: true };
+      return {
+        ...taskJson(t, wallet),
+        author,
+        agentsCount: ov?.agentsCount ?? t.agentsRunCount,
+        bestResult: ov?.best
+          ? {
+              agent: {
+                id: ov.best.agent.id,
+                slug: ov.best.agent.slug,
+                name: ov.best.agent.name,
+                initials: ov.best.agent.name.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase() || "??",
+                avatarUrl: null,
+                author: { name: ov.best.agent.authorName ?? shortWallet(ov.best.agent.ownerWallet), wallet: ov.best.agent.ownerWallet, avatarUrl: null },
+              },
+              score: ov.best.score,
+            }
+          : null,
+      };
+    });
+  };
 
   router.get(
     "/tasks",
@@ -204,7 +246,11 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
       // Mine first (Task Filter panel groups "My tasks" above the public catalog), then runnable.
       const rank = (t: CatalogTask) => (isMine(t) ? 0 : 2) + (t.latest?.runnable ? 0 : 1);
       tasks.sort((a, b) => rank(a) - rank(b));
-      res.json({ tasks: tasks.map((t) => taskJson(t, wallet)), counts });
+      if (str(req.query.include) !== "overview") {
+        res.json({ tasks: tasks.map((t) => taskJson(t, wallet)), counts });
+        return;
+      }
+      res.json({ tasks: await withOverview(tasks, wallet), counts });
     }),
   );
 

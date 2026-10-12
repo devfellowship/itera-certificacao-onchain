@@ -2,6 +2,7 @@ import express from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { FakeRankingStore, type RankAgent, type RankResult } from "../domain/agent-ranking.js";
 import { FakeCatalogStore, type CatalogTask, type Tag } from "../domain/catalog-store.js";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { issueSessionToken } from "./auth.js";
@@ -303,5 +304,79 @@ describe("model access (U21)", () => {
     } finally {
       await new Promise<void>((r) => srv.close(() => r()));
     }
+  });
+});
+
+describe("GET /tasks?include=overview (U35)", () => {
+  const agent = (id: string, name: string, ownerWallet: string, over: Partial<RankAgent> = {}): RankAgent => ({
+    id, slug: null, name, ownerWallet, authorName: null, description: null, model: "m", modelLabel: null,
+    visibility: "listed", status: "active", listedAt: null, createdAt: null, ...over,
+  });
+  const result = (agentId: string, taskKeys: string[], score: number, over: Partial<RankResult> = {}): RankResult => ({
+    agentId, runId: `${agentId}-${taskKeys[0]}-${score}`, runOwnerWallet: null, score, at: "2026-10-12T10:00:00.000Z", issued: true,
+    taskKeys, taskKind: "itera", taskOwnerWallet: null, ...over,
+  });
+
+  async function overview(rank: FakeRankingStore | undefined, path = "/tasks?include=overview", wallet?: string) {
+    const app = express();
+    app.use(express.json());
+    app.use(createCatalogRouter(store, { ranking: rank }));
+    const srv = app.listen(0);
+    try {
+      const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}${path}`;
+      const res = await fetch(url, { headers: wallet ? auth(wallet) : {} });
+      return (await res.json()) as any;
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()));
+    }
+  }
+
+  it("adds author, agentsCount and the best result, with the ranking visibility rules", async () => {
+    store.profiles.set(ME, { wallet: ME, displayName: "Bruno Lima", handle: "bruno", createdAt: null, updatedAt: null });
+    const dup = store.tasks[0]!;
+    const mine = store.tasks[2]!;
+    const rank = new FakeRankingStore();
+    rank.data = {
+      agents: [agent("a1", "Ledgerline", OTHER, { authorName: "Mara" }), agent("a2", "Patchwright", OTHER), agent("a3", "Hidden", OTHER, { visibility: "private" }), agent("a4", "Settlewise", ME)],
+      results: [
+        result("a1", [dup.id, dup.slug], 90),
+        result("a2", [dup.id, dup.slug], 100),
+        result("a1", [dup.id, dup.slug], 100, { at: "2026-10-12T11:00:00.000Z" }),
+        result("a3", [dup.id, dup.slug], 100), // private agent of another wallet: not shown
+        result("a4", [mine.id, mine.slug], 81.3, { issued: false, runOwnerWallet: ME, taskKind: "user", taskOwnerWallet: ME }),
+      ],
+      evaluations: [],
+    };
+    const body = await overview(rank, "/tasks?include=overview", ME);
+    const byslug = Object.fromEntries(body.tasks.map((t: any) => [t.slug, t]));
+    expect(byslug.tsk_webhook_dup.author).toMatchObject({ isDfl: true, name: "DevFellowship", wallet: null });
+    expect(byslug.tsk_webhook_dup.author.avatarUrl).toContain("dfl-icon-180.png");
+    expect(byslug.tsk_webhook_dup.agentsCount).toBe(2);
+    // Tie at 100: the newest result wins.
+    expect(byslug.tsk_webhook_dup.bestResult).toMatchObject({ score: 100, agent: { id: "a1", name: "Ledgerline", author: { name: "Mara" } } });
+    expect(byslug.tsk_pg_index.bestResult).toBeNull();
+    expect(byslug.my_ledger.author).toMatchObject({ isDfl: false, name: "Bruno Lima", handle: "bruno", wallet: ME });
+    expect(byslug.my_ledger.bestResult).toMatchObject({ score: 81.3, agent: { name: "Settlewise" } });
+  });
+
+  it("an unranked task (open tests) shows no best result, and a user task of another wallet never leaks", async () => {
+    const dup = store.tasks[0]!;
+    const rank = new FakeRankingStore();
+    rank.data = { agents: [agent("a1", "Ledgerline", OTHER)], results: [result("a1", [dup.id, dup.slug], 99, { taskRanked: false })], evaluations: [] };
+    const body = await overview(rank);
+    expect(body.tasks[0].bestResult).toBeNull();
+    expect(body.tasks[0].agentsCount).toBe(0);
+  });
+
+  it("without a ranking store (or when it fails) the task still carries its author; plain GET /tasks is unchanged", async () => {
+    const body = await overview(undefined);
+    expect(body.tasks[0].author.isDfl).toBe(true);
+    expect(body.tasks[0].bestResult).toBeNull();
+    const failing = new FakeRankingStore();
+    failing.load = async () => {
+      throw new SchemaNotReadyError("runs");
+    };
+    expect((await overview(failing)).tasks).toHaveLength(2);
+    expect((await get("/tasks")).body.tasks[0].author).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 {
-  "$comment": "One entry per design page. design = the .dc.html file of the design source; route = our route in fixture mode; props = design prop defaults to override in the temp copy; masks = [x, y, w, h] rectangles (CSS px at 1440) ignored on both images (timers, dates, hashes); threshold = max diff % for PASS.",
+  "$comment": "10 My tasks was retired by U35: /tasks is now the Tasks page (designer reference TG 21105, a screenshot only, no .dc.html), so it has no pixel reference. Verify it with verify-render. One entry per design page. design = the .dc.html file of the design source; route = our route in fixture mode; props = design prop defaults to override in the temp copy; masks = [x, y, w, h] rectangles (CSS px at 1440) ignored on both images (timers, dates, hashes); threshold = max diff % for PASS.",
   "pages": [
     { "id": "landing", "title": "Landing v2", "design": "Landing v2.dc.html", "route": "/", "threshold": 3 },
     { "id": "01-agents", "title": "01 Agents", "design": "01 Agents.dc.html", "route": "/agents", "threshold": 5 },
@@ -11,7 +11,6 @@
     { "id": "04-error", "title": "04 Running · error", "design": "04 Running Evaluation.dc.html", "props": { "phase": "error" }, "route": "/evaluations/ev_error", "threshold": 5 },
     { "id": "05-results", "title": "05 Evaluation profile", "design": "05 Evaluation Results.dc.html", "route": "/e/settlewise-7f3a", "threshold": 5 },
     { "id": "08-agent-detail", "title": "08 Agent detail", "design": "08 Agent Detail.dc.html", "route": "/agents/ledgerline", "threshold": 5 },
-    { "id": "09-my-evals", "title": "09 My evaluations", "design": "09 My Evaluations.dc.html", "route": "/evaluations", "threshold": 5 },
-    { "id": "10-my-tasks", "title": "10 My tasks", "design": "10 My Tasks.dc.html", "route": "/tasks?tab=mine", "threshold": 5 }
+    { "id": "09-my-evals", "title": "09 My evaluations", "design": "09 My Evaluations.dc.html", "route": "/evaluations", "threshold": 5 }
   ]
 }

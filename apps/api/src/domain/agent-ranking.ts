@@ -136,6 +136,51 @@ function modelLabelOf(agent: RankAgent): string {
   return agent.modelLabel ?? AGENT_MODELS.find((m) => m.id === agent.model)?.label ?? agent.model;
 }
 
+/** Results the caller may see and that count: issued or owned by the caller, no other wallet's user task, ranked tasks only. */
+function visibleResults(data: RankingData, callerWallet: string): RankResult[] {
+  return data.results.filter(
+    (r) =>
+      (r.issued || r.runOwnerWallet === callerWallet) &&
+      !(r.taskKind === "user" && r.taskOwnerWallet !== callerWallet) &&
+      r.taskRanked !== false &&
+      Number.isFinite(r.score),
+  );
+}
+
+/** Agents the caller may see: its own, and other wallets' listed agents with an issued result or evaluation. */
+function eligibleAgents(data: RankingData, callerWallet: string): RankAgent[] {
+  const issued = new Set<string>([...data.results.filter((r) => r.issued).map((r) => r.agentId), ...data.evaluations.map((e) => e.agentId)]);
+  return data.agents.filter((a) => a.ownerWallet === callerWallet || (a.visibility !== "private" && issued.has(a.id)));
+}
+
+export interface TaskOverview {
+  /** Distinct visible agents with a counted result on the task. */
+  agentsCount: number;
+  /** The agent with the top score on the task; ties go to the newest result. Null without a counted result. */
+  best: { agent: RankAgent; score: number } | null;
+}
+
+/**
+ * Tasks page (U35): per task, how many agents have a counted result and who scored best. Same
+ * visibility and ranked rules as the ranking (U27: open-tests and public-repo tasks never rank).
+ * A task is matched by any of its keys (uuid, slug).
+ */
+export function taskOverviews(data: RankingData, callerWallet: string, tasks: Array<{ id: string; slug: string }>): Map<string, TaskOverview> {
+  const agents = new Map(eligibleAgents(data, callerWallet).map((a) => [a.id, a]));
+  const results = visibleResults(data, callerWallet).filter((r) => agents.has(r.agentId));
+  const out = new Map<string, TaskOverview>();
+  for (const t of tasks) {
+    const mine = results.filter((r) => r.taskKeys.includes(t.id) || r.taskKeys.includes(t.slug));
+    let top: RankResult | null = null;
+    for (const r of mine) if (!top || r.score > top.score || (r.score === top.score && r.at > top.at)) top = r;
+    out.set(t.id, {
+      agentsCount: new Set(mine.map((r) => r.agentId)).size,
+      best: top ? { agent: agents.get(top.agentId)!, score: round1(top.score) } : null,
+    });
+  }
+  return out;
+}
+
 export function computeRanking(input: RankingInput): RankingOutput {
   const { callerWallet, data } = input;
   const unranked = new Set(data.unrankedTaskKeys ?? []);

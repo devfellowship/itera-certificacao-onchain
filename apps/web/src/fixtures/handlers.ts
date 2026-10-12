@@ -9,6 +9,8 @@ import { FIXTURE_USER } from '../auth/fixture'
 import {
   agentId,
   agentMyResults,
+  DFL_ICON_URL,
+  TASK_AUTHORS,
   agentProfile,
   agentRecord,
   evaluationDetail,
@@ -57,6 +59,28 @@ export const handlers = [
     const q = (p.get('q') ?? '').toLowerCase()
     const tag = p.get('tag')
     const all = tasksWithCounts()
+    if (p.get('include') === 'overview') {
+      // Tasks page (U35): every visible task, drafts included, with author, agents count and best result.
+      const everything = [...all, ...MY_TASK_DRAFTS]
+      const overview = everything.map((t) => {
+        const top = ranking({ taskIds: [t.id] }).find((r) => r.coverage?.k === 1 && r.score != null)
+        const a = TASK_AUTHORS[t.id]
+        const author = t.mine
+          ? { wallet: FIXTURE_USER.wallet, name: FIXTURE_USER.displayName ?? 'you', handle: FIXTURE_USER.handle ?? null, avatarUrl: null, isDfl: false }
+          : { wallet: null, name: a?.name ?? 'DevFellowship', handle: null, avatarUrl: a?.dfl === false || (a && !a.dfl) ? null : DFL_ICON_URL, isDfl: !!a?.dfl }
+        return {
+          ...t,
+          author,
+          agentsCount: RUN_COUNTS[t.id] ?? 0,
+          bestResult: top ? { agent: { id: top.id, slug: top.slug, name: top.name, initials: top.initials, avatarUrl: null, author: { name: top.authorName, wallet: '', avatarUrl: null } }, score: top.score! } : null,
+        }
+      })
+      const shown = overview
+        .filter((t) => source === 'all' || (source === 'mine' ? t.mine : !t.mine))
+        .filter((t) => !tag || t.tags.some((g) => g.id === tag))
+        .filter((t) => !q || [t.name, t.slug, t.description, ...t.tags.map((g) => g.name)].join(' ').toLowerCase().includes(q))
+      return HttpResponse.json({ tasks: shown, counts: { all: everything.length, public: everything.filter((t) => !t.mine).length, mine: everything.filter((t) => t.mine).length } })
+    }
     // Drafts of My tasks (screen 10) only on source=mine, so the Task Filter of 01/03 keeps its mock's catalog.
     const tasks = [...all, ...(source === 'mine' ? MY_TASK_DRAFTS : [])]
       .filter((t) => source === 'all' || (source === 'mine' ? t.mine : !t.mine))
