@@ -7,8 +7,8 @@ export type NavSection = 'agents' | 'evaluations' | 'tasks'
 
 const LINKS: Array<{ id: NavSection; label: string; to: string }> = [
   { id: 'agents', label: 'Agents', to: '/agents' },
+  { id: 'tasks', label: 'Tasks', to: '/tasks' },
   { id: 'evaluations', label: 'My evaluations', to: '/evaluations' },
-  { id: 'tasks', label: 'My tasks', to: '/tasks' },
 ]
 
 /** Section of the nav that a pathname marks active (02, 03, 08 → agents; 04, 09 → evaluations). */
@@ -19,7 +19,7 @@ export function sectionFor(pathname: string): NavSection | null {
   return null
 }
 
-/** App Nav (design brief 2.0): lockup + three links left, account menu right. Height 56. */
+/** App Nav (design brief 2.0): lockup + three links left (Agents, Tasks, My evaluations), account menu right. Height 56. */
 export function AppNav({ active }: { active?: NavSection | null }) {
   const { pathname } = useLocation()
   const current = active === undefined ? sectionFor(pathname) : active

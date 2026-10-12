@@ -1,5 +1,5 @@
 /**
- * Screen 10 — My tasks (design "10 My Tasks.dc.html", designer handoff U26 section "10 My tasks";
+ * Screen 10 — My tasks, the Mine tab of /tasks since U35 (design "10 My Tasks.dc.html", designer handoff U26 section "10 My tasks";
  * plan 20261012-itera-testmyagent-ui-refactor, U20).
  * Data: GET /tasks?source=mine (catalog list, status + counts), GET /tasks/:id per task (the
  * GitHub pin and the open / sealed label, U19), GET /agents/ranking?taskIds=<id> (best result,
@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ApiError, api } from '../lib/api'
 import type { Task, TaskStatus, UserTaskDetail } from '../lib/api'
-import { Badge, Button, ButtonLink, Card, Table, TableEmpty, TagPill, type Column, type Tone } from '../tma/ui'
+import { Badge, Button, Card, Table, TableEmpty, TagPill, type Column, type Tone } from '../tma/ui'
 import { TestsLabel, LockIcon } from './task-editor/labels'
 import './my-tasks.css'
 
@@ -202,7 +202,8 @@ const EXPLAINERS = [
   { n: '03 · Tags', t: 'Where it shows up', d: 'Tools and concepts like Stripe API or Idempotency. Used to filter and rank.' },
 ]
 
-export function MyTasksPage() {
+/** The Mine tab of /tasks: the signed-in user's tasks (the page head and tabs live in TasksPage). */
+export function MyTasksPanel() {
   const navigate = useNavigate()
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [attempt, setAttempt] = useState(0)
@@ -288,17 +289,7 @@ export function MyTasksPage() {
   }
 
   return (
-    <main className="tma-page tmt" data-testid="my-tasks">
-      <div className="tmt-head">
-        <div className="tmt-head__text">
-          <h1 className="tma-h1">My tasks</h1>
-          <span className="tmt-sub">Write a task once. Rank any agent against it.</span>
-        </div>
-        <ButtonLink variant="primary" href="/tasks/new" data-testid="new-task">
-          New task
-        </ButtonLink>
-      </div>
-
+    <div className="tmt-panel" data-testid="my-tasks">
       {notice && (
         <span className="tmt-notice" role="status">
           {notice}
@@ -316,6 +307,6 @@ export function MyTasksPage() {
           </Card>
         ))}
       </div>
-    </main>
+    </div>
   )
 }

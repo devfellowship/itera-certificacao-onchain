@@ -3,14 +3,15 @@
  * Data: GET /agents/:id/profile (public for a listed agent with issued evidence; its owner always)
  *       GET /agents/:id/my-results (signed in only: results on the viewer's own tasks).
  * The route is open: a shared agent link reads logged out. Private results appear only to the owner of the task.
- * The README badge card (U16) shows the Markdown snippet of GET /badge/agents/:slug.svg.
+ * The README badge card (U16) previews GET /badge/agents/:slug.svg and copies its Markdown on click.
  */
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { ApiError, api } from '../lib/api'
 import type { AgentEvidenceRow, AgentProfileResponse, MyResultRow } from '../lib/api'
-import { Avatar, Badge, Breadcrumb, Button, ButtonLink, Card, CardHeader, KeyValue, TagPill, Table, TableEmpty, type Column } from '../tma/ui'
+import { Avatar, Badge, Breadcrumb, Button, ButtonLink, Card, CardHeader, KeyValue, ModelLabel, TagPill, Table, TableEmpty, type Column } from '../tma/ui'
+import { TaskName } from '../tma/task-filter'
 import './agent-detail.css'
 
 const shortDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
@@ -63,7 +64,7 @@ const EVIDENCE_COLUMNS: Column<AgentEvidenceRow>[] = [
     width: 'minmax(0,1fr)',
     render: (e) => (
       <span className="tad-task">
-        <span className="tad-task__name">{e.name}</span>
+        <TaskName className="tad-task__name" name={e.name} taskId={e.taskId} slug={e.taskSlug} />
         <span className="tad-task__date">{shortDate.format(new Date(e.at))}</span>
       </span>
     ),
@@ -209,7 +210,7 @@ function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse
               </h1>
               <span className="tad-meta">
                 by <span className="tad-meta__strong">{agent.authorName}</span>
-                {agent.listedAt && <> · listed {longDate.format(new Date(agent.listedAt))}</>} · {model.label} via OpenRouter
+                {agent.listedAt && <> · listed {longDate.format(new Date(agent.listedAt))}</>} · <ModelLabel model={model.id} label={model.label} size={20} className="tad-meta__model" /> via OpenRouter
                 {source.commitShort && (
                   <>
                     {' '}
@@ -379,7 +380,7 @@ function OnYourTasks({ agent, signedIn, onConnect, chooseHref }: { agent: AgentP
   }, [agent.id, agent.slug, signedIn, attempt])
 
   const columns: Column<MyResultRow>[] = [
-    { key: 'task', header: 'Task', width: 'minmax(0,1fr)', render: (r) => <span className="tad-task__name">{r.task.name}</span> },
+    { key: 'task', header: 'Task', width: 'minmax(0,1fr)', render: (r) => <TaskName className="tad-task__name" name={r.task.name} taskId={r.task.id} /> },
     { key: 'outcome', header: 'Outcome', width: '90px', render: (r) => <OutcomeBadge outcome={r.outcome} /> },
     { key: 'score', header: agent.name, width: '130px', align: 'right', render: (r) => <span className="tad-score">{formatScore(r.score)}</span> },
     {
@@ -448,7 +449,7 @@ function OnYourTasks({ agent, signedIn, onConnect, chooseHref }: { agent: AgentP
   )
 }
 
-/** README badge (U16): preview + Markdown snippet + copy. */
+/** README badge (U16): preview + a button that copies the Markdown (the snippet itself is not shown). */
 function BadgeCard({ profile }: { profile: AgentProfileResponse }) {
   const [copied, setCopied] = useState(false)
   const timer = useRef<number | undefined>(undefined)
@@ -471,9 +472,6 @@ function BadgeCard({ profile }: { profile: AgentProfileResponse }) {
     <Card pad className="tad-badge" data-testid="badge-card">
       <span className="tad-run__title">README badge</span>
       <img className="tad-badge__img" src={url} alt={`TestMyAgent badge of ${profile.agent.name}`} height={20} data-testid="badge-img" />
-      <pre className="tad-badge__code" data-testid="badge-snippet">
-        {markdown}
-      </pre>
       <Button variant="secondary" size={32} onClick={copy} data-testid="copy-badge">
         {copied ? 'Copied' : 'Copy Markdown'}
       </Button>

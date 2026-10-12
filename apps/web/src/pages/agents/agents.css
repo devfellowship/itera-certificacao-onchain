@@ -154,8 +154,7 @@
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
+  display: flex;
 }
 .agents-cov {
   display: flex;

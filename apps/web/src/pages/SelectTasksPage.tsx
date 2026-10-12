@@ -16,7 +16,7 @@ import { useSession, useSolBalance } from '../auth/session'
 import { api, ApiError, explorerTxUrl } from '../lib/api'
 import type { Agent, Model, Quote, Task } from '../lib/api'
 import { TaskFilter, findTask, useTaskCatalog } from '../tma/task-filter'
-import { Breadcrumb, Button, Stepper, middle } from '../tma/ui'
+import { Breadcrumb, Button, ModelLabel, Stepper, middle } from '../tma/ui'
 import { payQuote, PayError, type PayStep } from './select-tasks/pay'
 import './select-tasks/select-tasks.css'
 
@@ -248,7 +248,9 @@ export function SelectTasksPage() {
               {agentError ? <span className="st-danger">{agentError}</span> : agentName} {commit && <span className="st-mono st-muted">{commit.slice(0, 7)}</span>}
             </span>
             <span className="st-k">Model</span>
-            <span className="st-v">{modelLabel}</span>
+            <span className="st-v">
+              <ModelLabel model={model?.id ?? agent?.model} provider={model?.provider} label={modelLabel} size={20} />
+            </span>
             <span className="st-k">Hidden tests</span>
             <span className="st-v st-mono">{n ? hiddenTests : '—'}</span>
             <span className="st-k">Est. time</span>

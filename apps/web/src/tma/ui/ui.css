@@ -843,6 +843,44 @@ textarea.tma-input {
   display: block;
 }
 
+/* ---------- Model avatar (provider logo) ---------- */
+.tma-model-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+}
+.tma-model-avatar__mark {
+  display: block;
+  object-fit: contain;
+}
+.tma-model-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tma-model-label__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Task name link (public task → /tasks/:slug) ---------- */
+.tma-task-link {
+  color: inherit;
+  text-decoration: none;
+}
+.tma-task-link:hover,
+.tma-task-link:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* ---------- Modal ---------- */
 .tma-scrim {
   position: fixed;

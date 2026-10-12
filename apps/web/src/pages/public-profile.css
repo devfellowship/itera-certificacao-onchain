@@ -636,3 +636,13 @@
     flex-wrap: wrap;
   }
 }
+a.pp-task__name {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.pp-byline__model {
+  vertical-align: middle;
+  margin: 0 2px;
+  color: var(--tma-text);
+}

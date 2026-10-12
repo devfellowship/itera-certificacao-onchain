@@ -401,3 +401,22 @@
 .tmf-inline__rows {
   min-width: 0;
 }
+
+/* Browse mode (the All tab of /tasks): no checkbox column, rows are links. */
+.tmf-row--browse {
+  grid-template-columns: minmax(0, 1fr) 200px 96px;
+  color: inherit;
+  text-decoration: none;
+}
+.tmf-row--static {
+  cursor: default;
+}
+.tmf-row--static:hover {
+  background: transparent;
+}
+.tmf-inline__bar--browse {
+  justify-content: flex-end;
+}
+.tmf-row__name.tma-task-link {
+  color: inherit;
+}

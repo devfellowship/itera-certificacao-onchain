@@ -9,6 +9,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../lib/api'
 import type { Agent, EvaluationListItem, EvaluationScope, EvaluationStatus, EvaluationsResponse } from '../lib/api'
 import { Avatar, Badge, Button, ButtonLink, Table, TableEmpty, Tabs, type Column, type Tone } from '../tma/ui'
+import { TaskName } from '../tma/task-filter'
 import './my-evaluations.css'
 
 type Tab = 'all' | 'my_agents' | 'others'
@@ -137,7 +138,7 @@ const COLUMNS: Column<EvaluationListItem>[] = [
     width: '260px',
     render: (e) => (
       <span className="tme-tasks" title={e.tasks.map((t) => t.name).join('\n')}>
-        {e.tasks[0] && <span className="tme-task">{e.tasks[0].name}</span>}
+        {e.tasks[0] && <TaskName className="tme-task" name={e.tasks[0].name} taskId={e.tasks[0].id} />}
         {e.tasks.length > 1 && <span className="tme-more">+{e.tasks.length - 1}</span>}
       </span>
     ),

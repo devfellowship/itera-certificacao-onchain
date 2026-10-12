@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import type { McpServerView, TaskProfile, TaskResults } from '../../lib/api/types'
-import { Badge, Button, ButtonLink, Segmented, StatusChip, TagPill, middle } from '../../tma/ui'
+import { Badge, Button, ButtonLink, ModelLabel, Segmented, StatusChip, TagPill, middle } from '../../tma/ui'
 import { copyText, fmtDate, fmtDuration, fmtMemory, fmtScore, useFlash } from './helpers'
 
 function Section({ id, title, children, aside }: { id: string; title: string; children: ReactNode; aside?: ReactNode }) {
@@ -436,7 +436,7 @@ export function ResultsSection({ task }: { task: TaskProfile }) {
                 <span className="tp-mono13 tp-board__rank">{row.rank}</span>
                 <span className="tp-board__agent">
                   <span className="tp-board__name">{row.agentName}</span>
-                  <span className="tma-body-sm tma-muted">{row.modelLabel ?? '—'}</span>
+                  <span className="tma-body-sm tma-muted">{row.modelLabel ? <ModelLabel label={row.modelLabel} size={16} /> : '—'}</span>
                 </span>
                 <span className="tp-mono14" data-label="Score">{fmtScore(row.score)}</span>
                 <StatusChip status={row.outcome} />
