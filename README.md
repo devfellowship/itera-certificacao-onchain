@@ -87,6 +87,7 @@ Deployment uses a dedicated Dokploy on `89.167.72.187`: https://itera-agent-cred
 |---|---|---|---|
 | `itera-agent-credentials-web` | `Dockerfile` | `apps/web/**`, root package files, `Dockerfile` | https://itera-agent-credentials.devfellowship.com/ |
 | `itera-agent-credentials-api` | `apps/api/Dockerfile` | `apps/api/**`, root package files | https://itera-agent-credentials-api.devfellowship.com/ |
+| `itera-agent-credentials-runner` | `services/runner/Dockerfile` | `services/runner/**`, `services/evaluator/**`, `benchmarks/**`, root package files | none (worker; host Docker socket mounted, see `services/runner/README.md`) |
 
 A GitHub repository webhook sends each push event to the deploy URL of each app. Dokploy deploys an app only when the push is on `main` and changes a file in its watch paths. CI does not gate the deployment. Both start from the same push, so check the CI result and the Dokploy deployment status. GitHub Actions holds no deployment credential.
 
