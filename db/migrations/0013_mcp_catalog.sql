@@ -1,4 +1,4 @@
--- 0012_mcp_catalog.sql — the Itera MCP catalog (U29, ADR-11, plan 20261012-itera-testmyagent-ui-refactor;
+-- 0013_mcp_catalog.sql — the Itera MCP catalog (U29, ADR-11, plan 20261012-itera-testmyagent-ui-refactor;
 -- design docs/architecture/mcp-sandbox.md "Registration flow", step 4).
 --
 -- One row per published version of a catalog server (mcp/catalog/<name>/ in this repo). The API
@@ -8,7 +8,7 @@
 -- immutable once published (the CI job mcp-catalog refuses to push it twice), so the digest of a
 -- row never changes after status = 'published'.
 --
--- Same posture as 0000–0011: RLS on, no policies, the API connects as itera_api_service.
+-- Same posture as 0000–0012: RLS on, no policies, the API connects as itera_api_service.
 -- No DB function, no trigger: the sync lives in apps/api. Idempotent. One transaction.
 
 begin;

@@ -142,7 +142,7 @@ export interface AppOptions {
   reputation?: ReputationStore;
   /** U30: public task profile (/tasks/:slug). Mounted only when given. */
   publicTasks?: PublicTaskStore;
-  /** U29: Itera MCP catalog (needs 0012_mcp_catalog.sql). */
+  /** U29: Itera MCP catalog (needs 0013_mcp_catalog.sql). */
   mcpCatalog?: McpCatalogStore;
 }
 

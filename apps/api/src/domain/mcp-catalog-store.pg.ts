@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 import type { McpCatalogEntry, McpCatalogRow, McpCatalogStore } from "./mcp-catalog.js";
 import { SchemaNotReadyError } from "./runs-store.js";
 
-export const MCP_CATALOG_MIGRATION = "0012_mcp_catalog.sql";
+export const MCP_CATALOG_MIGRATION = "0013_mcp_catalog.sql";
 const MISSING_SCHEMA_CODES = new Set(["42P01", "42703"]);
 
 function rethrow(e: unknown): never {

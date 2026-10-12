@@ -31,7 +31,7 @@ const proofs = new PgProofStore(getPool());
 const catalog = new PgCatalogStore(getPool());
 if (process.env.ITERA_MODELS_SYNC !== "off") startModelsSync(catalog);
 const runsStore = new PgRunsStore(getPool());
-// U29 (0012): MCP catalog rows from mcp/catalog/*/manifest.json + GHCR digests, on boot and every 15 min.
+// U29 (0013): MCP catalog rows from mcp/catalog/*/manifest.json + GHCR digests, on boot and every 15 min.
 const mcpCatalog = new PgMcpCatalogStore(getPool());
 if (process.env.ITERA_MCP_CATALOG_SYNC !== "off") {
   startMcpCatalogSync(mcpCatalog, { dir: process.env.ITERA_MCP_CATALOG_DIR ?? new URL("../mcp/catalog", import.meta.url).pathname });
