@@ -45,7 +45,7 @@ export function VerifyPage() {
 
   return (
     <main className="verify-page">
-      <h1>Verify an Itera credential</h1>
+      <h1>Verify a TestMyAgent credential</h1>
       <p className="intro">
         Paste the attestation NFT's mint address. Every check below runs against Solana devnet and IPFS directly — this page
         never asks our servers whether a result is valid.

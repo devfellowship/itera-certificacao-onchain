@@ -90,7 +90,7 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
   const extensions = mint.data.extensions.__option === 'Some' ? mint.data.extensions.value : [];
   const nonTransferable = extensions.some((e) => e.__kind === 'NonTransferable');
   if (!nonTransferable) {
-    fail('non-transferable', 'Token is non-transferable', 'Missing the NonTransferable extension — this is not a soulbound Itera credential.');
+    fail('non-transferable', 'Token is non-transferable', 'Missing the NonTransferable extension — this is not a soulbound TestMyAgent credential.');
   } else {
     pass('non-transferable', 'Token is non-transferable', 'NonTransferable extension present.');
   }
@@ -110,9 +110,9 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
 
   // --- Check 2: credential and schema are Itera's known, fixed addresses.
   if (schemaPdaFromMetadata !== ITERA_RUN_RESULT_SCHEMA_PDA) {
-    fail('known-schema', 'Schema is the known Itera schema', `Expected ${ITERA_RUN_RESULT_SCHEMA_PDA}, got ${schemaPdaFromMetadata}.`);
+    fail('known-schema', 'Schema is the known TestMyAgent schema', `Expected ${ITERA_RUN_RESULT_SCHEMA_PDA}, got ${schemaPdaFromMetadata}.`);
   } else {
-    pass('known-schema', 'Schema is the known Itera schema', schemaPdaFromMetadata);
+    pass('known-schema', 'Schema is the known TestMyAgent schema', schemaPdaFromMetadata);
   }
 
   const attestation = await fetchMaybeAttestation(rpc, attestationPda);
@@ -121,9 +121,9 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
     return done();
   }
   if (attestation.data.credential !== ITERA_CREDENTIAL_PDA) {
-    fail('known-credential', 'Credential is the known Itera credential', `Expected ${ITERA_CREDENTIAL_PDA}, got ${attestation.data.credential}.`);
+    fail('known-credential', 'Credential is the known TestMyAgent credential', `Expected ${ITERA_CREDENTIAL_PDA}, got ${attestation.data.credential}.`);
   } else {
-    pass('known-credential', 'Credential is the known Itera credential', attestation.data.credential);
+    pass('known-credential', 'Credential is the known TestMyAgent credential', attestation.data.credential);
   }
 
   // --- Check 3: the Credential currently has at least one authorized signer (structural check —
