@@ -9,7 +9,7 @@
  * Idempotent: a confirmed proof is returned as is. A failed or pending proof is retried. The
  * on-chain step is idempotent too (same nonce → same attestation PDA, see SasMinter).
  */
-import { SasMinter, type Minter } from "./attestation.js";
+import { proofNonceSeed, SasMinter, type Minter } from "./attestation.js";
 import { buildEvidenceDocument, scenarioIdOf, scoreForChain } from "./evidence.js";
 import { manifestBytes, pinnerFromEnv, sha256Hex, type Pinner } from "./ipfs.js";
 import type { ProofRecord, ProofRun, ProofStore } from "./proof-store.js";
@@ -63,13 +63,15 @@ export async function issueProof(run: ProofRun, deps: IssueProofDeps): Promise<P
   }
 
   const minter = deps.minter ?? new SasMinter();
-  const addresses = await minter.addressesFor(run.runStartSig);
+  const nonceSeed = proofNonceSeed(run.runStartSig, run.evaluationId ? (run.slotRunId ?? run.runId) : null);
+  const addresses = await minter.addressesFor(nonceSeed);
   // Record `pending` with the deterministic addresses before the tx, so a crash mid-mint leaves a
   // row that names the accounts to check.
   await store.upsertProof({ ...base, ...addresses, status: "pending", error: null });
   try {
     const minted = await minter.mint({
       recipient: run.ownerWallet,
+      nonceSeed,
       data: {
         manifest_sha256: manifestSha256,
         evidence_cid: base.evidenceCid,

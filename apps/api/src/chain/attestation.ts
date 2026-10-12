@@ -47,9 +47,22 @@ export interface MintResult {
 }
 
 export interface Minter {
-  /** Deterministic addresses for a run, before any tx. */
-  addressesFor(runStartSig: string): Promise<{ attestationAddress: string; nftMint: string }>;
-  mint(input: { recipient: string; data: RunResultData }): Promise<MintResult>;
+  /** Deterministic addresses for a run, before any tx. `nonceSeed` = proofNonceSeed(...). */
+  addressesFor(nonceSeed: string): Promise<{ attestationAddress: string; nftMint: string }>;
+  /** `nonceSeed` defaults to `data.run_start_sig` (single runs, v1). */
+  mint(input: { recipient: string; data: RunResultData; nonceSeed?: string }): Promise<MintResult>;
+}
+
+/**
+ * The string whose sha256 seeds the attestation nonce.
+ * - A single run (POST /runs, its own run-start Memo): the run-start signature (v1).
+ * - A run of an evaluation (v2, one wallet prompt per evaluation): every run of the evaluation shares
+ *   the payment tx signature, so the seed is `${sig}:${slotRunId}`. `slotRunId` is a run id named in
+ *   the `itera-eval:v1:` Memo of that tx — the run itself, or for a free retry the run it replaces.
+ * apps/web/src/verify.ts check 6 recomputes both derivations.
+ */
+export function proofNonceSeed(runStartSig: string, evaluationSlotRunId?: string | null): string {
+  return evaluationSlotRunId ? `${runStartSig}:${evaluationSlotRunId}` : runStartSig;
 }
 
 /** nonce = the address of a keypair seeded with sha256(run_start_sig) — same derivation as
@@ -68,18 +81,18 @@ export async function deriveProofAddresses(runStartSig: string): Promise<{ nonce
 }
 
 export class SasMinter implements Minter {
-  async addressesFor(runStartSig: string) {
-    const { attestationAddress, nftMint } = await deriveProofAddresses(runStartSig);
+  async addressesFor(nonceSeed: string) {
+    const { attestationAddress, nftMint } = await deriveProofAddresses(nonceSeed);
     return { attestationAddress, nftMint };
   }
 
-  async mint({ recipient, data }: { recipient: string; data: RunResultData }): Promise<MintResult> {
+  async mint({ recipient, data, nonceSeed }: { recipient: string; data: RunResultData; nonceSeed?: string }): Promise<MintResult> {
     if (!Number.isInteger(data.score_total) || data.score_total < 0 || data.score_total > 100) {
       throw new Error(`score_total must be an integer 0-100 (U8); got ${data.score_total}`);
     }
     const client = await hotSignerClient();
     const signer = client.payer as KeyPairSigner;
-    const { nonce, attestationAddress, nftMint } = await deriveProofAddresses(data.run_start_sig);
+    const { nonce, attestationAddress, nftMint } = await deriveProofAddresses(nonceSeed ?? data.run_start_sig);
 
     const existing = await fetchMaybeAttestation(client.rpc, attestationAddress);
     if (existing.exists) {

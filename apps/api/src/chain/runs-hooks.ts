@@ -55,6 +55,8 @@ interface IssueHookInput {
     runStartSig: string | null;
     evidenceManifest: unknown | null;
     scoreTotal: number | null;
+    evaluationId?: string | null;
+    retryOfRunId?: string | null;
   };
   manifest: unknown;
   agentVersion: { agentId: string; commitSha: string } | null;
@@ -86,6 +88,8 @@ export function proofIssuerHook(store: ProofStore) {
             agentRepo: agent?.repoFullName ?? null,
             agentCommit: agentVersion?.commitSha ?? null,
             modelId: agent?.model ?? null,
+            evaluationId: run.evaluationId ?? null,
+            slotRunId: run.evaluationId ? (run.retryOfRunId ?? run.id) : null,
           },
           { store },
         );

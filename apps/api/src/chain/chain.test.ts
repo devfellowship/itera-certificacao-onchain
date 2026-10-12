@@ -126,17 +126,30 @@ class FakePinner implements Pinner {
 }
 
 class FakeMinter implements Minter {
-  calls: Array<{ recipient: string; data: RunResultData }> = [];
+  calls: Array<{ recipient: string; data: RunResultData; nonceSeed?: string }> = [];
   async addressesFor() {
     return { attestationAddress: "Attest1111", nftMint: "Mint1111" };
   }
-  async mint(input: { recipient: string; data: RunResultData }) {
+  async mint(input: { recipient: string; data: RunResultData; nonceSeed?: string }) {
     this.calls.push(input);
     return { attestationAddress: "Attest1111", nftMint: "Mint1111", txSig: "MintTx1", alreadyExisted: false };
   }
 }
 
 describe("issueProof", () => {
+  it("v1 single run: nonce seed = run_start_sig; v2 evaluation run: `${sig}:${slot run id}` and the evidence names the evaluation", async () => {
+    const pinner = new FakePinner();
+    const minter = new FakeMinter();
+    await issueProof(run(), { store: new FakeProofStore(), pinner, minter });
+    expect(minter.calls[0]!.nonceSeed).toBe("5sig");
+    const slot = "22222222-2222-4222-8222-222222222222";
+    await issueProof(run({ runId: "33333333-3333-4333-8333-333333333333", evaluationId: "e1", slotRunId: slot }), { store: new FakeProofStore(), pinner, minter });
+    expect(minter.calls[1]!.nonceSeed).toBe(`5sig:${slot}`);
+    const evidence = JSON.parse(new TextDecoder().decode(pinner.pinned[1]));
+    expect(evidence.run).toMatchObject({ evaluation_id: "e1", slot_run_id: slot });
+    expect(JSON.parse(new TextDecoder().decode(pinner.pinned[0])).run.evaluation_id).toBeUndefined();
+  });
+
   it("records failed 'ipfs not configured' without a pinner — and never invents a CID", async () => {
     const store = new FakeProofStore();
     const minter = new FakeMinter();

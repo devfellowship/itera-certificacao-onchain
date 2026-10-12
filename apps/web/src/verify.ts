@@ -151,19 +151,36 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
   };
   manifestSha256Value = data.manifest_sha256;
 
-  // --- Check 6: the attestation's address derives from sha256(run_start_sig) — binds this
+  // --- Check 6: the attestation's address derives from the run-start signature — binds this
   // specific result to a specific, wallet-signed run start, not just any Memo with a matching CID.
-  const nonceSeed = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data.run_start_sig)));
-  const nonceSigner = await createKeyPairSignerFromPrivateKeyBytes(nonceSeed);
-  const [expectedAttestationPda] = await findAttestationPda({
-    credential: ITERA_CREDENTIAL_PDA,
-    schema: schemaPdaFromMetadata,
-    nonce: nonceSigner.address,
-  });
-  if (expectedAttestationPda !== attestationPda) {
-    fail('nonce-binding', 'Attestation address derives from run_start_sig', `Recomputed ${expectedAttestationPda}, found ${attestationPda}.`);
-  } else {
+  // v1 (a single run): nonce seed = sha256(run_start_sig).
+  // v2 (a run of an evaluation, one wallet prompt): run_start_sig is the payment tx, whose Memo is
+  // `itera-eval:v1:{..., run_ids:[...]}`; nonce seed = sha256(`${run_start_sig}:${run_id}`) for one
+  // run id named in that Memo.
+  const nonceAddress = async (seedText: string) =>
+    (await createKeyPairSignerFromPrivateKeyBytes(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seedText))))).address;
+  const pdaForSeed = async (seedText: string) =>
+    (await findAttestationPda({ credential: ITERA_CREDENTIAL_PDA, schema: schemaPdaFromMetadata, nonce: await nonceAddress(seedText) }))[0];
+  if ((await pdaForSeed(data.run_start_sig)) === attestationPda) {
     pass('nonce-binding', 'Attestation address derives from run_start_sig', 'Recomputed address matches.');
+  } else {
+    let boundRunId: string | null = null;
+    try {
+      const startTx = await rpc.getTransaction(data.run_start_sig as never, { maxSupportedTransactionVersion: 0, encoding: 'json' }).send();
+      for (const runId of evaluationMemoRunIds(startTx)) {
+        if ((await pdaForSeed(`${data.run_start_sig}:${runId}`)) === attestationPda) {
+          boundRunId = runId;
+          break;
+        }
+      }
+    } catch {
+      // Falls through to the failure below with the reason.
+    }
+    if (boundRunId) {
+      pass('nonce-binding', 'Attestation address derives from run_start_sig', `Evaluation run ${boundRunId}: recomputed address matches.`);
+    } else {
+      fail('nonce-binding', 'Attestation address derives from run_start_sig', `No v1 or v2 (evaluation Memo) derivation gives ${attestationPda}.`);
+    }
   }
 
   // --- Check 5: the run-start Memo transaction exists, is confirmed, and its scenario_id matches
@@ -243,6 +260,30 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
     skip('manifest-hash', 'Pinned manifest hash matches on-chain record', `Could not fetch/parse: ${error instanceof Error ? error.message : String(error)}`);
     return done();
   }
+}
+
+/** Run ids named by an `itera-eval:v1:` Memo in a transaction (empty when there is none). */
+export function evaluationMemoRunIds(tx: unknown): string[] {
+  const logs = (tx as { meta?: { logMessages?: readonly string[] | null } } | null)?.meta?.logMessages ?? [];
+  for (const line of logs) {
+    const at = line.indexOf('itera-eval:v1:');
+    if (at < 0) continue;
+    // The Memo program logs `Memo (len N): "<text>"` with the text JSON-escaped.
+    let text = line.slice(at + 'itera-eval:v1:'.length);
+    if (text.endsWith('"')) text = text.slice(0, -1);
+    try {
+      const body = JSON.parse(text.includes('\\"') ? JSON.parse(`"${text}"`) : text) as { run_ids?: unknown };
+      if (Array.isArray(body.run_ids)) return body.run_ids.filter((x): x is string => typeof x === 'string').map(toUuid);
+    } catch {
+      // Not a parsable evaluation memo.
+    }
+  }
+  return [];
+}
+
+function toUuid(id: string): string {
+  const h = id.replace(/-/g, '').toLowerCase();
+  return h.length === 32 ? `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}` : id;
 }
 
 /** Convenience factory — same RPC the rest of the repo points at devnet with. */
