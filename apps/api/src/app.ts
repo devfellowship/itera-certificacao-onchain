@@ -25,6 +25,8 @@ import type { CatalogStore } from "./domain/catalog-store.js";
 import { createTaskPacksRouter } from "./http/task-packs-router.js";
 import { createMyTasksRouter, type MyTasksRouterDeps } from "./http/my-tasks-router.js";
 import { createRunsRouter, RUN_FEE_USD, RUN_MAX_COST_USD, type RunsRouterDeps } from "./http/runs-router.js";
+import { createMcpCatalogRouter } from "./http/mcp-catalog-router.js";
+import type { McpCatalogStore } from "./domain/mcp-catalog.js";
 import type { Repository } from "./domain/repository.js";
 
 export const SERVICE_NAME = "testmyagent-api";
@@ -106,6 +108,7 @@ const ROUTES = [
   "POST /runs/:id/feedback",
   "GET /runs/:id/feedback",
   "GET /tasks/:idOrSlug/reputation",
+  "GET /mcp-catalog",
 ];
 
 /**
@@ -139,6 +142,8 @@ export interface AppOptions {
   reputation?: ReputationStore;
   /** U30: public task profile (/tasks/:slug). Mounted only when given. */
   publicTasks?: PublicTaskStore;
+  /** U29: Itera MCP catalog (needs 0012_mcp_catalog.sql). */
+  mcpCatalog?: McpCatalogStore;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -213,6 +218,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   if (options.publicTasks) {
     app.use(createPublicTaskRouter({ store: options.publicTasks, reputation: options.reputation, costCapUsd: RUN_MAX_COST_USD, runFeeUsd: RUN_FEE_USD }));
   }
+  if (options.mcpCatalog) app.use(createMcpCatalogRouter(options.mcpCatalog));
 
   return app;
 }

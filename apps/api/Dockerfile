@@ -35,6 +35,9 @@ COPY --from=build /workspace/apps/api/certs ./certs
 COPY --from=build /workspace/packages/contracts ./packages/contracts
 # Fonts for the NFT image (chain/nft-image.ts) — alpine ships no system fonts.
 COPY --from=build /workspace/apps/api/assets ./assets
+# U29: the manifest + tools snapshot of every MCP catalog server (the API syncs them into mcp_catalog).
+# Only the JSON is read; the server code in the same folders is never run by the API.
+COPY mcp/catalog ./mcp/catalog
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD wget -q -O /dev/null http://127.0.0.1:${PORT}/health || exit 1
