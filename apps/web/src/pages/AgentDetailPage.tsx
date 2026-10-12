@@ -191,8 +191,8 @@ export function AgentDetailPage() {
 function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse; signedIn: boolean; onConnect: () => void }) {
   const { agent, source, model, stats, tags, evidence, latestAttestation } = profile
   const age = relativeAge(stats.lastVerifiedAt)
-  const key = agent.slug ?? agent.id
-  const chooseHref = `/agents/${encodeURIComponent(key)}/evaluate`
+  // Screen 03 reads GET /agents/:id and posts the quote with the agent id; the slug would answer 404 "Agent not found".
+  const chooseHref = `/agents/${encodeURIComponent(agent.id)}/evaluate`
   const fee = formatFeeSol(profile.price.runCostSol)
 
   return (
