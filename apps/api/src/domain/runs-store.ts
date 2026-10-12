@@ -9,7 +9,7 @@
  * A table that is only decoration for a read (run_actions, proofs) degrades to `null` instead.
  */
 
-export type AsyncRunStatus = "pending" | "queued" | "running" | "pass" | "fail" | "invalid" | "timeout" | "infra_error";
+export type AsyncRunStatus = "pending" | "queued" | "running" | "pass" | "fail" | "invalid" | "timeout" | "infra_error" | "cancelled";
 export type RunPhase = "preparing" | "agent_running" | "grading" | "done";
 
 export const TERMINAL_STATUSES: readonly AsyncRunStatus[] = ["pass", "fail", "invalid", "timeout", "infra_error"];
@@ -54,6 +54,10 @@ export interface AsyncRun {
   modelCostUsd?: number | null;
   modelTokensIn?: number | null;
   modelTokensOut?: number | null;
+  /** Set for a run of an evaluation (db/migrations/0008). Its run_start_sig is the payment tx. */
+  evaluationId?: string | null;
+  /** A free retry (Gate Q1) points at the run it replaces. */
+  retryOfRunId?: string | null;
 }
 
 /** Recorded model cost of finished runs for one (task, model). */

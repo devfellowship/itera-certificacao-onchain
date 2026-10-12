@@ -30,7 +30,7 @@ function rethrow(migration: string, e: unknown): never {
 const RUN_COLUMNS = `
   r.id, r.owner_wallet, rd.agent_id, r.agent_version_id, r.task_pack_id, r.task_pack_version,
   r.status, r.phase, r.run_start_sig, r.evidence_manifest, r.score_total, r.error,
-  r.started_at, r.completed_at, r.model_cost_usd, r.model_tokens_in, r.model_tokens_out`;
+  r.started_at, r.completed_at, r.model_cost_usd, r.model_tokens_in, r.model_tokens_out, r.evaluation_id, r.retry_of_run_id`;
 
 interface RunRow {
   id: string;
@@ -51,6 +51,8 @@ interface RunRow {
   model_cost_usd: string | number | null;
   model_tokens_in: number | null;
   model_tokens_out: number | null;
+  evaluation_id?: string | null;
+  retry_of_run_id?: string | null;
 }
 
 function numOrNull(value: string | number | null | undefined): number | null {
@@ -83,6 +85,8 @@ function toRun(row: RunRow): AsyncRun {
     modelCostUsd: numOrNull(row.model_cost_usd),
     modelTokensIn: numOrNull(row.model_tokens_in),
     modelTokensOut: numOrNull(row.model_tokens_out),
+    evaluationId: row.evaluation_id ?? null,
+    retryOfRunId: row.retry_of_run_id ?? null,
   };
 }
 

@@ -58,6 +58,8 @@ export function buildEvidenceDocument(run: ProofRun): Record<string, unknown> {
       agent_repo: run.agentRepo ?? null,
       agent_commit: run.agentCommit ?? null,
       model_id: run.modelId ?? null,
+      // v2 only (a run of an evaluation): the proof nonce binds `${run_start_sig}:${slot_run_id}`.
+      ...(run.evaluationId ? { evaluation_id: run.evaluationId, slot_run_id: run.slotRunId ?? run.runId } : {}),
     },
     manifest: redactManifest(run.evidenceManifest),
   };

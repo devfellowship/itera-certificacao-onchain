@@ -7,6 +7,7 @@ import { createAgentEndpointManifestsRouter } from "./http/agent-endpoint-manife
 import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
 import { createEvaluationsRouter } from "./http/evaluations-router.js";
+import { createEvaluationsV2Router, type EvaluationsRouterDeps } from "./evaluations/router.js";
 import { createNftRouter } from "./http/nft-router.js";
 import { createGithubRouter, defaultGithubRouterDeps, type GithubRouterDeps } from "./http/github-router.js";
 import { createProofsRouter } from "./http/proofs-router.js";
@@ -31,7 +32,12 @@ const ROUTES = [
   "GET /runs?mine=1",
   "GET /runs/:id",
   "POST /runs/:id/publish",
+  "POST /evaluations/quote",
+  "POST /evaluations/quote/:reference/transaction",
   "POST /evaluations",
+  "GET /evaluations?scope=all|my_agents|others",
+  "GET /evaluations/:id",
+  "POST /evaluations/:id/cancel",
   "POST /evaluations/:id/dispatch",
   "GET /evaluations/:id/events",
   "POST /evaluations/:id/publish",
@@ -83,6 +89,8 @@ export interface AppOptions {
   catalog?: CatalogStore;
   /** U21: the on-demand OpenRouter sync and the admin allow-list. */
   catalogOptions?: CatalogRouterOptions;
+  /** Evaluations v2 (quote, Solana Pay, batch of runs). Mounted only when given. */
+  evaluations?: EvaluationsRouterDeps;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -128,6 +136,9 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
 
   app.use(createAuthRouter());
   if (options.runs) app.use(createRunsRouter({ repo, ...options.runs }));
+  // Before the legacy vendor router: both answer POST /evaluations (the v2 one falls through on a
+  // legacy body).
+  if (options.evaluations) app.use(createEvaluationsV2Router(options.evaluations));
   app.use(createEvaluationsRouter(repo));
   app.use(createCredentialsRouter(repo));
   app.use(createEvaluationRequestsRouter(repo));

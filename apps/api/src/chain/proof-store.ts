@@ -36,6 +36,10 @@ export interface ProofRun {
   agentRepo?: string | null;
   agentCommit?: string | null;
   modelId?: string | null;
+  /** Set for a run of an evaluation (v2): the proof nonce is sha256(`${runStartSig}:${slotRunId}`). */
+  evaluationId?: string | null;
+  /** The run id named in the evaluation Memo: this run, or the run a free retry replaces. */
+  slotRunId?: string | null;
 }
 
 export interface LeaderboardEntry {
