@@ -5,7 +5,6 @@ import { gradePatch, GraderError, type EvidenceManifest } from "../domain/grader
 import { assertPublicHttpsEndpoint, NetworkGuardError } from "../domain/network-guard.js";
 import type { Repository } from "../domain/repository.js";
 import { issueScoreAttestation, ITERA_CREDENTIAL_PDA, ITERA_SCORE_SCHEMA_PDA } from "../domain/solana-attestation.js";
-import { requireOperator } from "./require-operator.js";
 
 function isGradedEvidenceManifest(value: unknown): value is EvidenceManifest {
   return (
@@ -35,16 +34,16 @@ function isNonEmptyString(value: unknown): value is string {
 /**
  * POST /evaluations · POST /evaluations/:id/dispatch · GET /evaluations/:id/events ·
  * POST /evaluations/:id/publish — the vendor-side surfaces from the doc ("1 · Preparar avaliação"
- * and "2 · Execução e publicação"). All four require the operator key (see require-operator.ts);
- * none of this is buyer-facing.
+ * and "2 · Execução e publicação"). Public and self-serve, same as /credentials — there is no
+ * login system anywhere in this monorepo, and `apps/web` is a static SPA that cannot hold a
+ * server-side secret (anything baked into the build ships to every visitor's browser), so an
+ * "operator key" typed into a public form was never a real auth boundary, just an extra step with
+ * no one to hand the key to. Removed 2026-10-12 per explicit product decision (self-serve vendor
+ * flow) — rate limiting (app.ts) and the HTTPS-only/SSRF-guarded dispatch endpoint are the actual
+ * abuse controls here, same as any other public write endpoint without a login system.
  */
 export function createEvaluationsRouter(repo: Repository): Router {
   const router = Router();
-  // Scoped to /evaluations specifically — a path-less router.use(requireOperator) would run for
-  // every request that reaches this router, and since app.ts mounts this router at the app root
-  // with no prefix, that would intercept /credentials/* and /evaluation-requests too (caught by
-  // this exact bug during testing: every other router's route returned 401 before ever running).
-  router.use("/evaluations", requireOperator);
 
   // Doc section 4, step 1-3: "Fornecedor escolhe pack, declara release... registra pedido
   // idempotente" + "API congela taskVersion... Orquestrador envia desafio com runId, nonce...".

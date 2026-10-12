@@ -28,6 +28,7 @@ export interface Repository {
     declaredConfigDigest?: string | null;
   }): Promise<ReleaseDeclaration>;
   getTaskPack(id: string, version: string): Promise<TaskPack | null>;
+  listTaskPacks(): Promise<TaskPack[]>;
   findRunByIdempotencyKey(key: string): Promise<Run | null>;
   createRun(input: {
     releaseDeclarationId: string;

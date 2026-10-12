@@ -72,6 +72,10 @@ export class FakeRepository implements Repository {
     return this.taskPacks.find((p) => p.id === id && p.version === version) ?? null;
   }
 
+  async listTaskPacks(): Promise<TaskPack[]> {
+    return [...this.taskPacks];
+  }
+
   async findRunByIdempotencyKey(key: string): Promise<Run | null> {
     return this.runs.find((r) => r.idempotencyKey === key) ?? null;
   }

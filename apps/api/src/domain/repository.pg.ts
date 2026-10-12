@@ -133,6 +133,23 @@ export class PgRepository implements Repository {
     };
   }
 
+  async listTaskPacks(): Promise<TaskPack[]> {
+    const result = await this.pool.query<{
+      id: string;
+      version: string;
+      fixture_digest: string | null;
+      criteria_digest: string | null;
+      evaluator_ref: string;
+    }>(`select id, version, fixture_digest, criteria_digest, evaluator_ref from public.task_packs order by id, version`);
+    return result.rows.map((row) => ({
+      id: row.id,
+      version: row.version,
+      fixtureDigest: row.fixture_digest,
+      criteriaDigest: row.criteria_digest,
+      evaluatorRef: row.evaluator_ref,
+    }));
+  }
+
   async findRunByIdempotencyKey(key: string): Promise<Run | null> {
     const result = await this.pool.query(`select * from public.runs where idempotency_key = $1`, [key]);
     const row = result.rows[0];

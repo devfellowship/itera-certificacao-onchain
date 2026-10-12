@@ -56,18 +56,6 @@ export function databaseUrl(): string {
 }
 
 /**
- * Shared-secret operator gate for the three write/operator endpoints (POST /evaluations,
- * GET /evaluations/:id/events, POST /evaluations/:id/publish). The doc says "No hackathon,
- * proteger writes com acesso de operador e deixar pública apenas evidência consentida" — there is
- * no login system anywhere in this monorepo yet, so a real user-auth model is out of scope here.
- * A shared header key is the honest minimum: it prevents an anonymous internet caller from
- * creating runs or publishing claims, without pretending to be a full auth system.
- */
-export function operatorApiKey(): string {
-  return requiredSecret("ITERA_API_OPERATOR_KEY");
-}
-
-/**
  * Same hot signer this project has used since the pre-pivot attestation work
  * (services/attestation/src/config.ts) — already authorized on the live Credential and funded on
  * devnet. No default path, same reasoning as everywhere else this pattern appears: forgetting to

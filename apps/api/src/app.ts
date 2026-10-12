@@ -2,9 +2,11 @@ import cors from "cors";
 import express, { type Express } from "express";
 import rateLimit from "express-rate-limit";
 import { CORS_ALLOWED_ORIGINS, RATE_LIMIT } from "./config.js";
+import { createAgentEndpointManifestsRouter } from "./http/agent-endpoint-manifests-router.js";
 import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
 import { createEvaluationsRouter } from "./http/evaluations-router.js";
+import { createTaskPacksRouter } from "./http/task-packs-router.js";
 import type { Repository } from "./domain/repository.js";
 
 export const SERVICE_NAME = "itera-agent-credentials-api";
@@ -22,6 +24,8 @@ const ROUTES = [
   "GET /credentials/:id/verify",
   "GET /credentials/:id/export",
   "POST /evaluation-requests",
+  "GET /task-packs",
+  "POST /agent-endpoint-manifests",
 ];
 
 /**
@@ -44,7 +48,7 @@ export function createApp(repo: Repository): Express {
   app.use(
     cors({
       origin: CORS_ALLOWED_ORIGINS,
-      allowedHeaders: ["Content-Type", "x-operator-key"],
+      allowedHeaders: ["Content-Type"],
     }),
   );
   app.use(
@@ -73,6 +77,8 @@ export function createApp(repo: Repository): Express {
   app.use(createEvaluationsRouter(repo));
   app.use(createCredentialsRouter(repo));
   app.use(createEvaluationRequestsRouter(repo));
+  app.use(createTaskPacksRouter(repo));
+  app.use(createAgentEndpointManifestsRouter());
 
   return app;
 }
