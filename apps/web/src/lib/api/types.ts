@@ -248,7 +248,7 @@ export interface EvaluationListItem {
 export type EvaluationScope = 'all' | 'my_agents' | 'others' | 'mine-agents' | 'other-agents'
 export interface EvaluationsResponse {
   evaluations: EvaluationListItem[]
-  totals: { spentLamports: number; spentSol: string; usd: number; counts: { all: number; mineAgents: number; otherAgents: number } }
+  totals: { spentLamports: number; spentSol: string; usd: number; counts: { all: number; myAgents: number; others: number } }
 }
 export type StageKey = 'contract' | 'agent_calls' | 'grading' | 'manifest' | 'attestation'
 export type StageState = 'done' | 'active' | 'error' | 'wait'

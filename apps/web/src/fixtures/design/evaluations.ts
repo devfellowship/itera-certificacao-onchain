@@ -37,7 +37,7 @@ export function evaluationTotals(list: EvaluationListItem[]) {
     spentLamports: Math.round(sol * 1e9),
     spentSol: sol.toFixed(3),
     usd: Math.round(sol * 150 * 100) / 100,
-    counts: { all: list.length, mineAgents: list.filter((e) => e.agent.isMine).length, otherAgents: list.filter((e) => !e.agent.isMine).length },
+    counts: { all: list.length, myAgents: list.filter((e) => e.agent.isMine).length, others: list.filter((e) => !e.agent.isMine).length },
   }
 }
 

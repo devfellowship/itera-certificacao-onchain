@@ -238,8 +238,8 @@ export function MyEvaluationsPage() {
 
   const tabs = [
     { id: 'all' as const, label: 'All', count: totals?.counts.all },
-    { id: 'my_agents' as const, label: 'On my agents', count: totals?.counts.mineAgents },
-    { id: 'others' as const, label: 'On other agents', count: totals?.counts.otherAgents },
+    { id: 'my_agents' as const, label: 'On my agents', count: totals?.counts.myAgents },
+    { id: 'others' as const, label: 'On other agents', count: totals?.counts.others },
   ]
 
   let body
