@@ -89,7 +89,19 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Evid
     const fixtureHash = await hashDirectory(fixtureDir);
 
     // Baseline: fresh fixture, dependencies installed, before the patch is applied.
-    const install = await run('npm', ['install'], fixtureDir);
+    // --include=dev is required, not cosmetic: every benchmarks/<scenario>/fixture/package.json
+    // lists its own test runner (vitest) as a devDependency, and this process runs with
+    // NODE_ENV=production in the deployed API image (apps/api/Dockerfile) — npm's default
+    // omit-devDependencies-under-production-env behavior silently skipped installing vitest
+    // there, so `npx vitest run` below then failed with ERR_MODULE_NOT_FOUND. Caught during the
+    // first real PreparePage test (Tainan Fidelis, Discord #web3, 2026-10-12): that failure never
+    // surfaced as an error either, because runPublicTests/runHiddenTests catch a failed report
+    // parse and silently fall back to an empty suite (0/0/0) instead of recording it — a real
+    // grading run was coming back `pass` (score > 0 from non-test components) with every test
+    // count at zero, not an obvious infra_error. Fixing that silent fallback is a separate,
+    // bigger change (deciding how "fail" vs "infra_error" should distinguish a zero-case suite
+    // from a real empty one) — out of scope for this immediate fix.
+    const install = await run('npm', ['install', '--include=dev'], fixtureDir);
     if (install.code !== 0) errors.push(`npm install failed: ${install.stderr.slice(0, 500)}`);
 
     await writeFile(join(fixtureDir, '.gitignore'), 'node_modules/\n', 'utf-8');
