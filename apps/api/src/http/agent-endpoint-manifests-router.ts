@@ -35,8 +35,12 @@ function slugify(value: string): string {
  * Path today: `agents/<vendor-slug>/<agent-slug>/<timestamp>.md` — vendor/agent are free text the
  * submitter types, since there is no login system yet (see api.ts/PreparePage.tsx). Once real
  * login+password auth exists (product direction, 2026-10-12), add ONE level on top of this same
- * layout: `agents/<user-id>/<vendor-slug>/<agent-slug>/...`, both here and in the DB's vendor/agent
- * ownership, so a logged-in user can list and review their own past runs/results. Do not fake a
+ * layout: `agents/<user-id>/<vendor-slug>/<agent-slug>/...`. The DB side of this is already half
+ * there: `public.vendors.owner_user_id` (nullable uuid) exists in the schema today, presumably
+ * laid down for exactly this, but no repository/route code reads or writes it yet — every vendor
+ * row is inserted with it left NULL. `public.agents` has no equivalent column; add one alongside
+ * if agent-level ownership also needs to survive a vendor having multiple users someday. So a
+ * logged-in user can list and review their own past runs/results. Do not fake a
  * user-id level with a session/browser-generated id in the meantime — there is no real identity to
  * key it on yet, and a fake id would mislead whoever reads the git history later.
  */
