@@ -12,6 +12,8 @@ import { createAgentsRankingRouter, defaultAgentsRankingRouterDeps, type AgentsR
 import { createAgentProfileRouter, defaultAgentProfileRouterDeps, type AgentProfileRouterDeps } from "./http/agent-profile-router.js";
 import { createGithubRouter, defaultGithubRouterDeps, type GithubRouterDeps } from "./http/github-router.js";
 import { createProofsRouter } from "./http/proofs-router.js";
+import { createFeedbackRouter } from "./http/feedback-router.js";
+import type { ReputationStore } from "./domain/reputation-store.js";
 import { createPublicRouter } from "./public/router.js";
 import type { PublicProfilesStore } from "./public/store.js";
 import type { ProofStore } from "./chain/proof-store.js";
@@ -83,6 +85,9 @@ const ROUTES = [
   "GET /public/evaluations/:slugOrHash",
   "GET /public/evaluations/:slugOrHash/manifest.json",
   "GET /public/evaluations/:slugOrHash/og.png",
+  "POST /runs/:id/feedback",
+  "GET /runs/:id/feedback",
+  "GET /tasks/:idOrSlug/reputation",
 ];
 
 /**
@@ -110,6 +115,8 @@ export interface AppOptions {
   evaluations?: EvaluationsRouterDeps;
   /** U14: public evaluation profile (screen 05). Mounted only when given. */
   publicProfiles?: PublicProfilesStore;
+  /** U27: run feedback + task reputation (0010). Mounted only when given. */
+  reputation?: ReputationStore;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -177,6 +184,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createGithubRouter(githubDeps));
   if (options.proofs) app.use(createProofsRouter({ store: options.proofs }));
   if (options.publicProfiles) app.use(createPublicRouter({ store: options.publicProfiles }));
+  if (options.reputation) app.use(createFeedbackRouter({ store: options.reputation }));
 
   return app;
 }

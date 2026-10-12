@@ -2,6 +2,7 @@ import express from "express";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { digestOf } from "../domain/digest.js";
+import { buildPublicProfile } from "./profile.js";
 import { createPublicRouter } from "./router.js";
 import type { ProfileSource, PublicProfilesStore, PublicRunRow } from "./store.js";
 
@@ -144,3 +145,27 @@ describe("public evaluation profile (U14)", () => {
     expect(buf.readUInt32BE(20)).toBe(630);
   });
 });
+
+describe("U27 self-evaluated label on the profile", () => {
+  it("labels a task whose author owns the agent; curated tasks carry the Itera badge; feedback shows per run", () => {
+    const src = evaluationSource();
+    const view = (over: object) => ({ taskAuthorWallet: null, agentOwnerWallet: "W1", selfEvaluated: false, ranked: true, unrankedReason: null, curatedByItera: false, ...over });
+    src.provenance = {
+      r1: view({ curatedByItera: true }),
+      r2: view({ taskAuthorWallet: "W1", selfEvaluated: true }),
+      r3: view({ taskAuthorWallet: "W9", ranked: false, unrankedReason: "public-repo" }),
+    };
+    src.feedback = { r1: { matchedReality: true, createdAt: "2026-10-12T11:00:00.000Z" } };
+    const p = buildPublicProfile(src, { webBaseUrl: "https://web.test", apiBaseUrl: "https://api.test" });
+    expect(p.selfEvaluated).toBe(true);
+    expect(p.evaluatorIsOwner).toBe(false);
+    expect(p.tasks.map((t) => [t.selfEvaluated, t.curatedByItera, t.ranked, t.taskAuthorWallet, t.agentOwnerWallet])).toEqual([
+      [false, true, true, null, "W1"],
+      [true, false, true, "W1", "W1"],
+      [false, false, false, "W9", "W1"],
+    ]);
+    expect(p.tasks[0].feedback?.matchedReality).toBe(true);
+    expect(p.tasks[1].feedback).toBeNull();
+  });
+});
+

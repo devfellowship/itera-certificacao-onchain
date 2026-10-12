@@ -1,3 +1,5 @@
+import type { RunProvenanceView } from "../domain/reputation-store.js";
+
 /**
  * Storage seam for the `proofs` table (db/migrations/0004_proofs.sql) and the run fields this lane
  * reads. Separate from domain/repository.ts on purpose: the four lanes edit the shared Repository
@@ -18,6 +20,14 @@ export interface ProofRecord {
   status: ProofStatus;
   error: string | null;
   createdAt: string;
+  /** U27 (0010): tasks.owner_wallet; null for a curated ITERA task. */
+  taskAuthorWallet?: string | null;
+  /** U27 (0010): agents.owner_wallet. */
+  agentOwnerWallet?: string | null;
+  /** U27: same wallet, or same GitHub installation account, on the task and the agent. */
+  selfEvaluated?: boolean;
+  /** U27: the task passes the sealed-test rule; leaderboards skip ranked = false. */
+  ranked?: boolean;
 }
 
 /** The run fields a proof needs. Built by the caller (lane A's run row + lane C's agent). */
@@ -40,6 +50,8 @@ export interface ProofRun {
   evaluationId?: string | null;
   /** The run id named in the evaluation Memo: this run, or the run a free retry replaces. */
   slotRunId?: string | null;
+  /** U27: task author / agent owner / self-evaluated / ranked, resolved before the proof is issued. */
+  provenance?: RunProvenanceView | null;
 }
 
 export interface LeaderboardEntry {
@@ -54,6 +66,9 @@ export interface LeaderboardEntry {
   nftMint: string | null;
   runId: string;
   createdAt: string;
+  taskAuthorWallet: string | null;
+  agentOwnerWallet: string | null;
+  selfEvaluated: boolean;
 }
 
 export interface ProofStore {
@@ -83,7 +98,7 @@ export class FakeProofStore implements ProofStore {
     const previous = this.proofs.get(record.runId);
     const clash = record.manifestSha256 ? await this.getProofByHash(record.manifestSha256) : null;
     if (clash && clash.runId !== record.runId) throw new Error("duplicate manifest_sha256");
-    const next: ProofRecord = { ...record, createdAt: previous?.createdAt ?? new Date().toISOString() };
+    const next: ProofRecord = { ...previous, ...record, createdAt: previous?.createdAt ?? new Date().toISOString() };
     this.proofs.set(record.runId, next);
     return next;
   }
@@ -100,7 +115,7 @@ export class FakeProofStore implements ProofStore {
   async leaderboard(benchmarkId: string, benchmarkVersion?: string | null) {
     const best = new Map<string, { run: ProofRun; proof: ProofRecord }>();
     for (const proof of this.proofs.values()) {
-      if (proof.status !== "confirmed" || !proof.manifestSha256) continue;
+      if (proof.status !== "confirmed" || !proof.manifestSha256 || proof.ranked === false) continue;
       const run = this.runs.get(proof.runId);
       if (!run || run.benchmarkId !== benchmarkId) continue;
       if (benchmarkVersion && run.benchmarkVersion !== benchmarkVersion) continue;
@@ -122,6 +137,9 @@ export class FakeProofStore implements ProofStore {
         nftMint: proof.nftMint,
         runId: run.runId,
         createdAt: proof.createdAt,
+        taskAuthorWallet: proof.taskAuthorWallet ?? null,
+        agentOwnerWallet: proof.agentOwnerWallet ?? null,
+        selfEvaluated: proof.selfEvaluated ?? false,
       }));
   }
 }

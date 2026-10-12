@@ -5,9 +5,10 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { useSession } from '../auth/session'
 import { api, ApiError } from '../lib/api'
 import type { Outcome, PublicEvaluation, ScorePartKey } from '../lib/api/types'
-import { Avatar, Badge, Button, ButtonLink, Lockup, Logo, middle, StatusChip, TagPill } from '../tma/ui'
+import { Avatar, Badge, Button, ButtonLink, Input, Lockup, Logo, middle, StatusChip, TagPill } from '../tma/ui'
 import { NotFoundPage } from './NotFoundPage'
 import './public-profile.css'
 
@@ -154,6 +155,9 @@ function Profile({ data }: { data: PublicEvaluation }) {
   const mintable = data.record.proofs.filter((p) => p.nftMint)
   const integrity = verify.kind === 'done' ? (verify.ok ? 'verified' : 'mismatch') : confirmed ? 'verified' : 'unavailable'
   const anyLabel = (l: string) => data.tasks.some((t) => t.labels?.includes(l))
+  const { wallet } = useSession()
+  // U27: the run owner (the wallet that paid) answers "did the result match reality?" once per run.
+  const isOwner = Boolean(wallet && data.evaluatorWallet && wallet === data.evaluatorWallet)
 
   async function runVerify() {
     setVerify({ kind: 'running' })
@@ -231,8 +235,8 @@ function Profile({ data }: { data: PublicEvaluation }) {
               </div>
             </div>
             {data.selfEvaluated && (
-              <div className="pp-status">
-                <span className="tma-label">Evaluated by</span>
+              <div className="pp-status" title="The agent owner also wrote at least one task (same wallet or same GitHub account).">
+                <span className="tma-label">Task author</span>
                 <div className="pp-status__badges" data-testid="self-evaluated">
                   <Badge tone="neutral">Self-evaluated</Badge>
                 </div>
@@ -344,12 +348,16 @@ function Profile({ data }: { data: PublicEvaluation }) {
                   ))}
                   {t.labels?.includes('sealed-tests') && <TagPill>Sealed tests</TagPill>}
                   {t.labels?.includes('open-tests') && <TagPill>Open tests</TagPill>}
+                  {t.curatedByItera && <Badge tone="success" testId="curated-badge">Curated by Itera</Badge>}
+                  {t.selfEvaluated && <Badge tone="warning" testId="task-self-evaluated">Self-evaluated</Badge>}
+                  {t.ranked === false && <Badge tone="neutral" testId="task-unranked">Unranked</Badge>}
                 </div>
                 <span className="pp-mono12">
                   {t.testsPassed} / {t.testsTotal} tests · {mmss(t.durationMs)}
                   {t.score != null && <> · score {fmtScore(t.score)}</>}
                 </span>
               </div>
+              {isOwner && t.runId && t.outcome && <TaskFeedback runId={t.runId} initial={t.feedback ?? null} />}
             </article>
           ))}
         </div>
@@ -522,5 +530,54 @@ function ProofRows({ proof, multi, index }: { proof: PublicEvaluation['record'][
         </>
       )}
     </>
+  )
+}
+
+/** U27: one answer per run, by its owner. Feeds the task reputation. */
+function TaskFeedback({ runId, initial }: { runId: string; initial: { matchedReality: boolean } | null }) {
+  const [answer, setAnswer] = useState<{ matchedReality: boolean } | null>(initial)
+  const [pick, setPick] = useState<boolean | null>(null)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  if (answer) {
+    return (
+      <div className="pp-feedback pp-feedback--done" data-testid="feedback-done">
+        <span className="pp-small-muted">Your feedback: {answer.matchedReality ? 'the result matched reality' : 'the result did not match reality'}.</span>
+      </div>
+    )
+  }
+  async function send() {
+    if (pick === null) return
+    setBusy(true)
+    setErr('')
+    try {
+      const r = await api.runFeedback(runId, pick, note.trim() || undefined)
+      setAnswer({ matchedReality: r.feedback.matchedReality })
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && (e.body as { code?: string } | undefined)?.code === 'already_answered') setAnswer({ matchedReality: pick })
+      else setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="pp-feedback" data-testid="feedback-prompt">
+      <span className="pp-feedback__q">Did this result match reality?</span>
+      <div className="pp-feedback__row">
+        <Button variant={pick === true ? 'primary' : 'secondary'} size={30} onClick={() => setPick(true)} disabled={busy}>
+          Yes
+        </Button>
+        <Button variant={pick === false ? 'primary' : 'secondary'} size={30} onClick={() => setPick(false)} disabled={busy}>
+          No
+        </Button>
+        <Input compact className="pp-feedback__note" placeholder="Note (optional)" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} disabled={busy} />
+        <Button variant="secondary" size={30} onClick={() => void send()} disabled={busy || pick === null}>
+          {busy ? 'Sending…' : 'Send'}
+        </Button>
+      </div>
+      <span className="pp-small-muted">One answer per run. It feeds the task reputation.</span>
+      {err && <span className="pp-feedback__err">{err}</span>}
+    </div>
   )
 }

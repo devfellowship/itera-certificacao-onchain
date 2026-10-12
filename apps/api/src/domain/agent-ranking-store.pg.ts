@@ -1,6 +1,9 @@
 import type { Pool } from "pg";
 import type { RankAgent, RankEvaluation, RankingData, RankingStore, RankResult } from "./agent-ranking.js";
 import { SchemaNotReadyError } from "./runs-store.js";
+import { isRankedTask, taskReputation } from "./reputation.js";
+import { provenanceView } from "./reputation-store.js";
+import { PgReputationStore } from "./reputation-store.pg.js";
 
 /**
  * Pg store of GET /agents/ranking (U8). Reads 0001–0005 (runs, agents, agent_versions, proofs,
@@ -8,7 +11,7 @@ import { SchemaNotReadyError } from "./runs-store.js";
  * profiles, models — U4) and the evaluations tables and columns (U6). The schema is probed through
  * information_schema and cached for 60 s, so a migration applied later shows up without a deploy.
  */
-const PROBE_TABLES = ["agents", "runs", "tasks", "task_versions", "task_tags", "evaluations", "profiles", "models"];
+const PROBE_TABLES = ["agents", "runs", "tasks", "task_versions", "task_tags", "evaluations", "profiles", "models", "run_feedback"];
 const PROBE_CACHE_MS = 60_000;
 const MISSING_SCHEMA_CODES = new Set(["42P01", "42703"]);
 
@@ -61,8 +64,39 @@ export class PgRankingStore implements RankingStore {
         this.loadResults(has, callerWallet),
         this.loadEvaluations(has, callerWallet),
       ]);
+      // U27 (0010): sealed-test rule, self-evaluated label and task reputation weight.
+      if (has("task_versions", "repo_private") && has("run_feedback", "run_id", "task_id")) {
+        const unrankedTaskKeys = await this.applyReputation(results);
+        return { agents, results, evaluations, unrankedTaskKeys };
+      }
       return { agents, results, evaluations };
     });
+  }
+
+  private async applyReputation(results: RankResult[]): Promise<string[]> {
+    const rep = new PgReputationStore(this.pool);
+    const prov = await rep.runProvenance(results.map((r) => r.runId));
+    const taskIds = [...new Set([...prov.values()].map((p) => p.taskId).filter((id): id is string => Boolean(id)))];
+    const inputs = await rep.reputationInputs(taskIds);
+    for (const r of results) {
+      const p = prov.get(r.runId);
+      const view = provenanceView(p);
+      r.selfEvaluated = view.selfEvaluated;
+      r.taskRanked = view.ranked;
+      const input = p?.taskId ? inputs.get(p.taskId) : undefined;
+      r.taskWeight = input ? taskReputation(input).weight : 1;
+    }
+    const tasks = await this.pool().query<{ id: string; slug: string; kind: string | null; source: string | null; repo_private: boolean | null; labels: string[] | null }>(
+      `select t.id::text as id, t.slug, t.kind, v.source, v.repo_private, v.labels
+         from public.tasks t
+         left join lateral (select * from public.task_versions tv where tv.task_id = t.id order by tv.version desc limit 1) v on true
+        limit 5000`,
+    );
+    const unranked: string[] = [];
+    for (const t of tasks.rows) {
+      if (!isRankedTask({ kind: t.kind, source: t.source, repoPrivate: t.repo_private, labels: t.labels ?? [] })) unranked.push(t.id, t.slug);
+    }
+    return unranked;
   }
 
   private async loadAgents(has: (t: string, ...c: string[]) => boolean): Promise<RankAgent[]> {

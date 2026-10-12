@@ -142,6 +142,11 @@ export function proofView(proof: ProofRecord, run: ProofRun) {
       model: run.modelId ?? null,
     },
     ownerWallet: proof.ownerWallet ?? run.ownerWallet,
+    // U27 anti-collusion: both wallets, the label, and whether the task can enter a leaderboard.
+    taskAuthorWallet: proof.taskAuthorWallet ?? null,
+    agentOwnerWallet: proof.agentOwnerWallet ?? null,
+    selfEvaluated: proof.selfEvaluated ?? false,
+    ranked: proof.ranked ?? true,
     runStatus: run.status,
     score: { total: run.scoreTotal ?? (score?.total ?? null), parts },
     tests: tests

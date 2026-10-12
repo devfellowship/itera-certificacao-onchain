@@ -40,6 +40,12 @@ export interface RankResult {
   taskKeys: string[];
   taskKind: string | null;
   taskOwnerWallet: string | null;
+  /** U27: task author = agent owner, or same GitHub account. Default false. */
+  selfEvaluated?: boolean;
+  /** U27 sealed-test rule: false for an open-tests or public-repo task (never ranked). Default true. */
+  taskRanked?: boolean;
+  /** U27 task reputation weight, 0–1 (reputation.ts). Default 1. */
+  taskWeight?: number;
 }
 
 /** Issued evaluations (table of U6), for "score = latest verified evaluation" without a selection. */
@@ -53,6 +59,8 @@ export interface RankingData {
   agents: RankAgent[];
   results: RankResult[];
   evaluations: RankEvaluation[];
+  /** U27: keys (uuid, slug) of tasks that fail the sealed-test rule; dropped from a selection. */
+  unrankedTaskKeys?: string[];
 }
 
 export interface RankingStore {
@@ -77,6 +85,15 @@ export interface RankingRow {
   draft: boolean;
   visibility: string;
   score: number | null;
+  /**
+   * U27: the sort key. Mean over the counted tasks of (best score × task reputation weight). Equals
+   * the plain mean when every task is curated (weight 1).
+   */
+  weightedScore: number | null;
+  /** U27: mean reputation weight of the counted tasks; null without results. */
+  reputationWeight: number | null;
+  /** U27: at least one counted result is self-evaluated (task author = agent owner). */
+  selfEvaluated: boolean;
   /** Distinct tasks with a visible result. */
   taskCount: number;
   coverage: { k: number; n: number; perTask: boolean[] } | null;
@@ -99,6 +116,8 @@ export interface RankingInput {
 export interface RankingOutput {
   rows: RankingRow[];
   counts: { all: number; mine: number };
+  /** U27: selected tasks dropped because they fail the sealed-test rule (open tests / public repo). */
+  excludedTaskIds: string[];
 }
 
 export function initialsOf(name: string): string {
@@ -119,15 +138,20 @@ function modelLabelOf(agent: RankAgent): string {
 
 export function computeRanking(input: RankingInput): RankingOutput {
   const { callerWallet, data } = input;
-  const selection = [...new Set(input.taskIds.filter(Boolean))];
+  const unranked = new Set(data.unrankedTaskKeys ?? []);
+  const requested = [...new Set(input.taskIds.filter(Boolean))];
+  const excludedTaskIds = requested.filter((id) => unranked.has(id));
+  const selection = requested.filter((id) => !unranked.has(id));
   const n = selection.length;
 
   const visible = data.results.filter(
     (r) =>
       (r.issued || r.runOwnerWallet === callerWallet) &&
       !(r.taskKind === "user" && r.taskOwnerWallet !== callerWallet) &&
+      r.taskRanked !== false &&
       Number.isFinite(r.score),
   );
+  const weightOf = (r: RankResult) => (typeof r.taskWeight === "number" && Number.isFinite(r.taskWeight) ? Math.max(0, Math.min(1, r.taskWeight)) : 1);
   const byAgent = new Map<string, RankResult[]>();
   for (const r of visible) {
     const list = byAgent.get(r.agentId) ?? [];
@@ -160,12 +184,16 @@ export function computeRanking(input: RankingInput): RankingOutput {
 
   const rows: RankingRow[] = filtered.map((a) => {
     const results = byAgent.get(a.id) ?? [];
-    // Best score per task (canonical key = the first key).
+    // Best score per task (canonical key = the first key), with the task reputation weight.
     const bestPerTask = new Map<string, number>();
+    const weightPerTask = new Map<string, number>();
     for (const r of results) {
       const key = r.taskKeys[0] ?? r.runId;
       bestPerTask.set(key, Math.max(bestPerTask.get(key) ?? -Infinity, r.score));
+      weightPerTask.set(key, weightOf(r));
     }
+    let weighted: number | null = null;
+    let weights: number[] = [];
     let score: number | null;
     let coverage: RankingRow["coverage"] = null;
     let runCostUsd: number | null = null;
@@ -173,12 +201,18 @@ export function computeRanking(input: RankingInput): RankingOutput {
     if (n === 0) {
       const ev = latestEval.get(a.id);
       score = ev && ev.score !== null ? ev.score : mean([...bestPerTask.values()]);
+      weights = [...bestPerTask.keys()].map((k) => weightPerTask.get(k) ?? 1);
+      weighted = mean([...bestPerTask.entries()].map(([k, s]) => s * (weightPerTask.get(k) ?? 1)));
     } else {
-      const perTaskScores = selection.map((id) => {
+      const perTask = selection.map((id) => {
         const matching = results.filter((r) => r.taskKeys.includes(id));
-        return matching.length === 0 ? null : Math.max(...matching.map((r) => r.score));
+        return matching.length === 0 ? null : { score: Math.max(...matching.map((r) => r.score)), weight: weightOf(matching[0]) };
       });
+      const perTaskScores = perTask.map((p) => (p ? p.score : null));
       const have = perTaskScores.filter((s): s is number => s !== null);
+      const covered = perTask.filter((p): p is { score: number; weight: number } => p !== null);
+      weights = covered.map((p) => p.weight);
+      weighted = mean(covered.map((p) => p.score * p.weight));
       coverage = { k: have.length, n, perTask: perTaskScores.map((s) => s !== null) };
       score = mean(have);
       const missing = n - have.length;
@@ -202,6 +236,10 @@ export function computeRanking(input: RankingInput): RankingOutput {
       draft: a.status === "active" ? false : !issuedAgents.has(a.id),
       visibility: a.visibility ?? "listed",
       score: score === null ? null : round1(score),
+      // All tasks at full weight (curated): the weighted score is the displayed score, unchanged.
+      weightedScore: weighted === null || weights.every((w) => w === 1) ? (score === null ? null : round1(score)) : round1(weighted),
+      reputationWeight: weights.length === 0 ? null : Math.round((mean(weights) ?? 0) * 1000) / 1000,
+      selfEvaluated: results.some((r) => r.selfEvaluated === true),
       taskCount: bestPerTask.size,
       coverage,
       runCostUsd,
@@ -210,16 +248,20 @@ export function computeRanking(input: RankingInput): RankingOutput {
     };
   });
 
-  // No selection: score desc. Selection: coverage k desc, then score desc. Unscored rows last.
+  // No selection: weighted score desc. Selection: coverage k desc, then weighted score desc.
+  // Unscored rows last. U27: the weighted score multiplies each task score by its reputation.
   rows.sort((x, y) => {
     if ((x.score === null) !== (y.score === null)) return x.score === null ? 1 : -1;
     if (n > 0 && x.coverage!.k !== y.coverage!.k) return y.coverage!.k - x.coverage!.k;
+    const xs = x.weightedScore ?? x.score;
+    const ys = y.weightedScore ?? y.score;
+    if (xs !== null && ys !== null && xs !== ys) return ys - xs;
     if (x.score !== null && y.score !== null && x.score !== y.score) return y.score - x.score;
     return x.name.localeCompare(y.name);
   });
   let rank = 0;
   for (const row of rows) row.rank = row.score === null ? null : ++rank;
-  return { rows, counts };
+  return { rows, counts, excludedTaskIds };
 }
 
 /** In-memory store for tests and fixture mode. */

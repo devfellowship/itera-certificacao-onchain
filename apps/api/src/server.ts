@@ -14,6 +14,7 @@ import { solUsdProvider } from "./evaluations/price.js";
 import { SolanaPayGateway } from "./evaluations/solana-pay.js";
 import { PgEvaluationsStore } from "./evaluations/store.pg.js";
 import { PgPublicProfilesStore } from "./public/store.pg.js";
+import { PgReputationStore } from "./domain/reputation-store.pg.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const repo = new PgRepository(getPool());
@@ -23,7 +24,9 @@ const proofs = new PgProofStore(getPool());
 const catalog = new PgCatalogStore(getPool());
 if (process.env.ITERA_MODELS_SYNC !== "off") startModelsSync(catalog);
 const runsStore = new PgRunsStore(getPool());
-const proofIssuer = proofIssuerHook(proofs);
+// U27 (0010): run provenance, task reputation, run feedback.
+const reputation = new PgReputationStore(getPool);
+const proofIssuer = proofIssuerHook(proofs, reputation);
 // Needs db/migrations/0008_evaluations_payments.sql applied.
 const evaluationsStore = new PgEvaluationsStore(getPool());
 createEvaluationIssuer({ store: evaluationsStore, runs: runsStore, proofIssuer }).start();
@@ -49,6 +52,7 @@ createApp(repo, {
   },
   // U14: public evaluation profile (needs 0008).
   publicProfiles: new PgPublicProfilesStore(getPool()),
+  reputation,
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });
