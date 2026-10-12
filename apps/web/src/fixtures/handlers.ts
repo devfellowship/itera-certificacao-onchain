@@ -132,8 +132,17 @@ export const handlers = [
       treasury: 'TMAtreasuryFixture1111111111111111111111111',
       reference: 'RefFixture11111111111111111111111111111111',
       expiresAt: new Date(Date.now() + 120_000).toISOString(),
+      // v2 itemization (U7 #54): the design charges a flat fee, so the fixture has no model forecast.
+      modelCostEstimateUsd: 0,
+      baseFeeUsd: Math.round(n * PRICE.usdPerRun * 100) / 100,
+      totalUsd: Math.round(n * PRICE.usdPerRun * 100) / 100,
+      totalLamports: lamportsFor(n),
+      taskCount: n,
+      tasks: (body.taskIds ?? []).map((taskId, i) => ({ taskId, slug: taskId, name: taskId, seq: i + 1, runId: `run_${i + 1}`, modelCostEstimateUsd: 0, baseFeeUsd: PRICE.usdPerRun, priceUsd: PRICE.usdPerRun, estimateBasis: 'list_price' })),
     })
   }),
+  // U11: the one wallet prompt. Fixture mode has no wallet, so the build answers like a payer without funds.
+  http.post(u('/evaluations/quote/:reference/transaction'), () => HttpResponse.json({ error: 'fixture mode: no wallet', code: 'insufficient_funds' }, { status: 402 })),
   http.post(u('/evaluations'), () => HttpResponse.json({ evaluationId: 'ev_queued', status: 'pending', runs: [] }, { status: 202 })),
   http.get(u('/evaluations'), ({ request }) => {
     const scope = new URL(request.url).searchParams.get('scope') ?? 'all'
@@ -143,6 +152,12 @@ export const handlers = [
   http.get(u('/evaluations/:id'), ({ params }) => {
     const d = evaluationDetail(String(params.id))
     return d ? HttpResponse.json(d) : notFound()
+  }),
+  // U12: per-run detail for the model cost and the tool-call count.
+  http.get(u('/runs/:id'), ({ params }) => {
+    const i = Number(String(params.id).replace(/^run_/, ''))
+    if (!i) return notFound()
+    return HttpResponse.json({ runId: params.id, status: 'running', phase: 'agent_running', scoreTotal: null, modelCostUsd: null, actionsCount: 4 + i, proof: null })
   }),
   http.post(u('/evaluations/:id/cancel'), () => HttpResponse.json({ status: 'cancelled' })),
 

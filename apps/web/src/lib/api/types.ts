@@ -56,6 +56,11 @@ export interface Task {
   estMinutes: number | null
   mine: boolean
   agentsRunCount: number
+  /** [EXT U5] `curated` (TestMyAgent catalog) or a user source. */
+  source?: string | null
+  /** [EXT U5] e.g. `sealed-tests` | `open-tests` (Gate Q7: label only). */
+  labels?: string[]
+  version?: number | null
 }
 export interface TasksQuery {
   source?: TaskSource
@@ -253,7 +258,31 @@ export interface QuoteInput {
   agentId: string
   taskIds: string[]
 }
+export interface QuoteTask {
+  taskId: string
+  slug: string
+  name: string
+  seq: number
+  runId: string
+  modelCostEstimateUsd: number | null
+  baseFeeUsd: number | null
+  priceUsd: number | null
+  /** `history` | `list_price` = estimate + base fee; `fallback` = flat price, no estimate. */
+  estimateBasis: 'history' | 'list_price' | 'fallback' | null
+}
 export interface Quote {
+  /** [EXT U7 v2] itemized: forecast model cost + base fee per run (Tainan TG 20986). */
+  quoteId?: string
+  modelCostEstimateUsd?: number
+  baseFeeUsd?: number
+  totalUsd?: number
+  totalLamports?: number
+  taskCount?: number
+  memo?: string
+  transferUrl?: string
+  evaluationId?: string
+  runIds?: string[]
+  tasks?: QuoteTask[]
   priceUsdPerRun: number
   amountUsd: number
   solUsdRate: number
@@ -265,21 +294,30 @@ export interface Quote {
   expiresAt: string
 }
 export interface CreateEvaluationInput {
-  agentId: string
-  taskIds: string[]
+  /** v2 reads the agent and the tasks from the quote (by reference); kept for the legacy shape. */
+  agentId?: string
+  taskIds?: string[]
   reference: string
   txSig: string
   /** Optional BYOK (Q2: Itera pays tokens; the field is not on screen 03). */
   modelApiKey?: string
   modelRelease?: string
 }
+/** [U7 v2] POST /evaluations/quote/:reference/transaction — the one wallet prompt (transfer + Memo). */
+export interface QuoteTransaction {
+  /** Unsigned legacy transaction, base64; the payer is the only signer. */
+  transaction: string
+  memo: string
+  expiresAt: string
+}
 export interface CreateEvaluationResponse {
   evaluationId: string
-  status: 'pending'
+  status: 'pending' | 'existing'
+  txSig?: string
   runs: Array<{ runId: string; taskId: string; seq: number; runStartMemo?: { wireTransactionBase64: string } }>
 }
 export type EvaluationStatus = 'pending' | 'in_progress' | 'review' | 'issuing' | 'issued' | 'cancelled' | 'failed'
-export type EvaluationUiState = 'queued' | 'running' | 'issuing' | 'error'
+export type EvaluationUiState = 'queued' | 'running' | 'issuing' | 'error' | 'issued' | 'cancelled'
 export type Outcome = 'PASS' | 'FAIL' | 'INVALID'
 export interface OutcomeCounts {
   pass: number
@@ -309,7 +347,7 @@ export interface EvaluationsResponse {
 }
 export type StageKey = 'contract' | 'agent_calls' | 'grading' | 'manifest' | 'attestation'
 export type StageState = 'done' | 'active' | 'error' | 'wait'
-export type TaskStage = 'queued' | 'awaiting_artifact' | 'grading' | 'graded' | 'timed_out'
+export type TaskStage = 'queued' | 'awaiting_artifact' | 'grading' | 'graded' | 'timed_out' | 'review' | 'cancelled'
 export type EventToneApi = 'ok' | 'live' | 'idle' | 'bad'
 export interface ProofSummary {
   runId: string
@@ -317,6 +355,7 @@ export interface ProofSummary {
   txSig: string | null
   nftMint: string | null
   proofHash: string | null
+  attestationAddress?: string | null
 }
 export interface EvaluationDetail {
   id: string
@@ -325,12 +364,29 @@ export interface EvaluationDetail {
   status: EvaluationStatus
   uiState: EvaluationUiState
   elapsedMs: number
-  agent: { name: string; commit: string; initials: string }
-  model: string
+  createdAt?: string
+  agent: { id?: string; name: string; slug?: string | null; repo?: string | null; commit: string | null; initials: string }
+  /** v2: `{id, release}`; the design fixtures use a label string. */
+  model: string | { id: string; release: string | null }
   taskCount: number
+  fee?: {
+    usdPerRun: number
+    perTask: Array<{ taskId: string; priceUsd?: number; baseFeeUsd?: number; modelCostEstimateUsd?: number | null; basis?: string }>
+    usd: number
+    lamports: number
+    solUsdRate: number
+    priceSource: PriceSource
+    txSig: string | null
+  }
   stages: Array<{ key: StageKey; state: StageState; detail: string | null }>
   tasks: Array<{
     runId: string
+    slotRunId?: string
+    seq?: number
+    /** 2 = a free retry replaced the first attempt (Gate Q1). */
+    attempts?: number
+    status?: RunStatus
+    phase?: RunPhase | null
     taskId: string
     name: string
     slug: string
@@ -344,8 +400,12 @@ export interface EvaluationDetail {
   events: Array<{ tMs: number; tone: EventToneApi; label: string; detail: string | null }>
   proofs: ProofSummary[]
   score: number | null
-  counts: OutcomeCounts
+  counts: OutcomeCounts & { review?: number; cancelled?: number; queued?: number; running?: number }
+  testsPassed?: number
+  testsTotal?: number
+  manifestSha256?: string | null
   isPublic: boolean
+  freeRetriesUsed?: number
   shareUrl: string | null
 }
 
@@ -359,6 +419,10 @@ export interface Run {
   scoreTotal: number | null
   evaluationId?: string | null
   durationMs?: number | null
+  /** Model cost in USD as billed by OpenRouter (lane G). Null = not measured yet. */
+  modelCostUsd?: number | null
+  actionsCount?: number | null
+  completedAt?: string | null
   tests?: { public?: { passed: number; total: number }; hidden?: { passed: number; total: number; results?: boolean[] } }
   proof: { status: string; nftMint: string | null; txSig: string | null; proofHash: string | null } | null
   [extra: string]: unknown

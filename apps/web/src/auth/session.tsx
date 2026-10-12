@@ -123,6 +123,17 @@ function WalletSessionProvider({ children }: { children: ReactNode }) {
     }
   }, [wallet])
 
+  // autoConnect=false: picking a wallet in the modal only selects it. Connect it here, once.
+  useEffect(() => {
+    if (wantSignIn.current && wallet.wallet && !wallet.connected && !wallet.connecting) {
+      wallet.connect().catch((e: unknown) => {
+        wantSignIn.current = false
+        setError(e instanceof Error ? e.message : String(e))
+        setStatus('error')
+      })
+    }
+  }, [wallet.wallet, wallet.connected, wallet.connecting]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Continue the sign-in once the modal connected a wallet.
   useEffect(() => {
     if (wantSignIn.current && wallet.connected && wallet.publicKey) {

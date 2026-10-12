@@ -4,7 +4,7 @@
     { "id": "landing", "title": "Landing v2", "design": "Landing v2.dc.html", "route": "/", "threshold": 3 },
     { "id": "01-agents", "title": "01 Agents", "design": "01 Agents.dc.html", "route": "/agents", "threshold": 5 },
     { "id": "02-add-agent", "title": "02 Add agent", "design": "02 Add Agent.dc.html", "route": "/agents/new", "threshold": 5 },
-    { "id": "03-select-tasks", "title": "03 Select tasks", "design": "03 Select Tasks.dc.html", "route": "/agents/settlewise/evaluate?tasks=tsk_webhook_dup,tsk_refund_race,tsk_idem_keys,tsk_pg_index", "threshold": 5 },
+    { "id": "03-select-tasks", "title": "03 Select tasks", "design": "03 Select Tasks.dc.html", "route": "/agents/settlewise/evaluate?tasks=tsk_webhook_dup", "threshold": 5 },
     { "id": "04-queued", "title": "04 Running · queued", "design": "04 Running Evaluation.dc.html", "props": { "phase": "queued" }, "route": "/evaluations/ev_queued", "threshold": 5 },
     { "id": "04-running", "title": "04 Running · running", "design": "04 Running Evaluation.dc.html", "props": { "phase": "running" }, "route": "/evaluations/ev_running", "threshold": 5 },
     { "id": "04-issuing", "title": "04 Running · issuing", "design": "04 Running Evaluation.dc.html", "props": { "phase": "issuing" }, "route": "/evaluations/ev_issuing", "threshold": 5 },

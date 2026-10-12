@@ -53,7 +53,7 @@ const mmss = (s: string) => {
 const STAGE_WORD: Record<string, TaskStage> = { Queued: 'queued', Grading: 'grading', 'Awaiting artifact': 'awaiting_artifact', Graded: 'graded', 'Timed out': 'timed_out' }
 const OUTCOME: Record<string, Outcome | null> = { pass: 'PASS', fail: 'FAIL', invalid: 'INVALID', pend: null }
 
-const PH: Record<EvaluationUiState, { elapsed: string; stages: Array<[StageState, string]>; tasks: Row[]; log: Array<[string, EventToneApi, string, string]> }> = {
+const PH: Record<Exclude<EvaluationUiState, 'issued' | 'cancelled'>, { elapsed: string; stages: Array<[StageState, string]>; tasks: Row[]; log: Array<[string, EventToneApi, string, string]> }> = {
   queued: {
     elapsed: '00:04',
     stages: [['active', 'Freezing 4 contracts'], ['wait', 'Queued'], ['wait', 'Queued'], ['wait', '—'], ['wait', '—']],
@@ -82,7 +82,8 @@ const PH: Record<EvaluationUiState, { elapsed: string; stages: Array<[StageState
 
 /** Fixture ids of the four 04 states: ev_queued, ev_running, ev_issuing, ev_error. ev_7f3a = running. */
 export function evaluationDetail(id: string): EvaluationDetail | null {
-  const state = (id.replace(/^ev_/, '') as EvaluationUiState) in PH ? (id.replace(/^ev_/, '') as EvaluationUiState) : id === 'ev_7f3a' || id === 'ev_a21c' ? 'running' : null
+  const key = id.replace(/^ev_/, '') as keyof typeof PH
+  const state = key in PH ? key : id === 'ev_7f3a' || id === 'ev_a21c' ? 'running' : null
   if (!state) return null
   const p = PH[state]
   const tasks = p.tasks.map((r, i) => {

@@ -101,6 +101,8 @@ export const api = {
 
   // Evaluations and payments
   quote: (input: T.QuoteInput) => request<T.Quote>('/evaluations/quote', { method: 'POST', body: json(input) }),
+  quoteTransaction: (reference: string, account: string) =>
+    request<T.QuoteTransaction>(`/evaluations/quote/${encodeURIComponent(reference)}/transaction`, { method: 'POST', body: json({ account }) }),
   createEvaluation: (input: T.CreateEvaluationInput) => request<T.CreateEvaluationResponse>('/evaluations', { method: 'POST', body: json(input) }),
   evaluations: (scope: T.EvaluationScope = 'all') => request<T.EvaluationsResponse>('/evaluations', { query: { scope } }),
   evaluation: (id: string) => request<T.EvaluationDetail>(`/evaluations/${encodeURIComponent(id)}`),
