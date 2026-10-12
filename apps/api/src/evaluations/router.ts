@@ -10,7 +10,7 @@
  *
  * One wallet prompt per evaluation: the payment tx carries the transfer (with the Solana Pay
  * reference) and the Memo `itera-eval:v1:{evaluation_id, run_ids, …}`. Its signature is every
- * run's run_start_sig. ITERA pays the model tokens (Gate Q2) and the proof issuance.
+ * run's run_start_sig. TestMyAgent pays the model tokens (Gate Q2) and the proof issuance.
  *
  * The legacy vendor flow also answers `POST /evaluations` (body with `idempotencyKey`): such a body
  * falls through to it.
@@ -23,6 +23,7 @@ import { requireWallet } from "../http/auth.js";
 import { isModelApiKey } from "../http/runs-router.js";
 import { lamportsToSol, round4, usdToLamports, type EvaluationsConfig } from "./config.js";
 import { buildEvaluationMemo } from "./memo.js";
+import { priceRun, type RunCostEstimator } from "./estimate.js";
 import { PriceUnavailableError, type SolUsdProvider } from "./price.js";
 import { initialsOf, rollup } from "./rollup.js";
 import type { PaymentGateway } from "./solana-pay.js";
@@ -33,6 +34,8 @@ export interface EvaluationsRouterDeps {
   config: EvaluationsConfig;
   price: SolUsdProvider;
   payments: PaymentGateway;
+  /** Forecast model cost of one run. Absent → every run is priced at the fallback. */
+  estimate?: RunCostEstimator;
   /** ITERA_RUN_KEY_SECRET — only for the optional BYOK key. */
   runKeySecret?: string;
   now?: () => number;
@@ -47,8 +50,15 @@ function isNonEmptyString(v: unknown): v is string {
 }
 
 function quoteView(p: PaymentRecord, transferUrl: string) {
+  const sum = (f: (t: EvalTask) => number | null | undefined) => round4(p.tasks.reduce((a, t) => a + (f(t) ?? 0), 0));
   return {
     quoteId: p.id,
+    // Itemized (Tainan TG 20986): forecast model cost + base fee per run, rounded up to the cent.
+    modelCostEstimateUsd: sum((t) => t.pricing?.modelCostEstimateUsd),
+    baseFeeUsd: sum((t) => t.pricing?.baseFeeUsd),
+    totalUsd: p.amountUsd,
+    totalLamports: p.amountLamports,
+    solUsd: p.solUsdRate,
     priceUsdPerRun: p.priceUsdPerRun,
     taskCount: p.taskCount,
     amountUsd: p.amountUsd,
@@ -63,7 +73,17 @@ function quoteView(p: PaymentRecord, transferUrl: string) {
     expiresAt: p.quoteExpiresAt,
     evaluationId: p.plannedEvaluationId,
     runIds: p.plannedRunIds,
-    tasks: p.tasks.map((t, i) => ({ taskId: t.taskId, slug: t.slug, name: t.name, seq: i + 1, runId: p.plannedRunIds[i] })),
+    tasks: p.tasks.map((t, i) => ({
+      taskId: t.taskId,
+      slug: t.slug,
+      name: t.name,
+      seq: i + 1,
+      runId: p.plannedRunIds[i],
+      modelCostEstimateUsd: t.pricing?.modelCostEstimateUsd ?? null,
+      baseFeeUsd: t.pricing?.baseFeeUsd ?? null,
+      priceUsd: t.pricing?.priceUsd ?? null,
+      estimateBasis: t.pricing?.basis ?? null,
+    })),
   };
 }
 
@@ -141,12 +161,16 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         return;
       }
 
+      const modelId = agent.model ?? "unknown";
+      for (const t of tasks) {
+        const est = deps.estimate && t.packId ? await deps.estimate(t.packId, t.packVersion, modelId).catch(() => null) : null;
+        t.pricing = priceRun(est, config.baseFeeUsd, config.fallbackPriceUsd);
+      }
       const rate = await deps.price();
-      const amountUsd = round4(config.runPriceUsd * tasks.length);
+      const amountUsd = round4(tasks.reduce((a, t) => a + t.pricing!.priceUsd, 0));
       const amountLamports = usdToLamports(amountUsd, rate.solUsdRate);
       const plannedEvaluationId = randomUUID();
       const plannedRunIds = tasks.map(() => randomUUID());
-      const modelId = agent.model ?? "unknown";
       const memo = buildEvaluationMemo({
         evaluationId: plannedEvaluationId,
         runIds: plannedRunIds,
@@ -162,7 +186,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         modelId,
         tasks,
         taskCount: tasks.length,
-        priceUsdPerRun: config.runPriceUsd,
+        priceUsdPerRun: round4(amountUsd / tasks.length),
         amountUsd,
         amountLamports,
         solUsdRate: rate.solUsdRate,
@@ -179,7 +203,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         lamports: payment.amountLamports,
         reference: payment.reference,
         memo: payment.memo,
-        label: "testmyagent",
+        label: "TestMyAgent",
         message: `Evaluation of ${agent.name} · ${tasks.length} task${tasks.length === 1 ? "" : "s"}`,
       });
       res.status(201).json(quoteView(payment, transferUrl));
@@ -279,7 +303,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
 
       let modelApiKeyEnc: string | null = null;
       if (body.modelApiKey !== undefined && body.modelApiKey !== null && body.modelApiKey !== "") {
-        // Gate Q2 = B: ITERA pays the tokens. BYOK stays optional in the API only.
+        // Gate Q2 = B: TestMyAgent pays the tokens. BYOK stays optional in the API only.
         if (!isModelApiKey(body.modelApiKey)) {
           res.status(400).json({ error: "modelApiKey is not a plausible API key" });
           return;

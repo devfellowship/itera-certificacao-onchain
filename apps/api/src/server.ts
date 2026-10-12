@@ -7,7 +7,9 @@ import { PgRepository } from "./domain/repository.pg.js";
 import { getPool } from "./domain/pool.js";
 import { PgRunsStore } from "./domain/runs-store.pg.js";
 import { evaluationsConfigFromEnv } from "./evaluations/config.js";
+import { runCostEstimator } from "./evaluations/estimate.js";
 import { createEvaluationIssuer } from "./evaluations/issuer.js";
+import { openRouterPrices } from "./domain/model-prices.js";
 import { solUsdProvider } from "./evaluations/price.js";
 import { SolanaPayGateway } from "./evaluations/solana-pay.js";
 import { PgEvaluationsStore } from "./evaluations/store.pg.js";
@@ -41,6 +43,7 @@ createApp(repo, {
     config: evaluationsConfigFromEnv(),
     price: solUsdProvider(),
     payments: new SolanaPayGateway(),
+    estimate: runCostEstimator(runsStore, openRouterPrices()),
     runKeySecret: process.env.ITERA_RUN_KEY_SECRET,
   },
 }).listen(port, () => {

@@ -254,7 +254,7 @@ export function rollup(input: RollupInput) {
   // Event log derived from timestamps (no events table tonight). tMs is relative to creation.
   const t0 = Date.parse(ev.createdAt);
   const events: Array<{ tMs: number; tone: "ok" | "live" | "idle" | "bad"; label: string; detail: string }> = [
-    { tMs: 0, tone: "ok", label: "Payment confirmed", detail: `${ev.taskCount} × US$${ev.priceUsdPerRun.toFixed(2)} · tx ${short(ev.txSig, 8) ?? "—"}` },
+    { tMs: 0, tone: "ok", label: "Payment confirmed", detail: `${ev.taskCount} run${ev.taskCount === 1 ? "" : "s"} · US$${ev.feeUsd.toFixed(2)} · tx ${short(ev.txSig, 8) ?? "—"}` },
   ];
   for (const s of slots) {
     for (const r of runs.filter((x) => x.id === s.slotRunId || x.retryOfRunId === s.slotRunId)) {
@@ -308,6 +308,7 @@ export function rollup(input: RollupInput) {
       taskCount: n,
       fee: {
         usdPerRun: ev.priceUsdPerRun,
+        perTask: ev.tasks.map((t) => ({ taskId: t.taskId, ...(t.pricing ?? {}) })),
         usd: ev.feeUsd,
         lamports: ev.feeLamports,
         solUsdRate: ev.solUsdRate,

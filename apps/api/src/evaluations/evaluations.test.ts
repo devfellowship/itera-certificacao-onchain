@@ -14,6 +14,7 @@ import { createEvaluationIssuer } from "./issuer.js";
 import { buildEvaluationMemo, parseEvaluationMemo } from "./memo.js";
 import { coinGeckoSolUsd, pythSolUsd, solUsdProvider, PYTH_SOL_USD_FEED_ID, type SolUsdQuote } from "./price.js";
 import { rollup } from "./rollup.js";
+import { ceilCents, priceRun, type RunCostEstimator } from "./estimate.js";
 import type { PaymentGateway, TransferFields, VerifyResult } from "./solana-pay.js";
 import { FakeEvaluationsStore } from "./store.fake.js";
 
@@ -41,7 +42,8 @@ const manifest = (hiddenPassed: number, total = 85): EvidenceManifest => ({
 });
 
 const config: EvaluationsConfig = {
-  runPriceUsd: 0.1,
+  baseFeeUsd: 0.1,
+  fallbackPriceUsd: 0.2,
   quoteTtlMs: 120_000,
   quoteGraceMs: 15_000,
   treasury: TREASURY,
@@ -80,6 +82,7 @@ let gateway: FakeGateway;
 let clock: number;
 let price: () => Promise<SolUsdQuote>;
 let agentId: string;
+let estimate: RunCostEstimator;
 
 const auth = (w: string) => ({ Authorization: `Bearer ${issueSessionToken(w).token}`, "Content-Type": "application/json" });
 const sig = () => Keypair.generate().publicKey.toBase58() + "x".repeat(20);
@@ -99,6 +102,7 @@ beforeEach(async () => {
   clock = Date.parse("2026-10-12T16:00:00Z");
   price = async () => ({ solUsdRate: 108.98, priceSource: "pyth", publishedAt: new Date(clock).toISOString() });
   agentId = randomUUID();
+  estimate = async () => ({ costUsd: 0.0123, basis: "history", sampleSize: 3 });
   store.agents.push({ id: agentId, ownerWallet: OWNER, name: "Settle Wise", slug: "settlewise", repoFullName: "acme/agent", agentPath: ".", model: "qwen/qwen3-coder", modelRelease: null, visibility: "listed", pinnedCommit: null });
   store.versions.push({ id: randomUUID(), agentId, commitSha: "9f2c1ab0".padEnd(40, "0") });
   store.tasks.push(
@@ -106,7 +110,7 @@ beforeEach(async () => {
     { taskId: "rate-limiter", taskVersionId: null, slug: "rate-limiter", name: "Rate limiter", packId: "", packVersion: "", isPublic: true, runnable: false },
   );
   server = createApp(new FakeRepository(), {
-    evaluations: { store, config, price: () => price(), payments: gateway, runKeySecret: "k".repeat(48), now: () => clock },
+    evaluations: { store, config, price: () => price(), payments: gateway, runKeySecret: "k".repeat(48), now: () => clock, estimate: (pack, version, model) => estimate(pack, version, model) },
   }).listen(0);
   await new Promise<void>((r) => server.once("listening", r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -125,17 +129,31 @@ async function quoteAndPay(lamportsDelta = 0, taskIds = ["webhook-ledger"]) {
 }
 
 describe("POST /evaluations/quote", () => {
-  it("prices N × US$0.10 in lamports at the feed rate, records priceSource and solUsdRate, and pre-allocates the ids in the Memo", async () => {
+  it("charges the forecast: model cost estimate + base fee, rounded up to the cent; itemized; priceSource and solUsdRate recorded; ids pre-allocated in the Memo", async () => {
     const q = await post("/evaluations/quote", { agentId, taskIds: ["webhook-ledger"] });
     expect(q.status).toBe(201);
-    expect(q.body).toMatchObject({ priceUsdPerRun: 0.1, amountUsd: 0.1, solUsdRate: 108.98, priceSource: "pyth", treasury: TREASURY });
-    expect(q.body.amountLamports).toBe(usdToLamports(0.1, 108.98));
-    expect(q.body.sol).toBe("0.0009176");
+    expect(q.body).toMatchObject({
+      modelCostEstimateUsd: 0.0123, baseFeeUsd: 0.1, totalUsd: 0.12, solUsd: 108.98, priceSource: "pyth",
+      priceUsdPerRun: 0.12, amountUsd: 0.12, solUsdRate: 108.98, treasury: TREASURY,
+    });
+    expect(q.body.tasks[0]).toMatchObject({ modelCostEstimateUsd: 0.0123, baseFeeUsd: 0.1, priceUsd: 0.12, estimateBasis: "history" });
+    expect(q.body.totalLamports).toBe(usdToLamports(0.12, 108.98));
+    expect(q.body.amountLamports).toBe(q.body.totalLamports);
     expect(Date.parse(q.body.expiresAt) - clock).toBe(120_000);
     const memo = parseEvaluationMemo(q.body.memo)!;
     expect(memo.evaluationId).toBe(q.body.evaluationId);
     expect(memo.runIds).toEqual(q.body.runIds);
     expect(store.payments[0]).toMatchObject({ priceSource: "pyth", solUsdRate: 108.98, status: "pending" });
+  });
+
+  it("falls back to a flat US$0.20 per run when no estimate exists", async () => {
+    estimate = async () => null;
+    const q = await post("/evaluations/quote", { agentId, taskIds: ["webhook-ledger"] });
+    expect(q.body).toMatchObject({ totalUsd: 0.2, modelCostEstimateUsd: 0, baseFeeUsd: 0.2 });
+    expect(q.body.tasks[0]).toMatchObject({ priceUsd: 0.2, estimateBasis: "fallback", modelCostEstimateUsd: null });
+    expect(priceRun(null, 0.1, 0.2).priceUsd).toBe(0.2);
+    expect(ceilCents(0.1 + 0.02)).toBe(0.12);
+    expect(ceilCents(0.10001)).toBe(0.11);
   });
 
   it("answers 503 when both price feeds are down", async () => {
@@ -279,7 +297,7 @@ describe("GET /evaluations/:id, cancel, list", () => {
     const all = (await get("/evaluations?scope=all")).body;
     expect(all.evaluations).toHaveLength(2);
     expect(all.totals.counts).toEqual({ all: 2, myAgents: 1, others: 1 });
-    expect(all.totals.spentLamports).toBe(2 * usdToLamports(0.1, 108.98));
+    expect(all.totals.spentLamports).toBe(2 * usdToLamports(0.12, 108.98));
     expect((await get("/evaluations?scope=my_agents")).body.evaluations.map((e: any) => e.agent.name)).toEqual(["Settle Wise"]);
     expect((await get("/evaluations?scope=others")).body.evaluations.map((e: any) => e.agent.name)).toEqual(["Other Bot"]);
     expect((await get("/evaluations?scope=nope")).status).toBe(400);

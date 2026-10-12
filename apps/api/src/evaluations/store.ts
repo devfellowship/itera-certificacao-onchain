@@ -16,6 +16,8 @@ export interface EvalTask {
   packId: string;
   packVersion: string;
   isPublic: boolean;
+  /** Forecast price of this task's run, fixed at quote time. Absent on rows quoted before it existed. */
+  pricing?: { modelCostEstimateUsd: number | null; baseFeeUsd: number; priceUsd: number; basis: "history" | "list_price" | "fallback" };
 }
 
 export interface ResolvedTask extends EvalTask {

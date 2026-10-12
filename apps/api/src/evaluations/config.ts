@@ -3,13 +3,15 @@
  * Every value is env-overridable. The UI never hard-codes a price: it reads the quote.
  */
 export interface EvaluationsConfig {
-  /** US$ per run (one agent × one task). ADR-1: 0.10. */
-  runPriceUsd: number;
+  /** US$ base fee per run, added to the forecast model cost (Tainan TG 20986). */
+  baseFeeUsd: number;
+  /** US$ per run when no cost estimate exists for (task version, model). */
+  fallbackPriceUsd: number;
   /** Quote window. ADR-1: 120 s. */
   quoteTtlMs: number;
   /** Accept a transfer whose block time is at most this much after the quote expiry (clock skew). */
   quoteGraceMs: number;
-  /** ITERA-owned devnet address that receives the fee. Absent → quote answers 503. */
+  /** TestMyAgent-owned devnet address that receives the fee. Absent → quote answers 503. */
   treasury: string | null;
   /** Runs per wallet per 24 h across evaluations, checked at quote time (before the user pays). */
   runsPerWalletPerDay: number;
@@ -21,7 +23,8 @@ export interface EvaluationsConfig {
 
 export function evaluationsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): EvaluationsConfig {
   return {
-    runPriceUsd: Number(env.ITERA_RUN_PRICE_USD ?? 0.1),
+    baseFeeUsd: Number(env.ITERA_RUN_BASE_FEE_USD ?? 0.1),
+    fallbackPriceUsd: Number(env.ITERA_RUN_FALLBACK_PRICE_USD ?? 0.2),
     quoteTtlMs: Number(env.ITERA_QUOTE_TTL_MS ?? 120_000),
     quoteGraceMs: Number(env.ITERA_QUOTE_GRACE_MS ?? 15_000),
     treasury: env.ITERA_TREASURY_ADDRESS?.trim() || null,
@@ -33,7 +36,7 @@ export function evaluationsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
 
 export const LAMPORTS_PER_SOL = 1_000_000_000;
 
-/** USD → lamports at a SOL/USD rate, rounded up so ITERA never receives less than the price. */
+/** USD → lamports at a SOL/USD rate, rounded up so TestMyAgent never receives less than the price. */
 export function usdToLamports(usd: number, solUsdRate: number): number {
   if (!(usd > 0) || !(solUsdRate > 0)) throw new Error("usd and solUsdRate must be positive");
   return Math.ceil((usd / solUsdRate) * LAMPORTS_PER_SOL);
