@@ -14,7 +14,8 @@ export type Validation =
   | { phase: 'fail'; result: AgentValidateResponse }
   | { phase: 'error'; message: string; gone: boolean }
 
-export interface GithubSource {
+/** Repo + branch + pinned commit of a GitHub source (Gate Q4). Shared by 02 (agent) and the task editor. */
+export interface GithubPin {
   /** installations + repos the App can read. */
   source: Load<{ installations: GithubInstallation[]; repos: GithubRepo[] }>
   /** An install was started in another tab: poll until the installation shows up. */
@@ -27,9 +28,14 @@ export interface GithubSource {
   branch: string | null
   setBranch: (name: string) => void
   commits: Load<{ headSha?: string | null; commits: GithubCommit[] }>
-  /** Full SHA the agent is pinned to: the chosen commit, else HEAD, else null while unknown. */
+  /** Full SHA of the pin: the chosen commit, else HEAD, else null while unknown. */
   commit: string | null
   setCommit: (sha: string) => void
+  /** Branch and commit lists answered (or failed): the pin is final. */
+  settled: boolean
+}
+
+export interface GithubSource extends GithubPin {
   agentPath: string
   setAgentPath: (path: string) => void
   validation: Validation
@@ -43,11 +49,10 @@ export function cleanAgentPath(raw: string): string {
 }
 
 /**
- * Everything the Source card needs: installations and repos, branch + commit lists of the chosen
- * repo, and the dry-run validation of the agent path at the pinned commit. Changing the repo
+ * Installations and repos, and the branch + commit lists of the chosen repo. Changing the repo
  * resets branch and commit; changing the branch resets the commit (handoff, Branch + commit selects).
  */
-export function useGithubSource(): GithubSource {
+export function useGithubPin(): GithubPin {
   const source = useLoad(async () => {
     const { installations } = await api.githubInstallations()
     const repos = installations.length ? (await api.githubRepos()).repos : []
@@ -106,6 +111,28 @@ export function useGithubSource(): GithubSource {
   const commit = commitSel && commitList?.some((c) => c.sha === commitSel) ? commitSel : (commitList?.[0]?.sha ?? null)
   const commitsSettled = commits.status === 'ready' || commits.status === 'error'
 
+  return {
+    source,
+    waiting,
+    startWaiting: () => setWaiting(true),
+    repos,
+    repo,
+    setRepo,
+    branches,
+    branch,
+    setBranch,
+    commits,
+    commit,
+    setCommit: setCommitSel,
+    settled: commitsSettled,
+  }
+}
+
+/** Everything the Source card of 02 needs: the pin, plus the dry-run validation of the agent path at the pinned commit. */
+export function useGithubSource(): GithubSource {
+  const pin = useGithubPin()
+  const { repo, branch, commit, settled: commitsSettled } = pin
+  const repoName = repo?.fullName ?? null
   const [agentPath, setAgentPath] = useState('.')
   const [validation, setValidation] = useState<Validation>({ phase: 'idle' })
   const [retry, setRetry] = useState(0)
@@ -138,18 +165,7 @@ export function useGithubSource(): GithubSource {
   }, [repoName, branch, commit, path, commitsSettled, retry])
 
   return {
-    source,
-    waiting,
-    startWaiting: () => setWaiting(true),
-    repos,
-    repo,
-    setRepo,
-    branches,
-    branch,
-    setBranch,
-    commits,
-    commit,
-    setCommit: setCommitSel,
+    ...pin,
     agentPath,
     setAgentPath,
     validation,

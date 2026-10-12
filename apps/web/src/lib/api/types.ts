@@ -602,49 +602,143 @@ export interface PublicEvaluation {
   disclaimer: string
 }
 
-// ---------- My tasks (P7) ----------
+// ---------- My tasks (P7, U19 API: apps/api/src/http/my-tasks-router.ts) ----------
+/** task.json of a user task (packages/contracts TaskContract, Harbor-shaped). The repo file wins over any form (U32). */
 export interface TaskContract {
+  schema_version: '1.0'
+  task: { name: string; version: string; description?: string; authors?: Array<{ name: string; email?: string }>; keywords?: string[] }
+  metadata?: { title?: string; tags?: { tools?: string[]; concepts?: string[] }; [key: string]: unknown }
   instruction: string
+  environment: { dir: string; install?: string[]; allow_internet?: false; cpus?: number; memory_mb?: number; [key: string]: unknown }
+  tests: { public: string; hidden: string }
+  solution: { patch: string }
   editable_paths: string[]
   protected_paths: string[]
-  verifier: { cmd: string }
-  timeout_s: number
+  verifier: { cmd: string[]; report?: 'vitest-json'; timeout_sec: number }
+  agent: { timeout_sec: number }
   est_minutes: number
 }
-export interface CreateTaskInput {
-  name: string
-  description: string
-  tags: string[]
-  contract: TaskContract
-  visibility: 'private'
+/** Gate Q7: a private repo seals the hidden tests (ranked); a public repo has open tests (unranked). */
+export type TestsVisibility = 'open' | 'sealed'
+/** GitHub source of a task: repo + branch + pinned commit + task folder path (Gate Q4). */
+export interface TaskSourceInput {
+  repoFullName: string
+  branch?: string
+  commitSha?: string
+  path?: string
 }
-export interface TaskVersionInput {
-  source: 'github'
+export interface TaskPin {
   repoFullName: string
   branch: string
-  commit: string
+  commitSha: string
+  shortSha: string
   path: string
+  repoPrivate: boolean
+  testsVisibility: TestsVisibility
+  ranked: boolean
+  labels: string[]
 }
+export type TaskLayoutKey = 'taskJson' | 'instruction' | 'environment' | 'testsPublic' | 'testsHidden' | 'solution'
+export interface TaskLayoutEntry {
+  key: TaskLayoutKey
+  path: string
+  present: boolean
+  files?: number
+}
+/** Layout check of the task folder at the pinned commit. errorCode: no_task_json | bad_json | schema | missing_entries | too_large | symlink | truncated. */
 export interface TaskLayout {
-  taskJson: boolean
-  instruction: boolean
-  environment: boolean
-  testsPublic: boolean
-  testsHidden: boolean
-  solution: boolean
+  ok: boolean
+  entries: TaskLayoutEntry[]
+  fileCount?: number
+  totalBytes?: number
+  errorCode?: string
+  error?: string
+  schemaErrors?: string[]
 }
-export interface TaskValidation {
-  baselineHiddenFail: boolean | null
-  solutionPassed: number | null
-  solutionTotal: number | null
-  repeatSame: number | null
-  repeatTotal: number | null
-  verifierSeconds: number | null
+/** POST /tasks/layout — dry run of a pin: what the API read at the commit. */
+export interface TaskLayoutResponse {
+  pin: TaskPin
+  layout: TaskLayout
+  contract: TaskContract | null
 }
-export interface TaskDetail extends Task {
-  contract?: TaskContract
-  versions: Array<{ version: number; status: TaskStatus; repoFullName?: string; repoCommit?: string; layout?: TaskLayout; validation?: TaskValidation | null; createdAt: string }>
-  bestResult?: { agentName: string; score: number } | null
+/** One row of the editor's VALIDATION panel, formatted by the API (counts only, never test names). */
+export interface GateRow {
+  key: 'baseline' | 'solution' | 'repeatability' | 'verifier_time' | 'contract' | (string & {})
+  label: string
+  ok: boolean
+  value: string
+}
+export type TaskValidationStatus = 'queued' | 'running' | 'ready' | 'invalid' | 'error'
+export interface TaskValidationRun {
+  id: string
+  taskVersionId: string
+  status: TaskValidationStatus
+  repeats: number
+  rows: GateRow[] | null
+  error: string | null
+  createdAt: string
+  claimedAt: string | null
+  completedAt: string | null
+}
+export interface UserTaskVersion {
+  id: string
+  version: number
+  source: 'github'
+  github: { installationId: number; repo: string; branch: string; commitSha: string; shortSha: string; path: string }
+  repoPrivate: boolean
+  testsVisibility: TestsVisibility
+  ranked: boolean
+  labels: string[]
+  runnable: boolean
+  hiddenTestsCount: number | null
+  digests: { fixture: string | null; hidden: string | null; solution: string | null }
+  validatedAt: string | null
+  validationRows: GateRow[] | null
+  contract: TaskContract
+  createdAt: string
+}
+/** GET /tasks/:id for the owner (another wallet gets the catalog view or 404). Tags are tag ids. */
+export interface UserTaskDetail {
+  id: string
+  slug: string
+  name: string
+  description: string
+  kind: 'user'
+  visibility: 'private'
+  status: TaskStatus
+  estMinutes: number | null
+  tags: string[]
+  mine: true
+  runnable: boolean
+  runnableVersion: number | null
+  ranked: boolean
+  labels: string[]
+  latestVersion: UserTaskVersion | null
+  /** Newest first. */
+  versions: UserTaskVersion[]
+  /** Latest gate run of the latest version. */
+  validation: TaskValidationRun | null
+  createdAt: string
+  updatedAt: string
+}
+export interface CreateTaskInput extends TaskSourceInput {
+  name?: string
+  description?: string
+  /** Tag ids of GET /tags, at most 8. */
+  tags?: string[]
+  estMinutes?: number | null
+}
+export interface PatchTaskInput {
+  name?: string
+  description?: string
+  tags?: string[]
+  estMinutes?: number | null
+}
+export interface ValidateTaskResponse {
+  validationId: string
+  created: boolean
+  version: number
+  validation: TaskValidationRun
 }
 
 // ---------- U27: anti-collusion ----------

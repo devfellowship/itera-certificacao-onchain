@@ -125,13 +125,17 @@ export const api = {
   agentBadgeUrl: (key: string) => `${API_BASE_URL}/badge/agents/${encodeURIComponent(key)}.svg`,
   badgeUrl: (slug: string) => `${API_BASE_URL}/b/${encodeURIComponent(slug)}.svg`,
 
-  // My tasks (P7)
-  createTask: (input: T.CreateTaskInput) => request<{ task: T.TaskDetail }>('/tasks', { method: 'POST', body: json(input) }),
-  patchTask: (id: string, input: Partial<T.CreateTaskInput>) => request<{ task: T.TaskDetail }>(`/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: json(input) }),
-  deleteTask: (id: string) => request<void>(`/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  createTaskVersion: (id: string, input: T.TaskVersionInput) => request<{ version: number; layout: T.TaskLayout }>(`/tasks/${encodeURIComponent(id)}/versions`, { method: 'POST', body: json(input) }),
-  validateTask: (id: string) => request<{ validationRunId: string }>(`/tasks/${encodeURIComponent(id)}/validate`, { method: 'POST' }),
-  task: (id: string) => request<T.TaskDetail>(`/tasks/${encodeURIComponent(id)}`),
+  // My tasks (P7, U19)
+  taskLayout: (input: T.TaskSourceInput) => request<T.TaskLayoutResponse>('/tasks/layout', { method: 'POST', body: json(input) }),
+  createTask: (input: T.CreateTaskInput) => request<{ task: T.UserTaskDetail; version: T.UserTaskVersion; layout: T.TaskLayout }>('/tasks', { method: 'POST', body: json(input) }),
+  myTask: (id: string) => request<{ task: T.UserTaskDetail }>(`/tasks/${encodeURIComponent(id)}`),
+  patchTask: (id: string, input: T.PatchTaskInput) => request<{ task: T.UserTaskDetail }>(`/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: json(input) }),
+  deleteTask: (id: string) => request<{ id: string; deleted: boolean }>(`/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  createTaskVersion: (id: string, input: Partial<T.TaskSourceInput>) =>
+    request<{ version: T.UserTaskVersion; layout: T.TaskLayout }>(`/tasks/${encodeURIComponent(id)}/versions`, { method: 'POST', body: json(input) }),
+  validateTaskVersion: (id: string, version: number) => request<T.ValidateTaskResponse>(`/tasks/${encodeURIComponent(id)}/versions/${version}/validate`, { method: 'POST' }),
+  taskValidation: (id: string, version: number) =>
+    request<{ validation: T.TaskValidationRun; version: T.UserTaskVersion; taskStatus: T.TaskStatus }>(`/tasks/${encodeURIComponent(id)}/versions/${version}/validation`),
 }
 
 /** Solscan devnet link for a transaction (screen 06 is external, never built). */

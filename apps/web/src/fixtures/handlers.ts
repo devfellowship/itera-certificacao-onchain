@@ -24,7 +24,16 @@ import {
   solFor,
   TAGS,
   TASKS,
+  MY_TASK_DRAFTS,
+  fixtureTask,
+  fixtureLayout,
+  fixtureCreateTask,
+  fixturePatchTask,
+  fixtureDeleteTask,
+  fixtureAddVersion,
+  fixtureValidate,
 } from './design'
+import type { TaskSourceInput } from '../lib/api/types'
 
 const u = (path: string) => `${API_BASE_URL}${path}`
 const notFound = () => HttpResponse.json({ error: 'not found' }, { status: 404 })
@@ -45,7 +54,8 @@ export const handlers = [
     const q = (p.get('q') ?? '').toLowerCase()
     const tag = p.get('tag')
     const all = tasksWithCounts()
-    const tasks = all
+    // Drafts of My tasks (screen 10) only on source=mine, so the Task Filter of 01/03 keeps its mock's catalog.
+    const tasks = [...all, ...(source === 'mine' ? MY_TASK_DRAFTS : [])]
       .filter((t) => source === 'all' || (source === 'mine' ? t.mine : !t.mine))
       .filter((t) => !tag || t.tags.some((g) => g.id === tag))
       .filter((t) => !q || [t.name, t.slug, t.description, ...t.tags.map((g) => g.name)].join(' ').toLowerCase().includes(q))
@@ -192,9 +202,39 @@ export const handlers = [
     params.slug === PUBLIC_EVALUATION.slug || params.slug === PUBLIC_EVALUATION.hash ? HttpResponse.json(PUBLIC_EVALUATION) : HttpResponse.json({ error: 'not found' }, { status: 404 }),
   ),
 
-  // My tasks
+  // My tasks (U19 contract, U20 screens). Fixture user tasks first; anything else is the catalog view.
+  http.post(u('/tasks/layout'), async ({ request }) => {
+    const r = fixtureLayout((await request.json()) as TaskSourceInput)
+    return 'status' in r ? HttpResponse.json({ error: r.error }, { status: r.status }) : HttpResponse.json(r)
+  }),
+  http.post(u('/tasks'), async ({ request }) => {
+    const r = fixtureCreateTask((await request.json()) as TaskSourceInput)
+    return 'status' in r ? HttpResponse.json({ error: r.error }, { status: r.status }) : HttpResponse.json(r, { status: 201 })
+  }),
   http.get(u('/tasks/:id'), ({ params }) => {
+    const mine = fixtureTask(String(params.id))
+    if (mine) return HttpResponse.json({ task: mine })
     const t = tasksWithCounts().find((x) => x.id === params.id)
-    return t ? HttpResponse.json({ ...t, versions: [], bestResult: null }) : notFound()
+    return t ? HttpResponse.json(t) : notFound()
+  }),
+  http.patch(u('/tasks/:id'), async ({ params, request }) => {
+    const t = fixturePatchTask(String(params.id), (await request.json()) as { name?: string; description?: string; tags?: string[] })
+    return t ? HttpResponse.json({ task: t }) : notFound()
+  }),
+  http.delete(u('/tasks/:id'), ({ params }) => (fixtureDeleteTask(String(params.id)) ? HttpResponse.json({ id: params.id, deleted: true }) : notFound())),
+  http.post(u('/tasks/:id/versions'), async ({ params, request }) => {
+    const r = fixtureAddVersion(String(params.id), (await request.json()) as Partial<TaskSourceInput>)
+    if (!r) return notFound()
+    return 'status' in r ? HttpResponse.json({ error: r.error }, { status: r.status }) : HttpResponse.json(r, { status: 201 })
+  }),
+  http.post(u('/tasks/:id/versions/:v/validate'), ({ params }) => {
+    const r = fixtureValidate(String(params.id), Number(params.v))
+    return r ? HttpResponse.json(r, { status: 202 }) : notFound()
+  }),
+  http.get(u('/tasks/:id/versions/:v/validation'), ({ params }) => {
+    const t = fixtureTask(String(params.id))
+    const v = t?.versions.find((x) => x.version === Number(params.v))
+    if (!t || !v || !t.validation || t.validation.taskVersionId !== v.id) return HttpResponse.json({ error: 'no validation for this version yet' }, { status: 404 })
+    return HttpResponse.json({ validation: t.validation, version: v, taskStatus: t.status })
   }),
 ]
