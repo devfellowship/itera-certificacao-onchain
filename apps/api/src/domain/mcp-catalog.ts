@@ -7,7 +7,7 @@
  *   1. reads every manifest + tools snapshot at the deployed commit;
  *   2. resolves ghcr.io/devfellowship/itera-mcp-<name>:<version> to its digest (anonymous pull token:
  *      the packages are public, the repository is public);
- *   3. upserts one `mcp_catalog` row per (name, version) — 0012_mcp_catalog.sql.
+ *   3. upserts one `mcp_catalog` row per (name, version) — 0013_mcp_catalog.sql.
  * A row that is already `published` never changes its digest, tools or manifest (a published version
  * is immutable; CI refuses to push a version twice). The runner reads the rows to pin a task's
  * `catalog: name@version` to an image digest.
