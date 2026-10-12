@@ -1,5 +1,6 @@
+import { randomBytes } from "node:crypto";
 import type { Pool } from "pg";
-import type { AgentVersion, GithubAgent, GithubAgentsRepository, GithubInstallation } from "./github-agents-repository.js";
+import type { AgentMetaInput, AgentMetaResult, AgentVersion, GithubAgent, GithubAgentsRepository, GithubInstallation } from "./github-agents-repository.js";
 import { SchemaNotReadyError } from "./runs-store.js";
 
 export const GITHUB_AGENTS_MIGRATION = "0002_github_agents.sql";
@@ -32,6 +33,8 @@ type AgentRow = {
   v_commit_sha: string | null;
   v_file_count: number | null;
   v_created_at: Date | string | null;
+  /** Whole agents row, so the columns of later migrations show up without a code change. */
+  a_json: Record<string, unknown> | null;
 };
 
 const iso = (d: Date | string) => (d instanceof Date ? d.toISOString() : d);
@@ -40,8 +43,30 @@ function toInstallation(r: InstallationRow): GithubInstallation {
   return { installationId: Number(r.installation_id), ownerWallet: r.owner_wallet, accountLogin: r.account_login, createdAt: iso(r.created_at) };
 }
 
+const META_COLUMNS = {
+  slug: "slug",
+  description: "description",
+  visibility: "visibility",
+  status: "status",
+  branch: "branch",
+  pinnedCommit: "pinned_commit",
+  modelRelease: "model_release",
+  listedAt: "listed_at",
+  createdAt: "created_at",
+} as const;
+
+function metaOf(json: Record<string, unknown> | null): Partial<GithubAgent> {
+  const out: Record<string, unknown> = {};
+  if (!json) return out;
+  for (const [key, column] of Object.entries(META_COLUMNS)) {
+    if (column in json) out[key] = json[column] ?? null;
+  }
+  return out as Partial<GithubAgent>;
+}
+
 function toAgent(r: AgentRow): GithubAgent {
   return {
+    ...metaOf(r.a_json),
     id: r.id,
     ownerWallet: r.owner_wallet,
     name: r.name,
@@ -58,6 +83,7 @@ function toAgent(r: AgentRow): GithubAgent {
 
 const AGENT_SELECT = `
   select a.id, a.owner_wallet, a.name, a.gh_installation_id, a.repo_full_name, a.agent_path, a.model,
+         to_jsonb(a) - 'identity_evidence' as a_json,
          v.id as v_id, v.commit_sha as v_commit_sha, jsonb_array_length(v.files) as v_file_count, v.created_at as v_created_at
   from public.agents a
   left join lateral (
@@ -66,8 +92,82 @@ const AGENT_SELECT = `
   ) v on true
   where a.connector = 'github'`;
 
+/** Column names of public.agents, cached briefly so a migration applied later is picked up. */
+const COLUMN_CACHE_MS = 60_000;
+
 class PgGithubAgentsQueries implements GithubAgentsRepository {
   constructor(private readonly pool: () => Pool) {}
+
+  private agentColumns: { at: number; names: Set<string> } | null = null;
+
+  private async columns(): Promise<Set<string>> {
+    if (this.agentColumns && Date.now() - this.agentColumns.at < COLUMN_CACHE_MS) return this.agentColumns.names;
+    const r = await this.pool().query<{ column_name: string }>(
+      `select column_name from information_schema.columns where table_schema = 'public' and table_name = 'agents'`,
+    );
+    const names = new Set(r.rows.map((x) => x.column_name));
+    this.agentColumns = { at: Date.now(), names };
+    return names;
+  }
+
+  async updateAgentMeta(agentId: string, input: AgentMetaInput): Promise<AgentMetaResult> {
+    const cols = await this.columns();
+    const stored: string[] = [];
+    const missing: string[] = [];
+    const sets: string[] = [];
+    const values: unknown[] = [agentId];
+    const fields: [keyof AgentMetaInput, string][] = [
+      ["description", "description"],
+      ["visibility", "visibility"],
+      ["branch", "branch"],
+      ["pinnedCommit", "pinned_commit"],
+      ["modelRelease", "model_release"],
+    ];
+    for (const [key, column] of fields) {
+      if (input[key] === undefined) continue;
+      if (!cols.has(column)) {
+        missing.push(key);
+        continue;
+      }
+      values.push(input[key]);
+      sets.push(`${column} = $${values.length}`);
+      stored.push(key);
+    }
+    if (input.visibility === "listed" && cols.has("listed_at")) sets.push(`listed_at = coalesce(listed_at, now())`);
+    if (sets.length > 0) await this.pool().query(`update public.agents set ${sets.join(", ")} where id = $1`, values);
+
+    let slug: string | null = null;
+    if (input.slugBase !== undefined && input.slugBase !== null) {
+      if (!cols.has("slug")) {
+        missing.push("slug");
+      } else {
+        slug = await this.assignSlug(agentId, input.slugBase);
+        stored.push("slug");
+      }
+    }
+    return { stored, missing, slug };
+  }
+
+  /** Keeps an existing slug. Otherwise `base`, then `base-xxxx` (4 random hex) on a collision. */
+  private async assignSlug(agentId: string, base: string): Promise<string | null> {
+    const current = await this.pool().query<{ slug: string | null }>(`select slug from public.agents where id = $1`, [agentId]);
+    if (current.rows[0]?.slug) return current.rows[0].slug;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const candidate = attempt === 0 ? base : `${base}-${randomBytes(2).toString("hex")}`;
+      try {
+        const r = await this.pool().query<{ slug: string }>(
+          `update public.agents set slug = $2 where id = $1 and slug is null
+             and not exists (select 1 from public.agents where slug = $2)
+           returning slug`,
+          [agentId, candidate],
+        );
+        if (r.rows[0]) return r.rows[0].slug;
+      } catch (e) {
+        if (!(typeof e === "object" && e !== null && (e as { code?: string }).code === "23505")) throw e;
+      }
+    }
+    return null;
+  }
 
   async bindInstallation(input: { installationId: number; ownerWallet: string; accountLogin: string | null }) {
     // First bind wins: the update only fires when the row already belongs to the same wallet.
@@ -148,7 +248,17 @@ class PgGithubAgentsQueries implements GithubAgentsRepository {
     return r.rows.map(toAgent);
   }
 
-  async createAgentVersion(input: { agentId: string; commitSha: string; files: AgentVersion["files"] }) {
+  async createAgentVersion(input: { agentId: string; commitSha: string; files: AgentVersion["files"]; makeCurrent?: boolean }) {
+    if (input.makeCurrent) {
+      // Re-pin: the existing (agent, commit) row becomes the latest one (POST /runs runs the latest).
+      const bumped = await this.pool().query<{ id: string; agent_id: string; commit_sha: string; files: AgentVersion["files"]; created_at: Date | string }>(
+        `update public.agent_versions set created_at = now() where agent_id = $1 and commit_sha = $2
+         returning id, agent_id, commit_sha, files, created_at`,
+        [input.agentId, input.commitSha],
+      );
+      const b = bumped.rows[0];
+      if (b) return { id: b.id, agentId: b.agent_id, commitSha: b.commit_sha, files: b.files, createdAt: iso(b.created_at) };
+    }
     const r = await this.pool().query<{ id: string; agent_id: string; commit_sha: string; files: AgentVersion["files"]; created_at: Date | string }>(
       `with ins as (
          insert into public.agent_versions (agent_id, commit_sha, files) values ($1, $2, $3::jsonb)
@@ -202,5 +312,8 @@ export class PgGithubAgentsRepository implements GithubAgentsRepository {
   }
   createAgentVersion(input: Parameters<GithubAgentsRepository["createAgentVersion"]>[0]) {
     return this.guard(() => this.q.createAgentVersion(input));
+  }
+  updateAgentMeta(agentId: string, input: AgentMetaInput) {
+    return this.guard(() => this.q.updateAgentMeta(agentId, input));
   }
 }

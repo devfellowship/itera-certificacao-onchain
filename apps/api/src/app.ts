@@ -9,6 +9,7 @@ import { createEvaluationRequestsRouter } from "./http/evaluation-requests-route
 import { createEvaluationsRouter } from "./http/evaluations-router.js";
 import { createEvaluationsV2Router, type EvaluationsRouterDeps } from "./evaluations/router.js";
 import { createNftRouter } from "./http/nft-router.js";
+import { createAgentsRankingRouter, defaultAgentsRankingRouterDeps, type AgentsRankingRouterDeps } from "./http/agents-ranking-router.js";
 import { createGithubRouter, defaultGithubRouterDeps, type GithubRouterDeps } from "./http/github-router.js";
 import { createProofsRouter } from "./http/proofs-router.js";
 import type { ProofStore } from "./chain/proof-store.js";
@@ -58,6 +59,10 @@ const ROUTES = [
   "GET /github/installations",
   "GET /github/repos",
   "GET /github/repos/:owner/:repo/agent-candidates",
+  "GET /github/repos/:owner/:repo/branches",
+  "GET /github/repos/:owner/:repo/commits?branch=&limit=20",
+  "POST /agents/validate",
+  "GET /agents/ranking?scope=&q=&taskIds=&tag=",
   "POST /agents",
   "GET /agents",
   "GET /agents/:id",
@@ -84,6 +89,8 @@ export interface AppOptions {
   runs?: Omit<RunsRouterDeps, "repo">;
   /** The GitHub App agent connector. Defaults to the Pg store + the GITHUB_APP_* env client. */
   github?: GithubRouterDeps;
+  /** GET /agents/ranking (U8). Defaults to the Pg store + an indicative CoinGecko SOL/USD rate. */
+  ranking?: AgentsRankingRouterDeps;
   /** Lane D proofs (start-signature, /proofs/:hash, /leaderboard). Mounted only when given. */
   proofs?: ProofStore;
   /** U5 catalog (tasks, tags, models from DB, profile). Mounted before the GitHub router so its
@@ -153,6 +160,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   const githubDeps = options.github ?? defaultGithubRouterDeps();
   // U21: POST /agents checks the model against models.enabled (DB) when the catalog is wired.
   if (options.catalog && !githubDeps.isModelAllowed) githubDeps.isModelAllowed = modelAccessCheck(options.catalog);
+  // Before the GitHub router: its GET /agents/:id would take "ranking" as an id.
+  app.use(createAgentsRankingRouter(options.ranking ?? defaultAgentsRankingRouterDeps()));
   app.use(createGithubRouter(githubDeps));
   if (options.proofs) app.use(createProofsRouter({ store: options.proofs }));
 
