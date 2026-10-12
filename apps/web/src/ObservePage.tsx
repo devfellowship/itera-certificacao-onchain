@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ApiError,
   dispatchEvaluation,
@@ -26,10 +26,9 @@ function isEvidenceManifest(value: unknown): value is EvidenceManifest {
 /**
  * Doc "2 · Execução e publicação" (section 2) — the fornecedor engineer dispatches the challenge,
  * reviews observed events and the real grading result, and publishes the redacted result.
- * Requires the operator key, same as PreparePage.
+ * Self-serve, same as PreparePage (see api.ts).
  */
 export function ObservePage({ runId }: { runId: string }) {
-  const [operatorKey, setOperatorKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [dispatching, setDispatching] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,11 +37,16 @@ export function ObservePage({ runId }: { runId: string }) {
   const [limitations, setLimitations] = useState('')
   const [publishResult, setPublishResult] = useState<{ claimManifestId: string } | null>(null)
 
+  useEffect(() => {
+    void loadEvents()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId])
+
   async function loadEvents() {
     setLoading(true)
     setError(null)
     try {
-      const result = await getRunEvents(runId, operatorKey)
+      const result = await getRunEvents(runId)
       setRun(result)
       prefillCriteriaFromManifest(result.evidenceManifest)
     } catch (e) {
@@ -71,7 +75,7 @@ export function ObservePage({ runId }: { runId: string }) {
     setDispatching(true)
     setError(null)
     try {
-      await dispatchEvaluation(runId, operatorKey)
+      await dispatchEvaluation(runId)
       await loadEvents()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not reach the API.')
@@ -84,11 +88,10 @@ export function ObservePage({ runId }: { runId: string }) {
     setLoading(true)
     setError(null)
     try {
-      const result = await publishEvaluation(
-        runId,
-        { criteriaResults: criteriaResults.filter((c) => c.requirement.trim()), limitations: limitations || undefined },
-        operatorKey,
-      )
+      const result = await publishEvaluation(runId, {
+        criteriaResults: criteriaResults.filter((c) => c.requirement.trim()),
+        limitations: limitations || undefined,
+      })
       setPublishResult(result)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not reach the API.')
@@ -108,8 +111,7 @@ export function ObservePage({ runId }: { runId: string }) {
       </p>
 
       <div className="verify-input-row">
-        <input type="password" placeholder="Operator key" value={operatorKey} onChange={(e) => setOperatorKey(e.target.value)} />
-        <button type="button" className="primary" onClick={loadEvents} disabled={loading || !operatorKey}>
+        <button type="button" className="primary" onClick={loadEvents} disabled={loading}>
           {loading ? 'Loading…' : 'Load events'}
         </button>
       </div>
@@ -126,7 +128,7 @@ export function ObservePage({ runId }: { runId: string }) {
 
           {run.status === 'pending' && (
             <div className="actions">
-              <button type="button" className="primary" onClick={dispatch} disabled={dispatching || !operatorKey}>
+              <button type="button" className="primary" onClick={dispatch} disabled={dispatching}>
                 {dispatching ? 'Dispatching & grading (up to ~90s)…' : 'Dispatch & grade'}
               </button>
             </div>

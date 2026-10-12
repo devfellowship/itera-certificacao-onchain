@@ -124,13 +124,13 @@ describe("POST /evaluations", () => {
     task: { id: "webhook-ledger", version: "1" },
   };
 
-  it("rejects a request without the operator key", async () => {
+  it("creates a run without an operator key — this flow is self-serve now (no login system exists)", async () => {
     const res = await fetch(`${baseUrl}/evaluations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(validBody),
+      body: JSON.stringify({ ...validBody, idempotencyKey: "key-no-operator-key" }),
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(201);
   });
 
   it("creates a run in pending status for a known task pack", async () => {
