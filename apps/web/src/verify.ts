@@ -220,6 +220,17 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
     }
     pass('manifest-hash', 'Pinned manifest hash matches on-chain record', 'sha256 matches exactly.');
     const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+    // Evidence documents from the API proof path (schema itera-evidence/v1, apps/api/src/chain/
+    // evidence.ts) also name the run-start signature they belong to. Older manifests do not, so
+    // this check only runs when the field is present.
+    const boundSig = (manifest as { run?: { run_start_sig?: unknown } } | null)?.run?.run_start_sig;
+    if (typeof boundSig === 'string') {
+      if (boundSig !== data.run_start_sig) {
+        fail('evidence-binding', 'Evidence names the same run-start transaction', `Evidence says ${boundSig}, chain says ${data.run_start_sig}.`);
+      } else {
+        pass('evidence-binding', 'Evidence names the same run-start transaction', 'run_start_sig matches.');
+      }
+    }
     return done(manifest);
   } catch (error) {
     skip('manifest-hash', 'Pinned manifest hash matches on-chain record', `Could not fetch/parse: ${error instanceof Error ? error.message : String(error)}`);
@@ -230,4 +241,18 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
 /** Convenience factory — same RPC the rest of the repo points at devnet with. */
 export function createVerifierRpc(): VerifierRpc {
   return createSolanaRpc(DEVNET_RPC_URL) as VerifierRpc;
+}
+
+/**
+ * Verifies the NFT of a proof. Accepts the NFT mint itself, or a proof object as returned by the
+ * API's public `GET /proofs/:hash` (`{ nftMint }`). The checks run against chain + IPFS only; the
+ * proof object is used for nothing but the mint address.
+ */
+export async function verifyProof(
+  proof: string | { nftMint: string | null | undefined },
+  rpc: VerifierRpc = createVerifierRpc(),
+): Promise<VerificationReport> {
+  const mint = typeof proof === 'string' ? proof : proof.nftMint;
+  if (!mint) throw new Error('This proof has no NFT yet (status pending or failed) — nothing on chain to verify.');
+  return runVerification(rpc, mint.trim() as Address);
 }

@@ -11,6 +11,9 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "@solana-program/memo": "0.15.0",
+    "@solana-program/token-2022": "0.18.0",
     "@solana/attestation": "2.1.0",
     "@solana/kit": "8.4.0",
     "@solana/kit-plugin-rpc": "0.18.0",
