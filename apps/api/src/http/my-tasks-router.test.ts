@@ -143,6 +143,8 @@ describe("My tasks API (U19)", () => {
     expect(body.version).toMatchObject({ ranked: false, unrankedReason: "open-tests", repoPrivate: false });
     expect(body.version.testsVisibility).toBe("open");
     expect(body.layout.ok).toBe(true);
+    // U28: the API reads the tool environment from task_versions.contract only: the whole validated task.json is stored.
+    expect(store.versions[0]!.contract).toMatchObject({ schema_version: "1.0", environment: { dir: "environment" }, verifier: { timeout_sec: 60 } });
     expect(body.layout.entries.map((e: { key: string }) => e.key)).toEqual(["taskJson", "instruction", "environment", "testsPublic", "testsHidden", "solution"]);
   });
 
