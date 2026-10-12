@@ -1,7 +1,7 @@
 import cors from "cors";
 import express, { type Express } from "express";
-import rateLimit from "express-rate-limit";
-import { CORS_ALLOWED_ORIGINS, RATE_LIMIT } from "./config.js";
+import { CORS_ALLOWED_ORIGINS, TRUST_PROXY_HOPS } from "./config.js";
+import { createRateLimiters } from "./http/rate-limit.js";
 import { createAuthRouter } from "./http/auth.js";
 import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
@@ -149,6 +149,9 @@ export interface AppOptions {
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
   const app = express();
   app.disable("x-powered-by");
+  // Behind Dokploy's Traefik: trust exactly that many X-Forwarded-For hops so `req.ip` (and with it
+  // the rate-limit bucket) is the real client, not the proxy. See TRUST_PROXY_HOPS in config.ts.
+  app.set("trust proxy", TRUST_PROXY_HOPS);
 
   // Dedicated to Dokploy's healthcheck (apps/api/Dockerfile HEALTHCHECK). Kept separate from "/"
   // on purpose: a healthcheck should be as cheap and stable as possible, not carry service
@@ -164,14 +167,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
   );
-  app.use(
-    rateLimit({
-      windowMs: RATE_LIMIT.WINDOW_MS,
-      limit: RATE_LIMIT.MAX_REQUESTS,
-      standardHeaders: true,
-      legacyHeaders: false,
-    }),
-  );
+  app.use(createRateLimiters());
   app.use(express.json());
 
   app.get("/", (_req, res) => {

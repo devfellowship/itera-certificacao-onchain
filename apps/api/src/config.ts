@@ -17,14 +17,37 @@ export const CORS_ALLOWED_ORIGINS = (
   .filter(Boolean);
 
 /**
- * Global rate limit — this API is reachable from the public internet with no auth in front of it
- * yet, so every route needs a default limit even before any specific endpoint is auth/webhook
- * shaped (per feedback_seguranca_cors_rate_limit). Window/max are env-overridable for load testing
- * without a code change.
+ * Number of reverse proxies in front of this API whose `X-Forwarded-For` entry we trust. Production
+ * runs behind exactly one: Dokploy's Traefik, reached directly (the Cloudflare record is DNS-only).
+ * Traefik does not trust a client-supplied X-Forwarded-For, so it sets the header to the real
+ * client address and `1` makes `req.ip` that address. Never raise this to "trust everything": a
+ * hop count that is too high lets a client choose its own rate-limit bucket by sending a header.
+ * Set it to 0 when the API is reached directly (local dev, a test).
+ */
+function parseHops(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return 1;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n > 5) {
+    throw new Error(`ITERA_API_TRUST_PROXY must be an integer from 0 to 5, got "${raw}"`);
+  }
+  return n;
+}
+export const TRUST_PROXY_HOPS = parseHops(process.env.ITERA_API_TRUST_PROXY);
+
+/**
+ * Rate limits — this API is reachable from the public internet, so every route needs a default
+ * limit (per feedback_seguranca_cors_rate_limit). A bucket is one client IP (the real one, see
+ * TRUST_PROXY_HOPS) or, for a request with a valid session token, one wallet. Window/max are
+ * env-overridable for load testing without a code change; production sets no override.
+ *
+ * `PUBLIC_MAX_REQUESTS` is the separate, higher limit for the public cached GETs (/public/*,
+ * /nft/*, /badge/*, /b/*): shared profile pages, README badges and link previews that many
+ * unrelated visitors load.
  */
 export const RATE_LIMIT = {
   WINDOW_MS: Number(process.env.ITERA_API_RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000),
-  MAX_REQUESTS: Number(process.env.ITERA_API_RATE_LIMIT_MAX ?? 300),
+  MAX_REQUESTS: Number(process.env.ITERA_API_RATE_LIMIT_MAX ?? 600),
+  PUBLIC_MAX_REQUESTS: Number(process.env.ITERA_API_PUBLIC_RATE_LIMIT_MAX ?? 3000),
 } as const;
 
 /**
