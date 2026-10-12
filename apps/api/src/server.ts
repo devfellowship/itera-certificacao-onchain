@@ -20,6 +20,8 @@ import { PgEvaluationsStore } from "./evaluations/store.pg.js";
 import { PgPublicProfilesStore } from "./public/store.pg.js";
 import { PgPublicTaskStore } from "./public/task-store.pg.js";
 import { PgReputationStore } from "./domain/reputation-store.pg.js";
+import { startMcpCatalogSync } from "./domain/mcp-catalog.js";
+import { PgMcpCatalogStore } from "./domain/mcp-catalog-store.pg.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const repo = new PgRepository(getPool());
@@ -29,6 +31,11 @@ const proofs = new PgProofStore(getPool());
 const catalog = new PgCatalogStore(getPool());
 if (process.env.ITERA_MODELS_SYNC !== "off") startModelsSync(catalog);
 const runsStore = new PgRunsStore(getPool());
+// U29 (0013): MCP catalog rows from mcp/catalog/*/manifest.json + GHCR digests, on boot and every 15 min.
+const mcpCatalog = new PgMcpCatalogStore(getPool());
+if (process.env.ITERA_MCP_CATALOG_SYNC !== "off") {
+  startMcpCatalogSync(mcpCatalog, { dir: process.env.ITERA_MCP_CATALOG_DIR ?? new URL("../mcp/catalog", import.meta.url).pathname });
+}
 // U27 (0010): run provenance, task reputation, run feedback.
 const reputation = new PgReputationStore(getPool);
 const proofIssuer = proofIssuerHook(proofs, reputation);
@@ -70,6 +77,7 @@ createApp(repo, {
   reputation,
   // U30: public task profile (needs 0007; results need 0008, reputation 0010).
   publicTasks: new PgPublicTaskStore(getPool()),
+  mcpCatalog,
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });
