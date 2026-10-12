@@ -1,0 +1,29 @@
+/* /verify page (legacy, kept). Scoped under .verify-page; colors from the --tma-* tokens. */
+.verify-page { max-width: 760px; margin: 48px auto 96px; padding: 0 24px; display: flex; flex-direction: column; }
+.verify-page h1 { font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -0.025em; margin-bottom: 12px; }
+.verify-page .intro { color: var(--tma-text-muted); margin-bottom: 32px; }
+.verify-page button.primary,
+.verify-page button.secondary { height: 40px; padding: 0 16px; border-radius: var(--tma-radius-md); font-size: 15px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+.verify-page button.primary { background: var(--tma-primary); color: var(--tma-on-primary); }
+.verify-page button.primary:hover:not(:disabled) { background: var(--tma-primary-hover); }
+.verify-page button.secondary { background: var(--tma-surface); border-color: var(--tma-line-strong); color: var(--tma-text); }
+.verify-page button:disabled { opacity: 0.5; cursor: not-allowed; }
+.verify-page .verify-input-row { display: flex; gap: 10px; margin-bottom: 24px; }
+.verify-page .verify-input-row input { flex: 1; height: 40px; background: var(--tma-bg); border: 1px solid var(--tma-line-strong); border-radius: var(--tma-radius-md); padding: 0 12px; color: var(--tma-text); font-family: var(--tma-font-mono); font-size: 13px; outline: none; }
+.verify-page .verify-input-row input:focus { border-color: var(--tma-primary); box-shadow: var(--tma-focus-ring); }
+.verify-page .verify-banner { font-family: var(--tma-font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.08em; padding: 14px 20px; border-radius: var(--tma-radius-lg); margin-bottom: 20px; text-align: center; }
+.verify-page .verify-banner-ok { background: var(--tma-success-bg); color: var(--tma-success-text); }
+.verify-page .verify-banner-fail { background: var(--tma-danger-bg); color: var(--tma-danger-text); border: 1px solid var(--tma-danger-border); }
+.verify-page .verify-checks { list-style: none; padding: 0; margin: 0 0 24px; display: flex; flex-direction: column; gap: 10px; }
+.verify-page .verify-check { display: flex; gap: 12px; padding: 12px 14px; border-radius: var(--tma-radius-md); background: var(--tma-surface); border: 1px solid var(--tma-line); }
+.verify-page .verify-check p { margin: 4px 0 0; color: var(--tma-text-muted); font-size: 13px; }
+.verify-page .verify-check-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+.verify-page .verify-check-pass .verify-check-icon { color: var(--tma-primary); }
+.verify-page .verify-check-fail .verify-check-icon { color: var(--tma-danger-dot); }
+.verify-page .verify-check-skip .verify-check-icon,
+.verify-page .verify-check-unavailable .verify-check-icon { color: var(--tma-text-subtle); }
+.verify-page .run-result { font-family: var(--tma-font-mono); font-size: 12px; color: var(--tma-text-muted); }
+.verify-page .run-result a { color: var(--tma-primary); }
+.verify-page .run-result-error { color: var(--tma-danger-text); }
+.verify-page .tamper-demo { border-top: 1px solid var(--tma-line); padding-top: 20px; }
+.verify-page .tamper-demo code { font-size: 11px; background: var(--tma-surface); padding: 2px 5px; border-radius: var(--tma-radius-xs); }

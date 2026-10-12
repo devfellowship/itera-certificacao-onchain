@@ -7,6 +7,8 @@ interface Window {
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string
+  /** 'design' = MSW fixture mode (U2). Never set in production. */
+  readonly VITE_FIXTURE_MODE?: string
 }
 
 interface ImportMeta {

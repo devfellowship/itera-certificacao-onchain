@@ -1,0 +1,33 @@
+/* Restyle the wallet-adapter modal with the testmyagent tokens (it keeps its own markup). */
+.wallet-adapter-modal-wrapper {
+  background: var(--tma-surface-raised);
+  border: 1px solid var(--tma-line-strong);
+  border-radius: var(--tma-radius-lg);
+  box-shadow: var(--tma-shadow-modal);
+  font-family: var(--tma-font-sans);
+}
+.wallet-adapter-modal-overlay {
+  background: var(--tma-scrim-modal);
+}
+.wallet-adapter-modal-title {
+  color: var(--tma-text);
+  font-family: var(--tma-font-sans);
+  font-weight: 600;
+  font-size: 17px;
+}
+.wallet-adapter-modal-list .wallet-adapter-button {
+  font-family: var(--tma-font-sans);
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--tma-text);
+}
+.wallet-adapter-modal-list .wallet-adapter-button:not([disabled]):hover {
+  background: var(--tma-surface);
+}
+.wallet-adapter-modal-button-close {
+  background: var(--tma-surface);
+}
+.wallet-adapter-modal-list-more {
+  color: var(--tma-text-muted);
+  font-family: var(--tma-font-sans);
+}
