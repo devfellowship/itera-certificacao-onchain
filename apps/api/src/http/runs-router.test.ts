@@ -10,7 +10,7 @@ import { FakeRepository } from "../domain/repository.fake.js";
 import { FakeRunsStore } from "../domain/runs-store.fake.js";
 import type { ProofIssuer } from "../domain/runs-store.js";
 import { issueSessionToken } from "./auth.js";
-import { redactText } from "./runs-router.js";
+import { publicSuiteView, redactText } from "./runs-router.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
 
@@ -328,5 +328,30 @@ describe("model cost", () => {
     expect((await fetch(`${baseUrl}/models/nobody/none/estimate?task=webhook-ledger&version=1`)).status).toBe(404);
     expect((await fetch(`${baseUrl}/models/anthropic/claude-haiku-4.5/estimate`)).status).toBe(400);
     expect((await fetch(`${baseUrl}/models/bad%20id/estimate?task=t&version=1`)).status).toBe(400);
+  });
+});
+
+describe("publicSuiteView", () => {
+  it("keeps counts and case results but strips worker tmp paths from case files", () => {
+    const view = publicSuiteView({
+      total: 2,
+      passed: 1,
+      failed: 1,
+      cases: [
+        { name: "public checks a valid signed event settles once", file: "/tmp/itera-eval-uBITxJ/fixture/tests/public.test.ts", passed: true },
+        { name: "other", file: "/tmp/itera-eval-x/elsewhere.ts", passed: false },
+      ],
+    } as never);
+    expect(view).toEqual({
+      total: 2,
+      passed: 1,
+      failed: 1,
+      cases: [
+        { name: "public checks a valid signed event settles once", file: "tests/public.test.ts", passed: true },
+        { name: "other", file: "<tmp>", passed: false },
+      ],
+    });
+    expect(JSON.stringify(view)).not.toContain("/tmp/");
+    expect(publicSuiteView({ total: 1, passed: 1, failed: 0 })).toEqual({ total: 1, passed: 1, failed: 0 });
   });
 });

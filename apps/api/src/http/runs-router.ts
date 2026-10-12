@@ -89,6 +89,31 @@ export function redactText(text: string): string {
   return text.replace(TMP_PATH_RE, "<tmp>").replace(WORKSPACE_PATH_RE, "<path>").replace(HIDDEN_TEST_RE, "<hidden-test>");
 }
 
+type SuiteCounts = { total: number; passed: number; failed: number };
+
+/** Path of a test file relative to the fixture root (`tests/public.test.ts`), else redacted. */
+export function fixtureRelativePath(file: string): string {
+  const m = /\/fixture\/(.+)$/.exec(file);
+  return m ? redactText(m[1]!) : redactText(file);
+}
+
+/** A public test suite for a public read: counts, plus per-case results without worker paths. */
+export function publicSuiteView(suite: SuiteCounts & { cases?: unknown }) {
+  const view: SuiteCounts & { cases?: { name: string; file: string; passed: boolean }[] } = {
+    total: suite.total,
+    passed: suite.passed,
+    failed: suite.failed,
+  };
+  if (Array.isArray(suite.cases)) {
+    view.cases = (suite.cases as { name?: unknown; file?: unknown; passed?: unknown }[]).map((c) => ({
+      name: redactText(String(c.name ?? "")),
+      file: fixtureRelativePath(String(c.file ?? "")),
+      passed: c.passed === true,
+    }));
+  }
+  return view;
+}
+
 /** Server-derived criteria. The caller never supplies them. */
 export function criteriaFromManifest(m: EvidenceManifest): CriterionResult[] {
   const t = m.tests;
@@ -152,8 +177,8 @@ async function detailView(store: RunsStore, run: AsyncRun) {
     score: { parts },
     tests: manifest
       ? {
-          public: manifest.tests.public_after_patch,
-          publicBaseline: manifest.tests.public_baseline,
+          public: publicSuiteView(manifest.tests.public_after_patch),
+          publicBaseline: publicSuiteView(manifest.tests.public_baseline),
           // Counts only. Hidden test names never leave the worker.
           hidden: { total: manifest.tests.hidden.total, passed: manifest.tests.hidden.passed, failed: manifest.tests.hidden.failed },
         }
