@@ -9,6 +9,7 @@ COPY apps/api/package.json apps/api/package.json
 COPY services/attestation/package.json services/attestation/package.json
 COPY services/evaluator/package.json services/evaluator/package.json
 COPY services/run-issuer/package.json services/run-issuer/package.json
+COPY services/runner/package.json services/runner/package.json
 RUN npm ci
 COPY apps/api apps/api
 # domain/grader.ts spawns services/evaluator's CLI as a separate process (this repo's convention —
