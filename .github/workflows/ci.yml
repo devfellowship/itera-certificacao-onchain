@@ -78,8 +78,8 @@ jobs:
           set -euo pipefail
           for dir in mcp/catalog/*/; do
             name=$(basename "$dir")
-            docker build --quiet --tag "itera-mcp-$name:ci" --file "$dir/Dockerfile" mcp
-            node mcp/conformance.mjs "$name" "itera-mcp-$name:ci"
+            docker build --quiet --tag "testmyagent-mcp-$name:ci" --file "$dir/Dockerfile" mcp
+            node mcp/conformance.mjs "$name" "testmyagent-mcp-$name:ci"
           done
       - uses: actions/setup-node@v4
         with:
@@ -93,7 +93,7 @@ jobs:
         run: npx vitest run src/mcp.integration.test.ts
         env:
           ITERA_DOCKER_TESTS: '1'
-          ITERA_MCP_HELPDESK_IMAGE: itera-mcp-helpdesk:ci
+          ITERA_MCP_HELPDESK_IMAGE: testmyagent-mcp-helpdesk:ci
       - name: Refuse to change a published version
         if: github.event_name == 'pull_request'
         run: |
@@ -102,7 +102,7 @@ jobs:
           for dir in mcp/catalog/*/; do
             name=$(basename "$dir")
             version=$(node -p "require('./$dir/manifest.json').version")
-            ref="ghcr.io/${{ github.repository_owner }}/itera-mcp-$name:$version"
+            ref="ghcr.io/${{ github.repository_owner }}/testmyagent-mcp-$name:$version"
             changed=$(git diff --name-only "$base"...HEAD -- "$dir" mcp/base | head -1)
             if [ -n "$changed" ] && docker manifest inspect "$ref" >/dev/null 2>&1; then
               echo "::error::$ref is already published and this PR changes $dir or mcp/base: bump version in $dir/manifest.json"
@@ -117,11 +117,17 @@ jobs:
           for dir in mcp/catalog/*/; do
             name=$(basename "$dir")
             version=$(node -p "require('./$dir/manifest.json').version")
-            ref="ghcr.io/${{ github.repository_owner }}/itera-mcp-$name:$version"
+            ref="ghcr.io/${{ github.repository_owner }}/testmyagent-mcp-$name:$version"
+            # Before 2026-10-12 the packages were itera-mcp-<name>. A version published there is
+            # COPIED (same manifest, same digest), never rebuilt: the digest that tasks pin stays valid.
+            legacy="ghcr.io/${{ github.repository_owner }}/itera-mcp-$name:$version"
             if docker manifest inspect "$ref" >/dev/null 2>&1; then
               echo "$ref exists: a published version never changes (skip)"
+            elif docker manifest inspect "$legacy" >/dev/null 2>&1; then
+              docker buildx imagetools create --tag "$ref" "$legacy"
+              echo "$ref copied from $legacy (same digest)"
             else
-              docker tag "itera-mcp-$name:ci" "$ref"
+              docker tag "testmyagent-mcp-$name:ci" "$ref"
               docker push --quiet "$ref"
             fi
             digest=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest.Digest}}' | tr -d '"')
