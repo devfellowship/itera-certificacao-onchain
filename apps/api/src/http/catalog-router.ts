@@ -8,7 +8,8 @@ import {
   type Tag,
 } from "../domain/catalog-store.js";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
-import { AGENT_MODELS, DEFAULT_AGENT_MODEL } from "../github/models.js";
+import type { ModelsSyncResult } from "../domain/models-sync.js";
+import { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAllowedModel } from "../github/models.js";
 import { optionalWallet, requireWallet } from "./auth.js";
 
 /**
@@ -20,6 +21,8 @@ import { optionalWallet, requireWallet } from "./auth.js";
  *   GET   /models?all=1                                                                    public
  *   GET   /me                                                                              wallet
  *   PATCH /me {displayName?, handle?}                                                      wallet
+ *   GET   /models/:id/access                                                               public
+ *   POST  /admin/models/sync                                         wallet in ITERA_ADMIN_WALLETS
  *
  * Private tasks of other wallets are never returned (a 404 hides them). `counts` is computed on the
  * caller's full visible catalog, before filters (Task Filter design: source counts stay stable).
@@ -129,8 +132,38 @@ const profileJson = (wallet: string, p: Profile | null) => ({
 
 const HANDLE_RE = /^[a-z0-9][a-z0-9_-]{1,29}$/;
 
-export function createCatalogRouter(store: CatalogStore): Router {
+/**
+ * Model access check (U21). ITERA pays the tokens (Gate Q2), so a user can use exactly the models
+ * on ITERA's allow-list: `models.enabled`. Without 0007 it is the static allow-list.
+ */
+export function modelAccessCheck(store: CatalogStore): (modelId: string) => Promise<boolean> {
+  return async (modelId) => {
+    try {
+      return (await store.isModelEnabled(modelId)) === true;
+    } catch (e) {
+      if (e instanceof SchemaNotReadyError) return isAllowedModel(modelId);
+      throw e;
+    }
+  };
+}
+
+export interface CatalogRouterOptions {
+  /** Runs one OpenRouter sync (POST /admin/models/sync). Absent → 503. */
+  syncModels?: () => Promise<ModelsSyncResult>;
+  /** Wallets allowed to call admin routes. Default: ITERA_ADMIN_WALLETS (comma separated). */
+  adminWallets?: () => string[];
+}
+
+const envAdminWallets = () =>
+  (process.env.ITERA_ADMIN_WALLETS ?? "")
+    .split(",")
+    .map((w) => w.trim())
+    .filter(Boolean);
+
+export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOptions = {}): Router {
   const router = Router();
+  const adminWallets = opts.adminWallets ?? envAdminWallets;
+  const canAccess = modelAccessCheck(store);
 
   router.get(
     "/tasks",
@@ -227,6 +260,48 @@ export function createCatalogRouter(store: CatalogStore): Router {
       res.json({ default: DEFAULT_AGENT_MODEL, models: AGENT_MODELS, syncedAt: null, source: "static" });
     }
   });
+
+  // Model ids contain "/", so the id is matched by a regex, as GET /models/:id/estimate does.
+  router.get(
+    /^\/models\/(.+)\/access$/,
+    handle(async (req, res) => {
+      const modelId = decodeURIComponent(String((req.params as Record<string, string>)[0] ?? ""));
+      let known: boolean | null;
+      try {
+        known = await store.isModelEnabled(modelId);
+      } catch (e) {
+        if (!(e instanceof SchemaNotReadyError)) throw e;
+        known = isAllowedModel(modelId) ? true : null;
+      }
+      const accessible = await canAccess(modelId);
+      res.json({
+        modelId,
+        accessible,
+        reason: accessible ? "allow_listed" : known === null ? "unknown_model" : "not_enabled",
+      });
+    }),
+  );
+
+  router.post(
+    "/admin/models/sync",
+    requireWallet,
+    handle(async (req, res) => {
+      if (!adminWallets().includes(req.wallet!)) {
+        res.status(403).json({ error: "admin only" });
+        return;
+      }
+      if (!opts.syncModels) {
+        res.status(503).json({ error: "models sync is not configured on this server" });
+        return;
+      }
+      try {
+        res.json(await opts.syncModels());
+      } catch (e) {
+        if (e instanceof SchemaNotReadyError) throw e;
+        res.status(502).json({ error: `models sync failed: ${e instanceof Error ? e.message : String(e)}` });
+      }
+    }),
+  );
 
   router.get(
     "/me",

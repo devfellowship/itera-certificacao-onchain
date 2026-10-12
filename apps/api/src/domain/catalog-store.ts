@@ -4,6 +4,8 @@
  * the store only returns what the caller may see.
  */
 
+import type { ModelsSyncStore, SyncedModel } from "./models-sync.js";
+
 export const CATALOG_MIGRATION = "0007_catalog.sql";
 
 export type TagKind = "tool" | "concept";
@@ -96,13 +98,16 @@ export class HandleTakenError extends Error {
   }
 }
 
-export interface CatalogStore {
+export interface CatalogStore extends ModelsSyncStore {
   /** Every public task plus the caller's own tasks (never another wallet's private task). */
   listVisibleTasks(wallet: string | null): Promise<CatalogTask[]>;
   /** By uuid or slug; null when absent or not visible to the caller. */
   getVisibleTask(idOrSlug: string, wallet: string | null): Promise<CatalogTask | null>;
   listTags(): Promise<Tag[]>;
   listModels(): Promise<CatalogModel[]>;
+  /** Access check (Gate Q2: ITERA pays): true = on the allow-list, false = known but disabled,
+   * null = unknown model id. */
+  isModelEnabled(id: string): Promise<boolean | null>;
   getProfile(wallet: string): Promise<Profile | null>;
   /** Upserts the provided fields (undefined = keep, null = clear). Throws HandleTakenError. */
   upsertProfile(wallet: string, patch: { displayName?: string | null; handle?: string | null }): Promise<Profile>;
@@ -136,6 +141,41 @@ export class FakeCatalogStore implements CatalogStore {
 
   async listModels(): Promise<CatalogModel[]> {
     return [...this.models];
+  }
+
+  async isModelEnabled(id: string): Promise<boolean | null> {
+    const m = this.models.find((x) => x.id === id);
+    return m ? m.enabled : null;
+  }
+
+  async applyModelsSync(models: SyncedModel[], syncedAt: string) {
+    let inserted = 0;
+    let updated = 0;
+    let newReleases = 0;
+    for (const s of models) {
+      let m = this.models.find((x) => x.id === s.id);
+      if (!m) {
+        m = { id: s.id, label: s.label, provider: s.provider, contextLength: null, promptPriceUsdPerM: null, completionPriceUsdPerM: null, supportsTools: true, enabled: false, sort: 100, openrouterCreatedAt: null, syncedAt: null, releases: [] };
+        this.models.push(m);
+        inserted += 1;
+      } else updated += 1;
+      Object.assign(m, {
+        provider: s.provider,
+        contextLength: s.contextLength,
+        promptPriceUsdPerM: s.promptPriceUsdPerM,
+        completionPriceUsdPerM: s.completionPriceUsdPerM,
+        supportsTools: s.supportsTools,
+        openrouterCreatedAt: s.createdAt,
+        syncedAt,
+      });
+      if (s.release.id !== m.id) m.releases = m.releases.filter((r) => r.id !== m!.id);
+      if (!m.releases.some((r) => r.id === s.release.id)) {
+        newReleases += 1;
+        m.releases.push({ id: s.release.id, releasedAt: s.release.releasedAt, isLatest: false });
+      }
+      m.releases = m.releases.map((r) => ({ ...r, isLatest: r.id === s.release.id }));
+    }
+    return { inserted, updated, newReleases };
   }
 
   async getProfile(wallet: string): Promise<Profile | null> {

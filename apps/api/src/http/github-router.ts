@@ -40,6 +40,8 @@ export interface GithubRouterDeps {
   requireWallet: RequestHandler;
   /** HMAC key for the install `state` (ITERA_SESSION_SECRET). */
   stateSecret: () => string;
+  /** U21 model access check (models.enabled in the DB). Absent → the static allow-list. */
+  isModelAllowed?: (modelId: string) => Promise<boolean>;
 }
 
 export function defaultGithubRouterDeps(): GithubRouterDeps {
@@ -247,7 +249,12 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
         throw new HttpError(400, e instanceof AgentPathError ? e.message : "invalid agentPath");
       }
       const model = body.model ?? DEFAULT_AGENT_MODEL;
-      if (!isAllowedModel(model)) throw new HttpError(400, "model is not in the allow-list (GET /models)", { allowed: AGENT_MODELS.map((m) => m.id) });
+      const allowed = deps.isModelAllowed
+        ? typeof model === "string" && (await deps.isModelAllowed(model))
+        : isAllowedModel(model);
+      if (!allowed || typeof model !== "string") {
+        throw new HttpError(400, "model is not in the allow-list (GET /models)", deps.isModelAllowed ? {} : { allowed: AGENT_MODELS.map((m) => m.id) });
+      }
       const defaultName = agentPath === "." ? body.repoFullName : `${body.repoFullName}/${agentPath}`;
       const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : defaultName;
       if (name.length > 120) throw new HttpError(400, "name must be at most 120 characters");
