@@ -298,6 +298,11 @@ export interface RankingRow {
   draft: boolean
   visibility?: string
   score: number | null
+  /** U27: score × task reputation; the sort key. */
+  weightedScore?: number | null
+  reputationWeight?: number | null
+  /** U27: a counted result is on a task the agent owner wrote. */
+  selfEvaluated?: boolean
   taskCount: number
   coverage: { k: number; n: number; perTask: boolean[] } | null
   runCostUsd: number | null
@@ -315,7 +320,7 @@ export interface PriceInfo {
 export interface RankingResponse {
   rows: RankingRow[]
   counts?: { all: number; mine: number }
-  selection?: { taskIds: string[]; tag: string | null }
+  selection?: { taskIds: string[]; tag: string | null; excludedTaskIds?: string[] }
   price: PriceInfo
 }
 export interface RankingQuery {
@@ -534,8 +539,11 @@ export interface PublicEvaluation {
   agent: { name: string; slug: string; initials: string; authorName: string; modelLabel: string; commit: string; description: string; modelId?: string | null; commitFull?: string | null; repo?: string | null }
   owner?: { wallet: string; displayName: string | null; handle: string | null } | null
   evaluatorWallet?: string | null
-  /** The wallet that paid for the evaluation owns the agent. */
+  /** U27: at least one task was written by the agent owner (same wallet or same GitHub account). */
   selfEvaluated?: boolean
+  /** The wallet that paid for the evaluation owns the agent. */
+  evaluatorIsOwner?: boolean
+  agentOwnerWallet?: string | null
   tags: Tag[]
   score: number | null
   scoreParts?: ScoreParts | null
@@ -561,6 +569,15 @@ export interface PublicEvaluation {
     scoreParts?: ScoreParts | null
     publicTests?: { passed: number; total: number } | null
     proofHash?: string | null
+    /** U27 anti-collusion. */
+    taskAuthorWallet?: string | null
+    agentOwnerWallet?: string | null
+    selfEvaluated?: boolean
+    ranked?: boolean
+    unrankedReason?: string | null
+    curatedByItera?: boolean
+    reputation?: TaskReputation | null
+    feedback?: { matchedReality: boolean; createdAt: string } | null
   }>
   record: {
     network: string
@@ -628,4 +645,22 @@ export interface TaskDetail extends Task {
   contract?: TaskContract
   versions: Array<{ version: number; status: TaskStatus; repoFullName?: string; repoCommit?: string; layout?: TaskLayout; validation?: TaskValidation | null; createdAt: string }>
   bestResult?: { agentName: string; score: number } | null
+}
+
+// ---------- U27: anti-collusion ----------
+export interface TaskReputation {
+  distinctWallets: number
+  runs: number
+  feedbackCount: number
+  feedbackYesRate: number | null
+  weight: number
+  curatedByItera: boolean
+}
+export interface RunFeedback {
+  runId: string
+  wallet: string
+  taskId: string | null
+  matchedReality: boolean
+  note: string | null
+  createdAt: string
 }

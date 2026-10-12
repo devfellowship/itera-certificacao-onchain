@@ -53,6 +53,53 @@ function result(agentId: string, task: string, score: number, extra: Partial<Ran
 describe("computeRanking", () => {
   const base = { callerWallet: ME, scope: "all" as const, q: "", priceUsdPerRun: 0.1, solUsdRate: 100 };
 
+  it("U27: the ranking order changes with task reputation", () => {
+    // Two agents, each with one result on a different user task. Raw scores: A 90, B 70.
+    const data = (weightA: number, weightB: number) => ({
+      agents: [agent("A", OTHER), agent("B", THIRD)],
+      results: [
+        result("A", "ta", 90, { taskKind: "user", taskOwnerWallet: ME, taskWeight: weightA }),
+        result("B", "tb", 70, { taskKind: "user", taskOwnerWallet: ME, taskWeight: weightB }),
+      ],
+      evaluations: [],
+    });
+    const order = (wa: number, wb: number) => computeRanking({ ...base, taskIds: [], data: data(wa, wb) }).rows.map((r) => r.id);
+    // Equal reputation: the raw score decides.
+    expect(order(1, 1)).toEqual(["A", "B"]);
+    // A's task only its author ran (weight 0.1); B's task is well reputed (0.9): B ranks first.
+    expect(order(0.1, 0.9)).toEqual(["B", "A"]);
+    const rows = computeRanking({ ...base, taskIds: [], data: data(0.1, 0.9) }).rows;
+    expect(rows.map((r) => [r.id, r.score, r.weightedScore, r.reputationWeight])).toEqual([
+      ["B", 70, 63, 0.9],
+      ["A", 90, 9, 0.1],
+    ]);
+  });
+
+  it("U27: open-tests / public-repo tasks never count, and leave the selection; self-evaluated rows carry the label", () => {
+    const out = computeRanking({
+      ...base,
+      taskIds: ["a", "open"],
+      data: {
+        agents: [agent("x", OTHER), agent("y", OTHER)],
+        results: [
+          result("x", "open", 100, { taskRanked: false }),
+          result("x", "a", 40),
+          result("y", "a", 60, { selfEvaluated: true }),
+        ],
+        evaluations: [],
+        unrankedTaskKeys: ["uuid-open", "open"],
+      },
+    });
+    expect(out.excludedTaskIds).toEqual(["open"]);
+    expect(out.rows.map((r) => [r.id, r.coverage?.n, r.score, r.selfEvaluated])).toEqual([
+      ["y", 1, 60, true],
+      ["x", 1, 40, false],
+    ]);
+    const noSel = computeRanking({ ...base, taskIds: [], data: { agents: [agent("x", OTHER)], results: [result("x", "open", 100, { taskRanked: false })], evaluations: [] } });
+    expect(noSel.rows[0]!.score).toBeNull();
+    expect(noSel.rows[0]!.taskCount).toBe(0);
+  });
+
   it("no selection: sorts by score desc, unscored rows last without a rank", () => {
     const out = computeRanking({
       ...base,
@@ -252,7 +299,7 @@ describe("GET /agents/ranking", () => {
 
   it("tag expands into the selection; 503 when the catalog tables are missing", async () => {
     const { body } = await get("/agents/ranking?tag=stripe");
-    expect(body.selection).toEqual({ taskIds: ["uuid-a", "uuid-b"], tag: "stripe" });
+    expect(body.selection).toEqual({ taskIds: ["uuid-a", "uuid-b"], tag: "stripe", excludedTaskIds: [] });
     expect(body.rows[0].coverage).toEqual({ k: 1, n: 2, perTask: [true, false] });
     store.catalogReady = false;
     expect((await get("/agents/ranking?tag=stripe")).status).toBe(503);

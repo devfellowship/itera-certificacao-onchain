@@ -80,6 +80,15 @@ export function buildEvidenceDocument(run: ProofRun): Record<string, unknown> {
         model_id: run.modelId ?? null,
         // v2 only (a run of an evaluation): the proof nonce binds `${run_start_sig}:${slot_run_id}`.
         ...(run.evaluationId ? { evaluation_id: run.evaluationId, slot_run_id: run.slotRunId ?? run.runId } : {}),
+        // U27 anti-collusion (only when resolved): who wrote the task, who owns the agent, the label.
+        ...(run.provenance
+          ? {
+              task_author_wallet: run.provenance.taskAuthorWallet,
+              agent_owner_wallet: run.provenance.agentOwnerWallet,
+              self_evaluated: run.provenance.selfEvaluated,
+              ranked: run.provenance.ranked,
+            }
+          : {}),
       },
       manifest,
     },

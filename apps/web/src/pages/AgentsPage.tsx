@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
 import type { RankingResponse, RankingRow } from '../lib/api'
-import { Avatar, Button, ButtonLink, RemovableChip, SearchInput, SectionLabel, StatusChip, Table, TableEmpty, Tabs, type Column } from '../tma/ui'
+import { Avatar, Badge, Button, ButtonLink, RemovableChip, SearchInput, SectionLabel, StatusChip, Table, TableEmpty, Tabs, type Column } from '../tma/ui'
 import { findTask, TaskFilter, useTaskCatalog } from '../tma/task-filter'
 import { relativeTime } from './agents/format'
 import './agents/agents.css'
@@ -131,6 +131,13 @@ export function AgentsPage() {
                 by <b>{a.isMine ? 'you' : a.authorName}</b> · {relativeTime(a.when)}
               </span>
               {a.draft && <StatusChip status="draft" />}
+              {a.selfEvaluated && (
+                <span title="A counted result is on a task this agent's owner wrote (same wallet or same GitHub account).">
+                  <Badge tone="warning" testId="row-self-evaluated">
+                    Self-evaluated
+                  </Badge>
+                </span>
+              )}
             </div>
             <span className="agents-agent__desc">{a.description}</span>
           </div>

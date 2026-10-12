@@ -121,8 +121,18 @@ export function buildPublicProfile(src: ProfileSource, links: ProfileLinks) {
       modelCostKnown = true;
     }
     const proof = proofByRun.get(r.id);
+    const prov = src.provenance?.[r.id];
     return {
       runId: r.id,
+      // U27 anti-collusion.
+      taskAuthorWallet: prov?.taskAuthorWallet ?? null,
+      agentOwnerWallet: prov?.agentOwnerWallet ?? src.agent.ownerWallet,
+      selfEvaluated: prov?.selfEvaluated ?? false,
+      ranked: prov?.ranked ?? true,
+      unrankedReason: prov?.unrankedReason ?? null,
+      curatedByItera: prov?.curatedByItera ?? false,
+      reputation: src.reputation?.[r.taskKey] ?? null,
+      feedback: src.feedback?.[r.id] ?? null,
       name: meta.name,
       slug: meta.slug,
       description: meta.description,
@@ -199,8 +209,14 @@ export function buildPublicProfile(src: ProfileSource, links: ProfileLinks) {
     },
     owner,
     evaluatorWallet: src.evaluatorWallet,
-    /** The wallet that paid for the evaluation also owns the agent. */
-    selfEvaluated: Boolean(src.evaluatorWallet && src.agent.ownerWallet && src.evaluatorWallet === src.agent.ownerWallet),
+    /**
+     * U27: at least one task was written by the agent owner (same wallet, or same GitHub account).
+     * Curated ITERA tasks are never self-evaluated.
+     */
+    selfEvaluated: tasks.some((t) => t.selfEvaluated),
+    /** The wallet that paid for the evaluation also owns the agent (the former `selfEvaluated`). */
+    evaluatorIsOwner: Boolean(src.evaluatorWallet && src.agent.ownerWallet && src.evaluatorWallet === src.agent.ownerWallet),
+    agentOwnerWallet: src.agent.ownerWallet,
     tags: [...tagMap.values()],
     score,
     scoreParts,

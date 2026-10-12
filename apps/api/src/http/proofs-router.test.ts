@@ -169,3 +169,16 @@ describe("GET /leaderboard", () => {
     expect(other.entries).toEqual([]);
   });
 });
+
+describe("U27 leaderboard and proof provenance", () => {
+  it("a proof on an unranked (open-tests / public-repo) task never enters the leaderboard; a proof carries both wallets", async () => {
+    store.runs.set("r1", run({ runId: "r1", agentId: "agent-a", scoreTotal: 70 }));
+    store.runs.set("r2", run({ runId: "r2", agentId: "agent-b", scoreTotal: 99 }));
+    await store.upsertProof({ runId: "r1", ownerWallet: OWNER, manifestSha256: HASH_A, evidenceCid: "c", attestationAddress: "a", nftMint: "M1", txSig: "t", status: "confirmed", error: null, taskAuthorWallet: OTHER, agentOwnerWallet: OTHER, selfEvaluated: true, ranked: true });
+    await store.upsertProof({ runId: "r2", ownerWallet: OWNER, manifestSha256: HASH_B, evidenceCid: "c", attestationAddress: "a", nftMint: "M2", txSig: "t", status: "confirmed", error: null, ranked: false });
+    const body = (await (await fetch(`${base}/leaderboard?benchmark=webhook-ledger`)).json()) as { entries: Array<{ agentId: string; selfEvaluated: boolean; taskAuthorWallet: string | null }> };
+    expect(body.entries.map((e) => [e.agentId, e.selfEvaluated, e.taskAuthorWallet])).toEqual([["agent-a", true, OTHER]]);
+    const proof = await (await fetch(`${base}/proofs/${HASH_A}`)).json();
+    expect(proof).toMatchObject({ taskAuthorWallet: OTHER, agentOwnerWallet: OTHER, selfEvaluated: true, ranked: true });
+  });
+});

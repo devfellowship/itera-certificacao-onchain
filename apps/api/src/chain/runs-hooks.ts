@@ -6,6 +6,7 @@
 import { issueProof, ProofPreconditionError } from "./issue-proof.js";
 import type { ProofStore } from "./proof-store.js";
 import { buildRunStartTx } from "./run-start.js";
+import { provenanceView, type ReputationStore } from "../domain/reputation-store.js";
 
 interface RunStartHookInput {
   runId: string;
@@ -67,10 +68,12 @@ interface IssueHookInput {
   } | null;
 }
 
-export function proofIssuerHook(store: ProofStore) {
+export function proofIssuerHook(store: ProofStore, reputation?: ReputationStore) {
   return {
     async issueProof(input: IssueHookInput) {
       const { run, agent, agentVersion } = input;
+      // U27: resolve task author / agent owner before the evidence document is built.
+      const provenance = reputation ? provenanceView((await reputation.runProvenance([run.id])).get(run.id)) : null;
       let proof;
       try {
         proof = await issueProof(
@@ -90,6 +93,7 @@ export function proofIssuerHook(store: ProofStore) {
             modelId: agent?.model ?? null,
             evaluationId: run.evaluationId ?? null,
             slotRunId: run.evaluationId ? (run.retryOfRunId ?? run.id) : null,
+            provenance,
           },
           { store },
         );

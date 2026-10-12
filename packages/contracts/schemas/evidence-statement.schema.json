@@ -36,7 +36,11 @@
             "run_id": { "type": "string" },
             "run_start_sig": { "type": ["string", "null"] },
             "benchmark_id": { "type": "string" },
-            "benchmark_version": { "type": ["string", "null"] }
+            "benchmark_version": { "type": ["string", "null"] },
+            "task_author_wallet": { "type": ["string", "null"], "description": "U27: tasks.owner_wallet; null for a curated ITERA task" },
+            "agent_owner_wallet": { "type": ["string", "null"], "description": "U27: agents.owner_wallet" },
+            "self_evaluated": { "type": "boolean", "description": "U27: same wallet or same GitHub account on the task and the agent" },
+            "ranked": { "type": "boolean", "description": "U27: the task passes the sealed-test rule (curated, or a private-repo user task)" }
           }
         },
         "manifest": { "$ref": "evidence-manifest.json" }

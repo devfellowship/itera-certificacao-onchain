@@ -13,6 +13,8 @@
  * already serves publicly. Anything else resolves to null, so the route answers a generic 404.
  */
 import type { EvalTask } from "../evaluations/store.js";
+import type { RunProvenanceView } from "../domain/reputation-store.js";
+import type { TaskReputation } from "../domain/reputation.js";
 
 export interface PublicTag {
   id: string;
@@ -93,6 +95,12 @@ export interface ProfileSource {
   proofs: PublicProofRow[];
   /** Keyed by PublicRunRow.taskKey. */
   taskMeta: Record<string, PublicTaskMeta>;
+  /** U27: task author / agent owner / self-evaluated / ranked, keyed by run id. */
+  provenance?: Record<string, RunProvenanceView>;
+  /** U27: task reputation, keyed by PublicRunRow.taskKey. */
+  reputation?: Record<string, TaskReputation>;
+  /** U27: the run owner's answer ("did the result match reality?"), keyed by run id. Notes stay private. */
+  feedback?: Record<string, { matchedReality: boolean; createdAt: string }>;
 }
 
 export interface PublicProfilesStore {

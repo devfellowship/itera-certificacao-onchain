@@ -12,8 +12,9 @@ import { requireWallet as defaultRequireWallet } from "./auth.js";
  * Mount BEFORE the GitHub router: its `GET /agents/:id` would otherwise take "ranking" as an id.
  *
  * Response: {rows:[{rank, id, slug, name, initials, authorName, authorWallet, isMine, when,
- * description, model, modelLabel, draft, visibility, score, taskCount, coverage:{k,n,perTask}|null,
- * runCostUsd, runCostLamports, runCostSol}], counts:{all, mine}, selection:{taskIds, tag},
+ * description, model, modelLabel, draft, visibility, score, weightedScore, reputationWeight, selfEvaluated, taskCount, coverage:{k,n,perTask}|null,
+ * runCostUsd, runCostLamports, runCostSol}], counts:{all, mine}, selection:{taskIds, tag, excludedTaskIds},
+ * U27: rows sort by weightedScore (score × task reputation); open-tests / public-repo tasks never count.
  * price:{usdPerRun, solUsdRate, priceSource, at}}.
  */
 export interface AgentsRankingRouterDeps {
@@ -82,7 +83,7 @@ export function createAgentsRankingRouter(deps: AgentsRankingRouterDeps): Router
       res.json({
         rows: out.rows,
         counts: out.counts,
-        selection: { taskIds, tag },
+        selection: { taskIds: taskIds.filter((id) => !out.excludedTaskIds.includes(id)), tag, excludedTaskIds: out.excludedTaskIds },
         price: { usdPerRun, solUsdRate: rate?.rate ?? null, priceSource: rate?.source ?? null, at: rate?.at ?? null, indicative: true },
       });
     } catch (e) {

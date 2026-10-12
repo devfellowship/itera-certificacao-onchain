@@ -1,5 +1,7 @@
 import type { Pool } from "pg";
 import type { EvalTask } from "../evaluations/store.js";
+import { provenanceView, reputationOf, type ReputationStore } from "../domain/reputation-store.js";
+import { PgReputationStore } from "../domain/reputation-store.pg.js";
 import type { ProfileSource, PublicProfilesStore, PublicProofRow, PublicRunRow, PublicTaskMeta } from "./store.js";
 
 /**
@@ -62,9 +64,49 @@ function toProof(r: Record<string, unknown>): PublicProofRow {
 }
 
 export class PgPublicProfilesStore implements PublicProfilesStore {
-  constructor(private readonly pool: Pool) {}
+  private readonly reputation: ReputationStore;
+
+  constructor(private readonly pool: Pool) {
+    this.reputation = new PgReputationStore(() => pool);
+  }
 
   async load(key: string): Promise<ProfileSource | null> {
+    const src = await this.loadBase(key);
+    return src ? this.withReputation(src) : null;
+  }
+
+  /** U27: provenance per run, reputation per task, feedback per run. Best effort before 0010. */
+  private async withReputation(src: ProfileSource): Promise<ProfileSource> {
+    try {
+      const runIds = src.runs.map((r) => r.id);
+      const [prov, feedback] = await Promise.all([this.reputation.runProvenance(runIds), this.reputation.getFeedback(runIds)]);
+      const provenance: NonNullable<ProfileSource["provenance"]> = {};
+      const taskIdByKey = new Map<string, string>();
+      for (const r of src.runs) {
+        const p = prov.get(r.id);
+        provenance[r.id] = provenanceView(p);
+        if (p?.taskId) taskIdByKey.set(r.taskKey, p.taskId);
+      }
+      const reps = await reputationOf(this.reputation, [...new Set(taskIdByKey.values())]);
+      const reputation: NonNullable<ProfileSource["reputation"]> = {};
+      for (const [key, taskId] of taskIdByKey) {
+        const rep = reps.get(taskId);
+        if (rep) {
+          const { taskId: _t, slug: _s, ownerWallet: _o, ...view } = rep;
+          reputation[key] = view;
+        }
+      }
+      const fb: NonNullable<ProfileSource["feedback"]> = {};
+      for (const [runId, f] of feedback) fb[runId] = { matchedReality: f.matchedReality, createdAt: f.createdAt };
+      return { ...src, provenance, reputation, feedback: fb };
+    } catch (e) {
+      const code = typeof e === "object" && e !== null && "code" in e ? String((e as { code: unknown }).code) : "";
+      if (code === "42P01" || code === "42703") return src; // 0010 not applied yet
+      throw e;
+    }
+  }
+
+  private async loadBase(key: string): Promise<ProfileSource | null> {
     const k = key.trim().toLowerCase();
     const ev = await this.pool.query<{ id: string }>(
       `select id from public.evaluations

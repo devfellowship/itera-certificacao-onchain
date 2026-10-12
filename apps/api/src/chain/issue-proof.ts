@@ -50,6 +50,15 @@ export async function issueProof(run: ProofRun, deps: IssueProofDeps): Promise<P
     attestationAddress: null as string | null,
     nftMint: null as string | null,
     txSig: null as string | null,
+    // U27: the proof row carries both wallets and the label (absent provenance keeps the stored values).
+    ...(run.provenance
+      ? {
+          taskAuthorWallet: run.provenance.taskAuthorWallet,
+          agentOwnerWallet: run.provenance.agentOwnerWallet,
+          selfEvaluated: run.provenance.selfEvaluated,
+          ranked: run.provenance.ranked,
+        }
+      : {}),
   };
 
   const pinner = deps.pinner === undefined ? pinnerFromEnv() : deps.pinner;

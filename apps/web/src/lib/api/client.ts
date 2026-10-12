@@ -113,6 +113,9 @@ export const api = {
   /** Tool calls of the agent, public read. `afterSeq` is the cursor (rows with seq > afterSeq). */
   runActions: (id: string, afterSeq = 0) => request<T.RunActionsResponse>(`/runs/${encodeURIComponent(id)}/actions`, { query: { after_seq: afterSeq || undefined }, auth: false }),
   runStartSignature: (id: string, wireTransactionBase64: string) => request<unknown>(`/runs/${encodeURIComponent(id)}/start-signature`, { method: 'POST', body: json({ wireTransactionBase64 }) }),
+  /** U27: the run owner's one answer — did the result match reality? */
+  runFeedback: (id: string, matchedReality: boolean, note?: string) =>
+    request<{ feedback: T.RunFeedback; taskReputation: T.TaskReputation | null }>(`/runs/${encodeURIComponent(id)}/feedback`, { method: 'POST', body: json({ matchedReality, note }) }),
   publishRun: (id: string) => request<{ proofHash: string; status: string }>(`/runs/${encodeURIComponent(id)}/publish`, { method: 'POST' }),
 
   // Public surface (no auth)
