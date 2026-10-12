@@ -134,7 +134,7 @@ async function serveFile(res, path) {
   createReadStream(path).pipe(res)
 }
 
-async function handle(req, res) {
+export async function handle(req, res) {
   const url = new URL(req.url ?? '/', 'http://localhost')
   const pathname = decodeURIComponent(url.pathname)
   if (pathname === '/health') {
@@ -144,6 +144,15 @@ async function handle(req, res) {
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { Allow: 'GET, HEAD' })
+    res.end()
+    return
+  }
+
+  // README badge: the public profile prints `<web>/b/<slug>.svg` when the API gives no link. The
+  // API renders it (badge-maker); a redirect keeps one renderer and lets GitHub's image proxy follow it.
+  const badgeMatch = /^\/b\/([A-Za-z0-9._-]{1,100}\.svg)$/.exec(pathname)
+  if (badgeMatch) {
+    res.writeHead(302, { Location: `${API_BASE_URL}/b/${badgeMatch[1]}`, 'Cache-Control': 'public, max-age=300' })
     res.end()
     return
   }

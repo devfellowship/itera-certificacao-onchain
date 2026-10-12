@@ -16,7 +16,7 @@ import { renderBadge, renderNotFoundBadge } from "./badge.js";
  *                                     caller's best own agent per task. Never exposes another wallet's task.
  *   GET /badge/agents/:file           none — `<idOrSlug>.svg`, image/svg+xml, cached 5 min
  *   GET /badge/evaluations/:file      none — `<slug>.svg` of a public issued evaluation
- *   GET /b/:file                      none — alias of /badge/evaluations (the snippet of screen 05)
+ *   GET /b/:file                      none — the snippet of screen 05: an evaluation slug, else an agent slug
  *
  * Mount before the GitHub router so that no `/agents/:id` pattern there can swallow these paths.
  */
@@ -142,7 +142,23 @@ export function createAgentProfileRouter(deps: AgentProfileRouterDeps): Router {
     }
   };
   router.get("/badge/evaluations/:file", evaluationBadge);
-  router.get("/b/:file", evaluationBadge);
+
+  // /b/:slug.svg is the path the public profile (05) prints in its README snippet. The slug is an
+  // evaluation slug; an agent slug answers too, so one short URL works for both.
+  router.get("/b/:file", async (req, res) => {
+    try {
+      const key = badgeKey(req.params.file);
+      const ev = key ? await deps.store.findPublicEvaluation(key) : null;
+      if (ev) return void sendSvg(res, 200, renderBadge(ev.score === null ? null : Math.round(ev.score * 10) / 10, ev.taskCount), BADGE_CACHE_SECONDS);
+      const agent = key ? await deps.store.findAgent(key) : null;
+      const badge = agent ? agentBadge(agent, await deps.store.load(agent.id)) : null;
+      if (!badge) return void sendSvg(res, 404, renderNotFoundBadge(), 60);
+      sendSvg(res, 200, renderBadge(badge.score, badge.taskCount), BADGE_CACHE_SECONDS);
+    } catch (e) {
+      console.error("badge error", e);
+      sendSvg(res, 503, renderNotFoundBadge(), 30);
+    }
+  });
 
   return router;
 }
