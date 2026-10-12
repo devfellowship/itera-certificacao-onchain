@@ -28,6 +28,9 @@ import { createRunsRouter, RUN_FEE_USD, RUN_MAX_COST_USD, type RunsRouterDeps } 
 import { createMcpCatalogRouter } from "./http/mcp-catalog-router.js";
 import type { McpCatalogStore } from "./domain/mcp-catalog.js";
 import type { Repository } from "./domain/repository.js";
+import { createProfileRouter } from "./http/profile-router.js";
+import { profileEnrichment } from "./http/profile-enrich.js";
+import type { AvatarStorage } from "./domain/avatar.js";
 
 export const SERVICE_NAME = "testmyagent-api";
 export const PRODUCT_NAME = "TestMyAgent";
@@ -98,6 +101,9 @@ const ROUTES = [
   "GET /tags?kind=",
   "GET /me",
   "PATCH /me",
+  "POST /me/avatar",
+  "DELETE /me/avatar",
+  "PUT /admin/profiles/:wallet",
   "GET /models/:id/access",
   "POST /admin/models/sync",
   "GET /public/evaluations/:slugOrHash",
@@ -144,6 +150,10 @@ export interface AppOptions {
   publicTasks?: PublicTaskStore;
   /** U29: Itera MCP catalog (needs 0013_mcp_catalog.sql). */
   mcpCatalog?: McpCatalogStore;
+  /** U36: picture storage (public `avatars` bucket). Null/absent → the upload routes answer 503.
+   * Profiles (username, display name, picture) join every response that names a wallet when the
+   * catalog store is wired (http/profile-enrich.ts). */
+  avatarStorage?: AvatarStorage | null;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -169,6 +179,11 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   );
   app.use(createRateLimiters());
   app.use(express.json());
+  // U36: owner/author profiles next to every wallet field of a JSON response.
+  if (options.catalog) {
+    const catalog = options.catalog;
+    app.use(profileEnrichment((wallets) => catalog.listProfiles(wallets)));
+  }
 
   app.get("/", (_req, res) => {
     res.json({
@@ -201,6 +216,9 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createNftRouter());
   if (options.myTasks) app.use(createMyTasksRouter(options.myTasks));
   if (options.catalog) app.use(createCatalogRouter(options.catalog, options.catalogOptions));
+  if (options.catalog) {
+    app.use(createProfileRouter({ store: options.catalog, storage: options.avatarStorage ?? null, adminWallets: options.catalogOptions?.adminWallets }));
+  }
   const githubDeps = options.github ?? defaultGithubRouterDeps();
   // U21: POST /agents checks the model against models.enabled (DB) when the catalog is wired.
   if (options.catalog && !githubDeps.isModelAllowed) githubDeps.isModelAllowed = modelAccessCheck(options.catalog);

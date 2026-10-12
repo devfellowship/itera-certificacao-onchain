@@ -255,10 +255,10 @@ describe("GET/PATCH /me", () => {
   });
 
   it("defaults before a profile exists, then updates", async () => {
-    expect((await get("/me", ME)).body).toEqual({ wallet: ME, displayName: null, handle: null, initials: "7X" });
+    expect((await get("/me", ME)).body).toEqual({ wallet: ME, username: null, displayName: null, handle: null, avatarUrl: null, initials: "7X" });
     const r = await patch({ displayName: "Ada Lovelace", handle: "Ada_L" });
     expect(r.status).toBe(200);
-    expect(r.body).toEqual({ wallet: ME, displayName: "Ada Lovelace", handle: "ada_l", initials: "AL" });
+    expect(r.body).toEqual({ wallet: ME, username: "ada_l", displayName: "Ada Lovelace", handle: "ada_l", avatarUrl: null, initials: "AL" });
     expect((await patch({ handle: null })).body.handle).toBeNull();
     expect((await get("/me", ME)).body.displayName).toBe("Ada Lovelace");
   });
@@ -269,6 +269,23 @@ describe("GET/PATCH /me", () => {
     expect((await patch({ displayName: "a".repeat(61) })).status).toBe(400);
     await patch({ handle: "taken" }, OTHER);
     expect((await patch({ handle: "taken" })).status).toBe(409);
+  });
+
+  it("U36: username is 3 to 30 of [a-z0-9_-], not reserved; avatarUrl only clears", async () => {
+    expect((await patch({ username: "ab" })).status).toBe(400);
+    expect((await patch({ username: "a".repeat(31) })).status).toBe(400);
+    expect((await patch({ username: "bad name" })).status).toBe(400);
+    expect((await patch({ username: "Admin" })).body.error).toMatch(/reserved/);
+    const ok = await patch({ username: "Grace_H-1" });
+    expect(ok.status).toBe(200);
+    expect(ok.body.username).toBe("grace_h-1");
+    expect(ok.body.handle).toBe("grace_h-1");
+    expect((await patch({ avatarUrl: "https://evil.test/x.png" })).status).toBe(400);
+    expect((await patch({ avatarUrl: null })).body.avatarUrl).toBeNull();
+    await patch({ username: "dup_name" }, OTHER);
+    const taken = await patch({ username: "DUP_NAME" });
+    expect(taken.status).toBe(409);
+    expect(taken.body.error).toMatch(/taken/);
   });
 });
 

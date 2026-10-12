@@ -6,6 +6,7 @@ import {
   type CatalogStore,
   type CatalogTask,
   type Profile,
+  type ProfilePatch,
   type Tag,
   type TaskVersionInfo,
 } from "./catalog-store.js";
@@ -122,11 +123,22 @@ function toTask(r: TaskRow): CatalogTask {
   };
 }
 
-type ProfileRow = { wallet: string; display_name: string | null; handle: string | null; created_at: Date | string; updated_at: Date | string };
+type ProfileRow = {
+  wallet: string;
+  display_name: string | null;
+  handle: string | null;
+  /** Absent before 0015_profile_avatars.sql. */
+  avatar_url?: string | null;
+  avatar_key?: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
 const toProfile = (r: ProfileRow): Profile => ({
   wallet: r.wallet,
   displayName: r.display_name,
   handle: r.handle,
+  avatarUrl: r.avatar_url ?? null,
+  avatarKey: r.avatar_key ?? null,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
@@ -292,16 +304,39 @@ export class PgCatalogStore implements CatalogStore {
     }
   }
 
-  async upsertProfile(wallet: string, patch: { displayName?: string | null; handle?: string | null }): Promise<Profile> {
+  async listProfiles(wallets: string[]): Promise<Profile[]> {
+    const unique = [...new Set(wallets)].slice(0, 500);
+    if (unique.length === 0) return [];
+    try {
+      const { rows } = await this.pool.query<ProfileRow>(`select * from public.profiles where wallet = any($1::text[])`, [unique]);
+      return rows.map(toProfile);
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+
+  async upsertProfile(wallet: string, patch: ProfilePatch): Promise<Profile> {
+    // The avatar columns arrive with 0015; the statement names them only when the patch does.
+    const avatar = patch.avatarUrl !== undefined || patch.avatarKey !== undefined;
     try {
       const { rows } = await this.pool.query<ProfileRow>(
-        `insert into public.profiles (wallet, display_name, handle) values ($1, $3, $5)
+        `insert into public.profiles (wallet, display_name, handle${avatar ? ", avatar_url, avatar_key" : ""})
+         values ($1, $3, $5${avatar ? ", $7, $9" : ""})
          on conflict (wallet) do update set
            display_name = case when $2 then excluded.display_name else public.profiles.display_name end,
            handle       = case when $4 then excluded.handle else public.profiles.handle end,
+           ${avatar ? `avatar_url = case when $6 then excluded.avatar_url else public.profiles.avatar_url end,
+           avatar_key   = case when $8 then excluded.avatar_key else public.profiles.avatar_key end,` : ""}
            updated_at   = now()
          returning *`,
-        [wallet, patch.displayName !== undefined, patch.displayName ?? null, patch.handle !== undefined, patch.handle ?? null],
+        [
+          wallet,
+          patch.displayName !== undefined,
+          patch.displayName ?? null,
+          patch.handle !== undefined,
+          patch.handle ?? null,
+          ...(avatar ? [patch.avatarUrl !== undefined, patch.avatarUrl ?? null, patch.avatarKey !== undefined, patch.avatarKey ?? null] : []),
+        ],
       );
       return toProfile(rows[0]!);
     } catch (e) {
@@ -311,4 +346,5 @@ export class PgCatalogStore implements CatalogStore {
       rethrow(e);
     }
   }
+
 }

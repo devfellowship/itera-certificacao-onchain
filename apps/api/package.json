@@ -23,12 +23,15 @@
     "@solana/web3.js": "1.99.0",
     "badge-maker": "6.0.0",
     "bignumber.js": "9.3.1",
+    "busboy": "1.6.0",
     "cors": "2.8.6",
     "express": "5.1.0",
     "express-rate-limit": "8.7.1",
-    "pg": "8.23.1"
+    "pg": "8.23.1",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
+    "@types/busboy": "1.5.5",
     "@types/cors": "2.8.19",
     "@types/express": "5.0.3",
     "@types/node": "22.10.2",

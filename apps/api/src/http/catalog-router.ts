@@ -5,6 +5,7 @@ import {
   type CatalogStore,
   type CatalogTask,
   type Profile,
+  type ProfilePatch,
   type Tag,
 } from "../domain/catalog-store.js";
 import { shortWallet, taskOverviews, type RankingStore } from "../domain/agent-ranking.js";
@@ -21,7 +22,7 @@ import { optionalWallet, requireWallet } from "./auth.js";
  *   GET   /tags?kind=tool|concept                                                          optional auth
  *   GET   /models?all=1                                                                    public
  *   GET   /me                                                                              wallet
- *   PATCH /me {displayName?, handle?}                                                      wallet
+ *   PATCH /me {username?|handle?, displayName?, avatarUrl?: null}                          wallet
  *   GET   /models/:id/access                                                               public
  *   POST  /admin/models/sync                                         wallet in ITERA_ADMIN_WALLETS
  *
@@ -69,6 +70,8 @@ function taskJson(t: CatalogTask, wallet: string | null) {
     version: v?.version ?? null,
     mine,
     agentsRunCount: t.agentsRunCount,
+    // U36: the author of a user task (null for an Itera task); the profile middleware adds ownerProfile.
+    ownerWallet: t.ownerWallet,
   };
 }
 
@@ -127,14 +130,33 @@ function initials(displayName: string | null, wallet: string): string {
   return wallet.slice(0, 2).toUpperCase();
 }
 
-const profileJson = (wallet: string, p: Profile | null) => ({
+/** U36: `username` is the `handle` column; `handle` stays in the response for older clients. */
+export const profileJson = (wallet: string, p: Profile | null) => ({
   wallet,
+  username: p?.handle ?? null,
   displayName: p?.displayName ?? null,
   handle: p?.handle ?? null,
-  initials: initials(p?.displayName ?? null, wallet),
+  avatarUrl: p?.avatarUrl ?? null,
+  initials: initials(p?.displayName ?? p?.handle ?? null, wallet),
 });
 
-const HANDLE_RE = /^[a-z0-9][a-z0-9_-]{1,29}$/;
+/** U36: 3 to 30 characters of a-z, 0-9, _ and -. Stored lowercase; unique (409 when taken). */
+export const USERNAME_RE = /^[a-z0-9_-]{3,30}$/;
+/** Names that would read as the platform, a route or a role. */
+export const RESERVED_USERNAMES = new Set([
+  "admin", "administrator", "root", "system", "support", "help", "staff", "moderator", "mod",
+  "itera", "iterahq", "testmyagent", "tma", "official", "team", "security", "billing",
+  "api", "app", "www", "me", "settings", "profile", "profiles", "agents", "agent", "tasks", "task",
+  "evaluations", "evaluation", "e", "verify", "login", "logout", "signin", "signup", "auth",
+  "new", "edit", "null", "undefined", "anonymous", "unknown", "owner", "everyone",
+]);
+
+/** Null when valid, else the 400 message. */
+export function usernameProblem(u: string): string | null {
+  if (!USERNAME_RE.test(u)) return "username must be 3 to 30 characters: a-z, 0-9, _ or -";
+  if (RESERVED_USERNAMES.has(u)) return `username "${u}" is reserved`;
+  return null;
+}
 
 /**
  * Model access check (U21). ITERA pays the tokens (Gate Q2), so a user can use exactly the models
@@ -363,8 +385,8 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
     requireWallet,
     handle(async (req, res) => {
       const wallet = req.wallet!;
-      const body = (req.body ?? {}) as { displayName?: unknown; handle?: unknown };
-      const patch: { displayName?: string | null; handle?: string | null } = {};
+      const body = (req.body ?? {}) as { displayName?: unknown; handle?: unknown; username?: unknown; avatarUrl?: unknown };
+      const patch: ProfilePatch = {};
       if (body.displayName !== undefined) {
         if (body.displayName === null || body.displayName === "") patch.displayName = null;
         else if (typeof body.displayName === "string" && body.displayName.trim().length >= 1 && body.displayName.trim().length <= 60) {
@@ -374,24 +396,41 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
           return;
         }
       }
-      if (body.handle !== undefined) {
-        if (body.handle === null || body.handle === "") patch.handle = null;
-        else if (typeof body.handle === "string" && HANDLE_RE.test(body.handle.trim().toLowerCase())) {
-          patch.handle = body.handle.trim().toLowerCase();
+      // U36: `username` (new) and `handle` (U5) name the same field; `username` wins.
+      const name = body.username !== undefined ? body.username : body.handle;
+      if (name !== undefined) {
+        if (name === null || name === "") patch.handle = null;
+        else if (typeof name === "string") {
+          const u = name.trim().toLowerCase();
+          const problem = usernameProblem(u);
+          if (problem) {
+            res.status(400).json({ error: problem });
+            return;
+          }
+          patch.handle = u;
         } else {
-          res.status(400).json({ error: "handle must be 2 to 30 characters: a-z, 0-9, _ or -, starting with a letter or digit" });
+          res.status(400).json({ error: "username must be a string, or null" });
           return;
         }
       }
+      // The picture is set by POST /me/avatar; PATCH can only remove it.
+      if (body.avatarUrl !== undefined) {
+        if (body.avatarUrl !== null) {
+          res.status(400).json({ error: "avatarUrl accepts only null here: upload a picture with POST /me/avatar" });
+          return;
+        }
+        patch.avatarUrl = null;
+        patch.avatarKey = null;
+      }
       if (Object.keys(patch).length === 0) {
-        res.status(400).json({ error: "nothing to update: send displayName and/or handle" });
+        res.status(400).json({ error: "nothing to update: send username, displayName and/or avatarUrl: null" });
         return;
       }
       try {
         res.json(profileJson(wallet, await store.upsertProfile(wallet, patch)));
       } catch (e) {
         if (e instanceof HandleTakenError) {
-          res.status(409).json({ error: e.message });
+          res.status(409).json({ error: `username "${e.handle}" is taken` });
           return;
         }
         throw e;

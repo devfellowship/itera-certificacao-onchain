@@ -88,8 +88,20 @@ export interface Profile {
   wallet: string;
   displayName: string | null;
   handle: string | null;
+  /** U36 (0015): public URL of the 256×256 picture in the `avatars` bucket, or null. */
+  avatarUrl: string | null;
+  /** U36 (0015): storage object key of the picture (`<wallet>/<hash16>.webp`), or null. */
+  avatarKey: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+/** Fields of a profile update: undefined = keep, null = clear. */
+export interface ProfilePatch {
+  displayName?: string | null;
+  handle?: string | null;
+  avatarUrl?: string | null;
+  avatarKey?: string | null;
 }
 
 export class HandleTakenError extends Error {
@@ -110,7 +122,9 @@ export interface CatalogStore extends ModelsSyncStore {
   isModelEnabled(id: string): Promise<boolean | null>;
   getProfile(wallet: string): Promise<Profile | null>;
   /** Upserts the provided fields (undefined = keep, null = clear). Throws HandleTakenError. */
-  upsertProfile(wallet: string, patch: { displayName?: string | null; handle?: string | null }): Promise<Profile>;
+  upsertProfile(wallet: string, patch: ProfilePatch): Promise<Profile>;
+  /** U36: the profiles of these wallets (absent wallets are left out). One query. */
+  listProfiles(wallets: string[]): Promise<Profile[]>;
 }
 
 export function isVisibleTo(task: Pick<CatalogTask, "visibility" | "ownerWallet">, wallet: string | null): boolean {
@@ -182,18 +196,24 @@ export class FakeCatalogStore implements CatalogStore {
     return this.profiles.get(wallet) ?? null;
   }
 
-  async upsertProfile(wallet: string, patch: { displayName?: string | null; handle?: string | null }): Promise<Profile> {
+  async listProfiles(wallets: string[]): Promise<Profile[]> {
+    return wallets.map((w) => this.profiles.get(w)).filter((p): p is Profile => p !== undefined);
+  }
+
+  async upsertProfile(wallet: string, patch: ProfilePatch): Promise<Profile> {
     if (patch.handle) {
       for (const p of this.profiles.values()) {
         if (p.wallet !== wallet && p.handle === patch.handle) throw new HandleTakenError(patch.handle);
       }
     }
     const now = new Date().toISOString();
-    const prev = this.profiles.get(wallet) ?? { wallet, displayName: null, handle: null, createdAt: now, updatedAt: now };
+    const prev = this.profiles.get(wallet) ?? { wallet, displayName: null, handle: null, avatarUrl: null, avatarKey: null, createdAt: now, updatedAt: now };
     const next: Profile = {
       ...prev,
       displayName: patch.displayName === undefined ? prev.displayName : patch.displayName,
       handle: patch.handle === undefined ? prev.handle : patch.handle,
+      avatarUrl: patch.avatarUrl === undefined ? prev.avatarUrl : patch.avatarUrl,
+      avatarKey: patch.avatarKey === undefined ? prev.avatarKey : patch.avatarKey,
       updatedAt: now,
     };
     this.profiles.set(wallet, next);
