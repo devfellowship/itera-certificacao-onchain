@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/api/evaluation-view.json",
+  "title": "GET /evaluations/:id response (screen 04)",
+  "description": "Required keys of the rollup view (apps/api/src/evaluations/rollup.ts). Other keys may be added by the evaluations lane.",
+  "type": "object",
+  "required": ["id", "status", "uiState", "createdAt", "agent", "model", "taskCount", "fee", "stages", "tasks", "proofs", "counts", "manifestSha256", "isPublic"],
+  "properties": {
+    "id": { "type": "string" },
+    "status": { "enum": ["pending", "in_progress", "issuing", "review", "issued", "failed", "cancelled"] },
+    "uiState": { "enum": ["queued", "running", "issuing", "issued", "error", "cancelled"] },
+    "agent": { "type": "object", "required": ["id", "name"] },
+    "model": { "type": "object", "required": ["id"] },
+    "taskCount": { "type": "integer", "minimum": 0 },
+    "fee": { "type": "object", "required": ["usd", "lamports"] },
+    "stages": { "type": "array", "items": { "type": "object", "required": ["key", "state"], "properties": { "state": { "enum": ["wait", "active", "done", "error"] } } } },
+    "tasks": { "type": "array", "items": { "type": "object" } },
+    "proofs": { "type": "array", "items": { "type": "object", "required": ["runId", "status"] } },
+    "counts": { "type": "object" },
+    "manifestSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "isPublic": { "type": "boolean" },
+    "shareUrl": { "type": ["string", "null"] }
+  }
+}

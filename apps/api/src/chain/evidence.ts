@@ -1,3 +1,4 @@
+import { digestOf } from "../domain/digest.js";
 import type { ProofRun } from "./proof-store.js";
 
 /**
@@ -8,7 +9,12 @@ import type { ProofRun } from "./proof-store.js";
  * run-start signature, agent repo/commit, model) is added so the pinned file alone says which run
  * it proves.
  */
-export const EVIDENCE_SCHEMA = "itera-evidence/v1";
+export const EVIDENCE_SCHEMA = "itera-evidence/v2";
+/** Documents pinned before 2026-10-12 (no envelope). verify.ts reads both. */
+export const EVIDENCE_SCHEMA_V1 = "itera-evidence/v1";
+/** in-toto Statement v1 (https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md). No DSSE yet. */
+export const IN_TOTO_STATEMENT_V1 = "https://in-toto.io/Statement/v1";
+export const EVIDENCE_PREDICATE_TYPE = "https://testmyagent.com/evidence/v2";
 
 const TMP_PATH = /(?:\/(?:tmp|var\/folders|private\/var)\/[^\s'"`)]*)|(?:[A-Za-z]:\\[^\s'"`)]*\\Temp\\[^\s'"`)]*)/g;
 
@@ -47,21 +53,36 @@ export function redactManifest(manifest: unknown): Record<string, unknown> {
   return m;
 }
 
+/**
+ * The pinned evidence document, schema itera-evidence/v2: an in-toto Statement v1 whose predicate
+ * is the former v1 document (run binding + redacted EvalLog). The subject names the run and carries
+ * the sha256 of the canonical JSON of the redacted EvalLog. The proof hash keeps its meaning: the
+ * on-chain manifest_sha256 is still the sha256 of the exact pinned bytes (ipfs.ts manifestBytes).
+ * Proofs minted before this change keep their v1 bytes; nothing re-pins them.
+ * Shape: packages/contracts/schemas/evidence-statement.schema.json.
+ */
 export function buildEvidenceDocument(run: ProofRun): Record<string, unknown> {
+  // JSON round trip: the digest must cover exactly what the pinned JSON holds (no undefined keys).
+  const manifest = JSON.parse(JSON.stringify(redactManifest(run.evidenceManifest))) as Record<string, unknown>;
   return {
-    schema: EVIDENCE_SCHEMA,
-    run: {
-      run_id: run.runId,
-      run_start_sig: run.runStartSig,
-      benchmark_id: run.benchmarkId,
-      benchmark_version: run.benchmarkVersion,
-      agent_repo: run.agentRepo ?? null,
-      agent_commit: run.agentCommit ?? null,
-      model_id: run.modelId ?? null,
-      // v2 only (a run of an evaluation): the proof nonce binds `${run_start_sig}:${slot_run_id}`.
-      ...(run.evaluationId ? { evaluation_id: run.evaluationId, slot_run_id: run.slotRunId ?? run.runId } : {}),
+    _type: IN_TOTO_STATEMENT_V1,
+    subject: [{ name: `testmyagent-run:${run.runId}`, digest: { sha256: digestOf(manifest) } }],
+    predicateType: EVIDENCE_PREDICATE_TYPE,
+    predicate: {
+      schema: EVIDENCE_SCHEMA,
+      run: {
+        run_id: run.runId,
+        run_start_sig: run.runStartSig,
+        benchmark_id: run.benchmarkId,
+        benchmark_version: run.benchmarkVersion,
+        agent_repo: run.agentRepo ?? null,
+        agent_commit: run.agentCommit ?? null,
+        model_id: run.modelId ?? null,
+        // v2 only (a run of an evaluation): the proof nonce binds `${run_start_sig}:${slot_run_id}`.
+        ...(run.evaluationId ? { evaluation_id: run.evaluationId, slot_run_id: run.slotRunId ?? run.runId } : {}),
+      },
+      manifest,
     },
-    manifest: redactManifest(run.evidenceManifest),
   };
 }
 

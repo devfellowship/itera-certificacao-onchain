@@ -11,6 +11,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "@itera/contracts": "0.1.0",
     "@resvg/resvg-js": "2.6.2",
     "@solana-program/memo": "0.15.0",
     "@solana-program/token-2022": "0.18.0",

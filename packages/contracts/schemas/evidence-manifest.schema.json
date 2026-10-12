@@ -1,0 +1,413 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/evidence-manifest.json",
+  "title": "EvalLog of one graded run (runs.evidence_manifest)",
+  "description": "The per-run EvalLog (Inspect AI vocabulary) = the evidence manifest. Legacy keys (scenario_id, patch_hash, patch_scope, tests, score, errors) are required for every graded run, old rows included; the Inspect blocks (version, status, eval, plan, results, stats, samples) exist from evaluator schema_version 0.3.0. Replaces the hand-written isGradedManifest guard. Additional keys are allowed: the log grows additively.",
+  "type": "object",
+  "required": [
+    "scenario_id",
+    "patch_hash",
+    "patch_scope",
+    "tests",
+    "score",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "evaluator_version": {
+      "type": "string"
+    },
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "fixture_hash": {
+      "type": "string"
+    },
+    "patch_hash": {
+      "type": "string"
+    },
+    "patch_scope": {
+      "type": "object",
+      "required": [
+        "changed_files",
+        "allowed"
+      ],
+      "properties": {
+        "changed_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowed": {
+          "type": "boolean"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tests": {
+      "type": "object",
+      "required": [
+        "public_baseline",
+        "public_after_patch",
+        "hidden"
+      ],
+      "properties": {
+        "public_baseline": {
+          "$ref": "#/$defs/suite"
+        },
+        "public_after_patch": {
+          "$ref": "#/$defs/suite"
+        },
+        "hidden": {
+          "$ref": "#/$defs/suite"
+        }
+      }
+    },
+    "score": {
+      "type": "object",
+      "required": [
+        "total"
+      ],
+      "properties": {
+        "total": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "contract": {
+      "type": "object",
+      "properties": {
+        "contract_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "environment_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "evaluator_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "evaluator_commit": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "executor": {
+      "type": "object",
+      "required": [
+        "profile"
+      ],
+      "properties": {
+        "profile": {
+          "enum": [
+            "sandbox-container",
+            "local-process"
+          ]
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "result": {
+      "$ref": "#/$defs/result"
+    },
+    "version": {
+      "const": 2
+    },
+    "status": {
+      "enum": [
+        "success",
+        "error"
+      ]
+    },
+    "eval": {
+      "type": "object",
+      "required": [
+        "task",
+        "task_version",
+        "task_digest",
+        "scorers"
+      ],
+      "properties": {
+        "task": {
+          "type": "string"
+        },
+        "task_version": {
+          "type": "string"
+        },
+        "task_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scorers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "environment_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "solver": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "required": [
+        "name",
+        "steps"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "solver"
+            ],
+            "properties": {
+              "solver": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "results": {
+      "type": "object",
+      "required": [
+        "total_samples",
+        "completed_samples",
+        "scores"
+      ],
+      "properties": {
+        "total_samples": {
+          "type": "integer"
+        },
+        "completed_samples": {
+          "type": "integer"
+        },
+        "scores": {
+          "type": "array"
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": [
+        "started_at",
+        "completed_at"
+      ],
+      "properties": {
+        "started_at": {
+          "type": "string"
+        },
+        "completed_at": {
+          "type": "string"
+        }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "epoch",
+          "input",
+          "target",
+          "scores"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "epoch": {
+            "type": "integer"
+          },
+          "input": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "scores": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/score"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "suite": {
+      "type": "object",
+      "required": [
+        "total",
+        "passed",
+        "failed"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "ok",
+            "no_report",
+            "timeout",
+            "report_mismatch",
+            "skipped"
+          ]
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "passed"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string",
+                "description": "Workspace-relative path. Absolute paths (/tmp/\u2026) are not allowed from evaluator 0.2.0 on; old rows may hold them, so the API redacts on read."
+              },
+              "passed": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "result": {
+      "description": "Operational state and verdict, kept apart (analysis vocabulary). state = how the run ended; verdict = what the evidence says about the agent; scored = whether score.total measures anything.",
+      "type": "object",
+      "required": [
+        "state",
+        "verdict",
+        "scored"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "completed",
+            "timeout",
+            "infra_error"
+          ]
+        },
+        "verdict": {
+          "enum": [
+            "pass",
+            "fail",
+            "invalid",
+            "inconclusive"
+          ]
+        },
+        "scored": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "score": {
+      "description": "Inspect Score: value + explanation + metadata. value null = unscored.",
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "answer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

@@ -3,6 +3,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { validateApiResponse } from "@itera/contracts";
 import { createApp } from "../app.js";
 import { FakeRepository } from "../domain/repository.fake.js";
 import { FakeRunsStore } from "../domain/runs-store.fake.js";
@@ -265,6 +266,9 @@ describe("GET /evaluations/:id, cancel, list", () => {
     expect(v.slug).toMatch(/^settlewise-[0-9a-f]{4}$/);
     expect(v.shareUrl).toBe(`https://web.example/e/${v.slug}`);
     expect(v.events.map((e: { label: string }) => e.label)).toContain("Payment confirmed");
+    // U22: response bodies match packages/contracts/schemas/api/*.schema.json (Ajv).
+    expect(validateApiResponse("evaluationView", v)).toMatchObject({ ok: true });
+    expect(validateApiResponse("evaluationList", (await get("/evaluations")).body)).toMatchObject({ ok: true });
   });
 
   it("a timeout yields uiState error and outcome INVALID", async () => {

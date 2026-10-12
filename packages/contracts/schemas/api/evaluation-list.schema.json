@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/api/evaluation-list.json",
+  "title": "GET /evaluations response (screen 09)",
+  "type": "object",
+  "required": ["evaluations", "totals"],
+  "properties": {
+    "evaluations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "agent", "createdAt", "feeLamports", "tasks", "counts", "status"],
+        "properties": {
+          "agent": { "type": "object", "required": ["id", "name", "isMine"] },
+          "feeLamports": { "type": "integer", "minimum": 0 },
+          "counts": { "type": "object", "required": ["pass", "fail", "invalid"] }
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": ["spentLamports", "spentSol", "counts"],
+      "properties": { "spentLamports": { "type": "integer", "minimum": 0 } }
+    }
+  }
+}

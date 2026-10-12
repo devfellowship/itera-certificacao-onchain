@@ -4,10 +4,10 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkPatchScope } from './patch-scope.js';
-import { computeScore } from './score.js';
+import { computeScore, runScorers, SCORERS } from './score.js';
 import { EMPTY_SUITE, interpretRun, localExecutor, resolveCmd, type SuiteExecutor } from './suite.js';
 import { addTests, hashDirectory, loadTask, materializeWorkspace, scenarioDir, type LoadedTask } from './task.js';
-import type { EvidenceManifest, ExecutorInfo, TestSuiteResult } from './types.js';
+import type { EvalLog, ExecutorInfo, TestSuiteResult } from './types.js';
 
 export const EVALUATOR_VERSION = '0.2.0';
 export const DEFAULT_INSTALL = ['npm', 'ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'];
@@ -109,13 +109,14 @@ export function workspaceRelative(file: string, testsDir: string): string {
   return posix.split('/').pop() ?? '';
 }
 
-export async function runEvaluation(options: RunEvaluationOptions): Promise<EvidenceManifest> {
+export async function runEvaluation(options: RunEvaluationOptions): Promise<EvalLog> {
   const taskDir = options.taskDir ?? (options.repoRoot && options.scenarioId ? scenarioDir(options.repoRoot, options.scenarioId) : null);
   if (!taskDir) throw new Error('runEvaluation needs taskDir, or repoRoot and scenarioId');
   const task = await loadTask(taskDir);
   const scenarioId = options.scenarioId ?? task.contract.task.name.split('/')[1]!;
   const executor = options.executor ?? localExecutor();
   const executorInfo = await executor.describe();
+  const startedAt = new Date().toISOString();
   const errors: string[] = [];
   const verifier = task.contract.verifier;
   const timeoutMs = verifier.timeout_sec * 1000;
@@ -194,13 +195,15 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Evid
       hidden = await runSuite('hidden', task.contract.tests.hidden);
     }
 
-    const score = computeScore({
+    const scoreInputs = {
       publicAfterPatch,
       hidden,
       regressionRatio,
       patchScopeAllowed: patchScope.allowed,
       runCompletedWithoutErrors: errors.length === 0,
-    });
+    };
+    const score = computeScore(scoreInputs);
+    const scores = runScorers(scoreInputs);
 
     const lock = await readFile(join(task.paths.environment, 'package-lock.json')).catch(() => null);
     const environment = {
@@ -209,11 +212,16 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Evid
       lockfile_sha256: lock ? createHash('sha256').update(lock).digest('hex') : null,
     };
 
+    const environmentDigest = canonicalDigest(environment);
+    const evaluator = { version: EVALUATOR_VERSION, digest: await evaluatorDigest(), commit: evaluatorCommit() };
+    const instruction = await readFile(task.paths.instruction).catch(() => Buffer.from(''));
+    const completedAt = new Date().toISOString();
+
     return {
-      schema_version: '0.2.0',
+      schema_version: '0.3.0',
       evaluator_version: EVALUATOR_VERSION,
       scenario_id: scenarioId,
-      generated_at: new Date().toISOString(),
+      generated_at: completedAt,
       fixture_hash: fixtureHash,
       patch_hash: patchHash,
       patch_scope: { changed_files: changedFiles, ...patchScope },
@@ -232,11 +240,48 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Evid
         verifier_cmd: verifier.cmd,
       },
       environment,
-      environment_digest: canonicalDigest(environment),
-      evaluator_commit: evaluatorCommit(),
-      evaluator_digest: await evaluatorDigest(),
+      environment_digest: environmentDigest,
+      evaluator_commit: evaluator.commit,
+      evaluator_digest: evaluator.digest,
       executor: { profile: executorInfo.profile },
       limitations: limitationsFor(executorInfo, task),
+      // Inspect AI EvalLog blocks (names from inspect_ai/log/_log.py; our run = one Sample).
+      version: 2,
+      status: errors.length === 0 ? 'success' : 'error',
+      eval: {
+        task: task.contract.task.name,
+        task_version: task.contract.task.version,
+        task_digest: task.contractDigest,
+        created: startedAt,
+        dataset: { name: task.contract.task.name, samples: 1 },
+        scorers: SCORERS.map((x) => x.name),
+        evaluator,
+        environment_digest: environmentDigest,
+      },
+      plan: {
+        name: 'testmyagent',
+        steps: [
+          { solver: 'install', params: { cmd: installCmd } },
+          { solver: 'agent', params: {} },
+          { solver: 'verifier', params: { cmd: verifier.cmd, suites: ['public-baseline', 'public-after-patch', 'hidden'] } },
+        ],
+      },
+      results: {
+        total_samples: 1,
+        completed_samples: errors.length === 0 ? 1 : 0,
+        scores: SCORERS.map((x) => ({ name: x.name, scorer: x.name, metrics: { value: { name: 'value' as const, value: scores[x.name].value } } })),
+      },
+      stats: { started_at: startedAt, completed_at: completedAt },
+      samples: [
+        {
+          id: task.contract.task.name,
+          epoch: 1,
+          input: createHash('sha256').update(instruction).digest('hex'),
+          target: `${task.contract.tests.hidden} pass`,
+          scores,
+          metadata: { patch_hash: patchHash, fixture_hash: fixtureHash },
+        },
+      ],
     };
   } finally {
     if (!options.keepWorkspace) {

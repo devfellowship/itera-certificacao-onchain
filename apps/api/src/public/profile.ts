@@ -8,7 +8,7 @@
  */
 import { CHAIN, IPFS_GATEWAY_URL } from "../chain/config.js";
 import { digestOf } from "../domain/digest.js";
-import { isGradedManifest } from "../http/runs-router.js";
+import { hasEvalLog } from "../http/runs-router.js";
 import { initialsOf } from "../evaluations/rollup.js";
 import type { ProfileSource, PublicRunRow } from "./store.js";
 
@@ -48,7 +48,7 @@ export function effectiveRuns(runs: PublicRunRow[]): PublicRunRow[] {
 }
 
 function scorePartsOf(run: PublicRunRow): ScoreParts | null {
-  if (!isGradedManifest(run.evidenceManifest)) return null;
+  if (!hasEvalLog(run.evidenceManifest)) return null;
   const s = run.evidenceManifest.score as unknown as Record<string, number>;
   const out = {} as ScoreParts;
   for (const p of SCORE_PARTS) out[p.key] = Number(s[p.key] ?? 0);
@@ -56,7 +56,7 @@ function scorePartsOf(run: PublicRunRow): ScoreParts | null {
 }
 
 function hiddenResults(run: PublicRunRow): boolean[] {
-  if (!isGradedManifest(run.evidenceManifest)) return [];
+  if (!hasEvalLog(run.evidenceManifest)) return [];
   const cases = (run.evidenceManifest.tests.hidden as { cases?: Array<{ passed: boolean }> }).cases;
   if (Array.isArray(cases) && cases.length) return cases.map((c) => Boolean(c.passed));
   const { passed, total } = run.evidenceManifest.tests.hidden;
@@ -64,7 +64,7 @@ function hiddenResults(run: PublicRunRow): boolean[] {
 }
 
 function publicTests(run: PublicRunRow): { passed: number; total: number } | null {
-  if (!isGradedManifest(run.evidenceManifest)) return null;
+  if (!hasEvalLog(run.evidenceManifest)) return null;
   const t = (run.evidenceManifest.tests as { public_after_patch?: { passed: number; total: number } }).public_after_patch;
   return t ? { passed: t.passed, total: t.total } : null;
 }
