@@ -1,0 +1,83 @@
+diff --git a/out/findings.json b/out/findings.json
+--- a/out/findings.json
++++ b/out/findings.json
+@@ -1,3 +1,76 @@
+-{
+-  "findings": []
+-}
++{
++  "findings": [
++    {
++      "screen": "form",
++      "viewport": "both",
++      "selector": "[data-testid=\"customer-label\"]",
++      "category": "typography",
++      "expected": "600",
++      "actual": "400",
++      "note": "font-weight: font-weight"
++    },
++    {
++      "screen": "detail",
++      "viewport": "both",
++      "selector": "[data-testid=\"page-title-detail\"]",
++      "category": "size",
++      "expected": "full label \"Order #1042\"",
++      "actual": "label cut with an ellipsis",
++      "note": "truncated-label: text-overflow"
++    },
++    {
++      "screen": "form",
++      "viewport": "both",
++      "selector": "[data-testid=\"help-text\"]",
++      "category": "color",
++      "expected": "#4b5563",
++      "actual": "#b45309",
++      "note": "text-color: color"
++    },
++    {
++      "screen": "detail",
++      "viewport": "both",
++      "selector": "[data-testid=\"refund-btn\"]",
++      "category": "copy",
++      "expected": "Issue refund",
++      "actual": "Refund",
++      "note": "copy: text"
++    },
++    {
++      "screen": "list",
++      "viewport": "both",
++      "selector": "[data-testid=\"search-icon\"]",
++      "category": "missing-element",
++      "expected": "present",
++      "actual": "absent",
++      "note": "missing-icon: presence"
++    },
++    {
++      "screen": "list",
++      "viewport": "390",
++      "selector": "[data-testid=\"page-title-list\"]",
++      "category": "typography",
++      "expected": "22px",
++      "actual": "28px",
++      "note": "font-size: font-size"
++    },
++    {
++      "screen": "list",
++      "viewport": "both",
++      "selector": "[data-testid=\"status-badge\"]",
++      "category": "color",
++      "expected": "#dcfce7",
++      "actual": "#fef3c7",
++      "note": "bg-color: background"
++    },
++    {
++      "screen": "list",
++      "viewport": "390",
++      "selector": "[data-testid=\"new-order-btn\"]",
++      "category": "size",
++      "expected": "40px",
++      "actual": "32px",
++      "note": "height: height"
++    }
++  ]
++}

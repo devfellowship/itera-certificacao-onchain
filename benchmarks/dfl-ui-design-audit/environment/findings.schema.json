@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "out/findings.json",
+  "type": "object",
+  "required": ["findings"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "maxItems": 60,
+      "items": {
+        "type": "object",
+        "required": ["screen", "viewport", "selector", "category", "expected", "actual"],
+        "properties": {
+          "screen": { "enum": ["list", "detail", "form"] },
+          "viewport": { "enum": ["1280", "390", "both"], "description": "the width where the difference shows; both = at 1280 and at 390" },
+          "selector": { "type": "string", "description": "a CSS selector of the element in the app, for example [data-testid=\"submit-btn\"]" },
+          "category": { "enum": ["spacing", "color", "typography", "copy", "missing-element", "order", "size"] },
+          "expected": { "type": ["string", "number"], "description": "the value in the design, for example #2952cc, 16px, 600, or the exact text" },
+          "actual": { "type": ["string", "number"], "description": "the value in the app" },
+          "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4, "description": "optional: [x, y, width, height] of the element in CSS px, page coordinates" },
+          "note": { "type": "string" }
+        }
+      }
+    }
+  }
+}

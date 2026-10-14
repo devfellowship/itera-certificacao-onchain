@@ -1,0 +1,127 @@
+{
+  "$schema": "../../packages/contracts/schemas/task.schema.json",
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/dfl-ui-design-audit",
+    "version": "1",
+    "description": "Audit a 3-screen web app against its design (PNG and HTML) at 1280 px and 390 px through the browser MCP server (Playwright), and list every discrepancy with selector, category and values.",
+    "authors": [
+      {
+        "name": "ITERA"
+      }
+    ],
+    "keywords": [
+      "mcp",
+      "browser",
+      "playwright",
+      "design",
+      "ui-audit"
+    ]
+  },
+  "metadata": {
+    "title": "UI vs design audit with a browser",
+    "tags": {
+      "tools": [
+        "mcp-browser"
+      ],
+      "concepts": [
+        "visual-qa",
+        "design-diff",
+        "precision"
+      ]
+    },
+    "variant": {
+      "generator": "fixtures/gen.mjs",
+      "seed": 1,
+      "visibility": "open"
+    }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": [
+      "npm",
+      "ci",
+      "--include=dev",
+      "--no-audit",
+      "--no-fund",
+      "--ignore-scripts"
+    ],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048,
+    "tools": {
+      "builtin": [
+        "read",
+        "write",
+        "edit",
+        "list",
+        "todo"
+      ],
+      "mcp": [
+        {
+          "name": "browser",
+          "description": "A headless Chromium driven by Playwright MCP. It reaches only http://app.local (the app) and http://design.local (the design) (Itera catalog fixture).",
+          "catalog": "browser@1",
+          "transport": "http",
+          "seed": "mcp/browser/seed.json",
+          "allowed_tools": [
+            "browser_navigate",
+            "browser_resize",
+            "browser_take_screenshot",
+            "browser_snapshot",
+            "browser_evaluate"
+          ],
+          "expose_state_to_scorer": true,
+          "startup_timeout_sec": 60
+        }
+      ]
+    },
+    "run_egress": [
+      "model-gateway",
+      "mcp"
+    ],
+    "secrets": [],
+    "resources": {
+      "cpus": 2,
+      "memory_mb": 2048,
+      "pids": 512
+    }
+  },
+  "tests": {
+    "public": "tests/public",
+    "hidden": "tests/hidden"
+  },
+  "solution": {
+    "patch": "solution/solution.patch"
+  },
+  "editable_paths": [
+    "out/**"
+  ],
+  "protected_paths": [
+    "tests/**",
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "vitest.config.*",
+    "designs/**",
+    "findings.schema.json",
+    "README.md"
+  ],
+  "verifier": {
+    "cmd": [
+      "npx",
+      "vitest",
+      "run",
+      "{tests}",
+      "--reporter=json",
+      "--outputFile={report}"
+    ],
+    "report": "vitest-json",
+    "timeout_sec": 120
+  },
+  "agent": {
+    "timeout_sec": 900
+  },
+  "est_minutes": 15
+}
