@@ -1,0 +1,126 @@
+{
+  "blocked": [],
+  "calls": 10,
+  "calls_outside": 0,
+  "navigations": [
+    {
+      "seq": 2,
+      "url": "http://app.local/"
+    },
+    {
+      "seq": 7,
+      "url": "http://app.local/detail"
+    },
+    {
+      "seq": 9,
+      "url": "http://design.local/"
+    }
+  ],
+  "requests": [
+    {
+      "count": 1,
+      "host": "app.local",
+      "id": "app.local/",
+      "path": "/",
+      "status": 200
+    },
+    {
+      "count": 1,
+      "host": "app.local",
+      "id": "app.local/detail",
+      "path": "/detail",
+      "status": 200
+    },
+    {
+      "count": 2,
+      "host": "app.local",
+      "id": "app.local/style.css",
+      "path": "/style.css",
+      "status": 200
+    },
+    {
+      "count": 1,
+      "host": "design.local",
+      "id": "design.local/",
+      "path": "/",
+      "status": 200
+    },
+    {
+      "count": 1,
+      "host": "design.local",
+      "id": "design.local/d.css",
+      "path": "/d.css",
+      "status": 200
+    }
+  ],
+  "screenshots": [
+    {
+      "bytes": 13921,
+      "height": 800,
+      "mime": "image/png",
+      "seq": 4,
+      "sha256": "3f8705461c16bd068ee4ea10ebd10e3be6e7b0ff4ee630d2bfb2933900d64128",
+      "url": "http://app.local/",
+      "width": 1280
+    },
+    {
+      "bytes": 11442,
+      "height": 844,
+      "mime": "image/png",
+      "seq": 6,
+      "sha256": "4d5c9a76bbccf6fa04cd45495cc36a111b0f3de5a1c58aa6a1ee462960af3539",
+      "url": "http://app.local/",
+      "width": 390
+    }
+  ],
+  "visits": [
+    {
+      "calls": 3,
+      "first_seq": 2,
+      "height": 800,
+      "host": "app.local",
+      "id": "http://app.local/@1280x800",
+      "path": "/",
+      "screenshots": 1,
+      "snapshots": 1,
+      "url": "http://app.local/",
+      "width": 1280
+    },
+    {
+      "calls": 2,
+      "first_seq": 5,
+      "height": 844,
+      "host": "app.local",
+      "id": "http://app.local/@390x844",
+      "path": "/",
+      "screenshots": 1,
+      "snapshots": 0,
+      "url": "http://app.local/",
+      "width": 390
+    },
+    {
+      "calls": 2,
+      "first_seq": 7,
+      "height": 844,
+      "host": "app.local",
+      "id": "http://app.local/detail@390x844",
+      "path": "/detail",
+      "screenshots": 0,
+      "snapshots": 0,
+      "url": "http://app.local/detail",
+      "width": 390
+    },
+    {
+      "calls": 3,
+      "first_seq": 9,
+      "height": 844,
+      "host": "design.local",
+      "id": "http://design.local/@390x844",
+      "path": "/",
+      "screenshots": 0,
+      "snapshots": 0,
+      "url": "http://design.local/",
+      "width": 390
+    }
+  ]
+}

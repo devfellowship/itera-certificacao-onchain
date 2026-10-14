@@ -1,0 +1,161 @@
+{
+  "name": "browser",
+  "version": 1,
+  "description": "A headless Chromium driven by the official Playwright MCP, with a seeded static site served inside the sidecar as http://app.local (and any other seeded *.local host). No other host is reachable. The state export is a visit log: URL x viewport, and the sha256 of every screenshot.",
+  "transport": "stdio",
+  "license": "Apache-2.0",
+  "upstream": {
+    "repo": "https://github.com/microsoft/playwright-mcp",
+    "npm": "@playwright/mcp@0.0.83",
+    "playwright_core": "1.64.0-alpha-1790635538000",
+    "browser": "chromium-headless-shell r1247 (Chrome 155.0.8059.12), from the playwright-core browsers.json of the pinned lockfile",
+    "tools": [
+      "browser_navigate",
+      "browser_navigate_back",
+      "browser_resize",
+      "browser_take_screenshot",
+      "browser_snapshot",
+      "browser_evaluate",
+      "browser_find",
+      "browser_click",
+      "browser_hover",
+      "browser_type",
+      "browser_press_key",
+      "browser_select_option",
+      "browser_fill_form",
+      "browser_wait_for",
+      "browser_console_messages",
+      "browser_network_requests"
+    ],
+    "checked": "2026-10-14: repository not archived; 0.0.83 published 2026-09-28 (16 days old); Apache-2.0. Not in tools.json on purpose: browser_run_code_unsafe (arbitrary Playwright code), browser_file_upload / browser_drop (file system paths), browser_tabs, browser_close, browser_drag, browser_handle_dialog, browser_emulate_media, browser_network_request."
+  },
+  "capabilities": [
+    "browser",
+    "playwright",
+    "visual",
+    "web"
+  ],
+  "resources": {
+    "cpus": 1,
+    "memory_mb": 512,
+    "pids": 128
+  },
+  "boot_timeout_sec": 60,
+  "call_timeout_sec": 30,
+  "seed_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "hosts"
+    ],
+    "properties": {
+      "hosts": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 4,
+        "propertyNames": {
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?\\.(local|test)$"
+        },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "files"
+          ],
+          "properties": {
+            "files": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 500,
+              "propertyNames": {
+                "maxLength": 200,
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9._/-]+$"
+              },
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2000000
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "base64"
+                    ],
+                    "properties": {
+                      "base64": {
+                        "type": "string",
+                        "maxLength": 4000000,
+                        "pattern": "^[A-Za-z0-9+/=\\s]*$"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "viewport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "width",
+          "height"
+        ],
+        "properties": {
+          "width": {
+            "type": "integer",
+            "minimum": 200,
+            "maximum": 2560
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 200,
+            "maximum": 2560
+          }
+        }
+      },
+      "snapshot_boxes": {
+        "type": "boolean"
+      }
+    }
+  },
+  "export_schema": {
+    "type": "object",
+    "required": [
+      "visits",
+      "screenshots",
+      "navigations",
+      "requests",
+      "blocked",
+      "calls",
+      "calls_outside"
+    ],
+    "properties": {
+      "visits": {
+        "type": "array"
+      },
+      "screenshots": {
+        "type": "array"
+      },
+      "navigations": {
+        "type": "array"
+      },
+      "requests": {
+        "type": "array"
+      },
+      "blocked": {
+        "type": "array"
+      },
+      "calls": {
+        "type": "integer"
+      },
+      "calls_outside": {
+        "type": "integer"
+      }
+    }
+  }
+}
