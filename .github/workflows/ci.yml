@@ -24,6 +24,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx tsx scripts/check-tasks.mts
+      # Generated benchmark tasks: reproducible from their seed, reference solution passes its grader,
+      # a no-op fails, and a denylist + secret scan of the task content (plan ADR-2). One check.mjs per task.
+      - name: Benchmark task checks
+        run: for c in benchmarks/*/fixtures/check.mjs; do [ -f "$c" ] || continue; node "$c"; done
       - run: npm run check
       - run: npm run test
       - run: npm run build

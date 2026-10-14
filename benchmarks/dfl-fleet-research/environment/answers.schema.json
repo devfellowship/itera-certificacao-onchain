@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "out/answers.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["answers", "not_verified"],
+  "properties": {
+    "answers": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^q[1-6]$": {
+          "type": "object",
+          "required": ["answer", "evidence"],
+          "properties": {
+            "answer": {
+              "description": "A string, a list of strings, a list of pairs (q3), or null when you do not answer.",
+              "anyOf": [
+                { "type": "string" },
+                { "type": "null" },
+                { "type": "array", "items": { "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }] } }
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["ref", "quote"],
+                "properties": {
+                  "ref": { "type": "string", "description": "org/repo:path:line, for example acme/acme-ci:README.md:3 (line numbers start at 1)" },
+                  "quote": { "type": "string", "minLength": 6, "description": "text copied exactly from that line" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "not_verified": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^q[1-6]$" },
+      "description": "Questions that you could not answer from the files. Give no answer for them."
+    }
+  }
+}

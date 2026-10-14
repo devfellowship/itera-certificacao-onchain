@@ -1,0 +1,100 @@
+{
+  "answers": {
+    "q1": {
+      "answer": "acmehq/acme-player",
+      "evidence": [
+        {
+          "ref": "acmehq/acme-player:README.md:3",
+          "quote": "the learner-facing app"
+        }
+      ]
+    },
+    "q2": {
+      "answer": "acme/acme-schema/.github/workflows/push-migrations.yml",
+      "evidence": [
+        {
+          "ref": "acme/acme-schema:.github/workflows/push-migrations.yml:13",
+          "quote": "npx dbtool push --target production"
+        },
+        {
+          "ref": "acme/acme-schema:.github/workflows/push-migrations.yml:4",
+          "quote": "branches: [main]"
+        }
+      ]
+    },
+    "q3": {
+      "answer": [
+        [
+          "pr-digest",
+          "summarize-pr"
+        ],
+        [
+          "rotate-token",
+          "token-refresh"
+        ],
+        [
+          "deploy-app",
+          "ship-app"
+        ]
+      ],
+      "evidence": [
+        {
+          "ref": "acme/acme-harness:skills/summarize-pr/SKILL.md:3",
+          "quote": "purpose: Write a short summary of one pull request for the team channel."
+        },
+        {
+          "ref": "acme/acme-harness:skills/pr-digest/SKILL.md:3",
+          "quote": "purpose: Write a short summary of one pull request for the team channel."
+        },
+        {
+          "ref": "acme/acme-harness:skills/rotate-token/SKILL.md:3",
+          "quote": "purpose: Replace an expiring access token in the vault and in every consumer."
+        },
+        {
+          "ref": "acme/acme-harness:skills/token-refresh/SKILL.md:3",
+          "quote": "purpose: Replace an expiring access token in the vault and in every consumer."
+        },
+        {
+          "ref": "acme/acme-harness:skills/deploy-app/SKILL.md:3",
+          "quote": "purpose: Deploy one application to production and verify the health check."
+        },
+        {
+          "ref": "acme/acme-harness:skills/ship-app/SKILL.md:3",
+          "quote": "purpose: Deploy one application to production and verify the health check."
+        }
+      ]
+    },
+    "q4": {
+      "answer": "acmehq/acme-api/.github/workflows/lint.yml",
+      "evidence": [
+        {
+          "ref": "acmehq/acme-api:.github/workflows/lint.yml:6",
+          "quote": "runs-on: ubuntu-latest"
+        },
+        {
+          "ref": "acme/acme-infra:inventory/repos.yaml:13",
+          "quote": "id: acmehq/acme-api, visibility: private"
+        }
+      ]
+    },
+    "q5": {
+      "answer": [
+        "acme/acme-services/payments/config.example.env",
+        "acmehq/acme-api/src/payments/config.ts"
+      ],
+      "evidence": [
+        {
+          "ref": "acme/acme-services:payments/config.example.env:2",
+          "quote": "vault:/payments/PAYMENTS_API_KEY"
+        },
+        {
+          "ref": "acmehq/acme-api:src/payments/config.ts:2",
+          "quote": "vault:/payments/PAYMENTS_API_KEY"
+        }
+      ]
+    }
+  },
+  "not_verified": [
+    "q6"
+  ]
+}
