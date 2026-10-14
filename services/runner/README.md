@@ -80,6 +80,22 @@ The worker runs the shared-contract job protocol:
 
 The worker image (`services/runner/Dockerfile`, context = repo root) is Debian (glibc), like the sandbox image: the `node_modules` that the worker installs run inside the sandbox, and musl-built native packages (rollup, esbuild) do not load there. It holds `benchmarks/`, `services/evaluator`, this package, git, GNU tar and a static Docker CLI. It needs the host Docker socket. At boot it builds the sandbox image from `services/runner/sandbox/` with a content-hash tag, so a change there takes effect on the next deploy.
 
+## Model routes (K10): OpenRouter or opencode go
+
+The agent's model id picks the route of the run (`src/model-route.ts`):
+
+| Model id | Route | Gateway upstream + path | Key (gateway only) | Cost |
+|---|---|---|---|---|
+| `opencode-go/<model>` (e.g. `opencode-go/deepseek-v4.1-flash`) | `opencode-go` | `https://opencode.ai` `/zen/go/v1/` (`ITERA_OPENCODE_GO_UPSTREAM`) | `OPENCODE_GO_API_KEY` (ITERA's subscription; a BYOK key is refused) | **derived**: tokens × the price table in `model-route.ts` |
+| anything else | `openrouter` | `https://openrouter.ai` `/api/v1/` (`ITERA_MODEL_UPSTREAM`) | BYOK, else `ITERA_RUNNER_OPENROUTER_KEY` | **metered**: OpenRouter's own `usage.cost` |
+
+- The sandbox's opencode uses its built-in `opencode-go` provider, pointed at the gateway by `sandbox/opencode.json` (`http://itera-gateway:3128/zen/go/v1`, placeholder key). The sandbox still holds no key.
+- opencode go refuses a request without `x-opencode-session` (`MissingSessionID`). The gateway forwards the `x-opencode-*` headers that opencode sends and adds `x-opencode-session: itera-<run id>` when there is none.
+- opencode go answers `usage` with tokens (and `prompt_tokens_details.cached_tokens`) but no USD. The gateway gets the model's price (`ITERA_PRICE_JSON`) and the meter computes `fresh input × input + cached × cacheRead + output × output`. The per-run cap (`ITERA_RUN_MAX_COST_USD`) applies to the derived cost too. A model without a price runs with cost 0 and `cost_source: "unpriced"`.
+- `evidence_manifest.runner.route` and `.cost_source` (`metered` | `derived` | `mixed` | `unpriced` | `none`) record which one applied; the report must not mix metered and derived dollars without saying so.
+
+**Benchmark runs without the payment flow.** `npx tsx src/bench-enqueue.ts --task <pack> --model <model id> [--agent-dir examples/bench-agent] [--wait]`, inside the runner container (it uses its `DATABASE_URL`), writes vendor `ITERA benchmark campaign` → agent → agent_version (files digest) → release_declaration → a `queued` run. The live worker runs and grades it like any other run. `examples/bench-agent/AGENTS.md` is the one agent file set of the DFL benchmark campaign.
+
 ## Run profile (Valkyrie-shaped)
 
 The per-run configuration is a **run profile**, `profiles/<name>.json`, validated against `packages/contracts/schemas/run-profile.schema.json` (Ajv). Its boundaries and field names follow the Valkyrie agent contract (`vals-ai/Valkyrie` `docs/agents/agent-contract.mdx`, commit `68edd7ac`, AGPL-3.0: names reused, no code copied). `opencode` is the one built-in profile and reproduces the previous hard-coded behaviour byte for byte (`src/run-profile.test.ts`). `ITERA_RUN_PROFILE` selects another built-in profile.
@@ -130,7 +146,9 @@ temp dir on the trusted side, and deletes it when the job ends (Gate Q5: no copy
 | `ITERA_RUN_MAX_COST_USD` | `0.50` | Hard model-cost cap of one run, enforced by the gateway. |
 | `ITERA_RUNNER_CONCURRENCY` / `ITERA_RUNNER_POLL_MS` / `ITERA_RUNNER_STALE_MS` | `2` / `3000` / `900000` | Worker loop. |
 | `ITERA_SANDBOX_IMAGE` | worker: built at boot; CLI: `itera-runner-sandbox:latest` | Image built from `sandbox/`. |
-| `ITERA_MODEL_UPSTREAM` | `https://openrouter.ai` | Gateway upstream. |
+| `ITERA_MODEL_UPSTREAM` | `https://openrouter.ai` | Gateway upstream of the `openrouter` route. |
+| `OPENCODE_GO_API_KEY` | — | ITERA's opencode go key (K10). Runs with an `opencode-go/<model>` agent need it; without it they end `infra_error`. Kept in the secret store of the deployment. |
+| `ITERA_OPENCODE_GO_UPSTREAM` | `https://opencode.ai` | Gateway upstream of the `opencode-go` route. |
 | `ITERA_RUN_WALL_MS` | `300000` | Agent wall limit. |
 | `ITERA_SANDBOX_MEMORY` / `ITERA_SANDBOX_CPUS` / `ITERA_SANDBOX_PIDS` | `2g` / `2` / `512` | Sandbox limits. |
 

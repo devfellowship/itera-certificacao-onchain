@@ -5,6 +5,7 @@ import { BUILTIN_TOOLS } from '@itera/contracts';
 import { bootSidecar, collectSidecar, opencodeRunConfig, sidecarName, tarFile, type CollectedSidecar, type McpSidecarPlan, type SidecarHandle } from './mcp-sidecar.js';
 import { exec, pipe } from './exec.js';
 import { parseGatewayUsage, type ModelUsage } from './model-usage.js';
+import { routeOfModel, type ModelRoute, type RouteId } from './model-route.js';
 import { loadRunProfile, renderRunCmd, type RunProfile } from './run-profile.js';
 import { WORKSPACE_IN_SANDBOX } from './trace.js';
 
@@ -17,8 +18,10 @@ export const GATEWAY_PORT = 3128;
 export interface SandboxConfig {
   /** Image built from services/runner/sandbox/Dockerfile. */
   image: string;
-  /** The only upstream the gateway forwards to. */
+  /** OpenRouter upstream of the gateway (route `openrouter`, ITERA_MODEL_UPSTREAM). */
   upstream: string;
+  /** opencode go upstream of the gateway (route `opencode-go`, ITERA_OPENCODE_GO_UPSTREAM). */
+  opencodeGoUpstream: string;
   wallMs: number;
   memory: string;
   cpus: string;
@@ -38,6 +41,7 @@ export function defaultSandboxConfig(env: NodeJS.ProcessEnv = process.env): Sand
   return {
     image: env.ITERA_SANDBOX_IMAGE ?? 'itera-runner-sandbox:latest',
     upstream: env.ITERA_MODEL_UPSTREAM ?? 'https://openrouter.ai',
+    opencodeGoUpstream: env.ITERA_OPENCODE_GO_UPSTREAM ?? 'https://opencode.ai',
     wallMs: Number(env.ITERA_RUN_WALL_MS ?? profile.timeouts.run_sec * 1000),
     memory: env.ITERA_SANDBOX_MEMORY ?? (memMb % 1024 === 0 ? `${memMb / 1024}g` : `${memMb}m`),
     cpus: env.ITERA_SANDBOX_CPUS ?? String(profile.resources.cpus),
@@ -55,9 +59,14 @@ function positiveNumber(value: string | undefined, fallback: number): number {
   return value !== undefined && value !== '' && Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+/** The run's model route (K10): `opencode-go/<model>` → opencode go, anything else → OpenRouter. */
+export function modelRoute(model: string, config: Pick<SandboxConfig, 'upstream' | 'opencodeGoUpstream'>): ModelRoute {
+  return routeOfModel(model, { openrouterUpstream: config.upstream, opencodeGoUpstream: config.opencodeGoUpstream });
+}
+
+/** The opencode `-m` argument: `openrouter/<model>`, or `opencode-go/<model>` unchanged. */
 export function normalizeModel(model: string): string {
-  if (!/^[A-Za-z0-9._:/~-]+$/.test(model)) throw new Error(`invalid model id: ${model}`);
-  return model.startsWith('openrouter/') ? model : `openrouter/${model}`;
+  return routeOfModel(model, { openrouterUpstream: '', opencodeGoUpstream: '' }).opencodeModel;
 }
 
 /**
@@ -99,14 +108,22 @@ async function docker(args: string[], env?: NodeJS.ProcessEnv, timeoutMs?: numbe
  * One gateway per run: each run carries its own BYOK key. The key goes by NAME (`-e ITERA_UPSTREAM_KEY`):
  * docker reads the value from the environment of the docker CLI process, so it never appears in argv.
  */
-export function buildGatewayArgs(opts: { name: string; config: SandboxConfig }): string[] {
+export function buildGatewayArgs(opts: { name: string; config: SandboxConfig; route?: ModelRoute; sessionId?: string }): string[] {
+  const route = opts.route ?? modelRoute('openrouter/x', opts.config);
+  const routeEnv = [
+    '-e', `ITERA_ROUTE=${route.route}`,
+    '-e', `ITERA_GATEWAY_PATH_PREFIX=${route.pathPrefix}`,
+    ...(route.price ? ['-e', `ITERA_PRICE_JSON=${JSON.stringify({ input: route.price.input, output: route.price.output, cacheRead: route.price.cacheRead })}`] : []),
+    ...(route.needsSessionHeader && opts.sessionId ? ['-e', `ITERA_GATEWAY_SESSION=${opts.sessionId}`] : []),
+  ];
   return [
     'run', '-d', '--name', opts.name,
     '--label', 'itera.role=model-gateway',
     '--network', 'bridge',
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--memory', '256m', '--pids-limit', '128',
     '-e', 'ITERA_UPSTREAM_KEY',
-    '-e', `ITERA_UPSTREAM=${opts.config.upstream}`,
+    '-e', `ITERA_UPSTREAM=${route.upstream}`,
+    ...routeEnv,
     '-e', `ITERA_GATEWAY_PORT=${GATEWAY_PORT}`,
     '-e', `ITERA_RUN_MAX_COST_USD=${opts.config.maxCostUsd}`,
     '--entrypoint', 'node', opts.config.image, '/opt/itera/model-gateway.mjs',
@@ -160,6 +177,8 @@ export interface SandboxResult {
   durationMs: number;
   /** Model usage measured by the run's gateway (OpenRouter `usage`), or null when the gateway log has none. */
   modelUsage: ModelUsage | null;
+  /** K10: which upstream the run's gateway used. */
+  route: RouteId;
   /** ADR-11: final state + call log of each MCP sidecar (trusted plane only; never stored raw). */
   mcp: CollectedSidecar[];
 }
@@ -180,7 +199,8 @@ export async function runInSandbox(opts: {
   outDir: string;
   model: string;
   prompt: string;
-  openrouterKey: string;
+  /** The upstream key of the run's route (OpenRouter or opencode go). It goes only to the gateway. */
+  modelKey: string;
   config: SandboxConfig;
   /** ADR-11: the task's MCP servers (mcp-sidecar.ts planSidecars). Each joins this run's network only. */
   mcp?: McpSidecarPlan[];
@@ -192,11 +212,12 @@ export async function runInSandbox(opts: {
   const gateway = `itera-gw-${id}`;
   const network = `itera-sbx-${id}`;
   const cleanup: Array<() => Promise<unknown>> = [];
+  const route = modelRoute(opts.model, opts.config);
   try {
     const net = await docker(['network', 'create', '--internal', '--label', 'itera.role=sandbox-net', network]);
     if (net.code !== 0) throw new Error(`network create failed: ${net.stderr.slice(0, 300)}`);
     cleanup.push(() => docker(['network', 'rm', network]));
-    const gw = await docker(buildGatewayArgs({ name: gateway, config: opts.config }), { ...process.env, ITERA_UPSTREAM_KEY: opts.openrouterKey });
+    const gw = await docker(buildGatewayArgs({ name: gateway, config: opts.config, route, sessionId: `itera-${id}` }), { ...process.env, ITERA_UPSTREAM_KEY: opts.modelKey });
     if (gw.code !== 0) throw new Error(`model gateway did not start: ${gw.stderr.slice(0, 300)}`);
     cleanup.unshift(() => docker(['rm', '-f', gateway]));
     const join = await docker(['network', 'connect', '--alias', GATEWAY_ALIAS, network, gateway]);
@@ -251,6 +272,7 @@ export async function runInSandbox(opts: {
     for (const h of handles) mcp.push(await collectSidecar(h));
     return {
       mcp,
+      route: route.route,
       modelUsage: parseGatewayUsage(gwLogs.stdout),
       events: run.stdout,
       stderrTail: run.stderr.slice(-2000),

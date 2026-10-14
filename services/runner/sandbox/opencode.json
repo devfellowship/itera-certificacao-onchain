@@ -8,6 +8,12 @@
         "baseURL": "http://itera-gateway:3128/api/v1",
         "apiKey": "sandbox-has-no-key"
       }
+    },
+    "opencode-go": {
+      "options": {
+        "baseURL": "http://itera-gateway:3128/zen/go/v1",
+        "apiKey": "sandbox-has-no-key"
+      }
     }
   },
   "permission": {

@@ -13,7 +13,7 @@ import { runAgent, type AgentRunResult } from './agent-run.js';
 import type { ClaimedRun, JobStore, RunOutcome } from './jobs.js';
 import { evalLogOf, finalStatus, runnerEvidence, statusError } from './outcome.js';
 import { decryptRunKey } from './run-key.js';
-import type { SandboxConfig } from './sandbox.js';
+import { modelRoute, type SandboxConfig } from './sandbox.js';
 import { toolEnvironment } from '@itera/contracts';
 import { scenarioDir } from '../../evaluator/src/task.js';
 import type { McpServerEvidence } from '../../evaluator/src/mcp-state.js';
@@ -35,6 +35,11 @@ export interface WorkerDeps {
    * gateway container, never into the sandbox. The gateway caps the cost per run.
    */
   platformModelKey?: string;
+  /**
+   * OPENCODE_GO_API_KEY: ITERA's opencode go subscription key (K10, TMA-Q1 = A). Used for a run whose
+   * agent model is `opencode-go/<model>`. Platform-only: a BYOK key is an OpenRouter key.
+   */
+  opencodeGoKey?: string;
   config: SandboxConfig;
   runAgent: typeof runAgent;
   /** Grades in a separate sandbox container (grade.ts). Throws on a grader failure. */
@@ -148,7 +153,21 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
     const job = await store.loadJob(claimed);
     let modelKey: string | null = null;
     let keyError = 'no model API key is configured for this run (ITERA_RUNNER_OPENROUTER_KEY is not set on the runner)';
-    if (job?.modelApiKeyEnc) {
+    let route: ReturnType<typeof modelRoute>['route'] = 'openrouter';
+    if (job) {
+      try {
+        route = modelRoute(job.model, deps.config).route;
+      } catch (err) {
+        keyError = message(err);
+        route = 'openrouter';
+      }
+    }
+    if (job && route === 'opencode-go') {
+      // K10: the opencode go subscription is ITERA's own; a BYOK key cannot pay this route.
+      if (job.modelApiKeyEnc) keyError = 'the opencode-go route runs only on ITERA\'s subscription: a BYOK (OpenRouter) key cannot pay it';
+      else if (!deps.opencodeGoKey) keyError = 'the opencode-go route is not configured on this runner (OPENCODE_GO_API_KEY is not set)';
+      else modelKey = deps.opencodeGoKey;
+    } else if (job?.modelApiKeyEnc) {
       // BYOK: the user's own key. A key that does not open is an error, never a silent switch to ITERA's key.
       try {
         modelKey = decryptRunKey(job.modelApiKeyEnc, deps.runKeySecret ?? '');
@@ -207,7 +226,7 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
             scenarioId: job.scenarioId,
             agentDir,
             model: job.model,
-            openrouterKey: modelKey,
+            modelKey,
             config: deps.config,
             taskDir,
             mcp: mcpPlans,
@@ -351,6 +370,7 @@ async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   const runKeySecret = process.env.ITERA_RUN_KEY_SECRET || undefined;
   const platformModelKey = process.env.ITERA_RUNNER_OPENROUTER_KEY || undefined;
+  const opencodeGoKey = process.env.OPENCODE_GO_API_KEY || undefined;
   if (!databaseUrl) throw new Error('DATABASE_URL is required');
   if (!runKeySecret && !platformModelKey) throw new Error('set ITERA_RUNNER_OPENROUTER_KEY (platform key) and/or ITERA_RUN_KEY_SECRET (BYOK)');
 
@@ -379,7 +399,7 @@ async function main(): Promise<void> {
   const orphans = await removeOrphans({ docker, store, selfHost });
   log({
     event: 'boot', workerId, image: config.image, wallMs: config.wallMs, maxCostUsd: config.maxCostUsd,
-    platformKey: Boolean(platformModelKey), byok: Boolean(runKeySecret), userTasksGithub: Boolean(taskReader), orphansRemoved: orphans.removed, orphansKept: orphans.kept,
+    platformKey: Boolean(platformModelKey), opencodeGoKey: Boolean(opencodeGoKey), byok: Boolean(runKeySecret), userTasksGithub: Boolean(taskReader), orphansRemoved: orphans.removed, orphansKept: orphans.kept,
     runsRequeued: recovered.requeued, runsFailed: recovered.failed, runsOfLiveWorkers: recovered.keptLive,
   });
 
@@ -392,7 +412,7 @@ async function main(): Promise<void> {
   }
   await workerLoop(
     {
-      store, workerId, repoRoot, runKeySecret, platformModelKey, config, runAgent,
+      store, workerId, repoRoot, runKeySecret, platformModelKey, opencodeGoKey, config, runAgent,
       grade: (o) => gradeInSandbox({ ...o, config }),
       // U29: MCP catalog digests (0013_mcp_catalog.sql).
       mcpCatalog: (name, version) => store.mcpCatalog(name, version),

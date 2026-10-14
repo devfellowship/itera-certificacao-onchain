@@ -57,6 +57,8 @@ export function statusError(status: FinalStatus, manifest: EvidenceManifest, age
 export function runnerEvidence(agent: AgentRunResult) {
   return {
     model: agent.model,
+    route: agent.route,
+    cost_source: agent.modelUsage?.costSource ?? 'none',
     agent_files: agent.agentFiles,
     agent_wall_ms: agent.durationMs,
     timed_out: agent.timedOut,
