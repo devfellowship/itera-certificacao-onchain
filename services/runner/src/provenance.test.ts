@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { campaignAllows } from './bench-enqueue.js';
+import { campaignAllows, recordCampaignStop } from './bench-enqueue.js';
 import { opencodeVersionOf, runnerFacts, taskWallMs, treeDigest } from './provenance.js';
 import { defaultSandboxConfig, staleSandboxTags } from './sandbox.js';
 
@@ -40,5 +40,15 @@ describe('campaign cap (K11)', () => {
     expect(campaignAllows({ capUsd: 2, spentUsd: 1.5, inFlight: 0, reserveUsd: 0.5 })).toBe(true);
     expect(campaignAllows({ capUsd: 2, spentUsd: 1.51, inFlight: 0, reserveUsd: 0.5 })).toBe(false);
     expect(campaignAllows({ capUsd: 2, spentUsd: 0.6, inFlight: 2, reserveUsd: 0.5 })).toBe(false);
+  });
+});
+
+describe('campaign stop record', () => {
+  it('upserts the campaign row, because a first enqueue that stops rolls the row back', async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const db = { query: async (sql: string, params: unknown[]) => (calls.push({ sql, params }), { rows: [] }) } as never;
+    await recordCampaignStop(db, { id: 'c1', capUsd: 2 }, 'cap reached');
+    expect(calls[0]!.sql).toMatch(/insert into public\.bench_campaigns[\s\S]*on conflict \(id\) do update set stopped_at = now\(\)/);
+    expect(calls[0]!.params).toEqual(['c1', 2, 'cap reached']);
   });
 });
