@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildGraderArgs, GRADER_REPORT, GRADER_UID, stageWorkspace } from './grade.js';
+import { buildGraderArgs, GRADER_REPORT, GRADER_UID, graderImage, stageWorkspace } from './grade.js';
 import { defaultSandboxConfig } from './sandbox.js';
 
 const argv = ['npx', 'vitest', 'run', 'tests/hidden', '--reporter=json', '--outputFile={report}'];
@@ -31,6 +31,31 @@ describe('buildGraderArgs', () => {
     expect(small).toEqual(expect.arrayContaining(['--memory', '512m', '--cpus', '1']));
     const big = buildGraderArgs({ name: 'n', config: defaultSandboxConfig({}), argv, limits: { cpus: 64, memoryMb: 999999 } });
     expect(big).toEqual(expect.arrayContaining(['--memory', '2048m', '--cpus', '2']));
+  });
+  it('uses the sandbox image when the task names no grader image', () => {
+    const config = defaultSandboxConfig({});
+    expect(args[args.indexOf('--entrypoint') + 2]).toBe(config.image);
+    expect(graderImage(config)).toBe(config.image);
+    expect(graderImage(config, '')).toBe(config.image);
+  });
+  it('uses the task grader image when it is a digest-pinned Itera grader image', () => {
+    const image = `ghcr.io/devfellowship/testmyagent-grader-chromium-axe@sha256:${'a'.repeat(64)}`;
+    const withImage = buildGraderArgs({ name: 'n', config: defaultSandboxConfig({}), argv, image });
+    expect(withImage[withImage.indexOf('--entrypoint') + 2]).toBe(image);
+    // The isolation flags do not change with the image.
+    expect(withImage).toEqual(expect.arrayContaining(['--network', 'none', '--read-only', '--cap-drop', 'ALL', '--user', `${GRADER_UID}:${GRADER_UID}`]));
+  });
+  it('refuses a grader image that is not pinned by digest or not an Itera grader image', () => {
+    const config = defaultSandboxConfig({});
+    for (const bad of [
+      'ghcr.io/devfellowship/testmyagent-grader-chromium-axe:1',
+      `docker.io/evil/grader@sha256:${'a'.repeat(64)}`,
+      `ghcr.io/devfellowship/testmyagent-mcp-media@sha256:${'a'.repeat(64)}`,
+      `ghcr.io/devfellowship/testmyagent-grader-x@sha256:${'a'.repeat(64)} --privileged`,
+    ]) {
+      expect(() => graderImage(config, bad)).toThrow(/digest-pinned/);
+      expect(() => buildGraderArgs({ name: 'n', config, argv, image: bad })).toThrow(/digest-pinned/);
+    }
   });
   it('runs the declared verifier argv with {report} in the output volume', () => {
     expect(args.slice(args.indexOf('--entrypoint'), args.indexOf('--entrypoint') + 2)).toEqual(['--entrypoint', 'npx']);
