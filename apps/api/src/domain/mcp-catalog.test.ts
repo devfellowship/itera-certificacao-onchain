@@ -56,13 +56,18 @@ describe("MCP catalog sync (U29)", () => {
   });
 
   it("upserts unpublished rows, then publishes them, then keeps a published row immutable", async () => {
+    // Counts follow the catalog directory, so a new catalog server (one lane each) needs no edit here.
+    const { entries } = await readCatalog(CATALOG);
+    const n = entries.length;
+    expect(n).toBeGreaterThanOrEqual(2);
+    const all = Object.fromEntries(entries.map((e) => [`${e.name}:${e.version}`, DIGEST]));
     const store = new MemoryStore();
     const first = await syncMcpCatalog(store, { dir: CATALOG, fetchFn: ghcr({}), commit: "abc1234" });
-    expect(first).toMatchObject({ servers: 2, published: 0, inserted: 2 });
-    const second = await syncMcpCatalog(store, { dir: CATALOG, fetchFn: ghcr({ "helpdesk:1": DIGEST, "memory:1": DIGEST }) });
-    expect(second).toMatchObject({ published: 2, updated: 2 });
-    const third = await syncMcpCatalog(store, { dir: CATALOG, fetchFn: ghcr({ "helpdesk:1": `sha256:${"b".repeat(64)}`, "memory:1": DIGEST }) });
-    expect(third).toMatchObject({ kept: 2 });
+    expect(first).toMatchObject({ servers: n, published: 0, inserted: n });
+    const second = await syncMcpCatalog(store, { dir: CATALOG, fetchFn: ghcr(all) });
+    expect(second).toMatchObject({ published: n, updated: n });
+    const third = await syncMcpCatalog(store, { dir: CATALOG, fetchFn: ghcr({ ...all, "helpdesk:1": `sha256:${"b".repeat(64)}` }) });
+    expect(third).toMatchObject({ kept: n });
     const helpdesk = (await store.listMcpCatalog()).find((r) => r.name === "helpdesk")!;
     expect(helpdesk.imageDigest).toBe(DIGEST);
     expect(catalogView(helpdesk)).toMatchObject({ ref: "helpdesk@1", status: "published", image: `ghcr.io/devfellowship/testmyagent-mcp-helpdesk@${DIGEST}` });

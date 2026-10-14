@@ -1,0 +1,39 @@
+[
+  {
+    "name": "upload_file",
+    "description": "Upload one file to the media host and get its public link. Give the file content as UTF-8 text in `content`, or as base64 in `content_base64` (exactly one of the two). `visibility` is private (link-capability: anyone with the URL), members (signed-in members only) or public (listed, embeddable). Returns id, url, sha256 of the stored bytes, size, content_type, visibility and created_at. Each call stores a new file with a new id.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "content_type", "visibility"],
+      "properties": {
+        "filename": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^/\\\\\\u0000]+$" },
+        "content_type": { "type": "string", "minLength": 3, "maxLength": 100, "pattern": "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(\\s*;.*)?$" },
+        "visibility": { "type": "string", "enum": ["private", "members", "public"] },
+        "content": { "type": "string", "maxLength": 900000 },
+        "content_base64": { "type": "string", "maxLength": 1000000, "pattern": "^[A-Za-z0-9+/=\\s]*$" }
+      },
+      "oneOf": [{ "required": ["content"] }, { "required": ["content_base64"] }]
+    }
+  },
+  {
+    "name": "get_file_meta",
+    "description": "Get the metadata of one uploaded file by id: filename, url, sha256, size, content_type, visibility, created_at, and deleted_at when it was deleted. Never returns the content.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": { "id": { "type": "string", "maxLength": 40 } }
+    }
+  },
+  {
+    "name": "delete_file",
+    "description": "Delete one uploaded file by id. Its URL stops serving. The id is not reused. This cannot be undone.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": { "id": { "type": "string", "maxLength": 40 } }
+    }
+  }
+]

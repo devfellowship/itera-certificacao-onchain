@@ -1,0 +1,44 @@
+{
+  "files": [
+    {
+      "content_type": "text/html",
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "deleted": true,
+      "deleted_at": "2026-10-01T12:00:07.000Z",
+      "filename": "old-report.html",
+      "id": "M-1",
+      "media_type": "text/html",
+      "seeded": true,
+      "sha256": "557ec19c6f38b2ced2e2ab72831e48ba0075452494d3741e08fd24e23ea83c44",
+      "size": 72,
+      "url": "https://media.fixture.test/M-1",
+      "visibility": "members"
+    },
+    {
+      "content_type": "text/html; charset=utf-8",
+      "created_at": "2026-10-01T12:00:02.000Z",
+      "deleted": false,
+      "filename": "report.html",
+      "id": "M-1001",
+      "media_type": "text/html",
+      "seeded": false,
+      "sha256": "b044028ce9f6983e80fc14b5d00a9e3def4f69c3bf3b667f26230c350a57dab6",
+      "size": 66,
+      "url": "https://media.fixture.test/M-1001",
+      "visibility": "private"
+    },
+    {
+      "content_type": "image/png",
+      "created_at": "2026-10-01T12:00:03.000Z",
+      "deleted": false,
+      "filename": "chart.png",
+      "id": "M-1002",
+      "media_type": "image/png",
+      "seeded": false,
+      "sha256": "3c6ed5fc41c950bf0db531eb22f945467fb8d999f80d82ba27dcc9fd90add54d",
+      "size": 14,
+      "url": "https://media.fixture.test/M-1002",
+      "visibility": "public"
+    }
+  ]
+}
