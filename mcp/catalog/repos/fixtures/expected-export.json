@@ -1,0 +1,86 @@
+{
+  "calls": 8,
+  "calls_outside": 0,
+  "dirs_listed": [
+    {
+      "count": 1,
+      "id": ":",
+      "path": "",
+      "repo": null,
+      "tool": "list_directory"
+    },
+    {
+      "count": 1,
+      "id": "acme/acme-ci:",
+      "path": "",
+      "repo": "acme/acme-ci",
+      "tool": "directory_tree"
+    }
+  ],
+  "files_read": [
+    {
+      "first_seq": 5,
+      "id": "acme/acme-ci:.github/workflows/ci.yml",
+      "path": ".github/workflows/ci.yml",
+      "reads": 1,
+      "repo": "acme/acme-ci"
+    },
+    {
+      "first_seq": 7,
+      "id": "acme/acme-ci:README.md",
+      "path": "README.md",
+      "reads": 1,
+      "repo": "acme/acme-ci"
+    },
+    {
+      "first_seq": 7,
+      "id": "acme/acme-ci:docs/rules.md",
+      "path": "docs/rules.md",
+      "reads": 1,
+      "repo": "acme/acme-ci"
+    },
+    {
+      "first_seq": 6,
+      "id": "acmehq/acme-player:README.md",
+      "path": "README.md",
+      "reads": 1,
+      "repo": "acmehq/acme-player"
+    }
+  ],
+  "git": [
+    {
+      "repo": "acme/acme-ci",
+      "seq": 10,
+      "tool": "git_log"
+    },
+    {
+      "repo": "acme/acme-ci",
+      "revision": "HEAD",
+      "seq": 11,
+      "tool": "git_show"
+    }
+  ],
+  "repos": [
+    {
+      "commits": 2,
+      "files": 3,
+      "head": "f6f86b53a2d2aec87bf9120ab95eb7862ade3840",
+      "id": "acme/acme-ci"
+    },
+    {
+      "commits": 1,
+      "files": 2,
+      "head": "91f4e587ddef0dde0f664cf8bff614034d024f3e",
+      "id": "acmehq/acme-player"
+    }
+  ],
+  "searches": [
+    {
+      "path": "",
+      "pattern": "**/*.yml",
+      "repo": null,
+      "seq": 4,
+      "tool": "search_files"
+    }
+  ]
+}

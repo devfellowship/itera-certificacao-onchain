@@ -10,5 +10,7 @@ This notice and the LICENSE file in this directory also cover the shared fixture
 mcp/base, which the catalog images ship and which already declares Apache-2.0 (mcp/base/LICENSE-NOTICE).
 Files are not added inside mcp/base or inside a catalog entry, because a published catalog version is immutable.
 
-Third-party code keeps its own license: see mcp/catalog/memory/LICENSE.upstream and
+Third-party code keeps its own license: see mcp/catalog/memory/LICENSE.upstream,
+mcp/catalog/repos/LICENSE.upstream (filesystem and git servers; Python dependencies in
+mcp/catalog/repos/requirements.txt keep their own licenses) and
 mcp/base/LICENSE-NOTICE.

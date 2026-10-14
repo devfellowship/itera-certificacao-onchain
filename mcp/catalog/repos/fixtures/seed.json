@@ -1,0 +1,47 @@
+{
+  "orgs": [
+    {
+      "name": "acme",
+      "repos": [
+        {
+          "name": "acme-ci",
+          "commits": [
+            {
+              "message": "ci: first workflow",
+              "author": { "name": "Ana Lima", "email": "ana@acme.test" },
+              "date": "2026-09-01T10:00:00Z",
+              "files": {
+                "README.md": "# acme-ci\n\nShared CI workflows.\n",
+                ".github/workflows/ci.yml": "name: ci\non: [push]\njobs:\n  test:\n    runs-on: [self-hosted, acme-runner]\n    steps:\n      - run: npm test\n",
+                "notes/old.md": "to be removed\n"
+              }
+            },
+            {
+              "message": "ci: drop old notes",
+              "author": { "name": "Bruno Reis", "email": "bruno@acme.test" },
+              "date": "2026-09-02T11:30:00Z",
+              "files": { "notes/old.md": null, "docs/rules.md": "# Rules\n\n1. Private repos run on acme-runner.\n" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "acmehq",
+      "repos": [
+        {
+          "name": "acme-player",
+          "default_branch": "main",
+          "commits": [
+            {
+              "message": "player: scaffold",
+              "author": { "name": "Ana Lima", "email": "ana@acme.test" },
+              "date": "2026-09-03T09:15:00Z",
+              "files": { "README.md": "# acme-player\n\nThe Acme player.\n", "src/index.ts": "export const player = 'acme';\n" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
