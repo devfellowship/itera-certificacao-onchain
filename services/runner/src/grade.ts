@@ -59,8 +59,21 @@ function memoryMb(memory: string): number {
   return Math.floor(m[2] === 'g' ? n * 1024 : m[2] === 'k' ? n / 1024 : m[2] === 'm' ? n : n / (1024 * 1024));
 }
 
+/**
+ * The only images a task may name in verifier.image: an Itera grader image (graders/<name>/), pinned
+ * by digest. The task schema has the same pattern; this is the second check, on the worker.
+ */
+export const GRADER_IMAGE_PATTERN = /^ghcr\.io\/devfellowship\/testmyagent-grader-[a-z0-9][a-z0-9-]{0,40}@sha256:[0-9a-f]{64}$/;
+
+/** The image of one verifier run: the task's digest-pinned grader image, else the sandbox image. */
+export function graderImage(config: SandboxConfig, image?: string): string {
+  if (image === undefined || image === '') return config.image;
+  if (!GRADER_IMAGE_PATTERN.test(image)) throw new Error(`verifier.image is not a digest-pinned Itera grader image: ${image.slice(0, 120)}`);
+  return image;
+}
+
 /** `docker create` arguments for one verifier run. */
-export function buildGraderArgs(opts: { name: string; config: SandboxConfig; argv: string[]; limits?: SuiteRunRequest['limits'] }): string[] {
+export function buildGraderArgs(opts: { name: string; config: SandboxConfig; argv: string[]; limits?: SuiteRunRequest['limits']; image?: string }): string[] {
   const mem = `${cap(opts.limits?.memoryMb, memoryMb(opts.config.memory))}m`;
   const cpus = String(cap(opts.limits?.cpus, Number(opts.config.cpus) || 2));
   const argv = opts.argv.map((a) => a.split('{report}').join(GRADER_REPORT));
@@ -88,7 +101,7 @@ export function buildGraderArgs(opts: { name: string; config: SandboxConfig; arg
     '-e', 'NPM_CONFIG_UPDATE_NOTIFIER=false',
     '-w', GRADER_WORKDIR,
     '--entrypoint', argv[0]!,
-    opts.config.image,
+    graderImage(opts.config, opts.image),
     ...argv.slice(1),
   ];
 }
@@ -115,18 +128,29 @@ export async function stageWorkspace(workspaceDir: string, stageRoot: string): P
 
 export function sandboxExecutor(opts: { runId: string; config: SandboxConfig }): SuiteExecutor {
   const id = opts.runId.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40);
-  let info: ExecutorInfo | null = null;
+  const infos = new Map<string, ExecutorInfo>();
+  /** A digest-pinned grader image is pulled once per worker; the sandbox image is built locally. */
+  const ensureImage = async (image: string) => {
+    if (image === opts.config.image) return;
+    if ((await exec('docker', ['image', 'inspect', '-f', '{{.Id}}', image])).code === 0) return;
+    const pulled = await exec('docker', ['pull', '--quiet', image], { timeoutMs: 600_000 });
+    if (pulled.code !== 0) throw new Error(`grader image pull failed: ${pulled.stderr.slice(0, 300)}`);
+  };
   return {
-    async describe() {
-      if (info) return info;
-      const inspect = await exec('docker', ['image', 'inspect', '-f', '{{.Id}}', opts.config.image]);
-      info = {
+    async describe(d) {
+      const image = graderImage(opts.config, d?.image);
+      const cached = infos.get(image);
+      if (cached) return cached;
+      await ensureImage(image);
+      const inspect = await exec('docker', ['image', 'inspect', '-f', '{{.Id}}', image]);
+      const info: ExecutorInfo = {
         profile: 'sandbox-container',
-        image: opts.config.image,
+        image,
         image_id: inspect.code === 0 ? inspect.stdout.trim() : null,
         node_version: null,
         controls: GRADER_CONTROLS,
       };
+      infos.set(image, info);
       return info;
     },
     async runSuite(req) {
@@ -136,7 +160,8 @@ export function sandboxExecutor(opts: { runId: string; config: SandboxConfig }):
       try {
         await stageWorkspace(req.workspaceDir, stage);
         await exec('docker', ['rm', '-fv', name]);
-        const created = await exec('docker', buildGraderArgs({ name, config: opts.config, argv: req.argv, limits: req.limits }));
+        await ensureImage(graderImage(opts.config, req.image));
+        const created = await exec('docker', buildGraderArgs({ name, config: opts.config, argv: req.argv, limits: req.limits, image: req.image }));
         if (created.code !== 0) throw new Error(`grader create failed: ${created.stderr.slice(0, 300)}`);
         const ws = await pipe({ cmd: 'tar', args: ['-C', stage, '-cf', '-', 'w'] }, { cmd: 'docker', args: ['cp', '-', `${name}:/workspace`] });
         const out = await pipe({ cmd: 'tar', args: ['-C', join(stage, 'out'), '-cf', '-', '.'] }, { cmd: 'docker', args: ['cp', '-', `${name}:/out`] });

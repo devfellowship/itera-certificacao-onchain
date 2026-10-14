@@ -189,6 +189,11 @@
           "enum": ["vitest-json"],
           "default": "vitest-json"
         },
+        "image": {
+          "description": "Optional grading image, pinned by digest, for a verifier that needs more than the default sandbox image (for example headless Chromium and axe-core). Only Itera grader images are accepted: ghcr.io/devfellowship/testmyagent-grader-<name>@sha256:<digest> (built from graders/<name>/ in this repository). Absent = the runner's default sandbox image.",
+          "type": "string",
+          "pattern": "^ghcr\\.io/devfellowship/testmyagent-grader-[a-z0-9][a-z0-9-]{0,40}@sha256:[0-9a-f]{64}$"
+        },
         "timeout_sec": {
           "description": "Wall limit of ONE verifier run (one suite).",
           "type": "number",

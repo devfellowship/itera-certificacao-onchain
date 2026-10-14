@@ -19,6 +19,16 @@ describe('task.schema.json (Ajv, draft 2020-12)', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.join(' ')).toMatch(/cmd/);
   });
+  it('accepts verifier.image only as a digest-pinned Itera grader image', () => {
+    const ok = clone();
+    ok.verifier.image = `ghcr.io/devfellowship/testmyagent-grader-chromium-axe@sha256:${'0'.repeat(64)}`;
+    expect(validateTaskContract(ok)).toMatchObject({ ok: true });
+    for (const image of ['ghcr.io/devfellowship/testmyagent-grader-chromium-axe:1', `node@sha256:${'0'.repeat(64)}`, '']) {
+      const t = clone();
+      t.verifier.image = image;
+      expect(validateTaskContract(t).ok).toBe(false);
+    }
+  });
   it('rejects unknown keys, absolute and parent paths, and network', () => {
     for (const edit of [
       (t: any) => (t.extra = 1),

@@ -36,6 +36,8 @@ export interface TaskContract {
   verifier: {
     cmd: string[];
     report?: 'vitest-json';
+    /** ghcr.io/devfellowship/testmyagent-grader-<name>@sha256:<digest>; absent = the default sandbox image. */
+    image?: string;
     timeout_sec: number;
   };
   agent: { timeout_sec: number };

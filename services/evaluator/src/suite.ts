@@ -22,6 +22,8 @@ export interface SuiteRunRequest {
   timeoutMs: number;
   /** Resource request from task.json environment; the executor caps it with its own limits. */
   limits?: { cpus?: number; memoryMb?: number };
+  /** task.json verifier.image (digest-pinned grader image). Absent = the executor's default image. */
+  image?: string;
 }
 
 export interface SuiteRunResult {
@@ -34,7 +36,8 @@ export interface SuiteRunResult {
 }
 
 export interface SuiteExecutor {
-  describe(): Promise<ExecutorInfo>;
+  /** `image` = task.json verifier.image, when the task names its own grading image. */
+  describe(opts?: { image?: string }): Promise<ExecutorInfo>;
   runSuite(req: SuiteRunRequest): Promise<SuiteRunResult>;
 }
 

@@ -122,7 +122,8 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
   const task = await loadTask(taskDir);
   const scenarioId = options.scenarioId ?? task.contract.task.name.split('/')[1]!;
   const executor = options.executor ?? localExecutor();
-  const executorInfo = await executor.describe();
+  const verifierImage = task.contract.verifier.image;
+  const executorInfo = await executor.describe(verifierImage ? { image: verifierImage } : undefined);
   const startedAt = new Date().toISOString();
   const errors: string[] = [];
   const verifier = task.contract.verifier;
@@ -133,7 +134,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
   const ws = join(workDir, 'workspace');
 
   const runSuite = async (label: string, testsDir: string): Promise<TestSuiteResult> => {
-    const res = await executor.runSuite({ label, workspaceDir: ws, argv: resolveCmd(verifier.cmd, testsDir), timeoutMs, limits });
+    const res = await executor.runSuite({ label, workspaceDir: ws, argv: resolveCmd(verifier.cmd, testsDir), timeoutMs, limits, ...(verifierImage ? { image: verifierImage } : {}) });
     const { suite, error } = interpretRun(res, verifier.report);
     if (error) errors.push(`${label}: ${error}`);
     // Reports carry absolute paths of the grading host or container (/tmp/itera-eval-…). The
