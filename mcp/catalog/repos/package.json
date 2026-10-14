@@ -1,0 +1,10 @@
+{
+  "name": "@itera/mcp-repos-upstream",
+  "private": true,
+  "version": "1.0.0",
+  "description": "The upstream reference filesystem server that repos@1 wraps, pinned. Installed only inside the image. The git server is Python: requirements.txt.",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@modelcontextprotocol/server-filesystem": "2026.8.31"
+  }
+}

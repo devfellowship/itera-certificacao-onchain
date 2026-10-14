@@ -1,0 +1,11 @@
+{"tool":"list_directory","arguments":{"path":"/repos"}}
+{"tool":"directory_tree","arguments":{"path":"/repos/acme/acme-ci"}}
+{"tool":"search_files","arguments":{"path":"/repos","pattern":"**/*.yml"}}
+{"tool":"read_text_file","arguments":{"path":"/repos/acme/acme-ci/.github/workflows/ci.yml"}}
+{"tool":"read_text_file","arguments":{"path":"acmehq/acme-player/README.md","head":2}}
+{"tool":"read_multiple_files","arguments":{"paths":["/repos/acme/acme-ci/README.md","/repos/acme/acme-ci/docs/rules.md","/repos/acme/acme-ci/notes/old.md"]}}
+{"tool":"read_text_file","arguments":{"path":"/repos/acme/acme-ci/notes/old.md"},"expect_ok":false}
+{"tool":"read_text_file","arguments":{"path":"/etc/passwd"},"expect_ok":false}
+{"tool":"git_log","arguments":{"repo_path":"/repos/acme/acme-ci","max_count":5}}
+{"tool":"git_show","arguments":{"repo_path":"/repos/acme/acme-ci","revision":"HEAD"}}
+{"tool":"git_log","arguments":{"repo_path":"/etc"},"expect_ok":false}
