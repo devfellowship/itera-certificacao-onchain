@@ -96,6 +96,18 @@ The agent's model id picks the route of the run (`src/model-route.ts`):
 
 **Benchmark runs without the payment flow.** `npx tsx src/bench-enqueue.ts --task <pack> --model <model id> [--agent-dir examples/bench-agent] [--wait]`, inside the runner container (it uses its `DATABASE_URL`), writes vendor `ITERA benchmark campaign` → agent → agent_version (files digest) → release_declaration → a `queued` run. The live worker runs and grades it like any other run. `examples/bench-agent/AGENTS.md` is the one agent file set of the DFL benchmark campaign.
 
+## Result provenance, rate limits and campaigns (K11)
+
+**Provenance.** Each finished run records what produced its result (`db/migrations/0017_run_provenance.sql`, `src/provenance.ts`). Typed columns: `model_route`, `model_requested`, `model_effective` (the model id the upstream ANSWERED with), `model_provider` (OpenRouter `provider`, or the opencode go endpoint id), `model_cost_source`, `rate_limited`, `wall_ms`, `timeout_s`. `runs.provenance` (jsonb) holds the full record: agent commit + files, task id/version/contract digest, requested / answered models and providers, the sampling params of the first model call (temperature, max tokens, reasoning — never the messages), run profile and opencode version, runner commit (`ITERA_GIT_COMMIT` / `SOURCE_COMMIT`, else null) and runner source digest, sandbox image tag + Id, MCP image digests and seed digests, grader executor + environment digest, evaluator digest, CPU / memory / pids of the sandbox and each sidecar, and the limits (`timeout_s`, `wall_ms_cap`, measured `wall_ms`, `max_cost_usd`).
+
+**Wall cap per task.** The agent wall cap is the task's `agent.timeout_sec`, capped by `ITERA_RUN_MAX_WALL_MS` (default 900 s). `ITERA_RUN_WALL_MS` is only the fallback when a task has no timeout.
+
+**Upstream 429.** The gateway buffers the request body and retries an upstream `429` with backoff (`Retry-After`, else 2 s, 4 s, 8 s, 16 s; `ITERA_GATEWAY_429_RETRIES`, default 4). A 429 that survives the retries goes back to the agent and is counted as `rate_limited_final`. A run with `rate_limited_final > 0` that did not pass ends **`infra_error`** (unscored, error `upstream rate limit: ...`), never `fail` or `timeout`: the provider stopped the agent, so the run measured nothing about the model. Proven by `src/gateway.integration.test.mjs` (real gateway process, fake upstream).
+
+**Campaign cap.** `bench-enqueue --campaign <id> [--cap-usd 2] [--reserve-usd 0.5]` creates the campaign in `bench_campaigns` on first use and, before each run, checks `spent + (in-flight OpenRouter runs + 1) × reserve ≤ cap` with the campaign row locked (`spent` = metered `model_cost_usd` of its finished OpenRouter runs). When the check fails it records `stopped_at` + `stop_reason` and exits 4; a stopped campaign refuses every later run. The reserve is the per-run cap, so no run can start that could take the campaign past the cap. opencode go runs are tagged with the campaign but spend subscription credit, so they do not count against the OpenRouter cap.
+
+**Disk.** At boot the worker removes the `itera-runner-sandbox:*` tags other than the current one (`docker rmi` keeps a tag still in use).
+
 ## Run profile (Valkyrie-shaped)
 
 The per-run configuration is a **run profile**, `profiles/<name>.json`, validated against `packages/contracts/schemas/run-profile.schema.json` (Ajv). Its boundaries and field names follow the Valkyrie agent contract (`vals-ai/Valkyrie` `docs/agents/agent-contract.mdx`, commit `68edd7ac`, AGPL-3.0: names reused, no code copied). `opencode` is the one built-in profile and reproduces the previous hard-coded behaviour byte for byte (`src/run-profile.test.ts`). `ITERA_RUN_PROFILE` selects another built-in profile.
@@ -149,7 +161,9 @@ temp dir on the trusted side, and deletes it when the job ends (Gate Q5: no copy
 | `ITERA_MODEL_UPSTREAM` | `https://openrouter.ai` | Gateway upstream of the `openrouter` route. |
 | `OPENCODE_GO_API_KEY` | — | ITERA's opencode go key (K10). Runs with an `opencode-go/<model>` agent need it; without it they end `infra_error`. Kept in the secret store of the deployment. |
 | `ITERA_OPENCODE_GO_UPSTREAM` | `https://opencode.ai` | Gateway upstream of the `opencode-go` route. |
-| `ITERA_RUN_WALL_MS` | `300000` | Agent wall limit. |
+| `ITERA_RUN_WALL_MS` | `300000` | Agent wall limit when the task declares no `agent.timeout_sec`. |
+| `ITERA_RUN_MAX_WALL_MS` | `900000` | Upper bound of the per-task agent wall limit (K11). |
+| `ITERA_GATEWAY_429_RETRIES` | `4` | Upstream 429 retries in the run gateway (K11). |
 | `ITERA_SANDBOX_MEMORY` / `ITERA_SANDBOX_CPUS` / `ITERA_SANDBOX_PIDS` | `2g` / `2` / `512` | Sandbox limits. |
 
 ## MCP sidecars (U29, ADR-11)

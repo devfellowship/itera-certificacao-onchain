@@ -1,3 +1,4 @@
+import type { RunProvenance } from './provenance.js';
 import type { ModelUsage } from './model-usage.js';
 import type { RunAction } from './types.js';
 
@@ -24,6 +25,8 @@ export interface RunJob extends ClaimedRun {
   files: AgentFile[];
   /** runs.model_api_key_enc: the user's OpenRouter key, sealed by the API (run-key.ts). Null when absent. */
   modelApiKeyEnc: string | null;
+  /** agent_versions.commit_sha (K11 provenance). */
+  agentCommit?: string | null;
 }
 
 /** Model usage written to runs.model_cost_usd / model_tokens_in / model_tokens_out (0006_run_cost.sql). */
@@ -40,6 +43,8 @@ export interface RunOutcome {
   actions: RunAction[];
   /** Measured model usage of the run. Null when the agent never started or the gateway reported nothing. */
   cost?: RunCost | null;
+  /** K11: result provenance (0017_run_provenance.sql). Null when the run never reached the agent. */
+  provenance?: RunProvenance | null;
 }
 
 export interface JobStore {

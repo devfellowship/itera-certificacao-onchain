@@ -39,6 +39,7 @@ COPY services/runner/package.json services/runner/package.json
 COPY services/runner/src services/runner/src
 COPY services/runner/sandbox services/runner/sandbox
 COPY services/runner/profiles services/runner/profiles
+COPY services/runner/examples services/runner/examples
 COPY services/evaluator/src services/evaluator/src
 COPY services/evaluator/package.json services/evaluator/package.json
 # task.json schema + Ajv validator (node_modules/@itera/contracts links here).

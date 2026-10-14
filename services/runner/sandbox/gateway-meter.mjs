@@ -11,6 +11,36 @@
 // (USD per million tokens, ITERA_PRICE_JSON) and the meter DERIVES the cost from the tokens. The
 // snapshot says which: cost_source = metered | derived | mixed | unpriced | none.
 
+/** Backoff before 429 retry number n (0-based): Retry-After seconds (capped at 30 s), else 2^(n+1) s. */
+export function backoffMs(n, retryAfter) {
+  const ra = Number(Array.isArray(retryAfter) ? retryAfter[0] : retryAfter);
+  if (Number.isFinite(ra) && ra >= 0) return Math.min(30, ra) * 1000;
+  return Math.min(30_000, 2 ** (n + 1) * 1000);
+}
+
+const PARAM_KEYS = ['temperature', 'top_p', 'max_tokens', 'max_completion_tokens', 'max_output_tokens', 'reasoning', 'reasoning_effort', 'tool_choice', 'parallel_tool_calls', 'stream'];
+
+/** The requested model and the sampling params of one request body (JSON), or null. Never the messages. */
+export function requestParams(text) {
+  let doc;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!doc || typeof doc !== 'object') return null;
+  const params = {};
+  for (const k of PARAM_KEYS) {
+    const v = doc[k];
+    if (v === undefined) continue;
+    if (typeof v === 'object' && v !== null) {
+      const json = JSON.stringify(v);
+      if (json.length <= 300) params[k] = v;
+    } else params[k] = v;
+  }
+  return { model: typeof doc.model === 'string' ? doc.model.slice(0, 120) : null, params, tools: Array.isArray(doc.tools) ? doc.tools.length : 0 };
+}
+
 /** Usage numbers of one parsed `usage` object, or null when the value is not a usage object. */
 export function readUsage(usage) {
   if (!usage || typeof usage !== 'object') return null;
@@ -64,12 +94,29 @@ export function usageOfJson(text) {
  * SSE bodies are parsed line by line (bounded memory); a JSON body is buffered up to maxJsonBytes.
  */
 export class ResponseUsage {
-  constructor(contentType, maxJsonBytes = 8 * 1024 * 1024) {
+  /** headers: the upstream response headers (opencode go names the real model and endpoint there). */
+  constructor(contentType, maxJsonBytes = 8 * 1024 * 1024, headers = {}) {
     this.sse = /text\/event-stream/i.test(contentType ?? '');
     this.maxJsonBytes = maxJsonBytes;
     this.buffer = '';
     this.overflow = false;
     this.usage = null;
+    const h = (name) => (typeof headers?.[name] === 'string' ? headers[name].slice(0, 120) : null);
+    this.headerModel = h('x-opencode-upstream-model-id');
+    this.headerProvider = h('x-opencode-endpoint-id');
+    this.model = null;
+    this.provider = null;
+  }
+
+  /** The model and provider that answered (headers win for the model; body `provider` wins). */
+  answer() {
+    return { model: this.headerModel ?? this.model, provider: this.provider ?? this.headerProvider };
+  }
+
+  seen(doc) {
+    if (!doc || typeof doc !== 'object') return;
+    if (!this.model && typeof doc.model === 'string') this.model = doc.model.slice(0, 120);
+    if (!this.provider && typeof doc.provider === 'string') this.provider = doc.provider.slice(0, 120);
   }
 
   push(chunk) {
@@ -93,6 +140,11 @@ export class ResponseUsage {
     if (!line.startsWith('data:')) return;
     const data = line.slice(5).trim();
     if (!data || data === '[DONE]') return;
+    try {
+      this.seen(JSON.parse(data));
+    } catch {
+      // not JSON
+    }
     const usage = usageOfJson(data);
     // The last usage event of the stream wins (OpenRouter sends one, at the end).
     if (usage) this.usage = usage;
@@ -103,6 +155,11 @@ export class ResponseUsage {
       if (this.buffer) this.line(this.buffer);
     } else if (!this.overflow && this.buffer) {
       this.usage = usageOfJson(this.buffer);
+      try {
+        this.seen(JSON.parse(this.buffer));
+      } catch {
+        // not JSON
+      }
     }
     this.buffer = '';
     return this.usage;
@@ -118,6 +175,14 @@ export class RunMeter {
     this.meteredCalls = 0;
     this.derivedCalls = 0;
     this.unpricedCalls = 0;
+    /** Upstream 429 answers seen, and the ones that survived every retry (went back to the agent). */
+    this.rateLimited = 0;
+    this.rateLimitedFinal = 0;
+    /** model id → calls, as ANSWERED by the upstream; provider → calls; requested model → calls. */
+    this.models = {};
+    this.providers = {};
+    this.requested = {};
+    this.params = null;
     this.costUsd = 0;
     this.tokensIn = 0;
     this.tokensOut = 0;
@@ -130,8 +195,17 @@ export class RunMeter {
     return this.costUsd >= this.maxCostUsd;
   }
 
-  add(usage) {
+  /** One request body's model + params (requestParams()). The first call's params are the run's. */
+  request(info) {
+    if (!info) return;
+    if (info.model) this.requested[info.model] = (this.requested[info.model] ?? 0) + 1;
+    if (!this.params) this.params = { ...info.params, tools: info.tools };
+  }
+
+  add(usage, answer = null) {
     this.calls += 1;
+    if (answer?.model) this.models[answer.model] = (this.models[answer.model] ?? 0) + 1;
+    if (answer?.provider) this.providers[answer.provider] = (this.providers[answer.provider] ?? 0) + 1;
     if (!usage) return;
     let cost = usage.costUsd;
     if (usage.costReported === false) {
@@ -165,6 +239,12 @@ export class RunMeter {
       max_cost_usd: this.maxCostUsd,
       cap_reached: this.exhausted(),
       cost_source: this.costSource(),
+      rate_limited: this.rateLimited,
+      rate_limited_final: this.rateLimitedFinal,
+      effective_models: this.models,
+      providers: this.providers,
+      requested_models: this.requested,
+      params: this.params,
     };
   }
 }

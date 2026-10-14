@@ -51,6 +51,10 @@ describe('buildGatewayArgs', () => {
     expect(buildGatewayArgs({ name: 'g', config: defaultSandboxConfig({ ITERA_RUN_MAX_COST_USD: '1.25' }) })).toContain('ITERA_RUN_MAX_COST_USD=1.25');
     expect(defaultSandboxConfig({ ITERA_RUN_MAX_COST_USD: 'abc' }).maxCostUsd).toBe(0.5);
   });
+  it('passes the 429 retry count to the gateway (K11, default 4)', () => {
+    expect(buildGatewayArgs({ name: 'g', config: defaultSandboxConfig({}) })).toContain('ITERA_GATEWAY_429_RETRIES=4');
+    expect(buildGatewayArgs({ name: 'g', config: defaultSandboxConfig({ ITERA_GATEWAY_429_RETRIES: '2' }) })).toContain('ITERA_GATEWAY_429_RETRIES=2');
+  });
 });
 
 describe('model route (K10)', () => {

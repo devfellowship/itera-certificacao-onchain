@@ -41,7 +41,7 @@ function agentResult(over: Partial<AgentRunResult> = {}): AgentRunResult {
       { seq: 2, tool: 'edit', target: 'src/app.ts', ok: true, occurredAt: '2026-10-12T00:00:02.000Z' },
     ],
     usage: { steps: 2, inputTokens: 10, outputTokens: 5, costUsd: 0.001 },
-    modelUsage: { costUsd: 0.0123, tokensIn: 1200, tokensOut: 300, calls: 4, refused: 0, maxCostUsd: 0.5, capStopped: false, costSource: 'metered' },
+    modelUsage: { costUsd: 0.0123, tokensIn: 1200, tokensOut: 300, calls: 4, refused: 0, maxCostUsd: 0.5, capStopped: false, costSource: 'metered', rateLimited: 0, rateLimitedFinal: 0, effectiveModels: {}, providers: {}, requestedModels: {}, params: null },
     route: 'openrouter',
     costCapped: false,
     agentErrors: [],
@@ -114,7 +114,7 @@ describe('processRun', () => {
       agent: {
         costCapped: true,
         agentErrors: [msg],
-        modelUsage: { costUsd: 0.51, tokensIn: 90000, tokensOut: 9000, calls: 20, refused: 1, maxCostUsd: 0.5, capStopped: true, costSource: 'metered' },
+        modelUsage: { costUsd: 0.51, tokensIn: 90000, tokensOut: 9000, calls: 20, refused: 1, maxCostUsd: 0.5, capStopped: true, costSource: 'metered', rateLimited: 0, rateLimitedFinal: 0, effectiveModels: {}, providers: {}, requestedModels: {}, params: null },
       },
     });
     const outcome = await processRun(deps, (await store.claim('w1'))!);
@@ -236,6 +236,36 @@ describe('processRun route (K10)', () => {
     expect(outcome.status).toBe('infra_error');
     expect(outcome.error).toContain('BYOK');
     expect(seen.key).toBeUndefined();
+  });
+});
+
+describe('processRun provenance + rate limits (K11)', () => {
+  const usage = { costUsd: 0, tokensIn: 100, tokensOut: 10, calls: 3, refused: 0, maxCostUsd: 0.5, capStopped: false, costSource: 'metered' as const, providers: { Nvidia: 3 }, requestedModels: { 'nvidia/x:free': 3 }, params: { temperature: 0 } };
+  it('records route, requested/effective model, provider, cost source and limits on the outcome', async () => {
+    const { store, deps } = setup({ noKey: true, agent: { modelUsage: { ...usage, rateLimited: 1, rateLimitedFinal: 0, effectiveModels: { 'nvidia/x-20261001:free': 3 } } } });
+    deps.platformModelKey = 'sk-or-v1-itera-platform';
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('pass');
+    expect(outcome.provenance).toMatchObject({
+      route: 'openrouter', modelRequested: 'qwen/qwen3-coder', modelEffective: 'nvidia/x-20261001:free', modelProvider: 'Nvidia', costSource: 'metered', rateLimited: 1, wallMs: 1000,
+    });
+    const rec = outcome.provenance!.record as { params: { request: unknown; run_profile: string }; resources: { sandbox: { cpus: string } }; limits: { wall_ms_cap: number } };
+    expect(rec.params).toMatchObject({ run_profile: 'opencode', request: { temperature: 0 } });
+    expect(rec.resources.sandbox.cpus).toBe('2');
+    expect(rec.limits.wall_ms_cap).toBeGreaterThan(0);
+  });
+  it('a 429 that survived the gateway retries turns a fail into infra_error with a rate-limit error (never a model fail)', async () => {
+    const { store, deps } = setup({ noKey: true, agent: { patch: '', modelUsage: { ...usage, rateLimited: 5, rateLimitedFinal: 1, effectiveModels: {} } } });
+    deps.platformModelKey = 'sk-or-v1-itera-platform';
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('infra_error');
+    expect(outcome.scoreTotal).toBe(0);
+    expect(outcome.error).toContain('429');
+  });
+  it('a run that passed despite a final 429 keeps its pass', async () => {
+    const { store, deps } = setup({ noKey: true, agent: { modelUsage: { ...usage, rateLimited: 5, rateLimitedFinal: 1, effectiveModels: {} } } });
+    deps.platformModelKey = 'sk-or-v1-itera-platform';
+    expect((await processRun(deps, (await store.claim('w1'))!)).status).toBe('pass');
   });
 });
 

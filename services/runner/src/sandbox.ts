@@ -23,6 +23,10 @@ export interface SandboxConfig {
   /** opencode go upstream of the gateway (route `opencode-go`, ITERA_OPENCODE_GO_UPSTREAM). */
   opencodeGoUpstream: string;
   wallMs: number;
+  /** K11: the agent wall cap follows the task's agent.timeout_sec, up to this maximum (ITERA_RUN_MAX_WALL_MS). */
+  maxWallMs: number;
+  /** K11: upstream 429 retries in the run gateway (ITERA_GATEWAY_429_RETRIES, default 4). */
+  rateLimitRetries: number;
   memory: string;
   cpus: string;
   pidsLimit: number;
@@ -43,6 +47,8 @@ export function defaultSandboxConfig(env: NodeJS.ProcessEnv = process.env): Sand
     upstream: env.ITERA_MODEL_UPSTREAM ?? 'https://openrouter.ai',
     opencodeGoUpstream: env.ITERA_OPENCODE_GO_UPSTREAM ?? 'https://opencode.ai',
     wallMs: Number(env.ITERA_RUN_WALL_MS ?? profile.timeouts.run_sec * 1000),
+    maxWallMs: positiveNumber(env.ITERA_RUN_MAX_WALL_MS, 900_000),
+    rateLimitRetries: Math.min(8, Math.max(0, Math.round(Number(env.ITERA_GATEWAY_429_RETRIES ?? 4)) || 0)),
     memory: env.ITERA_SANDBOX_MEMORY ?? (memMb % 1024 === 0 ? `${memMb / 1024}g` : `${memMb}m`),
     cpus: env.ITERA_SANDBOX_CPUS ?? String(profile.resources.cpus),
     pidsLimit: Number(env.ITERA_SANDBOX_PIDS ?? profile.resources.pids),
@@ -126,6 +132,7 @@ export function buildGatewayArgs(opts: { name: string; config: SandboxConfig; ro
     ...routeEnv,
     '-e', `ITERA_GATEWAY_PORT=${GATEWAY_PORT}`,
     '-e', `ITERA_RUN_MAX_COST_USD=${opts.config.maxCostUsd}`,
+    '-e', `ITERA_GATEWAY_429_RETRIES=${opts.config.rateLimitRetries}`,
     '--entrypoint', 'node', opts.config.image, '/opt/itera/model-gateway.mjs',
   ];
 }
@@ -166,6 +173,30 @@ export async function ensureSandboxImage(contextDir: string, repo = 'itera-runne
   const build = await docker(['build', '-q', '-t', tag, contextDir], undefined, 900_000);
   if (build.code !== 0) throw new Error(`sandbox image build failed: ${build.stderr.slice(-500)}`);
   return tag;
+}
+
+/**
+ * Remove the `repo:*` sandbox image tags other than `current` (K11, plan risk R10: each sandbox/
+ * change builds a new ~1 GB tag and the VPS disk is small). `docker rmi` refuses an image that a
+ * container still uses, so a tag in use is kept. Returns the removed tags.
+ */
+export async function pruneSandboxImages(current: string, repo = 'itera-runner-sandbox', d: typeof docker = docker): Promise<string[]> {
+  const ls = await d(['image', 'ls', repo, '--format', '{{.Repository}}:{{.Tag}}']);
+  if (ls.code !== 0) return [];
+  const removed: string[] = [];
+  for (const tag of staleSandboxTags(ls.stdout, current, repo)) {
+    const rm = await d(['rmi', tag]);
+    if (rm.code === 0) removed.push(tag);
+  }
+  return removed;
+}
+
+/** The tags of `repo` in a `docker image ls` listing, minus `current` and `<none>`. */
+export function staleSandboxTags(listing: string, current: string, repo = 'itera-runner-sandbox'): string[] {
+  return listing
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((t) => t.startsWith(`${repo}:`) && t !== current && !t.endsWith(':<none>'));
 }
 
 export interface SandboxResult {

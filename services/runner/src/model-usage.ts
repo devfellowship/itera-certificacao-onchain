@@ -19,6 +19,29 @@ export interface ModelUsage {
    * `mixed` = more than one of these; `none` = no call carried usage.
    */
   costSource: CostSource;
+  /** K11: upstream 429 answers, and those that survived the gateway's retries (reached the agent). */
+  rateLimited: number;
+  rateLimitedFinal: number;
+  /** K11: model id → calls as ANSWERED by the upstream; provider → calls; requested model → calls. */
+  effectiveModels: Record<string, number>;
+  providers: Record<string, number>;
+  requestedModels: Record<string, number>;
+  /** K11: sampling params of the first model call (temperature, max tokens, reasoning, ...). */
+  params: Record<string, unknown> | null;
+}
+
+function counts(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [k, n] of Object.entries(v as Record<string, unknown>).slice(0, 20)) out[k.slice(0, 120)] = Math.round(num(n));
+  return out;
+}
+
+/** The key with the most calls, or null. */
+export function topKey(m: Record<string, number>): string | null {
+  let best: string | null = null;
+  for (const [k, n] of Object.entries(m)) if (best === null || n > m[best]!) best = k;
+  return best;
 }
 
 export type CostSource = 'metered' | 'derived' | 'mixed' | 'unpriced' | 'none';
@@ -50,6 +73,12 @@ export function parseGatewayUsage(logs: string): ModelUsage | null {
     maxCostUsd: num(last.max_cost_usd),
     capStopped: refused > 0,
     // A gateway from before K10 logs no cost_source: its cost was always OpenRouter's own.
+    rateLimited: Math.round(num(last.rate_limited)),
+    rateLimitedFinal: Math.round(num(last.rate_limited_final)),
+    effectiveModels: counts(last.effective_models),
+    providers: counts(last.providers),
+    requestedModels: counts(last.requested_models),
+    params: last.params && typeof last.params === 'object' && !Array.isArray(last.params) ? (last.params as Record<string, unknown>) : null,
     costSource: COST_SOURCES.includes(last.cost_source as CostSource) ? (last.cost_source as CostSource) : 'metered',
   };
 }
