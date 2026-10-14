@@ -1,0 +1,344 @@
+{
+  "seed": 1,
+  "order_volume": [
+    "tt-08",
+    "tt-04",
+    "tt-07",
+    "tt-13",
+    "tt-06",
+    "tt-02",
+    "tt-16",
+    "tt-10",
+    "tt-14",
+    "tt-09",
+    "tt-11",
+    "tt-05",
+    "tt-12",
+    "tt-03",
+    "tt-15"
+  ],
+  "order_cost": [
+    "tt-13",
+    "tt-06",
+    "tt-12",
+    "tt-16",
+    "tt-07",
+    "tt-14",
+    "tt-05",
+    "tt-10",
+    "tt-03",
+    "tt-11",
+    "tt-09",
+    "tt-02",
+    "tt-04",
+    "tt-01",
+    "tt-15"
+  ],
+  "top5_volume": [
+    "tt-08",
+    "tt-04",
+    "tt-07",
+    "tt-13",
+    "tt-06"
+  ],
+  "top5_cost": [
+    "tt-13",
+    "tt-06",
+    "tt-12",
+    "tt-16",
+    "tt-07"
+  ],
+  "total_volume": 20672,
+  "total_cost_usd": 784.1,
+  "cells": [
+    {
+      "task": "tt-01",
+      "metric": "volume",
+      "value": null,
+      "inferred": false
+    },
+    {
+      "task": "tt-01",
+      "metric": "cost_usd",
+      "value": 17.88,
+      "inferred": true
+    },
+    {
+      "task": "tt-01",
+      "metric": "checkability",
+      "value": 2,
+      "inferred": false
+    },
+    {
+      "task": "tt-02",
+      "metric": "volume",
+      "value": 1768,
+      "inferred": true
+    },
+    {
+      "task": "tt-02",
+      "metric": "cost_usd",
+      "value": 31.95,
+      "inferred": false
+    },
+    {
+      "task": "tt-02",
+      "metric": "checkability",
+      "value": 4,
+      "inferred": false
+    },
+    {
+      "task": "tt-03",
+      "metric": "volume",
+      "value": 158,
+      "inferred": false
+    },
+    {
+      "task": "tt-03",
+      "metric": "cost_usd",
+      "value": 50.06,
+      "inferred": false
+    },
+    {
+      "task": "tt-03",
+      "metric": "checkability",
+      "value": 4,
+      "inferred": false
+    },
+    {
+      "task": "tt-04",
+      "metric": "volume",
+      "value": 2201,
+      "inferred": false
+    },
+    {
+      "task": "tt-04",
+      "metric": "cost_usd",
+      "value": 21.3,
+      "inferred": false
+    },
+    {
+      "task": "tt-04",
+      "metric": "checkability",
+      "value": 2,
+      "inferred": true
+    },
+    {
+      "task": "tt-05",
+      "metric": "volume",
+      "value": 948,
+      "inferred": false
+    },
+    {
+      "task": "tt-05",
+      "metric": "cost_usd",
+      "value": 56.0,
+      "inferred": true
+    },
+    {
+      "task": "tt-05",
+      "metric": "checkability",
+      "value": 3,
+      "inferred": false
+    },
+    {
+      "task": "tt-06",
+      "metric": "volume",
+      "value": 1833,
+      "inferred": true
+    },
+    {
+      "task": "tt-06",
+      "metric": "cost_usd",
+      "value": 83.55,
+      "inferred": false
+    },
+    {
+      "task": "tt-06",
+      "metric": "checkability",
+      "value": 5,
+      "inferred": false
+    },
+    {
+      "task": "tt-07",
+      "metric": "volume",
+      "value": 2070,
+      "inferred": false
+    },
+    {
+      "task": "tt-07",
+      "metric": "cost_usd",
+      "value": 70.65,
+      "inferred": false
+    },
+    {
+      "task": "tt-07",
+      "metric": "checkability",
+      "value": 3,
+      "inferred": true
+    },
+    {
+      "task": "tt-08",
+      "metric": "volume",
+      "value": 2304,
+      "inferred": false
+    },
+    {
+      "task": "tt-08",
+      "metric": "cost_usd",
+      "value": null,
+      "inferred": false
+    },
+    {
+      "task": "tt-08",
+      "metric": "checkability",
+      "value": 1,
+      "inferred": false
+    },
+    {
+      "task": "tt-09",
+      "metric": "volume",
+      "value": 994,
+      "inferred": false
+    },
+    {
+      "task": "tt-09",
+      "metric": "cost_usd",
+      "value": 32.6,
+      "inferred": false
+    },
+    {
+      "task": "tt-09",
+      "metric": "checkability",
+      "value": 4,
+      "inferred": false
+    },
+    {
+      "task": "tt-10",
+      "metric": "volume",
+      "value": 1455,
+      "inferred": true
+    },
+    {
+      "task": "tt-10",
+      "metric": "cost_usd",
+      "value": 51.2,
+      "inferred": false
+    },
+    {
+      "task": "tt-10",
+      "metric": "checkability",
+      "value": 5,
+      "inferred": false
+    },
+    {
+      "task": "tt-11",
+      "metric": "volume",
+      "value": 985,
+      "inferred": false
+    },
+    {
+      "task": "tt-11",
+      "metric": "cost_usd",
+      "value": 48.05,
+      "inferred": false
+    },
+    {
+      "task": "tt-11",
+      "metric": "checkability",
+      "value": 1,
+      "inferred": false
+    },
+    {
+      "task": "tt-12",
+      "metric": "volume",
+      "value": 936,
+      "inferred": false
+    },
+    {
+      "task": "tt-12",
+      "metric": "cost_usd",
+      "value": 83.31,
+      "inferred": true
+    },
+    {
+      "task": "tt-12",
+      "metric": "checkability",
+      "value": 2,
+      "inferred": false
+    },
+    {
+      "task": "tt-13",
+      "metric": "volume",
+      "value": 1922,
+      "inferred": false
+    },
+    {
+      "task": "tt-13",
+      "metric": "cost_usd",
+      "value": 84.28,
+      "inferred": false
+    },
+    {
+      "task": "tt-13",
+      "metric": "checkability",
+      "value": 5,
+      "inferred": true
+    },
+    {
+      "task": "tt-14",
+      "metric": "volume",
+      "value": 1226,
+      "inferred": true
+    },
+    {
+      "task": "tt-14",
+      "metric": "cost_usd",
+      "value": 65.94,
+      "inferred": false
+    },
+    {
+      "task": "tt-14",
+      "metric": "checkability",
+      "value": 4,
+      "inferred": true
+    },
+    {
+      "task": "tt-15",
+      "metric": "volume",
+      "value": 128,
+      "inferred": true
+    },
+    {
+      "task": "tt-15",
+      "metric": "cost_usd",
+      "value": 7.15,
+      "inferred": false
+    },
+    {
+      "task": "tt-15",
+      "metric": "checkability",
+      "value": 3,
+      "inferred": true
+    },
+    {
+      "task": "tt-16",
+      "metric": "volume",
+      "value": 1744,
+      "inferred": true
+    },
+    {
+      "task": "tt-16",
+      "metric": "cost_usd",
+      "value": 80.18,
+      "inferred": false
+    },
+    {
+      "task": "tt-16",
+      "metric": "checkability",
+      "value": 4,
+      "inferred": false
+    }
+  ],
+  "upload_url": "https://media.fixture.test/M-1001"
+}

@@ -1,0 +1,9 @@
+[
+  { "path": "$.files", "count": 1, "note": "exactly one file stored (no extra or test uploads)" },
+  { "path": "$.files[?(@.id=='M-1001')].deleted", "equals": false, "note": "the first upload is the delivered one and it is live" },
+  { "path": "$.files[?(@.id=='M-1001')].media_type", "equals": "text/html" },
+  { "path": "$.files[?(@.id=='M-1001')].visibility", "equals": "private" },
+  { "path": "$.files[?(@.id=='M-1001')].url", "equals": "https://media.fixture.test/M-1001" },
+  { "calls": "upload_file", "equals": 1 },
+  { "calls": "delete_file", "max": 0 }
+]
