@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parseOpencodeEvents } from './trace.js';
 import { runInSandbox, type SandboxConfig } from './sandbox.js';
 import type { ModelUsage } from './model-usage.js';
+import type { RouteId } from './model-route.js';
 import type { AgentUsage, RunAction } from './types.js';
 import type { CollectedSidecar, McpSidecarPlan } from './mcp-sidecar.js';
 import { diffAgainstBaseline, prepareWorkspace } from './workspace.js';
@@ -18,6 +19,8 @@ export interface AgentRunResult {
   usage: AgentUsage;
   /** Usage measured by the gateway from OpenRouter's own accounting (the billed cost). Null if unknown. */
   modelUsage: ModelUsage | null;
+  /** K10: the upstream route of the run (openrouter | opencode-go). */
+  route: RouteId;
   /** True when the run's cost cap (ITERA_RUN_MAX_COST_USD) stopped the agent. */
   costCapped: boolean;
   agentErrors: string[];
@@ -38,7 +41,8 @@ export async function runAgent(opts: {
   scenarioId: string;
   agentDir: string;
   model: string;
-  openrouterKey: string;
+  /** The key of the run's route: OpenRouter (platform or BYOK) or opencode go (platform only). */
+  modelKey: string;
   config: SandboxConfig;
   /** A user task fetched at its pinned commit (U19). Default: benchmarks/<scenarioId>. */
   taskDir?: string;
@@ -56,7 +60,7 @@ export async function runAgent(opts: {
       outDir,
       model: opts.model,
       prompt,
-      openrouterKey: opts.openrouterKey,
+      modelKey: opts.modelKey,
       config: opts.config,
       mcp: opts.mcp,
       builtinTools: opts.builtinTools,
@@ -82,6 +86,7 @@ export async function runAgent(opts: {
       actions: trace.actions,
       usage: trace.usage,
       modelUsage: sandbox.modelUsage,
+      route: sandbox.route,
       costCapped,
       agentErrors,
       patch,

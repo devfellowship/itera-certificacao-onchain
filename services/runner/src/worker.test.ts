@@ -41,7 +41,8 @@ function agentResult(over: Partial<AgentRunResult> = {}): AgentRunResult {
       { seq: 2, tool: 'edit', target: 'src/app.ts', ok: true, occurredAt: '2026-10-12T00:00:02.000Z' },
     ],
     usage: { steps: 2, inputTokens: 10, outputTokens: 5, costUsd: 0.001 },
-    modelUsage: { costUsd: 0.0123, tokensIn: 1200, tokensOut: 300, calls: 4, refused: 0, maxCostUsd: 0.5, capStopped: false },
+    modelUsage: { costUsd: 0.0123, tokensIn: 1200, tokensOut: 300, calls: 4, refused: 0, maxCostUsd: 0.5, capStopped: false, costSource: 'metered' },
+    route: 'openrouter',
     costCapped: false,
     agentErrors: [],
     patch: PATCH,
@@ -51,9 +52,9 @@ function agentResult(over: Partial<AgentRunResult> = {}): AgentRunResult {
 
 const SECRET = 's'.repeat(40);
 
-function setup(opts: { noKey?: boolean; agent?: Partial<AgentRunResult> | Error; manifest?: Partial<EvidenceManifest>; files?: Array<{ path: string; content: string }> } = {}) {
+function setup(opts: { noKey?: boolean; model?: string; agent?: Partial<AgentRunResult> | Error; manifest?: Partial<EvidenceManifest>; files?: Array<{ path: string; content: string }> } = {}) {
   const store = new FakeJobStore();
-  const seen: { agentDir?: string; agentFiles?: string[]; key?: string } = {};
+  const seen: { agentDir?: string; agentFiles?: string[]; key?: string; model?: string } = {};
   store.enqueue(
     { runId: 'run-1', scenarioId: 'webhook-ledger', scenarioVersion: '1', agentVersionId: 'av-1' },
     {
@@ -61,7 +62,7 @@ function setup(opts: { noKey?: boolean; agent?: Partial<AgentRunResult> | Error;
       scenarioId: 'webhook-ledger',
       scenarioVersion: '1',
       agentVersionId: 'av-1',
-      model: 'qwen/qwen3-coder',
+      model: opts.model ?? 'qwen/qwen3-coder',
       modelApiKeyEnc: opts.noKey ? null : encryptRunKey('sk-or-v1-user', SECRET),
       files: opts.files ?? [{ path: 'AGENTS.md', content: '# agent' }, { path: '../escape.md', content: 'x' }],
     },
@@ -74,7 +75,8 @@ function setup(opts: { noKey?: boolean; agent?: Partial<AgentRunResult> | Error;
     config: defaultSandboxConfig({}),
     runAgent: async (o) => {
       seen.agentDir = o.agentDir;
-      seen.key = o.openrouterKey;
+      seen.key = o.modelKey;
+      seen.model = o.model;
       seen.agentFiles = [await readFile(join(o.agentDir, 'AGENTS.md'), 'utf-8')];
       if (opts.agent instanceof Error) throw opts.agent;
       return agentResult(opts.agent);
@@ -112,7 +114,7 @@ describe('processRun', () => {
       agent: {
         costCapped: true,
         agentErrors: [msg],
-        modelUsage: { costUsd: 0.51, tokensIn: 90000, tokensOut: 9000, calls: 20, refused: 1, maxCostUsd: 0.5, capStopped: true },
+        modelUsage: { costUsd: 0.51, tokensIn: 90000, tokensOut: 9000, calls: 20, refused: 1, maxCostUsd: 0.5, capStopped: true, costSource: 'metered' },
       },
     });
     const outcome = await processRun(deps, (await store.claim('w1'))!);
@@ -206,6 +208,33 @@ describe('processRun model key', () => {
     deps.runKeySecret = 'o'.repeat(40);
     deps.platformModelKey = 'sk-or-v1-itera-platform';
     expect((await processRun(deps, (await store.claim('w1'))!)).status).toBe('infra_error');
+    expect(seen.key).toBeUndefined();
+  });
+});
+
+describe('processRun route (K10)', () => {
+  it('an opencode-go/<model> agent runs on ITERA\'s opencode go key, never the OpenRouter key', async () => {
+    const { store, deps, seen } = setup({ noKey: true, model: 'opencode-go/deepseek-v4.1-flash' });
+    deps.platformModelKey = 'sk-or-v1-itera-platform';
+    deps.opencodeGoKey = 'sk-opencode-go';
+    expect((await processRun(deps, (await store.claim('w1'))!)).status).toBe('pass');
+    expect(seen.key).toBe('sk-opencode-go');
+    expect(seen.model).toBe('opencode-go/deepseek-v4.1-flash');
+  });
+  it('infra_error without running the agent when OPENCODE_GO_API_KEY is not set', async () => {
+    const { store, deps, seen } = setup({ noKey: true, model: 'opencode-go/deepseek-v4.1-flash' });
+    deps.platformModelKey = 'sk-or-v1-itera-platform';
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('infra_error');
+    expect(outcome.error).toContain('OPENCODE_GO_API_KEY');
+    expect(seen.key).toBeUndefined();
+  });
+  it('a BYOK key cannot pay the opencode-go route', async () => {
+    const { store, deps, seen } = setup({ model: 'opencode-go/deepseek-v4.1-flash' });
+    deps.opencodeGoKey = 'sk-opencode-go';
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('infra_error');
+    expect(outcome.error).toContain('BYOK');
     expect(seen.key).toBeUndefined();
   });
 });

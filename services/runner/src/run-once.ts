@@ -1,14 +1,14 @@
 // Local CLI: run ONE agent on ONE scenario in the sandbox, then grade the patch.
-//   tsx src/run-once.ts --scenario webhook-ledger --agent-dir <dir> --model <openrouter-model> [--out result.json]
+//   tsx src/run-once.ts --scenario webhook-ledger --agent-dir <dir> --model <openrouter-model | opencode-go/<model>> [--out result.json]
 // Needs: docker, git, npm, the sandbox image (ITERA_SANDBOX_IMAGE, default itera-runner-sandbox:latest)
-// and OPENROUTER_API_KEY (or ITERA_RUNNER_OPENROUTER_KEY) in the environment.
+// and OPENROUTER_API_KEY (or ITERA_RUNNER_OPENROUTER_KEY) in the environment; OPENCODE_GO_API_KEY for an opencode-go/<model>.
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { gradeInSandbox } from './grade.js';
 import { runAgent } from './agent-run.js';
 import { finalStatus } from './outcome.js';
-import { defaultSandboxConfig } from './sandbox.js';
+import { defaultSandboxConfig, modelRoute } from './sandbox.js';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const args: Record<string, string> = {};
@@ -23,10 +23,11 @@ function parseArgs(argv: string[]): Record<string, string> {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!args.scenario || !args['agent-dir'] || !args.model) {
-    throw new Error('Usage: run-once --scenario <id> --agent-dir <dir> --model <openrouter-model> [--out <file.json>]');
+    throw new Error('Usage: run-once --scenario <id> --agent-dir <dir> --model <openrouter-model | opencode-go/<model>> [--out <file.json>]');
   }
-  const openrouterKey = process.env.ITERA_RUNNER_OPENROUTER_KEY ?? process.env.OPENROUTER_API_KEY;
-  if (!openrouterKey) throw new Error('set ITERA_RUNNER_OPENROUTER_KEY or OPENROUTER_API_KEY');
+  const route = modelRoute(args.model, defaultSandboxConfig()).route;
+  const modelKey = route === 'opencode-go' ? process.env.OPENCODE_GO_API_KEY : (process.env.ITERA_RUNNER_OPENROUTER_KEY ?? process.env.OPENROUTER_API_KEY);
+  if (!modelKey) throw new Error(route === 'opencode-go' ? 'set OPENCODE_GO_API_KEY' : 'set ITERA_RUNNER_OPENROUTER_KEY or OPENROUTER_API_KEY');
 
   const repoRoot = resolve(import.meta.dirname, '..', '..', '..');
   const runId = `local-${randomUUID().slice(0, 8)}`;
@@ -39,7 +40,7 @@ async function main(): Promise<void> {
     scenarioId: args.scenario,
     agentDir: resolve(args['agent-dir']),
     model: args.model,
-    openrouterKey,
+    modelKey,
     config,
   });
   console.error(`[run-once] agent done in ${agent.durationMs} ms: ${agent.actions.length} tool calls, patch ${agent.patch.length} bytes`);

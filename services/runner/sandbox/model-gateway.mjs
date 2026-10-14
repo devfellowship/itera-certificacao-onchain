@@ -14,17 +14,26 @@
 //   One call that is already in flight can still finish, so the real total can pass the cap by the
 //   cost of that last call.
 //
+// - ROUTES (K10): the worker starts it either for OpenRouter (upstream https://openrouter.ai, prefix
+//   /api/v1/) or for opencode go (upstream https://opencode.ai, prefix /zen/go/v1/). opencode go
+//   answers no USD cost: the worker passes the model's price (ITERA_PRICE_JSON) and the meter derives
+//   the cost from the tokens. opencode go also refuses a request without `x-opencode-session`:
+//   with ITERA_GATEWAY_SESSION set, the gateway adds that header when the client did not send one.
+//
 // Env: ITERA_UPSTREAM_KEY (required), ITERA_UPSTREAM, ITERA_GATEWAY_PATH_PREFIX, ITERA_GATEWAY_PORT,
-//      ITERA_RUN_MAX_COST_USD.
+//      ITERA_RUN_MAX_COST_USD, ITERA_PRICE_JSON, ITERA_GATEWAY_SESSION, ITERA_ROUTE (logged only).
 import { createServer } from 'node:http';
 import { request } from 'node:https';
-import { ResponseUsage, RunMeter } from './gateway-meter.mjs';
+import { parsePrice, ResponseUsage, RunMeter } from './gateway-meter.mjs';
 
 const upstream = new URL(process.env.ITERA_UPSTREAM ?? 'https://openrouter.ai');
 const key = process.env.ITERA_UPSTREAM_KEY ?? '';
 const prefix = process.env.ITERA_GATEWAY_PATH_PREFIX ?? '/api/v1/';
 const port = Number(process.env.ITERA_GATEWAY_PORT ?? 3128);
-const meter = new RunMeter(Number(process.env.ITERA_RUN_MAX_COST_USD ?? 0.5));
+const price = parsePrice(process.env.ITERA_PRICE_JSON ?? '');
+const session = (process.env.ITERA_GATEWAY_SESSION ?? '').slice(0, 120);
+const route = process.env.ITERA_ROUTE ?? 'openrouter';
+const meter = new RunMeter(Number(process.env.ITERA_RUN_MAX_COST_USD ?? 0.5), price);
 const log = (entry) => console.log(JSON.stringify({ at: new Date().toISOString(), ...entry }));
 
 if (!key) {
@@ -35,6 +44,8 @@ if (!key) {
 // Only these request headers go upstream. Anything that the agent sets for auth is dropped.
 // accept-encoding is dropped too: the meter must read the upstream body uncompressed.
 const FORWARD_HEADERS = ['content-type', 'accept', 'user-agent', 'http-referer', 'x-title'];
+// opencode's own routing headers (x-opencode-session, x-opencode-request, ...) carry no secret.
+const FORWARD_PREFIX = 'x-opencode-';
 
 const server = createServer((req, res) => {
   const path = req.url ?? '/';
@@ -58,6 +69,8 @@ const server = createServer((req, res) => {
   }
   const headers = { host: upstream.host, authorization: `Bearer ${key}`, 'accept-encoding': 'identity' };
   for (const name of FORWARD_HEADERS) if (req.headers[name]) headers[name] = req.headers[name];
+  for (const [name, value] of Object.entries(req.headers)) if (name.startsWith(FORWARD_PREFIX) && typeof value === 'string') headers[name] = value.slice(0, 200);
+  if (session && !headers['x-opencode-session']) headers['x-opencode-session'] = session;
   if (req.headers['content-length']) headers['content-length'] = req.headers['content-length'];
   if (req.headers['transfer-encoding']) headers['transfer-encoding'] = req.headers['transfer-encoding'];
 
@@ -96,6 +109,6 @@ server.on('connect', (req, socket) => {
 server.on('clientError', (_err, socket) => socket.destroy());
 
 server.listen(port, '0.0.0.0', () => {
-  log({ listening: port, upstream: upstream.origin, prefix, maxCostUsd: meter.maxCostUsd });
+  log({ listening: port, route, upstream: upstream.origin, prefix, maxCostUsd: meter.maxCostUsd, priced: Boolean(price) });
   log(meter.snapshot());
 });

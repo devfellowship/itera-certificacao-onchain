@@ -13,7 +13,16 @@ export interface ModelUsage {
   maxCostUsd: number;
   /** True when the gateway refused at least one call: the cap stopped the agent. */
   capStopped: boolean;
+  /**
+   * K10: how costUsd was obtained. `metered` = the provider's own USD (OpenRouter); `derived` = tokens ×
+   * the runner's price table (opencode go answers no cost); `unpriced` = no price known, cost 0;
+   * `mixed` = more than one of these; `none` = no call carried usage.
+   */
+  costSource: CostSource;
 }
+
+export type CostSource = 'metered' | 'derived' | 'mixed' | 'unpriced' | 'none';
+const COST_SOURCES: readonly CostSource[] = ['metered', 'derived', 'mixed', 'unpriced', 'none'];
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
 
@@ -40,5 +49,7 @@ export function parseGatewayUsage(logs: string): ModelUsage | null {
     refused,
     maxCostUsd: num(last.max_cost_usd),
     capStopped: refused > 0,
+    // A gateway from before K10 logs no cost_source: its cost was always OpenRouter's own.
+    costSource: COST_SOURCES.includes(last.cost_source as CostSource) ? (last.cost_source as CostSource) : 'metered',
   };
 }
