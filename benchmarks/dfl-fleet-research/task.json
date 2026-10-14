@@ -1,0 +1,53 @@
+{
+  "$schema": "../../packages/contracts/schemas/task.schema.json",
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/dfl-fleet-research",
+    "version": "1",
+    "description": "Research across a synthetic fleet of 14 git repos in 2 orgs through the repos MCP server: 6 questions with cited evidence, one topology trap and one unanswerable question.",
+    "authors": [{ "name": "ITERA" }],
+    "keywords": ["mcp", "research", "git", "evidence", "abstention"]
+  },
+  "metadata": {
+    "title": "Research across a repo fleet, with evidence",
+    "tags": { "tools": ["mcp-repos"], "concepts": ["citation", "abstention", "topology"] },
+    "variant": { "generator": "fixtures/gen.mjs", "seed": 1, "visibility": "open" }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": ["npm", "ci", "--include=dev", "--no-audit", "--no-fund", "--ignore-scripts"],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048,
+    "tools": {
+      "builtin": ["read", "write", "edit", "list", "todo"],
+      "mcp": [
+        {
+          "name": "repos",
+          "description": "The Acme engineering fleet: 14 real git repositories in 2 orgs, read-only (Itera catalog fixture).",
+          "catalog": "repos@1",
+          "transport": "http",
+          "seed": "mcp/repos/seed.json",
+          "allowed_tools": ["list_directory", "directory_tree", "search_files", "read_text_file", "read_multiple_files", "git_log", "git_show"],
+          "expose_state_to_scorer": true,
+          "startup_timeout_sec": 60
+        }
+      ]
+    },
+    "run_egress": ["model-gateway", "mcp"],
+    "secrets": [],
+    "resources": { "cpus": 2, "memory_mb": 2048, "pids": 512 }
+  },
+  "tests": { "public": "tests/public", "hidden": "tests/hidden" },
+  "solution": { "patch": "solution/solution.patch" },
+  "editable_paths": ["out/**"],
+  "protected_paths": ["tests/**", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.*", "questions.md", "answers.schema.json", "README.md"],
+  "verifier": {
+    "cmd": ["npx", "vitest", "run", "{tests}", "--reporter=json", "--outputFile={report}"],
+    "report": "vitest-json",
+    "timeout_sec": 120
+  },
+  "agent": { "timeout_sec": 600 },
+  "est_minutes": 12
+}

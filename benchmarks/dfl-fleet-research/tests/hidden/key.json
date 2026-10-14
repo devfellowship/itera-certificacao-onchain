@@ -1,0 +1,128 @@
+{
+  "seed": 1,
+  "questions": {
+    "q1": {
+      "kind": "exact",
+      "answer": "acmehq/acme-player",
+      "evidence_files": [
+        "acmehq/acme-player:README.md",
+        "acmehq/acme-player:package.json"
+      ]
+    },
+    "q2": {
+      "kind": "exact",
+      "answer": "acme/acme-schema/.github/workflows/push-migrations.yml",
+      "evidence_files": [
+        "acme/acme-schema:.github/workflows/push-migrations.yml"
+      ]
+    },
+    "q3": {
+      "kind": "pairs",
+      "answer": [
+        [
+          "pr-digest",
+          "summarize-pr"
+        ],
+        [
+          "rotate-token",
+          "token-refresh"
+        ],
+        [
+          "deploy-app",
+          "ship-app"
+        ]
+      ],
+      "evidence_files": [
+        "acme/acme-harness:skills/summarize-pr/SKILL.md",
+        "acme/acme-harness:skills/pr-digest/SKILL.md",
+        "acme/acme-harness:skills/rotate-token/SKILL.md",
+        "acme/acme-harness:skills/token-refresh/SKILL.md",
+        "acme/acme-harness:skills/deploy-app/SKILL.md",
+        "acme/acme-harness:skills/ship-app/SKILL.md"
+      ]
+    },
+    "q4": {
+      "kind": "exact",
+      "answer": "acmehq/acme-api/.github/workflows/lint.yml",
+      "evidence_files": [
+        "acmehq/acme-api:.github/workflows/lint.yml",
+        "acme/acme-infra:inventory/repos.yaml"
+      ]
+    },
+    "q5": {
+      "kind": "set",
+      "answer": [
+        "acme/acme-services/payments/config.example.env",
+        "acmehq/acme-api/src/payments/config.ts"
+      ],
+      "evidence_files": [
+        "acme/acme-services:payments/config.example.env",
+        "acmehq/acme-api:src/payments/config.ts"
+      ]
+    },
+    "q6": {
+      "kind": "unanswerable",
+      "answer": null,
+      "evidence_files": []
+    }
+  },
+  "snapshot": {
+    "acme/acme-schema:README.md": "# acme-schema\n\nDatabase schema of the Acme platform: migrations and policies.\n\n## Notes\n\n- Keep acme-schema changes small and reviewed.\n- See the changelog for older acme-schema notes.\n- Version 3 of this section was reviewed in the last cycle.\n- Version 4 of this section was reviewed in the last cycle.\n",
+    "acme/acme-schema:migrations/0001_init.sql": "create table lessons (id uuid primary key, title text not null);\n",
+    "acme/acme-schema:migrations/0002_progress.sql": "create table progress (lesson_id uuid references lessons(id), step int not null);\n",
+    "acme/acme-schema:.github/workflows/validate-migrations.yml": "name: validate\non:\n  pull_request:\n    branches: [main]\njobs:\n  validate:\n    runs-on: [self-hosted, acme-runner]\n    steps:\n      - uses: actions/checkout@v4\n      - run: npx dbtool lint migrations\n      - run: npx dbtool push --dry-run\n",
+    "acme/acme-schema:.github/workflows/push-migrations.yml": "name: apply\non:\n  push:\n    branches: [main]\n    paths: [migrations/**]\njobs:\n  apply:\n    runs-on: [self-hosted, acme-runner]\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo \"prepare step 1\"\n      - run: echo \"prepare step 2\"\n      - run: npx dbtool push --target production\n",
+    "acme/acme-ci:README.md": "# acme-ci\n\nReusable CI workflows that the other repos call.\n\n## Notes\n\n- See the changelog for older acme-ci notes.\n- Version 2 of this section was reviewed in the last cycle.\n- See the changelog for older acme-ci notes.\n- See the changelog for older acme-ci notes.\n",
+    "acme/acme-ci:.github/workflows/test.yml": "name: test\non:\n  workflow_call:\njobs:\n  test:\n    runs-on: [self-hosted, acme-runner]\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm test\n      - run: echo \"migrations are applied by the schema repo\"\n",
+    "acme/acme-iterate:README.md": "# acme-iterate\n\nThe iterate service: the API that turns lesson progress into the next step. The player calls it; it is NOT the player app.\n\n## Notes\n\n- Keep acme-iterate changes small and reviewed.\n- See the changelog for older acme-iterate notes.\n",
+    "acme/acme-iterate:docs/player-contract.md": "# Contract with the player\n\n- The owners of contract answer in the team channel.\n- Keep contract changes small and reviewed.\n- Run the checks locally before you open a pull request.\nThe player sends a progress event to POST /iterate/next.\nThis repository does not contain the player app.\n",
+    "acme/acme-iterate:src/server.ts": "import { next } from './next';\n\nexport const routes = { \"/iterate/next\": next };\n",
+    "acme/acme-harness:README.md": "# acme-harness\n\nAgent skills and hooks of the Acme engineering agents.\n\n## Notes\n\n- The owners of acme-harness answer in the team channel.\n- Keep acme-harness changes small and reviewed.\n- Keep acme-harness changes small and reviewed.\n- See the changelog for older acme-harness notes.\n- See the changelog for older acme-harness notes.\n",
+    "acme/acme-harness:skills/backup-check/SKILL.md": "---\nname: backup-check\npurpose: Verify that last night backup finished.\n---\n\n# backup-check\n\n- See the changelog for older backup-check notes.\n",
+    "acme/acme-harness:skills/cert-renew/SKILL.md": "---\nname: cert-renew\npurpose: Renew a TLS certificate before it expires.\n---\n\n# cert-renew\n\n- The owners of cert-renew answer in the team channel.\n- Version 2 of this section was reviewed in the last cycle.\n",
+    "acme/acme-harness:skills/cost-report/SKILL.md": "---\nname: cost-report\npurpose: Report the model cost of the last 7 days.\n---\n\n# cost-report\n\n- Version 1 of this section was reviewed in the last cycle.\n",
+    "acme/acme-harness:skills/deploy-app/SKILL.md": "---\nname: deploy-app\npurpose: Deploy one application to production and verify the health check.\n---\n\n# deploy-app\n\n- Run the checks locally before you open a pull request.\n- Run the checks locally before you open a pull request.\n- The owners of deploy-app answer in the team channel.\n",
+    "acme/acme-harness:skills/image-fetch/SKILL.md": "---\nname: image-fetch\npurpose: Download an image from a public URL to the scratch folder.\n---\n\n# image-fetch\n\n- The owners of image-fetch answer in the team channel.\n- The owners of image-fetch answer in the team channel.\n",
+    "acme/acme-harness:skills/invoice-make/SKILL.md": "---\nname: invoice-make\npurpose: Make an invoice PDF from a JSON order.\n---\n\n# invoice-make\n\n- Version 1 of this section was reviewed in the last cycle.\n",
+    "acme/acme-harness:skills/lint-yaml/SKILL.md": "---\nname: lint-yaml\npurpose: Lint every YAML file in a repository.\n---\n\n# lint-yaml\n\n- Keep lint-yaml changes small and reviewed.\n- The owners of lint-yaml answer in the team channel.\n- Keep lint-yaml changes small and reviewed.\n",
+    "acme/acme-harness:skills/pr-digest/SKILL.md": "---\nname: pr-digest\npurpose: Write a short summary of one pull request for the team channel.\n---\n\n# pr-digest\n\n- Run the checks locally before you open a pull request.\n",
+    "acme/acme-harness:skills/queue-drain/SKILL.md": "---\nname: queue-drain\npurpose: Drain a stuck job queue safely.\n---\n\n# queue-drain\n\n- The owners of queue-drain answer in the team channel.\n- Keep queue-drain changes small and reviewed.\n",
+    "acme/acme-harness:skills/rotate-token/SKILL.md": "---\nname: rotate-token\npurpose: Replace an expiring access token in the vault and in every consumer.\n---\n\n# rotate-token\n\n- The owners of rotate-token answer in the team channel.\n- Version 2 of this section was reviewed in the last cycle.\n- See the changelog for older rotate-token notes.\n",
+    "acme/acme-harness:skills/seo-keywords/SKILL.md": "---\nname: seo-keywords\npurpose: Research long-tail keywords for one topic.\n---\n\n# seo-keywords\n\n- Run the checks locally before you open a pull request.\n- The owners of seo-keywords answer in the team channel.\n",
+    "acme/acme-harness:skills/ship-app/SKILL.md": "---\nname: ship-app\npurpose: Deploy one application to production and verify the health check.\n---\n\n# ship-app\n\n- See the changelog for older ship-app notes.\n",
+    "acme/acme-harness:skills/speak-text/SKILL.md": "---\nname: speak-text\npurpose: Turn a short text into an audio file.\n---\n\n# speak-text\n\n- Run the checks locally before you open a pull request.\n- Keep speak-text changes small and reviewed.\n- The owners of speak-text answer in the team channel.\n",
+    "acme/acme-harness:skills/summarize-call/SKILL.md": "---\nname: summarize-call\npurpose: Write the notes of a recorded customer call.\n---\n\n# summarize-call\n\n- Run the checks locally before you open a pull request.\n- Keep summarize-call changes small and reviewed.\n",
+    "acme/acme-harness:skills/summarize-log/SKILL.md": "---\nname: summarize-log\npurpose: Summarize the error lines of one service log.\n---\n\n# summarize-log\n\n- See the changelog for older summarize-log notes.\n",
+    "acme/acme-harness:skills/summarize-pr/SKILL.md": "---\nname: summarize-pr\npurpose: Write a short summary of one pull request for the team channel.\n---\n\n# summarize-pr\n\n- Run the checks locally before you open a pull request.\n- The owners of summarize-pr answer in the team channel.\n- The owners of summarize-pr answer in the team channel.\n",
+    "acme/acme-harness:skills/token-audit/SKILL.md": "---\nname: token-audit\npurpose: List tokens that expire in the next 30 days.\n---\n\n# token-audit\n\n- Keep token-audit changes small and reviewed.\n- Version 2 of this section was reviewed in the last cycle.\n",
+    "acme/acme-harness:skills/token-count/SKILL.md": "---\nname: token-count\npurpose: Count the model tokens of one prompt.\n---\n\n# token-count\n\n- See the changelog for older token-count notes.\n- Run the checks locally before you open a pull request.\n",
+    "acme/acme-harness:skills/token-refresh/SKILL.md": "---\nname: token-refresh\npurpose: Replace an expiring access token in the vault and in every consumer.\n---\n\n# token-refresh\n\n- Keep token-refresh changes small and reviewed.\n",
+    "acme/acme-harness:skills/vps-health/SKILL.md": "---\nname: vps-health\npurpose: Report disk, memory and load of one server.\n---\n\n# vps-health\n\n- Keep vps-health changes small and reviewed.\n- Run the checks locally before you open a pull request.\n- The owners of vps-health answer in the team channel.\n",
+    "acme/acme-harness:docs/skills.md": "# Skills\n\nTwo skills are duplicates when their `purpose:` lines describe the same job.\nA similar NAME is not enough.\n",
+    "acme/acme-infra:README.md": "# acme-infra\n\nInfrastructure as code, deploy files and the repository inventory.\n\n## Notes\n\n- Run the checks locally before you open a pull request.\n- See the changelog for older acme-infra notes.\n",
+    "acme/acme-infra:docs/ci-rules.md": "# CI rules\n\n- Run the checks locally before you open a pull request.\nRule R1: every job of a PRIVATE repository runs on the self-hosted runner `[self-hosted, acme-runner]`.\nRule R2: a PUBLIC repository may use `ubuntu-latest`, because the self-hosted runner refuses public repositories.\n",
+    "acme/acme-infra:inventory/repos.yaml": "# Every repository of both orgs and its visibility.\nrepos:\n  - { id: acme/acme-schema, visibility: private }\n  - { id: acme/acme-ci, visibility: private }\n  - { id: acme/acme-iterate, visibility: private }\n  - { id: acme/acme-harness, visibility: private }\n  - { id: acme/acme-infra, visibility: private }\n  - { id: acme/acme-services, visibility: private }\n  - { id: acme/acme-website, visibility: public }\n  - { id: acme/acme-plans, visibility: private }\n  - { id: acmehq/acme-player, visibility: private }\n  - { id: acmehq/acme-landing, visibility: public }\n  - { id: acmehq/acme-api, visibility: private }\n  - { id: acmehq/acme-mcp, visibility: private }\n  - { id: acmehq/acme-cert, visibility: private }\n  - { id: acmehq/acme-mobile, visibility: private }\n",
+    "acme/acme-infra:deploy/payments.yaml": "service: payments\nenv:\n  - name: PAYMENTS_API_KEY\n    from: vault:/payments/PAYMENTS_WEBHOOK_SECRET\n  - name: PAYMENTS_REGION\n    value: eu-1\n",
+    "acme/acme-infra:deploy/compose.staging.yaml": "services:\n  api:\n    image: registry.acme.test/api:staging\n    ports: [\"8080:8080\"]\n",
+    "acme/acme-services:README.md": "# acme-services\n\nBack-end services (payments, notifications, search).\n\n## Notes\n\n- See the changelog for older acme-services notes.\n- Run the checks locally before you open a pull request.\n- Version 3 of this section was reviewed in the last cycle.\n- The owners of acme-services answer in the team channel.\n",
+    "acme/acme-services:.github/workflows/build.yml": "name: build\non:\n  pull_request:\njobs:\n  build:\n    runs-on: [self-hosted, acme-runner]\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run build\n",
+    "acme/acme-services:payments/config.example.env": "# Copy to .env. The value comes from the vault, never from this file.\nPAYMENTS_API_KEY_REF=vault:/payments/PAYMENTS_API_KEY\nPAYMENTS_API_KEY=<fill-from-vault>\n",
+    "acme/acme-website:README.md": "# acme-website\n\nThe public marketing website.\n\n## Notes\n\n- See the changelog for older acme-website notes.\n- The owners of acme-website answer in the team channel.\n- Keep acme-website changes small and reviewed.\n",
+    "acme/acme-website:.github/workflows/build.yml": "name: build\non:\n  pull_request:\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run build\n",
+    "acme/acme-plans:README.md": "# acme-plans\n\nPlanning documents of the engineering team.\n\n## Notes\n\n- The owners of acme-plans answer in the team channel.\n- Keep acme-plans changes small and reviewed.\n",
+    "acme/acme-plans:plans/2026-q3.md": "# Q3 plan\n\n- Keep planning changes small and reviewed.\n- Run the checks locally before you open a pull request.\nOpen item: decide later how services are deployed in Q4.\n",
+    "acmehq/acme-player:README.md": "# acme-player\n\nThe Acme player: the learner-facing app where learners take lessons.\n\n## Notes\n\n- Version 1 of this section was reviewed in the last cycle.\n- Run the checks locally before you open a pull request.\n",
+    "acmehq/acme-player:package.json": "{\n  \"name\": \"acme-player\",\n  \"private\": true,\n  \"description\": \"The Acme player app\"\n}\n",
+    "acmehq/acme-player:src/App.tsx": "export function App() {\n  return <Lesson />;\n}\n",
+    "acmehq/acme-landing:README.md": "# acme-landing\n\nThe landing page of the learner product.\n\n## Notes\n\n- Version 1 of this section was reviewed in the last cycle.\n- Version 2 of this section was reviewed in the last cycle.\n- Run the checks locally before you open a pull request.\n- Version 4 of this section was reviewed in the last cycle.\n",
+    "acmehq/acme-landing:.github/workflows/build.yml": "name: build\non:\n  pull_request:\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run build\n",
+    "acmehq/acme-api:README.md": "# acme-api\n\nPublic API of the learner product.\n\n## Notes\n\n- Keep acme-api changes small and reviewed.\n- Version 2 of this section was reviewed in the last cycle.\n",
+    "acmehq/acme-api:.github/workflows/lint.yml": "name: check\non:\n  pull_request:\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run lint\n",
+    "acmehq/acme-api:src/payments/config.ts": "// The key is read at boot from the vault path below.\nexport const PAYMENTS_KEY_PATH = 'vault:/payments/PAYMENTS_API_KEY';\n",
+    "acmehq/acme-mcp:README.md": "# acme-mcp\n\nMCP servers for the learner product.\n\n## Notes\n\n- Version 1 of this section was reviewed in the last cycle.\n- Run the checks locally before you open a pull request.\n- Keep acme-mcp changes small and reviewed.\n- Run the checks locally before you open a pull request.\n",
+    "acmehq/acme-mcp:.github/workflows/build.yml": "name: build\non:\n  pull_request:\njobs:\n  build:\n    runs-on: [self-hosted, acme-runner]\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run build\n",
+    "acmehq/acme-cert:README.md": "# acme-cert\n\nCertificates for learners who finish a course.\n\n## Notes\n\n- Keep acme-cert changes small and reviewed.\n- The owners of acme-cert answer in the team channel.\n- Keep acme-cert changes small and reviewed.\n- See the changelog for older acme-cert notes.\n- The owners of acme-cert answer in the team channel.\n",
+    "acmehq/acme-cert:.github/workflows/build.yml": "name: build\non:\n  pull_request:\njobs:\n  build:\n    runs-on: [self-hosted, acme-runner]\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run build\n",
+    "acmehq/acme-mobile:README.md": "# acme-mobile\n\nThe mobile shell of the learner product.\n\n## Notes\n\n- Keep acme-mobile changes small and reviewed.\n- Version 2 of this section was reviewed in the last cycle.\n- Version 3 of this section was reviewed in the last cycle.\n- The owners of acme-mobile answer in the team channel.\n"
+  }
+}
