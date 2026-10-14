@@ -42,8 +42,8 @@ export class PgJobStore implements JobStore {
 
   async loadJob(run: ClaimedRun): Promise<RunJob | null> {
     if (!run.agentVersionId) return null;
-    const result = await this.pool.query<{ files: unknown; model: string | null; model_api_key_enc: string | null }>(
-      `select av.files, a.model, r.model_api_key_enc
+    const result = await this.pool.query<{ files: unknown; model: string | null; model_api_key_enc: string | null; commit_sha: string | null }>(
+      `select av.files, a.model, r.model_api_key_enc, av.commit_sha
          from public.runs r
          join public.agent_versions av on av.id = r.agent_version_id
          join public.agents a on a.id = av.agent_id
@@ -52,7 +52,7 @@ export class PgJobStore implements JobStore {
     );
     const row = result.rows[0];
     if (!row || !Array.isArray(row.files) || !row.model) return null;
-    return { ...run, model: row.model, files: row.files as AgentFile[], modelApiKeyEnc: row.model_api_key_enc };
+    return { ...run, model: row.model, files: row.files as AgentFile[], modelApiKeyEnc: row.model_api_key_enc, agentCommit: row.commit_sha };
   }
 
   async setPhase(runId: string, workerId: string, phase: RunPhase): Promise<void> {
@@ -60,6 +60,7 @@ export class PgJobStore implements JobStore {
   }
 
   async finish(runId: string, workerId: string, outcome: RunOutcome): Promise<void> {
+    const p = outcome.provenance ?? null;
     const client = await this.pool.connect();
     try {
       await client.query('begin');
@@ -67,7 +68,9 @@ export class PgJobStore implements JobStore {
         `update public.runs
             set status = $3, phase = $4, evidence_manifest = $5, score_total = $6, error = $7, completed_at = now(),
                 model_api_key_enc = null,
-                model_cost_usd = $8, model_tokens_in = $9, model_tokens_out = $10
+                model_cost_usd = $8, model_tokens_in = $9, model_tokens_out = $10,
+                model_route = $11, model_requested = $12, model_effective = $13, model_provider = $14,
+                model_cost_source = $15, rate_limited = $16, wall_ms = $17, timeout_s = $18, provenance = $19
           where id = $1 and worker_id = $2 and status = 'running'`,
         [
           runId,
@@ -80,6 +83,15 @@ export class PgJobStore implements JobStore {
           outcome.cost?.costUsd ?? null,
           outcome.cost?.tokensIn ?? null,
           outcome.cost?.tokensOut ?? null,
+          p?.route ?? null,
+          p?.modelRequested ?? null,
+          p?.modelEffective ?? null,
+          p?.modelProvider ?? null,
+          p?.costSource ?? null,
+          p ? p.rateLimited : null,
+          p?.wallMs ?? null,
+          p?.timeoutS ?? null,
+          p ? JSON.stringify(p.record) : null,
         ],
       );
       if (updated.rowCount !== 1) {

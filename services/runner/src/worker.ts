@@ -11,7 +11,8 @@ import type { ValidationResult } from '../../evaluator/src/validate.js';
 import { materializeAgentFiles } from './agent-files.js';
 import { runAgent, type AgentRunResult } from './agent-run.js';
 import type { ClaimedRun, JobStore, RunOutcome } from './jobs.js';
-import { evalLogOf, finalStatus, runnerEvidence, statusError } from './outcome.js';
+import { evalLogOf, finalStatus, rateLimitedFinal, runnerEvidence, statusError } from './outcome.js';
+import { buildProvenance, taskWallMs, type RunnerFacts } from './provenance.js';
 import { decryptRunKey } from './run-key.js';
 import { modelRoute, type SandboxConfig } from './sandbox.js';
 import { toolEnvironment } from '@itera/contracts';
@@ -41,6 +42,8 @@ export interface WorkerDeps {
    */
   opencodeGoKey?: string;
   config: SandboxConfig;
+  /** K11: facts about this worker (runner digest, sandbox image Id, opencode version), read at boot. */
+  facts?: RunnerFacts | null;
   runAgent: typeof runAgent;
   /** Grades in a separate sandbox container (grade.ts). Throws on a grader failure. */
   grade: (opts: { runId: string; repoRoot: string; scenarioId: string; taskDir?: string; patch: string; mcp?: McpServerEvidence[] }) => Promise<EvidenceManifest>;
@@ -200,10 +203,12 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
       // digest BEFORE the agent starts; a server that cannot run stops the run as infra_error.
       let mcpPlans: McpSidecarPlan[] = [];
       let builtinTools: readonly string[] | undefined;
+      let taskInfo = { id: job.scenarioId, version: job.scenarioVersion, contractDigest: null as string | null, timeoutSec: null as number | null };
       if (!taskError) {
         // A bundle that does not load fails in runAgent with its own error; here only the MCP plan can fail.
         const task = await loadTask(taskDir ?? scenarioDir(deps.repoRoot, job.scenarioId)).catch(() => null);
         if (task) {
+          taskInfo = { ...taskInfo, contractDigest: task.contractDigest, timeoutSec: task.contract.agent?.timeout_sec ?? null };
           builtinTools = toolEnvironment(task.contract).builtin;
           try {
             mcpPlans = await planSidecars(task, deps.mcpCatalog);
@@ -218,6 +223,13 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
         outcome = fail('the agent version has no AGENTS.md, CLAUDE.md or skills/ file');
       } else {
         await store.setPhase(job.runId, workerId, 'agent_running');
+        // K11: the wall cap follows the task's agent.timeout_sec (capped by ITERA_RUN_MAX_WALL_MS).
+        const runConfig: SandboxConfig = { ...deps.config, wallMs: taskWallMs(taskInfo.timeoutSec, deps.config) };
+        const provenanceOf = (a: AgentRunResult | null, m: EvidenceManifest | null) =>
+          buildProvenance({
+            model: job.model, route, agentCommit: job.agentCommit ?? null, agentFiles: files.written, task: taskInfo,
+            agent: a, config: runConfig, facts: deps.facts ?? null, mcp: mcpPlans, manifest: m,
+          });
         let agent: AgentRunResult | null = null;
         try {
           agent = await deps.runAgent({
@@ -227,13 +239,13 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
             agentDir,
             model: job.model,
             modelKey,
-            config: deps.config,
+            config: runConfig,
             taskDir,
             mcp: mcpPlans,
             builtinTools,
           });
         } catch (err) {
-          outcome = fail(`sandbox failed: ${message(err)}`);
+          outcome = fail(`sandbox failed: ${message(err)}`, { provenance: provenanceOf(null, null) });
         }
         if (agent) {
           await store.setPhase(job.runId, workerId, 'grading');
@@ -249,6 +261,7 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
               patch: agent.patch,
               actions: agent.actions,
               cost: runCost(agent),
+              provenance: provenanceOf(agent, null),
             });
           }
           if (manifest) {
@@ -259,10 +272,11 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
               // A run that is not measured carries no score.
               scoreTotal: status === 'infra_error' ? 0 : Math.round(manifest.score.total),
               evidenceManifest: evalLogOf(manifest, agent, status),
-              error: statusError(status, manifest, agent.agentErrors),
+              error: statusError(status, manifest, agent.agentErrors, rateLimitedFinal(agent)),
               patch: agent.patch,
               actions: agent.actions,
               cost: runCost(agent),
+              provenance: provenanceOf(agent, manifest),
             };
           }
         }
@@ -359,7 +373,8 @@ async function main(): Promise<void> {
   const { default: pg } = await import('pg');
   const { readFileSync } = await import('node:fs');
   const { PgJobStore } = await import('./jobs.pg.js');
-  const { defaultSandboxConfig, ensureSandboxImage } = await import('./sandbox.js');
+  const { defaultSandboxConfig, ensureSandboxImage, pruneSandboxImages } = await import('./sandbox.js');
+  const { runnerFacts } = await import('./provenance.js');
   const { exec } = await import('./exec.js');
   const { removeOrphans, recoverLostRuns } = await import('./orphans.js');
   const { gradeInSandbox, validateTaskInSandbox } = await import('./grade.js');
@@ -383,9 +398,14 @@ async function main(): Promise<void> {
   const store = new PgJobStore(pool);
 
   const config = defaultSandboxConfig();
+  let prunedImages: string[] = [];
   if (!process.env.ITERA_SANDBOX_IMAGE) {
     config.image = await ensureSandboxImage(join(repoRoot, 'services', 'runner', 'sandbox'));
+    // K11 (plan risk R10, disk): every sandbox/ change builds a new tag; drop the stale ones.
+    prunedImages = await pruneSandboxImages(config.image).catch(() => []);
   }
+  const imageId = (await exec('docker', ['image', 'inspect', '-f', '{{.Id}}', config.image], { timeoutMs: 30_000 })).stdout.trim() || null;
+  const facts = await runnerFacts(join(repoRoot, 'services', 'runner'), config.image, imageId);
   const taskReader = GitHubTaskReader.fromEnv();
   const selfHost = hostname();
   const workerId = `${process.env.ITERA_WORKER_NAME ?? 'itera-runner'}@${selfHost}`;
@@ -398,7 +418,7 @@ async function main(): Promise<void> {
   const recovered = await recoverLostRuns({ docker, store, selfHost });
   const orphans = await removeOrphans({ docker, store, selfHost });
   log({
-    event: 'boot', workerId, image: config.image, wallMs: config.wallMs, maxCostUsd: config.maxCostUsd,
+    event: 'boot', workerId, image: config.image, imageId, runnerDigest: facts.runnerDigest.slice(0, 12), opencode: facts.opencodeVersion, prunedImages, wallMs: config.wallMs, maxWallMs: config.maxWallMs, maxCostUsd: config.maxCostUsd,
     platformKey: Boolean(platformModelKey), opencodeGoKey: Boolean(opencodeGoKey), byok: Boolean(runKeySecret), userTasksGithub: Boolean(taskReader), orphansRemoved: orphans.removed, orphansKept: orphans.kept,
     runsRequeued: recovered.requeued, runsFailed: recovered.failed, runsOfLiveWorkers: recovered.keptLive,
   });
@@ -412,7 +432,7 @@ async function main(): Promise<void> {
   }
   await workerLoop(
     {
-      store, workerId, repoRoot, runKeySecret, platformModelKey, opencodeGoKey, config, runAgent,
+      store, workerId, repoRoot, runKeySecret, platformModelKey, opencodeGoKey, config, facts, runAgent,
       grade: (o) => gradeInSandbox({ ...o, config }),
       // U29: MCP catalog digests (0013_mcp_catalog.sql).
       mcpCatalog: (name, version) => store.mcpCatalog(name, version),

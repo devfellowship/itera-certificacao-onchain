@@ -1,6 +1,6 @@
 // Tests the gateway's cost meter (sandbox/gateway-meter.mjs runs in the gateway container).
 import { describe, expect, it } from 'vitest';
-import { derivedCost, parsePrice, ResponseUsage, RunMeter, usageOfJson } from '../sandbox/gateway-meter.mjs';
+import { backoffMs, derivedCost, parsePrice, requestParams, ResponseUsage, RunMeter, usageOfJson } from '../sandbox/gateway-meter.mjs';
 
 describe('ResponseUsage', () => {
   it('reads usage.cost and tokens from a JSON completion', () => {
@@ -93,5 +93,39 @@ describe('opencode go (K10): no cost in usage → derived from tokens × price',
     expect(parsePrice('{"input":"x","output":1}')).toBeNull();
     expect(parsePrice('nope')).toBeNull();
     expect(parsePrice('')).toBeNull();
+  });
+});
+
+describe('K11: 429 backoff, effective model, request params', () => {
+  it('backoff: Retry-After seconds (capped at 30 s), else 2 s, 4 s, 8 s, 16 s', () => {
+    expect([0, 1, 2, 3].map((n) => backoffMs(n, undefined))).toEqual([2000, 4000, 8000, 16000]);
+    expect(backoffMs(0, '5')).toBe(5000);
+    expect(backoffMs(0, '600')).toBe(30000);
+    expect(backoffMs(9, undefined)).toBe(30000);
+  });
+  it('requestParams keeps the model and sampling params, never the messages', () => {
+    const r = requestParams(JSON.stringify({ model: 'deepseek-v4.1-flash', temperature: 0.2, max_tokens: 32000, stream: true, messages: [{ role: 'user', content: 'SECRET PROMPT' }], tools: [{}, {}] }));
+    expect(r).toEqual({ model: 'deepseek-v4.1-flash', params: { temperature: 0.2, max_tokens: 32000, stream: true }, tools: 2 });
+    expect(JSON.stringify(r)).not.toContain('SECRET');
+    expect(requestParams('nope')).toBeNull();
+  });
+  it('the answer: opencode go headers name the model and endpoint; OpenRouter bodies name model and provider', () => {
+    const go = new ResponseUsage('application/json', undefined, { 'x-opencode-upstream-model-id': 'deepseek/deepseek-v4.1-flash', 'x-opencode-endpoint-id': 'orcarouter-dsv4.1flash' });
+    go.push('{"model":"deepseek-v4.1-flash","usage":{"prompt_tokens":1,"completion_tokens":1}}');
+    go.end();
+    expect(go.answer()).toEqual({ model: 'deepseek/deepseek-v4.1-flash', provider: 'orcarouter-dsv4.1flash' });
+    const or = new ResponseUsage('text/event-stream');
+    or.push('data: {"model":"nvidia/nemotron-3-super-120b-a12b-20260801:free","provider":"Nvidia","choices":[]}\n\n');
+    or.end();
+    expect(or.answer()).toEqual({ model: 'nvidia/nemotron-3-super-120b-a12b-20260801:free', provider: 'Nvidia' });
+  });
+  it('the meter counts answered models, providers, requested models, first params and 429s', () => {
+    const m = new RunMeter(0.5);
+    m.request({ model: 'a', params: { temperature: 0 }, tools: 3 });
+    m.request({ model: 'a', params: { temperature: 1 }, tools: 3 });
+    m.add({ tokensIn: 1, tokensOut: 1, costUsd: 0, cachedIn: 0, costReported: true }, { model: 'a-2026', provider: 'P' });
+    m.rateLimited = 2;
+    m.rateLimitedFinal = 1;
+    expect(m.snapshot()).toMatchObject({ effective_models: { 'a-2026': 1 }, providers: { P: 1 }, requested_models: { a: 2 }, params: { temperature: 0, tools: 3 }, rate_limited: 2, rate_limited_final: 1 });
   });
 });

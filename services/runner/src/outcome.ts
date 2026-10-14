@@ -10,7 +10,24 @@ import type { FinalStatus } from './jobs.js';
  * - a suite that ran ZERO tests is `infra_error`, never a score. The evaluator falls back to an
  *   empty suite when the vitest report does not parse, so "0 tests" means "not measured".
  */
-export function finalStatus(agent: Pick<AgentRunResult, 'timedOut' | 'patch'> & { costCapped?: boolean }, manifest: EvidenceManifest): FinalStatus {
+export function finalStatus(
+  agent: Pick<AgentRunResult, 'timedOut' | 'patch'> & { costCapped?: boolean; modelUsage?: AgentRunResult['modelUsage'] },
+  manifest: EvidenceManifest,
+): FinalStatus {
+  const status = gradedStatus(agent, manifest);
+  // K11: a model call that still got 429 after the gateway's retries means the PROVIDER stopped the
+  // agent. That run measured nothing about the model: infra_error, never fail/timeout. A run that
+  // passed anyway keeps its pass.
+  if (status !== 'pass' && rateLimitedFinal(agent) > 0) return 'infra_error';
+  return status;
+}
+
+/** Model calls that still got an upstream 429 after the gateway's retries. */
+export function rateLimitedFinal(agent: { modelUsage?: AgentRunResult['modelUsage'] }): number {
+  return agent.modelUsage?.rateLimitedFinal ?? 0;
+}
+
+function gradedStatus(agent: Pick<AgentRunResult, 'timedOut' | 'patch'> & { costCapped?: boolean }, manifest: EvidenceManifest): FinalStatus {
   // A run stopped by its wall limit OR by its model cost cap is `timeout`: the agent did not finish.
   if (agent.timedOut || agent.costCapped) return 'timeout';
   if (agent.patch.trim() === '') return 'fail';
@@ -45,9 +62,12 @@ export function zeroTestSuites(manifest: EvidenceManifest): string[] {
 }
 
 /** The error text stored for a run, or null. */
-export function statusError(status: FinalStatus, manifest: EvidenceManifest, agentErrors: string[]): string | null {
+export function statusError(status: FinalStatus, manifest: EvidenceManifest, agentErrors: string[], rateLimited = 0): string | null {
   if (status === 'timeout') return agentErrors.join('; ') || 'agent wall limit reached';
   if (status !== 'infra_error') return null;
+  if (rateLimited > 0) {
+    return `upstream rate limit: ${rateLimited} model call(s) still answered 429 after the gateway retries; the run measured nothing about the model`;
+  }
   const zero = zeroTestSuites(manifest);
   if (zero.length > 0) return `grading inconclusive: no test executed in ${zero.join(', ')}`;
   return manifest.errors.join('; ') || 'grading failed';
