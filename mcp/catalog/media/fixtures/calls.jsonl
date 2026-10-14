@@ -1,0 +1,8 @@
+{"tool":"upload_file","arguments":{"filename":"report.html","content_type":"text/html; charset=utf-8","visibility":"private","content":"<!doctype html><meta charset=\"utf-8\"><title>r</title><p>ç ✓</p>"}}
+{"tool":"upload_file","arguments":{"filename":"chart.png","content_type":"image/png","visibility":"public","content_base64":"ZmFrZS1wbmctYnl0ZXM="}}
+{"tool":"upload_file","arguments":{"filename":"both.txt","content_type":"text/plain","visibility":"private","content":"a","content_base64":"YQ=="},"expect_ok":false}
+{"tool":"upload_file","arguments":{"filename":"bad.bin","content_type":"application/octet-stream","visibility":"private","content_base64":"abc"},"expect_ok":false}
+{"tool":"upload_file","arguments":{"filename":"empty.txt","content_type":"text/plain","visibility":"private","content":""},"expect_ok":false}
+{"tool":"delete_file","arguments":{"id":"M-1"}}
+{"tool":"delete_file","arguments":{"id":"M-1"},"expect_ok":false}
+{"tool":"delete_file","arguments":{"id":"M-999"},"expect_ok":false}

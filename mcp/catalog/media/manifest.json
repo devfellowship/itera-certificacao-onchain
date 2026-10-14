@@ -1,0 +1,64 @@
+{
+  "name": "media",
+  "version": 1,
+  "description": "A media host for file delivery: upload a file, read its metadata, delete it. A stateful fixture: it stores the bytes in the sidecar tmpfs, answers with https://media.fixture.test/<id> links, and never calls a real host.",
+  "transport": "http",
+  "license": "Apache-2.0",
+  "upstream": null,
+  "capabilities": ["media", "file-upload", "delivery"],
+  "resources": { "cpus": 0.5, "memory_mb": 128, "pids": 64 },
+  "boot_timeout_sec": 20,
+  "call_timeout_sec": 10,
+  "seed_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["files"],
+    "properties": {
+      "files": {
+        "type": "array",
+        "maxItems": 50,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "filename", "content_type", "visibility", "content"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^M-[0-9]{1,6}$" },
+            "filename": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "content_type": { "type": "string", "maxLength": 100 },
+            "visibility": { "enum": ["private", "members", "public"] },
+            "content": { "type": "string", "maxLength": 100000 },
+            "created_at": { "type": "string", "maxLength": 40 }
+          }
+        }
+      }
+    }
+  },
+  "export_schema": {
+    "type": "object",
+    "required": ["files"],
+    "properties": {
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "filename", "url", "sha256", "size", "content_type", "media_type", "visibility", "created_at", "deleted"],
+          "properties": {
+            "id": { "type": "string" },
+            "filename": { "type": "string" },
+            "url": { "type": "string" },
+            "sha256": { "type": "string" },
+            "size": { "type": "integer" },
+            "content_type": { "type": "string" },
+            "media_type": { "type": "string" },
+            "visibility": { "type": "string" },
+            "created_at": { "type": "string" },
+            "deleted": { "type": "boolean" },
+            "deleted_at": { "type": "string" },
+            "seeded": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}
