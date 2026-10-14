@@ -161,9 +161,17 @@ export async function checkCampaign(db: Queryable, c: { id: string; capUsd: numb
   return budget;
 }
 
-/** Records a campaign stop (separate statement: the enqueue transaction rolled back). */
-export async function recordCampaignStop(pool: Pool, id: string, reason: string): Promise<void> {
-  await pool.query(`update public.bench_campaigns set stopped_at = now(), stop_reason = $2 where id = $1 and stopped_at is null`, [id, reason.slice(0, 500)]);
+/**
+ * Records a campaign stop. A separate statement: the enqueue transaction rolled back, and with it
+ * the campaign row when this was the campaign's first enqueue, so this one upserts the row.
+ */
+export async function recordCampaignStop(db: Queryable, c: { id: string; capUsd: number }, reason: string): Promise<void> {
+  await db.query(
+    `insert into public.bench_campaigns (id, cap_usd, stopped_at, stop_reason) values ($1, $2, now(), $3)
+     on conflict (id) do update set stopped_at = now(), stop_reason = excluded.stop_reason
+      where public.bench_campaigns.stopped_at is null`,
+    [c.id, c.capUsd, reason.slice(0, 500)],
+  );
 }
 
 /** Summary of a run row (no secret: the sealed key column is never selected). */
@@ -212,7 +220,7 @@ async function main(): Promise<void> {
     } catch (err) {
       if (err instanceof CampaignStopped) {
         const reason = (err as CampaignStopped & { reason?: string }).reason;
-        if (reason && campaign) await recordCampaignStop(pool, campaign.id, reason);
+        if (reason && campaign) await recordCampaignStop(pool, campaign, reason);
         console.log(JSON.stringify({ event: 'campaign_stop', campaign: campaign?.id, message: err.message }));
         process.exitCode = 4;
         return;
