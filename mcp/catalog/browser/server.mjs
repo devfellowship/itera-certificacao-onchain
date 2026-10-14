@@ -113,7 +113,9 @@ export function recordCall(state, hosts, name, args, content, step) {
   }
   const { width, height } = state.viewport;
   const id = `${state.url}@${width}x${height}`;
-  const v = state.visits[id] ?? { id, url: state.url, host, path: new URL(state.url).pathname, width, height, first_seq: step, calls: 0, screenshots: 0, snapshots: 0 };
+  // `view` = URL @ width only: the mcp_state filter takes one key, and a task asks for a width
+  // ("the 390 px layout"), not for the exact window height the agent chose.
+  const v = state.visits[id] ?? { id, view: `${state.url}@${width}`, url: state.url, host, path: new URL(state.url).pathname, width, height, first_seq: step, calls: 0, screenshots: 0, snapshots: 0 };
   v.calls += 1;
   if (name === 'browser_snapshot') v.snapshots += 1;
   if (name === 'browser_take_screenshot') {

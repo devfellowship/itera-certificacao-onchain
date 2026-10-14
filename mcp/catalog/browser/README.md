@@ -47,8 +47,10 @@ meets the same tool names and the same output that it meets with Playwright MCP 
   - `navigations`, `requests` (what the site server served, by host and path), `blocked`
     (requests the proxy refused, by origin), `calls`, `calls_outside`.
 
-  Example coverage assertion (a task asks for every screen at both sizes):
-  `{ "path": "$.visits[?(@.id=='http://app.local/detail@390x844')]", "exists": true }`.
+    `view` is the same without the height (`http://app.local/detail@390`), because the scorer
+    filter takes one key and a task asks for a width, not for the window height the agent chose;
+  Example coverage assertion (a task asks for every screen at both widths):
+  `{ "path": "$.visits[?(@.view=='http://app.local/detail@390')]", "exists": true }`.
 
 ## Known upstream quirks (seen in the probe, 2026-10-14)
 

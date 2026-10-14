@@ -2,7 +2,7 @@
 // the same calls give the same bytes (screenshot hashes included: fonts are bundled in the image).
 //
 // Shape (the mcp_state scorer filters on one key, so every entry has a single-string `id`):
-//   visits:      [{ id: "http://app.local/list@1280x800", url, host, path, width, height,
+//   visits:      [{ id: "http://app.local/list@1280x800", view: "http://app.local/list@1280", url, host, path, width, height,
 //                   first_seq, calls, screenshots, snapshots }]   a successful call while that URL was open at that viewport
 //   screenshots: [{ seq, url, width, height, mime, bytes, sha256 }] every image the agent received, in order
 //   navigations: [{ seq, url }]                                     browser_navigate calls, in order
