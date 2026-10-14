@@ -1,0 +1,10 @@
+{
+  "name": "@itera/mcp-browser-upstream",
+  "private": true,
+  "version": "1.0.0",
+  "description": "The upstream server that browser@1 wraps (the official Playwright MCP), pinned. Installed only inside the image.",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@playwright/mcp": "0.0.83"
+  }
+}

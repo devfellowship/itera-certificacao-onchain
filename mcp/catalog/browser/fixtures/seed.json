@@ -1,0 +1,21 @@
+{
+ "hosts": {
+  "app.local": {
+   "files": {
+    "style.css": "body{margin:0;font-family:'DejaVu Sans',sans-serif;background:#fff;color:#111}main{padding:24px}h1{font-size:28px;margin:0 0 16px}.card{border:1px solid #ccc;border-radius:8px;padding:16px;margin-bottom:12px}.btn{background:#2952cc;color:#fff;padding:8px 16px;border-radius:6px;display:inline-block}",
+    "index.html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Orders</title><link rel=\"stylesheet\" href=\"/style.css\"></head><body><main><h1>Orders</h1><div class=\"card\" id=\"o1\">Order 1001 <a href=\"/detail\">open</a></div><div class=\"card\" id=\"o2\">Order 1002</div><span class=\"btn\">New order</span></main></body></html>",
+    "detail.html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Order 1001</title><link rel=\"stylesheet\" href=\"/style.css\"></head><body><main><h1 id=\"title\">Order 1001</h1><p class=\"card\">Status: <b id=\"status\">shipped</b></p></main></body></html>"
+   }
+  },
+  "design.local": {
+   "files": {
+    "index.html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Orders (design)</title><link rel=\"stylesheet\" href=\"/d.css\"></head><body><main><h1>Orders</h1><div class=\"card\" id=\"o1\">Order 1001</div><span class=\"btn\">New order</span></main></body></html>",
+    "d.css": "body{margin:0;font-family:'DejaVu Sans',sans-serif;background:#fff;color:#111}main{padding:24px}h1{font-size:28px;margin:0 0 16px}.card{border:1px solid #ccc;border-radius:8px;padding:16px;margin-bottom:12px}.btn{background:#1f44b8;color:#fff;padding:8px 16px;border-radius:6px;display:inline-block}"
+   }
+  }
+ },
+ "viewport": {
+  "width": 1280,
+  "height": 800
+ }
+}

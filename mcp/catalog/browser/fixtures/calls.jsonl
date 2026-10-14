@@ -1,0 +1,13 @@
+{"tool": "browser_navigate", "arguments": {"url": "http://app.local/"}}
+{"tool": "browser_snapshot", "arguments": {}}
+{"tool": "browser_take_screenshot", "arguments": {"type": "png", "scale": "css"}}
+{"tool": "browser_resize", "arguments": {"width": 390, "height": 844}}
+{"tool": "browser_take_screenshot", "arguments": {"type": "png", "scale": "css"}}
+{"tool": "browser_navigate", "arguments": {"url": "http://app.local/detail"}}
+{"tool": "browser_evaluate", "arguments": {"function": "() => getComputedStyle(document.querySelector('#status')).fontWeight"}}
+{"tool": "browser_navigate", "arguments": {"url": "http://design.local/"}}
+{"tool": "browser_evaluate", "arguments": {"function": "() => getComputedStyle(document.querySelector('.btn')).backgroundColor"}}
+{"tool": "browser_evaluate", "arguments": {"function": "() => fetch('http://example.com/').then(r => r.status, e => 'refused')"}}
+{"tool": "browser_navigate", "arguments": {"url": "http://example.com/"}, "expect_ok": false}
+{"tool": "browser_navigate", "arguments": {"url": "http://127.0.0.1:8080/mcp"}, "expect_ok": false}
+{"tool": "browser_navigate", "arguments": {"url": "file:///etc/passwd"}, "expect_ok": false}
