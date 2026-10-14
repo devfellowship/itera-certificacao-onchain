@@ -1,0 +1,32 @@
+[
+  {
+    "path": "$.visits[?(@.view=='http://app.local/@1280')]",
+    "exists": true,
+    "note": "the list screen was open at 1280 px"
+  },
+  {
+    "path": "$.visits[?(@.view=='http://app.local/@390')]",
+    "exists": true,
+    "note": "the list screen was open at 390 px"
+  },
+  {
+    "path": "$.visits[?(@.view=='http://app.local/orders/1042@1280')]",
+    "exists": true,
+    "note": "the detail screen was open at 1280 px"
+  },
+  {
+    "path": "$.visits[?(@.view=='http://app.local/orders/1042@390')]",
+    "exists": true,
+    "note": "the detail screen was open at 390 px"
+  },
+  {
+    "path": "$.visits[?(@.view=='http://app.local/new@1280')]",
+    "exists": true,
+    "note": "the form screen was open at 1280 px"
+  },
+  {
+    "path": "$.visits[?(@.view=='http://app.local/new@390')]",
+    "exists": true,
+    "note": "the form screen was open at 390 px"
+  }
+]

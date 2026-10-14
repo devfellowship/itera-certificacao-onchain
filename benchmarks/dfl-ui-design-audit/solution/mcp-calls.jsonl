@@ -1,0 +1,14 @@
+{"server":"browser","tool":"browser_resize","arguments":{"width":1280,"height":800}}
+{"server":"browser","tool":"browser_navigate","arguments":{"url":"http://app.local/"}}
+{"server":"browser","tool":"browser_snapshot","arguments":{}}
+{"server":"browser","tool":"browser_navigate","arguments":{"url":"http://app.local/orders/1042"}}
+{"server":"browser","tool":"browser_snapshot","arguments":{}}
+{"server":"browser","tool":"browser_navigate","arguments":{"url":"http://app.local/new"}}
+{"server":"browser","tool":"browser_snapshot","arguments":{}}
+{"server":"browser","tool":"browser_resize","arguments":{"width":390,"height":844}}
+{"server":"browser","tool":"browser_navigate","arguments":{"url":"http://app.local/"}}
+{"server":"browser","tool":"browser_snapshot","arguments":{}}
+{"server":"browser","tool":"browser_navigate","arguments":{"url":"http://app.local/orders/1042"}}
+{"server":"browser","tool":"browser_snapshot","arguments":{}}
+{"server":"browser","tool":"browser_navigate","arguments":{"url":"http://app.local/new"}}
+{"server":"browser","tool":"browser_snapshot","arguments":{}}

@@ -1,0 +1,215 @@
+{
+  "seed": 1,
+  "screens": {
+    "list": "/",
+    "detail": "/orders/1042",
+    "form": "/new"
+  },
+  "viewports": [
+    "1280",
+    "390"
+  ],
+  "defects": [
+    {
+      "id": "D1",
+      "type": "font-weight",
+      "screen": "form",
+      "viewport": "both",
+      "testid": "customer-label",
+      "match_testids": [
+        "customer-label"
+      ],
+      "category": "typography",
+      "accept_categories": [
+        "typography"
+      ],
+      "value_kind": "weight",
+      "property": "font-weight",
+      "expected": "600",
+      "actual": "400",
+      "values": [
+        {
+          "expected": "600",
+          "actual": "400"
+        }
+      ]
+    },
+    {
+      "id": "D2",
+      "type": "truncated-label",
+      "screen": "detail",
+      "viewport": "both",
+      "testid": "page-title-detail",
+      "match_testids": [
+        "page-title-detail"
+      ],
+      "category": "size",
+      "accept_categories": [
+        "size",
+        "copy"
+      ],
+      "value_kind": null,
+      "property": "text-overflow",
+      "expected": "full label \"Order #1042\"",
+      "actual": "label cut with an ellipsis"
+    },
+    {
+      "id": "D3",
+      "type": "text-color",
+      "screen": "form",
+      "viewport": "both",
+      "testid": "help-text",
+      "match_testids": [
+        "help-text"
+      ],
+      "category": "color",
+      "accept_categories": [
+        "color"
+      ],
+      "value_kind": "color",
+      "property": "color",
+      "expected": "#4b5563",
+      "actual": "#b45309",
+      "values": [
+        {
+          "expected": "#4b5563",
+          "actual": "#b45309"
+        }
+      ]
+    },
+    {
+      "id": "D4",
+      "type": "copy",
+      "screen": "detail",
+      "viewport": "both",
+      "testid": "refund-btn",
+      "match_testids": [
+        "refund-btn"
+      ],
+      "category": "copy",
+      "accept_categories": [
+        "copy"
+      ],
+      "value_kind": "text",
+      "property": "text",
+      "expected": "Issue refund",
+      "actual": "Refund"
+    },
+    {
+      "id": "D5",
+      "type": "missing-icon",
+      "screen": "list",
+      "viewport": "both",
+      "testid": "search-icon",
+      "match_testids": [
+        "search-icon",
+        "search-input",
+        "search-box"
+      ],
+      "category": "missing-element",
+      "accept_categories": [
+        "missing-element"
+      ],
+      "value_kind": null,
+      "property": "presence",
+      "expected": "present",
+      "actual": "absent"
+    },
+    {
+      "id": "D6",
+      "type": "font-size",
+      "screen": "list",
+      "viewport": "390",
+      "testid": "page-title-list",
+      "match_testids": [
+        "page-title-list"
+      ],
+      "category": "typography",
+      "accept_categories": [
+        "typography",
+        "size"
+      ],
+      "value_kind": "px",
+      "property": "font-size",
+      "expected": "22px",
+      "actual": "28px",
+      "values": [
+        {
+          "expected": "22px",
+          "actual": "28px"
+        }
+      ]
+    },
+    {
+      "id": "D7",
+      "type": "bg-color",
+      "screen": "list",
+      "viewport": "both",
+      "testid": "status-badge",
+      "match_testids": [
+        "status-badge"
+      ],
+      "category": "color",
+      "accept_categories": [
+        "color"
+      ],
+      "value_kind": "color",
+      "property": "background",
+      "expected": "#dcfce7",
+      "actual": "#fef3c7",
+      "values": [
+        {
+          "expected": "#dcfce7",
+          "actual": "#fef3c7"
+        }
+      ]
+    },
+    {
+      "id": "D8",
+      "type": "height",
+      "screen": "list",
+      "viewport": "390",
+      "testid": "new-order-btn",
+      "match_testids": [
+        "new-order-btn"
+      ],
+      "category": "size",
+      "accept_categories": [
+        "size"
+      ],
+      "value_kind": "px",
+      "property": "height",
+      "expected": "40px",
+      "actual": "32px",
+      "values": [
+        {
+          "expected": "40px",
+          "actual": "32px"
+        }
+      ]
+    }
+  ],
+  "decoys": [
+    {
+      "id": "decoy-clock",
+      "screen": "all",
+      "testid": "last-updated",
+      "why": "the live clock: the app shows the current time, the design a fixed time",
+      "match_testids": [
+        "last-updated"
+      ]
+    },
+    {
+      "id": "decoy-subpixel",
+      "screen": "list",
+      "testid": "summary-card",
+      "prop": "margin-top",
+      "expected": "24px",
+      "actual": "24.4px",
+      "why": "a 0.4 px shift: anti-aliasing only, below the 1 px rule",
+      "match_testids": [
+        "summary-card"
+      ]
+    }
+  ]
+}
