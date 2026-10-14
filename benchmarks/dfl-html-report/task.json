@@ -1,0 +1,120 @@
+{
+  "$schema": "../../packages/contracts/schemas/task.schema.json",
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/dfl-html-report",
+    "version": "1",
+    "description": "Turn 14 days of usage data into one self-contained dark HTML report with bars, a table and inferred marks, then deliver it through the media MCP server.",
+    "authors": [
+      {
+        "name": "ITERA"
+      }
+    ],
+    "keywords": [
+      "mcp",
+      "html",
+      "report",
+      "data",
+      "accessibility"
+    ]
+  },
+  "metadata": {
+    "title": "HTML report from usage data, delivered to a media host",
+    "tags": {
+      "tools": [
+        "mcp-media"
+      ],
+      "concepts": [
+        "data-report",
+        "accessibility",
+        "delivery"
+      ]
+    }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": [
+      "npm",
+      "ci",
+      "--include=dev",
+      "--no-audit",
+      "--no-fund",
+      "--ignore-scripts"
+    ],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048,
+    "tools": {
+      "builtin": [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "search",
+        "list"
+      ],
+      "mcp": [
+        {
+          "name": "media",
+          "description": "The team's media host: upload a file and get a link (Itera catalog fixture).",
+          "catalog": "media@1",
+          "transport": "http",
+          "seed": "mcp/media/seed.json",
+          "allowed_tools": [
+            "upload_file",
+            "get_file_meta",
+            "delete_file"
+          ],
+          "expose_state_to_scorer": true,
+          "startup_timeout_sec": 30
+        }
+      ]
+    },
+    "run_egress": [
+      "model-gateway",
+      "mcp"
+    ],
+    "secrets": [],
+    "resources": {
+      "cpus": 2,
+      "memory_mb": 2048,
+      "pids": 512
+    }
+  },
+  "tests": {
+    "public": "tests/public",
+    "hidden": "tests/hidden"
+  },
+  "solution": {
+    "patch": "solution/solution.patch"
+  },
+  "editable_paths": [
+    "out/**"
+  ],
+  "protected_paths": [
+    "tests/**",
+    "data/**",
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "vitest.config.*"
+  ],
+  "verifier": {
+    "cmd": [
+      "npx",
+      "vitest",
+      "run",
+      "{tests}",
+      "--reporter=json",
+      "--outputFile={report}"
+    ],
+    "report": "vitest-json",
+    "timeout_sec": 180,
+    "image": "ghcr.io/devfellowship/testmyagent-grader-chromium-axe@sha256:0afb3be943791c73a7d5c4227164f25307ca186eb73c16eaadd4b860924d1992"
+  },
+  "agent": {
+    "timeout_sec": 600
+  },
+  "est_minutes": 10
+}

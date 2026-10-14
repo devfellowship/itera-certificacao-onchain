@@ -1,0 +1,273 @@
+{
+  "title": "Agent task types: volume and cost, last 14 days",
+  "period": {
+    "from": "2026-09-01",
+    "to": "2026-09-14",
+    "days": 14
+  },
+  "currency": "USD",
+  "fields": {
+    "volume": "number of runs in the period (integer)",
+    "cost_usd": "model cost in the period, US dollars (2 decimals)",
+    "checkability": "how well a deterministic check can grade the output, 1 (poor) to 5 (full)",
+    "inferred": "true when the number is an estimate, not a measurement"
+  },
+  "task_types": [
+    {
+      "id": "tt-01",
+      "name": "Audit user stories",
+      "volume": {
+        "value": null,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": 17.88,
+        "inferred": true
+      },
+      "checkability": {
+        "value": 2,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-02",
+      "name": "Tag design screens",
+      "volume": {
+        "value": 1768,
+        "inferred": true
+      },
+      "cost_usd": {
+        "value": 31.95,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 4,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-03",
+      "name": "Label commit messages",
+      "volume": {
+        "value": 158,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": 50.06,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 4,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-04",
+      "name": "Index search queries",
+      "volume": {
+        "value": 2201,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": 21.3,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 2,
+        "inferred": true
+      }
+    },
+    {
+      "id": "tt-05",
+      "name": "Review release notes",
+      "volume": {
+        "value": 948,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": 56.0,
+        "inferred": true
+      },
+      "checkability": {
+        "value": 3,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-06",
+      "name": "Check error logs",
+      "volume": {
+        "value": 1833,
+        "inferred": true
+      },
+      "cost_usd": {
+        "value": 83.55,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 5,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-07",
+      "name": "Publish invoices",
+      "volume": {
+        "value": 2070,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": 70.65,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 3,
+        "inferred": true
+      }
+    },
+    {
+      "id": "tt-08",
+      "name": "Refactor meeting notes",
+      "volume": {
+        "value": 2304,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": null,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 1,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-09",
+      "name": "Answer support tickets",
+      "volume": {
+        "value": 994,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": 32.6,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 4,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-10",
+      "name": "Summarize pull requests",
+      "volume": {
+        "value": 1455,
+        "inferred": true
+      },
+      "cost_usd": {
+        "value": 51.2,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 5,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-11",
+      "name": "Translate API changelogs",
+      "volume": {
+        "value": 985,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": 48.05,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 1,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-12",
+      "name": "Classify lesson outlines",
+      "volume": {
+        "value": 936,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": 83.31,
+        "inferred": true
+      },
+      "checkability": {
+        "value": 2,
+        "inferred": false
+      }
+    },
+    {
+      "id": "tt-13",
+      "name": "Plan data exports",
+      "volume": {
+        "value": 1922,
+        "inferred": false
+      },
+      "cost_usd": {
+        "value": 84.28,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 5,
+        "inferred": true
+      }
+    },
+    {
+      "id": "tt-14",
+      "name": "Draft status reports",
+      "volume": {
+        "value": 1226,
+        "inferred": true
+      },
+      "cost_usd": {
+        "value": 65.94,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 4,
+        "inferred": true
+      }
+    },
+    {
+      "id": "tt-15",
+      "name": "Reconcile survey answers",
+      "volume": {
+        "value": 128,
+        "inferred": true
+      },
+      "cost_usd": {
+        "value": 7.15,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 3,
+        "inferred": true
+      }
+    },
+    {
+      "id": "tt-16",
+      "name": "Triage course quizzes",
+      "volume": {
+        "value": 1744,
+        "inferred": true
+      },
+      "cost_usd": {
+        "value": 80.18,
+        "inferred": false
+      },
+      "checkability": {
+        "value": 4,
+        "inferred": false
+      }
+    }
+  ]
+}
