@@ -14,6 +14,8 @@ import {
   type ResolvedTask,
   type RollupColumns,
   TooManyQueuedError,
+  checkDailyQuota,
+  QUOTA_WINDOW_MS,
 } from "./store.js";
 
 /** In-memory EvaluationsStore for tests. */
@@ -131,6 +133,16 @@ export class FakeEvaluationsStore implements EvaluationsStore {
   }
   async createFreeEvaluation(input: NewFreeEvaluation) {
     if (input.runIds.length !== input.tasks.length) throw new Error("one run id per task is required");
+    const clock = input.now ?? new Date();
+    if (input.dailyRunLimit !== undefined) {
+      const since = clock.getTime() - QUOTA_WINDOW_MS;
+      const recent = this.runs
+        .filter((r) => this.runOwners.get(r.id) === input.ownerWallet && Date.parse(r.startedAt) > since)
+        .map((r) => new Date(r.startedAt))
+        .sort((a, b) => a.getTime() - b.getTime());
+      const over = checkDailyQuota(recent, input.tasks.length, input.dailyRunLimit, clock);
+      if (over) throw over;
+    }
     const active = this.runs.filter((r) => this.runOwners.get(r.id) === input.ownerWallet && (r.status === "queued" || r.status === "running")).length;
     if (active >= input.maxActiveRuns) throw new TooManyQueuedError(active, input.maxActiveRuns);
     // Like the foreign key runs → task_packs: a run needs a known task pack. Checked for every run
@@ -140,7 +152,7 @@ export class FakeEvaluationsStore implements EvaluationsStore {
         throw new Error(`insert or update on table "runs" violates foreign key constraint (task pack ${t.packId}@${t.packVersion})`);
       }
     }
-    const now = new Date().toISOString();
+    const now = clock.toISOString();
     this.evaluations.push({
       id: input.evaluationId,
       slug: null,

@@ -1,12 +1,13 @@
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import type { Request, RequestHandler } from "express";
 import { RATE_LIMIT } from "../config.js";
-import { verifySessionToken } from "./auth.js";
+import { verifyPrincipalToken } from "./auth.js";
 
 /**
  * Rate limiting (two buckets per client, both in process memory).
  *
- * Key: the wallet of a valid session token, else the client IP. The IP is `req.ip`, which is the
+ * Key: the principal id of a valid session token (`req.principal.id` when a middleware already set
+ * it), else the client IP. The IP is `req.ip`, which is the
  * real client address only because app.ts sets `trust proxy` to the exact number of proxies in
  * front of the API (see TRUST_PROXY_HOPS). Without it every client shares the proxy's address and
  * one bucket for the whole world.
@@ -29,18 +30,22 @@ function bearer(req: Request): string | null {
   return match ? match[1]!.trim() : null;
 }
 
-/** `w:<wallet>` for a valid session, else `ip:<client ip>` (IPv6 grouped by /56 so one host cannot
+/** `w:<wallet>` for a valid `siws` session, `p:<dfl:uuid>` for a valid `dfl` session (ADR-9: the
+ * free path is limited per account), else `ip:<client ip>` (IPv6 grouped by /56 so one host cannot
  * rotate through its whole subnet). A forged or expired token falls back to the IP bucket. */
 export function rateLimitKey(req: Request): string {
-  const token = bearer(req);
-  if (token) {
-    try {
-      const wallet = verifySessionToken(token);
-      if (wallet) return `w:${wallet}`;
-    } catch {
-      // ITERA_SESSION_SECRET unset: no session can be valid, use the IP.
+  let principal = req.principal ?? null;
+  if (!principal) {
+    const token = bearer(req);
+    if (token) {
+      try {
+        principal = verifyPrincipalToken(token);
+      } catch {
+        // ITERA_SESSION_SECRET unset: no session can be valid, use the IP.
+      }
     }
   }
+  if (principal) return principal.kind === "siws" ? `w:${principal.id}` : `p:${principal.id}`;
   return `ip:${ipKeyGenerator(req.ip ?? "unknown")}`;
 }
 

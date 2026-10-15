@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { RunCostEstimator } from "../../evaluations/estimate.js";
-import { round4, type EvaluationsConfig } from "../../evaluations/config.js";
+import { DEFAULT_MAX_QUEUED_RUNS_PER_USER, DEFAULT_RUNS_PER_USER_PER_DAY, round4, type EvaluationsConfig } from "../../evaluations/config.js";
 import { parseEvaluationRequest, resolveEvaluationRequest } from "../../evaluations/resolve.js";
-import { TooManyQueuedError, type EvaluationsStore } from "../../evaluations/store.js";
+import { QuotaExceededError, TooManyQueuedError, type EvaluationsStore } from "../../evaluations/store.js";
 import { isModelApiKey } from "../../http/runs-router.js";
 import { sealModelApiKey } from "./model-key.js";
 import type { AfterGradedContext, PaymentAdapter, PaymentOutcome } from "./types.js";
@@ -13,6 +13,8 @@ import type { AfterGradedContext, PaymentAdapter, PaymentOutcome } from "./types
  *
  *   quote        a zero quote: no SOL, no payment. An informational US$ model-cost estimate only.
  *   transaction  none: 409 `no_payment`.
+ *   abuse        ADR-9: `429 quota_exceeded {resetAt}` over `TMA_RUNS_PER_USER_PER_DAY` runs in 24 h (N tasks = N runs),
+ *                `429 too_many_queued` over `TMA_MAX_QUEUED_RUNS_PER_USER`; both checked in the store under the owner's lock.
  *   settle       `POST /evaluations {agentId, taskIds[], modelApiKey, modelRelease?}`: the key is
  *                required and probed (`probeModelKey`), sealed (AES-256-GCM, like the paid path),
  *                and the evaluation + N `queued` runs are written in one transaction → 202.
@@ -37,8 +39,7 @@ export function isOpenRouterKey(value: unknown): value is string {
   return isModelApiKey(value) && value.trim().startsWith("sk-or-");
 }
 
-/** ADR-9 default: `TMA_MAX_QUEUED_RUNS_PER_USER`. */
-export const DEFAULT_MAX_QUEUED_RUNS_PER_USER = 3;
+export { DEFAULT_MAX_QUEUED_RUNS_PER_USER };
 
 export interface FreeByokAdapterDeps {
   store: EvaluationsStore;
@@ -46,6 +47,8 @@ export interface FreeByokAdapterDeps {
   estimate?: RunCostEstimator;
   runKeySecret?: string;
   probeModelKey?: ModelKeyProbe;
+  /** The clock of the daily quota window (ms). Default: `Date.now`. */
+  now?: () => number;
 }
 
 /** Web2 ends at `graded`: no proof. */
@@ -61,6 +64,8 @@ export function createFreeByokAdapter(deps: FreeByokAdapterDeps): PaymentAdapter
   const { store, config } = deps;
   const probe = deps.probeModelKey ?? formatOnlyProbe;
   const maxQueued = config.maxQueuedRunsPerUser ?? DEFAULT_MAX_QUEUED_RUNS_PER_USER;
+  const dailyRunLimit = config.runsPerUserPerDay ?? DEFAULT_RUNS_PER_USER_PER_DAY;
+  const clock = deps.now ?? Date.now;
 
   return {
     kind: "free_byok",
@@ -129,6 +134,8 @@ export function createFreeByokAdapter(deps: FreeByokAdapterDeps): PaymentAdapter
           isPublic: tasks.every((t) => t.isPublic),
           modelApiKeyEnc: sealed.modelApiKeyEnc,
           maxActiveRuns: maxQueued,
+          dailyRunLimit,
+          now: new Date(clock()),
         });
         return out(202, {
           evaluationId: created.evaluationId,
@@ -137,6 +144,9 @@ export function createFreeByokAdapter(deps: FreeByokAdapterDeps): PaymentAdapter
           runs: created.runIds.map((id, i) => ({ id, taskId: tasks[i]!.taskId, seq: i + 1 })),
         });
       } catch (e) {
+        if (e instanceof QuotaExceededError) {
+          return out(429, { error: "quota_exceeded", code: "quota_exceeded", resetAt: e.resetAt, limit: e.limit, used: e.used });
+        }
         if (e instanceof TooManyQueuedError) {
           return out(429, { error: `you already have ${e.active} runs queued or running (max ${e.max}); wait for them to finish`, code: "too_many_queued" });
         }

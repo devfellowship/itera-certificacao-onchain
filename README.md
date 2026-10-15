@@ -206,6 +206,9 @@ The API reads every secret from an env var and fails loud when one is missing (s
 Login with DFL (web2) reads `DFL_SUPABASE_URL` (default: the DFL project), `DFL_SUPABASE_ANON_KEY`
 (the public anon key; without it only `POST /auth/dfl/exchange` answers 503) and `TMA_MIN_IAM_LEVEL`
 (default 0).
+The free path (DFL principals) has abuse controls: `TMA_RUNS_PER_USER_PER_DAY` (default 10 runs in
+24 h, `429 quota_exceeded`), `TMA_MAX_QUEUED_RUNS_PER_USER` (default 3, `429 too_many_queued`), and the
+`users.disabled` kill switch (`403 account_disabled` on every write route). SIWS wallets are not affected.
 
 To run one agent on one task on your machine, see "Step 1: local CLI" in
 [`services/runner/README.md`](services/runner/README.md).

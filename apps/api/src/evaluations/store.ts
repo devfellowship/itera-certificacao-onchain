@@ -182,6 +182,38 @@ export class TooManyQueuedError extends Error {
   }
 }
 
+/**
+ * The free path's daily run quota (ADR-9): the principal's runs of the last 24 h, plus the new
+ * ones, would pass the limit. `resetAt` is when enough old runs leave the 24 h window.
+ */
+export class QuotaExceededError extends Error {
+  readonly used: number;
+  readonly limit: number;
+  readonly resetAt: string;
+  constructor(used: number, limit: number, resetAt: string) {
+    super(`daily run quota exceeded: ${used} runs in the last 24 h (max ${limit})`);
+    this.used = used;
+    this.limit = limit;
+    this.resetAt = resetAt;
+  }
+}
+
+export const QUOTA_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The daily quota rule, shared by the stores. `startedAts` are the owner's runs inside the 24 h
+ * window ending at `now`, oldest first. Returns the error to throw, or null when `newRuns` more runs
+ * fit. `resetAt` is when the oldest runs that must leave the window have left it.
+ */
+export function checkDailyQuota(startedAts: Date[], newRuns: number, limit: number, now: Date): QuotaExceededError | null {
+  const used = startedAts.length;
+  const excess = used + newRuns - limit;
+  if (excess <= 0) return null;
+  const pivot = startedAts[Math.min(excess, used) - 1];
+  const resetAt = new Date((pivot ? pivot.getTime() : now.getTime()) + QUOTA_WINDOW_MS);
+  return new QuotaExceededError(used, limit, resetAt.toISOString());
+}
+
 /** The input of `createFreeEvaluation`: a resolved, compatible, free evaluation. */
 export interface NewFreeEvaluation {
   evaluationId: string;
@@ -199,6 +231,11 @@ export interface NewFreeEvaluation {
   modelApiKeyEnc: string;
   /** Refuse (TooManyQueuedError) when the owner already has this many `queued`/`running` runs. */
   maxActiveRuns: number;
+  /** Refuse (QuotaExceededError) when the owner's runs of the last 24 h plus `tasks.length` pass this.
+   * Absent → no daily check. */
+  dailyRunLimit?: number;
+  /** The clock of the 24 h window. Default: the current time. */
+  now?: Date;
 }
 
 export interface EvaluationsStore {
@@ -235,7 +272,8 @@ export interface EvaluationsStore {
 
   /**
    * The free path (ADR-6, `free_byok`). In one transaction, under the owner's run lock: count the
-   * owner's `queued`/`running` runs (TooManyQueuedError when >= maxActiveRuns); insert the
+   * owner's runs of the last 24 h (QuotaExceededError when over `dailyRunLimit`) and their `queued`/`running`
+   * runs (TooManyQueuedError when >= maxActiveRuns); insert the
    * evaluation (`payment_kind='free_byok'`, no fee, no payment), the release declaration, and one
    * `queued` run per task with the sealed key. Nothing is written when any step fails.
    */
