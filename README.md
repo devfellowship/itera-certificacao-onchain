@@ -178,6 +178,10 @@ or a VM. The gateway forwards to any model of the provider, not only the quoted 
 tests of the curated tasks are in this public repository, separated by path and kept out of the
 agent sandbox, but readable by anyone who reads the repo.
 
+## Clients: apps/web (web3) and apps/web2 (web2)
+
+Two clients share one API, runner and evaluator. `apps/web` is the web3 client: wallet sign-in, Solana Pay, onchain attestation. `apps/web2` is the web2 client: Login with DFL, free, bring your own OpenRouter key. `apps/web2` has no Solana dependency. Run it with `npm run dev -w @itera/web2` (port 5174).
+
 ## Local development
 
 Requirements: Node.js 24 (the version of the Docker images) and npm 11. Docker is needed only for the runner.

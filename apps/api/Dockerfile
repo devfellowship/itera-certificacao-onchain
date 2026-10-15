@@ -5,6 +5,7 @@ WORKDIR /workspace
 # workspace package.json must be present here. Add a line when you add a workspace.
 COPY package.json package-lock.json turbo.json ./
 COPY apps/web/package.json apps/web/package.json
+COPY apps/web2/package.json apps/web2/package.json
 COPY apps/api/package.json apps/api/package.json
 COPY services/attestation/package.json services/attestation/package.json
 COPY services/evaluator/package.json services/evaluator/package.json

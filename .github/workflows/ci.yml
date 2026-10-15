@@ -40,6 +40,7 @@ jobs:
           docker info --format '{{.RegistryConfig.Mirrors}}'
       - run: docker build --tag itera-agent-credentials:ci .
       - run: docker build --file apps/api/Dockerfile --tag itera-agent-credentials-api:ci .
+      - run: docker build --file apps/web2/Dockerfile --tag itera-web2:ci .
       - run: docker build --tag itera-runner-sandbox:ci services/runner/sandbox
       # ADR-9: the grader sandbox, against real Docker (escape probe 0/5, webhook-ledger 100, validation gate).
       - name: Grader sandbox integration test
