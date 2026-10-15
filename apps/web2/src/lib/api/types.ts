@@ -731,7 +731,6 @@ export interface SampleReposResponse {
   agents: string[]
   tasks: string[]
 }
-}
 export interface TaskPin {
   repoFullName: string
   branch: string
