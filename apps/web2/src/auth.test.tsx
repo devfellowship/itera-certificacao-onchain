@@ -107,7 +107,7 @@ describe('DFL callback', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json(200, { sessionToken: SECRET_SESSION, user: USER })))
     const container = mountApp('/auth/dfl/callback')
     await flush()
-    expect(container.textContent).toContain('Signed in as ana@example.com')
+    expect(container.querySelector('[data-testid="nav-user-email"]')?.textContent).toBe('ana@example.com')
   })
 
   it.each([501, 500, 401, 403])('shows the error state with a try-again button on exchange status %i', async (status) => {

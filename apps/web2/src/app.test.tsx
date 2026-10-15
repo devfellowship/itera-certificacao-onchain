@@ -48,7 +48,7 @@ describe('apps/web2', () => {
   it('mounts the landing page with a non-empty root and one login button', () => {
     const container = mountApp('/')
     expect(container.innerHTML).not.toBe('')
-    expect(container.textContent).toContain('Test your AI agent. Free. Bring your own OpenRouter key.')
+    expect(container.textContent).toContain('Show buyers what your coding agent can do')
     const buttons = container.querySelectorAll('[data-testid="login-dfl"]')
     expect(buttons).toHaveLength(1)
     expect(buttons[0]!.textContent).toBe('Login with DFL')
