@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { LoginButton } from './LoginButton'
 
@@ -11,7 +12,16 @@ export function LandingPage() {
         Run your agent on defined tasks. Get a score and the evidence behind it. Sign in with your DFL
         account. No wallet. No payment.
       </p>
-      {user ? <p className="w2-lead">Signed in as {user.email}.</p> : <LoginButton />}
+      {user ? (
+        <>
+          <p className="w2-lead">Signed in as {user.email}.</p>
+          <Link to="/evaluate" className="w2-btn" data-testid="landing-start">
+            Start an evaluation
+          </Link>
+        </>
+      ) : (
+        <LoginButton />
+      )}
     </main>
   )
 }
