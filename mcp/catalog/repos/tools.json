@@ -144,6 +144,36 @@
     }
   },
   {
+    "name": "read_file_lines",
+    "description": "Read a text file WITH LINE NUMBERS. Every returned line is printed as the line number (starting at 1), a '|' and the line text, for example '  42| text'. Use it when you must cite a line: the other read tools print no line numbers. Without 'start' and 'end' it returns the whole file. With them it returns the lines start..end (both inclusive, 1-based); 'end' past the last line is cut to the last line. A range longer than 1000 lines is cut and the output tells where to continue. An empty file, or a 'start' beyond the last line, is an error that gives the line count. Only works within allowed directories.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "start": {
+          "description": "First line to return (1-based). Default 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "end": {
+          "description": "Last line to return (inclusive). Default: the last line of the file.",
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "git_log",
     "description": "Shows the commit logs",
     "inputSchema": {

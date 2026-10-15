@@ -1,7 +1,7 @@
 {
   "name": "repos",
-  "version": 1,
-  "description": "A read-only fleet of real synthetic git repositories (orgs, repos, commits from the seed), served by the MCP reference filesystem server and the MCP reference git server, wrapped as a fixture with a read log as its state export.",
+  "version": 2,
+  "description": "A read-only fleet of real synthetic git repositories (orgs, repos, commits from the seed), served by the MCP reference filesystem server and the MCP reference git server plus one tool of our own, read_file_lines (a file with line numbers), wrapped as a fixture with a read log as its state export.",
   "transport": "stdio",
   "license": "Apache-2.0 AND MIT",
   "upstream": [
@@ -34,7 +34,8 @@
     "repos",
     "git",
     "filesystem",
-    "research"
+    "research",
+    "line-numbers"
   ],
   "resources": {
     "cpus": 0.5,
@@ -196,5 +197,12 @@
         "type": "integer"
       }
     }
-  }
+  },
+  "local_tools": [
+    {
+      "name": "read_file_lines",
+      "source": "mcp/catalog/repos/server.mjs + lines.mjs",
+      "reason": "repos@1 read tools print no line numbers; campaign k7 showed agents citing a line 2 off (TMA-QA = C, TG 21527)"
+    }
+  ]
 }

@@ -1,11 +1,15 @@
-// repos@1 — a read-only fleet of REAL synthetic git repositories (2 orgs, ~14 repos), served by two
-// upstream MCP reference servers from modelcontextprotocol/servers (see manifest.json `upstream`):
+// repos@2 — a read-only fleet of REAL synthetic git repositories (2 orgs, ~14 repos), served by two
+// upstream MCP reference servers from modelcontextprotocol/servers (see manifest.json `upstream`)
+// plus ONE tool of our own:
 //
 //   - @modelcontextprotocol/server-filesystem (Node): list_allowed_directories, list_directory,
 //     directory_tree, search_files, read_text_file, read_multiple_files;
-//   - mcp-server-git (Python, GitPython): git_log, git_show.
+//   - mcp-server-git (Python, GitPython): git_log, git_show;
+//   - read_file_lines (this file, lines.mjs): a file with LINE NUMBERS, whole or a range. The upstream
+//     read tools print raw text, so an agent that must cite `repo:path:line` counted the lines itself
+//     and was off by a few (campaign k7). This tool is the only addition to repos@1.
 //
-// Both speak stdio only. They run as child processes INSIDE the sidecar, and the base fixture bridges
+// The two upstreams speak stdio only. They run as child processes INSIDE the sidecar, and the base fixture bridges
 // them to streamable HTTP with the token, the allow-list and the call log (same pattern as memory@1).
 // Only READ tools are in tools.json, so the write tools of both upstreams (write_file, edit_file,
 // git_commit, ...) cannot be listed or called: the base refuses every name outside tools.json.
@@ -14,19 +18,22 @@
 // The state this fixture adds is a READ LOG (/state/readlog.json): every file read, every listing,
 // every search and every git call, with repo-relative paths. The export gives it to the mcp_state
 // scorer, so a task can assert "the agent read the file it cites" (benchmarks: evidence was read).
-import { realpathSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { canonicalJson, EXIT, serve, STATE_DIR } from '/itera/fixture.mjs';
 import { buildFleet, REPOS_DIR } from '/itera/server/fleet.mjs';
+import { mergeRanges, numberLines, rangeOfRead, splitLines } from './lines.mjs';
 
 /** The path the agent sees. In the image it is a symlink to /state/repos. */
 export const PUBLIC_ROOT = process.env.ITERA_REPOS_ROOT ?? '/repos';
 export const READLOG_FILE = 'readlog.json';
 const FS_TOOLS = new Set(['list_allowed_directories', 'list_directory', 'directory_tree', 'search_files', 'read_text_file', 'read_multiple_files']);
 const GIT_TOOLS = new Set(['git_log', 'git_show']);
+/** Tools this server runs itself (no upstream). */
+const LOCAL_TOOLS = new Set(['read_file_lines']);
 const GIT_PYTHON = process.env.ITERA_GIT_PYTHON ?? '/itera/git/venv/bin/python';
 
 const require = createRequire('/itera/upstream/package.json');
@@ -54,16 +61,51 @@ export function locate(p, stateDir = STATE_DIR) {
   return { repo: `${segs[0]}/${segs[1]}`, path: segs.length > 2 ? posix.join(...segs.slice(2)) : '' };
 }
 
-const isFile = (stateDir, loc) => {
-  if (!loc?.repo || !loc.path) return false;
+/** The real path of a regular file under the fleet root, or null (a symlink out of the fleet is refused). */
+const realFile = (stateDir, loc) => {
+  if (!loc?.repo || !loc.path) return null;
   try {
     const full = join(stateDir, REPOS_DIR, loc.repo, loc.path);
     const real = realpathSync(full);
-    return real.startsWith(join(stateDir, REPOS_DIR) + '/') && statSync(real).isFile();
+    return real.startsWith(join(stateDir, REPOS_DIR) + '/') && statSync(real).isFile() ? real : null;
   } catch {
-    return false;
+    return null;
   }
 };
+
+/** Lines of a fleet file (see lines.mjs for the definition), or null when it is not a readable file. */
+const fileLines = (stateDir, loc) => {
+  const real = realFile(stateDir, loc);
+  if (!real) return null;
+  try {
+    return splitLines(readFileSync(real, 'utf-8'));
+  } catch {
+    return null;
+  }
+};
+
+const failure = (text) => ({ isError: true, content: [{ type: 'text', text }] });
+
+/**
+ * read_file_lines { path, start?, end? } → the file (or the range) with line numbers, "  42| text".
+ * Same reach as the upstream filesystem server: a regular file under /repos. A `.git` entry is refused
+ * (the gitlink file is not part of the repository content the task is about).
+ */
+export function readFileLines(args, stateDir = STATE_DIR) {
+  const loc = locate(args.path, stateDir);
+  if (!loc) return failure(`Access denied: ${args.path} is outside the allowed directory ${PUBLIC_ROOT}`);
+  if (loc.path.split('/').includes('.git')) return failure(`Access denied: ${args.path} is repository metadata`);
+  const real = realFile(stateDir, loc);
+  if (!real) return failure(`${args.path} is not a file (use list_directory for a directory)`);
+  let text;
+  try {
+    text = readFileSync(real, 'utf-8');
+  } catch (err) {
+    return failure(`${args.path} could not be read: ${String(err?.message ?? err).slice(0, 120)}`);
+  }
+  const r = numberLines(text, args.start, args.end);
+  return r.ok ? { content: [{ type: 'text', text: r.text }] } : failure(r.error);
+}
 
 export function emptyLog() {
   return { files_read: {}, dirs_listed: {}, searches: [], git: [], calls: 0, calls_outside: 0 };
@@ -74,16 +116,20 @@ export function recordCall(log, name, args, step, stateDir = STATE_DIR) {
   log.calls += 1;
   const fileRead = (p) => {
     const loc = locate(p, stateDir);
-    if (!isFile(stateDir, loc)) {
+    const lines = fileLines(stateDir, loc);
+    if (lines === null) {
       if (!loc) log.calls_outside += 1;
       return;
     }
     const id = `${loc.repo}:${loc.path}`;
-    const e = log.files_read[id] ?? { id, repo: loc.repo, path: loc.path, reads: 0, first_seq: step };
+    const e = log.files_read[id] ?? { id, repo: loc.repo, path: loc.path, reads: 0, first_seq: step, lines: [] };
     e.reads += 1;
+    // `lines` = the line ranges the agent has seen in this file, merged (see lines.mjs rangeOfRead).
+    const range = rangeOfRead(name, args, lines.length);
+    e.lines = mergeRanges([...(e.lines ?? []), ...(range ? [range] : [])]);
     log.files_read[id] = e;
   };
-  if (name === 'read_text_file') fileRead(args.path);
+  if (name === 'read_text_file' || name === 'read_file_lines') fileRead(args.path);
   else if (name === 'read_multiple_files') for (const p of args.paths ?? []) fileRead(p);
   else if (name === 'list_directory' || name === 'directory_tree') {
     const loc = locate(args.path, stateDir);
@@ -138,6 +184,7 @@ function upstreamAdapter() {
       const fsTools = (await (await fs()).listTools()).tools;
       const gitTools = (await (await git()).listTools()).tools;
       for (const t of expected) {
+        if (LOCAL_TOOLS.has(t.name)) continue; // ours: there is no upstream definition to compare
         const up = (FS_TOOLS.has(t.name) ? fsTools : gitTools).find((u) => u.name === t.name);
         if (!up || pick(up) !== pick(t)) {
           process.stdout.write(`${JSON.stringify({ event: 'fatal', code: EXIT.tools, error: `upstream tool ${t.name} differs from tools.json` })}\n`);
@@ -146,9 +193,14 @@ function upstreamAdapter() {
       }
     },
     async call(name, args, ctx) {
-      const client = FS_TOOLS.has(name) ? await fs() : GIT_TOOLS.has(name) ? await git() : null;
-      if (!client) throw new Error(`unknown tool ${name}`);
-      const out = await client.callTool({ name, arguments: args });
+      let out;
+      if (LOCAL_TOOLS.has(name)) {
+        out = readFileLines(args);
+      } else {
+        const client = FS_TOOLS.has(name) ? await fs() : GIT_TOOLS.has(name) ? await git() : null;
+        if (!client) throw new Error(`unknown tool ${name}`);
+        out = await client.callTool({ name, arguments: args });
+      }
       if (!out.isError) {
         log = recordCall(log, name, args, ctx.step);
         writeFileSync(logPath, JSON.stringify(log));

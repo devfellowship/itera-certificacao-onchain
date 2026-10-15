@@ -1,6 +1,6 @@
-# repos@1 — a read-only fleet of real synthetic git repositories
+# repos@2 — a read-only fleet of real synthetic git repositories
 
-Catalog fixture server for research tasks (first user: `benchmarks/dfl-fleet-research`).
+Catalog fixture server for research tasks (users: `benchmarks/dfl-fleet-research`).
 Contract: `docs/architecture/mcp-sandbox.md`, "The fixture-server contract".
 
 ## The choice (ADR-8, TMA-Q2 = A)
@@ -17,12 +17,35 @@ small MCP of 6 read tools. The evidence:
 | find files by name | `search_files` (glob, relative to `path`: `**/*.yml`, not `*.yml`) | yes |
 | commit history | `git_log`, `git_show` (mcp-server-git) | yes |
 | search file CONTENT (grep) | none | **gap** |
-| line numbers in a read | none (raw text) | **gap** |
+| line numbers in a read | none (raw text) | **gap in repos@1, closed in repos@2** |
 
-The two gaps are accepted. They are what a real agent meets with these widely used servers, and a
-task with a small fleet (~14 repos, a few files each) stays solvable by listing and reading. A
-task that cites `repo:path:line` must say that the agent counts the lines itself. If a campaign
-shows that the gaps dominate the failures, `repos@2` can add a content-search tool.
+The first gap (content search) stays. The second gap did not stay: in campaign `k7-dfl-bench-1`
+the agents that had to cite `repo:path:line` counted the lines themselves and cited a line that was
+off by 2 (they cited line 11 for text on line 13). Tainan, TMA-QA = C (TG 21527): give the agent a
+read tool WITH line numbers and keep the strict evidence rule in the task.
+
+## repos@2: what changed since repos@1
+
+`repos@1` is published and never changes (tasks pin its digest). `repos@2` is a new version of the
+same directory: the same 8 tools, plus one:
+
+| Tool | What it does |
+|---|---|
+| `read_file_lines { path, start?, end? }` | Returns the file, or the lines `start..end` (1-based, inclusive), as `  42\| text`. `end` past the last line is clamped. More than 1000 lines in one call are cut and the output says where to go on. An empty file or a `start` past the end is an error that gives the line count. |
+
+- **Our own tool, not an upstream tool.** The upstream `read_text_file` is unchanged, so the drift
+  check against `tools.json` still holds for the 8 upstream tools. `read_file_lines` is served by
+  `server.mjs` (the pure line arithmetic is in `lines.mjs`, tested by `lines.test.mjs`) and is listed in
+  `manifest.json` `local_tools`.
+- **One definition of a line.** Split on `\n`; a final `\n` does not open an extra line; the first line
+  is 1. This is the definition the task graders use (`text.split('\n')`).
+- **Same reach as the filesystem server:** a regular file under `/repos`. `.git` entries are refused.
+- **Read log.** Every `files_read` entry has a new field `lines`: the merged line ranges the agent has
+  seen in that file, for example `[[1, 12], [30, 41]]`. It is filled by `read_file_lines`, and also by
+  `read_text_file` (`head`, `tail` or the whole file) and `read_multiple_files` (the whole file). The `mcp_state` scorer
+  filters with `==` only, so today the field serves analysis of a run (did the agent see the line it
+  cites?), not an assertion.
+  The field is new; the fields of repos@1 are unchanged, so an assertion written for repos@1 still works.
 
 ## How it works
 
@@ -42,7 +65,7 @@ shows that the gaps dominate the failures, `repos@2` can add a content-search to
   (`write_file`, `edit_file`, `move_file`, `git_commit`, `git_add`, ...) are not in `tools.json`,
   so the base refuses them like any unknown tool.
 - **Export** (`/itera/export`, for the `mcp_state` scorer): the HEAD SHA of each repo plus the
-  **read log** — `files_read` (`id` = `org/repo:path`), `dirs_listed`, `searches`, `git`, call
+  **read log** — `files_read` (`id` = `org/repo:path`, and the `lines` read), `dirs_listed`, `searches`, `git`, call
   counts. Only successful calls on real files count. Example assertion:
   `{ "path": "$.files_read[?(@.id=='acmehq/acme-player:README.md')]", "exists": true }`.
 
@@ -59,4 +82,5 @@ shows that the gaps dominate the failures, `repos@2` can add a content-search to
 ```bash
 docker build -t testmyagent-mcp-repos:dev -f mcp/catalog/repos/Dockerfile mcp
 node mcp/conformance.mjs repos testmyagent-mcp-repos:dev
+node --test mcp/catalog/repos/lines.test.mjs      # the line arithmetic, no Docker
 ```
