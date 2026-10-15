@@ -803,7 +803,8 @@ async function main(): Promise<void> {
     f.gateway = gateway;
     const failed = report.checks.filter((c) => c.status === "fail");
     must(report.overall === "VERIFIED" && failed.length === 0, `${report.overall}: ${failed.map((c) => `${c.id} (${c.detail})`).join("; ")}`);
-    must(report.manifestSha256 === S.hash, `on-chain manifest_sha256 ${report.manifestSha256} != evaluation hash ${S.hash}`);
+    // The attestation records the run's evidence hash, which is the proof hash of the run.
+    must(report.manifestSha256 === run.proof.proofHash, `on-chain manifest_sha256 ${report.manifestSha256} != proof hash ${run.proof.proofHash}`);
     const skipped = report.checks.filter((c) => c.status === "skip");
     if (argv["verify-strict"]) must(skipped.length === 0, `skipped checks: ${skipped.map((c) => `${c.id} (${c.detail})`).join("; ")}`);
     for (const id of ["mint-exists", "non-transferable", "known-schema", "known-credential", "nonce-binding", "single-holder"]) {
