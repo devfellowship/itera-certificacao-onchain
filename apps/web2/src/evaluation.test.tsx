@@ -41,7 +41,7 @@ const flush = () =>
     await new Promise((r) => setTimeout(r, 0))
   })
 
-async function waitFor(check: () => boolean, label: string, timeoutMs = 2000) {
+async function waitFor(check: () => boolean, label: string, timeoutMs = 5000) {
   const end = Date.now() + timeoutMs
   while (!check()) {
     if (Date.now() > end) throw new Error(`timed out waiting for ${label}`)
@@ -189,13 +189,18 @@ describe('web2 evaluation flow', () => {
   })
 
   it('shows the running state with per-run status before the end, and stops polling at graded', async () => {
-    const fetchMock = stubApi()
+    // The run stays in progress until the test lets it finish: no timing race on a slow runner.
+    let finished = false
+    const fetchMock = stubApi({
+      [`GET /evaluations/${EVAL_ID}`]: () => json(200, finished ? evaluationView('graded', 'pass', 87.5) : evaluationView('in_progress', 'running', null)),
+    })
     const { c } = mountAt(`/evaluations/${EVAL_ID}`)
     await waitFor(() => q(c, 'evaluation-status') !== null, 'status')
     expect(q(c, 'evaluation-status')!.dataset.status).toBe('in_progress')
     expect(q(c, 'run-status')!.textContent).toBe('Running')
     expect(q(c, 'score-total')).toBeNull()
     expect(q(c, 'cancel-evaluation')).not.toBeNull()
+    finished = true
     await waitFor(() => q(c, 'evaluation-status')?.dataset.status === 'graded', 'graded')
     const polls = () => fetchMock.mock.calls.filter(([u]) => String(u).endsWith(`/evaluations/${EVAL_ID}`)).length
     const n = polls()
