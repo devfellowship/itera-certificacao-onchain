@@ -104,14 +104,15 @@ describe("evaluation routes by principal kind", () => {
   const dflToken = () => issueSessionToken(`dfl:${randomUUID()}`, Date.now(), "dfl").token;
   const siwsToken = () => issueSessionToken(WALLET, Date.now(), "siws").token;
 
-  it("a dfl principal gets the free_byok stub refusal on every paid route, never the Solana path", async () => {
+  it("a dfl principal never reaches the Solana path: zero quote, no payment transaction", async () => {
     const token = dflToken();
     const quote = await post("/evaluations/quote", { agentId, taskIds: ["webhook-ledger"] }, token);
-    expect(quote).toEqual({ status: 501, body: { error: "not_implemented" } });
+    expect(quote.status).toBe(200);
+    expect(quote.body).toMatchObject({ paymentKind: "free_byok", totalUsd: 0, totalLamports: 0, modelKeyRequired: true });
     const tx = await post(`/evaluations/quote/${REFERENCE}/transaction`, {}, token);
-    expect(tx).toEqual({ status: 501, body: { error: "not_implemented" } });
+    expect(tx).toEqual({ status: 409, body: { error: "the free evaluation path has no payment transaction", code: "no_payment" } });
     const settle = await post("/evaluations", { reference: REFERENCE }, token);
-    expect(settle).toEqual({ status: 501, body: { error: "not_implemented" } });
+    expect(settle.status).toBe(400);
 
     expect(gateway.newReference).not.toHaveBeenCalled();
     expect(gateway.transferUrl).not.toHaveBeenCalled();

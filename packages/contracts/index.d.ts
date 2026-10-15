@@ -76,7 +76,7 @@ export type Validation<T> = { ok: true; value: T } | { ok: false; errors: string
 
 export declare const evidenceManifestSchema: Record<string, unknown>;
 export declare const evidenceStatementSchema: Record<string, unknown>;
-export declare const apiSchemas: Record<'runDetail' | 'evaluationView' | 'evaluationList' | 'runActions', Record<string, unknown>>;
+export declare const apiSchemas: Record<'runDetail' | 'evaluationView' | 'evaluationList' | 'runActions' | 'freeEvaluationRequest' | 'freeEvaluationCreated', Record<string, unknown>>;
 
 /** Minimal shape that the schema guarantees for a graded run (see schemas/evidence-manifest.schema.json). */
 export interface GradedManifest {
@@ -92,7 +92,7 @@ export interface GradedManifest {
 export declare function validateEvidenceManifest(value: unknown): Validation<GradedManifest>;
 export declare function isEvidenceManifest(value: unknown): boolean;
 export declare function validateEvidenceStatement(value: unknown): Validation<Record<string, unknown>>;
-export declare function validateApiResponse(name: 'runDetail' | 'evaluationView' | 'evaluationList' | 'runActions', value: unknown): Validation<Record<string, unknown>>;
+export declare function validateApiResponse(name: 'runDetail' | 'evaluationView' | 'evaluationList' | 'runActions' | 'freeEvaluationRequest' | 'freeEvaluationCreated', value: unknown): Validation<Record<string, unknown>>;
 
 export type RunState = 'queued' | 'running' | 'completed' | 'timeout' | 'infra_error' | 'cancelled';
 export type RunVerdict = 'pass' | 'fail' | 'invalid' | 'inconclusive';

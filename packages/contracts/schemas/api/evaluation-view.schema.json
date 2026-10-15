@@ -7,8 +7,9 @@
   "required": ["id", "status", "uiState", "createdAt", "agent", "model", "taskCount", "fee", "stages", "tasks", "proofs", "counts", "manifestSha256", "isPublic"],
   "properties": {
     "id": { "type": "string" },
-    "status": { "enum": ["pending", "in_progress", "issuing", "review", "issued", "failed", "cancelled"] },
-    "uiState": { "enum": ["queued", "running", "issuing", "issued", "error", "cancelled"] },
+    "status": { "enum": ["pending", "in_progress", "issuing", "review", "issued", "graded", "failed", "cancelled"] },
+    "uiState": { "enum": ["queued", "running", "issuing", "issued", "graded", "error", "cancelled"] },
+    "paymentKind": { "enum": ["solana_pay", "free_byok"] },
     "agent": { "type": "object", "required": ["id", "name"] },
     "model": { "type": "object", "required": ["id"] },
     "taskCount": { "type": "integer", "minimum": 0 },

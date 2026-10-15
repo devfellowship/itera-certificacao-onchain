@@ -8,7 +8,7 @@ import { digestOf } from "../domain/digest.js";
 import { hasEvalLog } from "../http/runs-router.js";
 import type { EvalProof, EvalRun, EvaluationRecord, EvaluationStatus, RollupColumns } from "./store.js";
 
-export type UiState = "queued" | "running" | "issuing" | "issued" | "error" | "cancelled";
+export type UiState = "queued" | "running" | "issuing" | "issued" | "graded" | "error" | "cancelled";
 export type TaskStage = "queued" | "awaiting_artifact" | "grading" | "graded" | "timed_out" | "review" | "cancelled";
 export type Outcome = "PASS" | "FAIL" | "INVALID" | null;
 
@@ -149,6 +149,8 @@ export function rollup(input: RollupInput) {
   const provable = effective.filter(needsProof);
   const confirmed = provable.filter((r) => proofByRun.get(r.id)?.status === "confirmed");
   const cancelled = Boolean(ev.cancelledAt);
+  // ADR-6: a free (BYOK) evaluation has no payment and no proof. Its terminal state is `graded`.
+  const free = ev.paymentKind === "free_byok";
 
   // A free retry still to come (the issuer job inserts it on the next tick) keeps the slot open.
   const retryPending = !cancelled && slots.some((s) => s.run.status === "infra_error" && s.attempts === 1);
@@ -156,6 +158,7 @@ export function rollup(input: RollupInput) {
   let status: EvaluationStatus;
   if (cancelled) status = "cancelled";
   else if (!allTerminal || retryPending) status = anyStarted || retryPending ? "in_progress" : "pending";
+  else if (free) status = counts.review > 0 ? "review" : counts.pass + counts.fail + counts.invalid > 0 ? "graded" : "failed";
   else if (confirmed.length < provable.length) status = "issuing";
   else if (counts.review > 0) status = "review";
   else if (provable.length === 0) status = "failed";
@@ -169,6 +172,7 @@ export function rollup(input: RollupInput) {
   else if (status === "in_progress") uiState = "running";
   else if (status === "issuing") uiState = "issuing";
   else if (status === "issued") uiState = "issued";
+  else if (status === "graded") uiState = "graded";
   else uiState = "error";
 
   // ADR-6: the evaluation manifest hashes the run proofs. Computed once every run has ended.
@@ -199,7 +203,7 @@ export function rollup(input: RollupInput) {
   const graded = effective.filter(isTerminal).length;
   const stageState = (done: boolean, active: boolean, error = false) =>
     error ? "error" : done ? "done" : active ? "active" : "wait";
-  const stages = [
+  const allStages = [
     {
       key: "contract",
       state: stageState(anyStarted || allTerminal, !anyStarted && !cancelled),
@@ -226,6 +230,8 @@ export function rollup(input: RollupInput) {
       detail: `${confirmed.length} of ${provable.length} confirmed`,
     },
   ];
+  // No attestation on the free path.
+  const stages = free ? allStages.filter((s) => s.key !== "attestation") : allStages;
 
   const taskById = new Map(ev.tasks.map((t) => [t.taskId, t]));
   const tasks = slots.map((s) => {
@@ -253,8 +259,11 @@ export function rollup(input: RollupInput) {
 
   // Event log derived from timestamps (no events table tonight). tMs is relative to creation.
   const t0 = Date.parse(ev.createdAt);
+  const runsLabel = `${ev.taskCount} run${ev.taskCount === 1 ? "" : "s"}`;
   const events: Array<{ tMs: number; tone: "ok" | "live" | "idle" | "bad"; label: string; detail: string }> = [
-    { tMs: 0, tone: "ok", label: "Payment confirmed", detail: `${ev.taskCount} run${ev.taskCount === 1 ? "" : "s"} · US$${ev.feeUsd.toFixed(2)} · tx ${short(ev.txSig, 8) ?? "—"}` },
+    free
+      ? { tMs: 0, tone: "ok", label: "Evaluation queued", detail: `${runsLabel} · free · your model key` }
+      : { tMs: 0, tone: "ok", label: "Payment confirmed", detail: `${runsLabel} · US$${ev.feeUsd.toFixed(2)} · tx ${short(ev.txSig, 8) ?? "—"}` },
   ];
   for (const s of slots) {
     for (const r of runs.filter((x) => x.id === s.slotRunId || x.retryOfRunId === s.slotRunId)) {
@@ -301,6 +310,7 @@ export function rollup(input: RollupInput) {
       slug,
       status,
       uiState,
+      paymentKind: free ? "free_byok" : "solana_pay",
       elapsedMs: Math.max(0, (completedAt ? Date.parse(completedAt) : nowMs) - t0),
       createdAt: ev.createdAt,
       agent: { id: ev.agentId, name: agent.name, slug: agent.slug, repo: agent.repoFullName, commit: input.agentCommit, initials: initialsOf(agent.name), authorWallet: agent.ownerWallet ?? null },

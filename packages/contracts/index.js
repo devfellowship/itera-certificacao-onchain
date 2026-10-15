@@ -24,6 +24,9 @@ export const apiSchemas = {
   evaluationView: loadSchema('api/evaluation-view.schema.json'),
   evaluationList: loadSchema('api/evaluation-list.schema.json'),
   runActions: loadSchema('api/run-actions.schema.json'),
+  // The free BYOK path (plan 20261015-testmyagent-web2-client, T7): the request body and the 202.
+  freeEvaluationRequest: loadSchema('api/free-evaluation-request.schema.json'),
+  freeEvaluationCreated: loadSchema('api/free-evaluation-created.schema.json'),
 };
 
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictTypes: false, strictRequired: false });
@@ -79,7 +82,7 @@ export function validateEvidenceStatement(value) {
 
 /**
  * Validate an API response body against schemas/api/<name>.
- * @param {'runDetail' | 'evaluationView' | 'evaluationList' | 'runActions'} name
+ * @param {'runDetail' | 'evaluationView' | 'evaluationList' | 'runActions' | 'freeEvaluationRequest' | 'freeEvaluationCreated'} name
  * @param {unknown} value
  */
 export function validateApiResponse(name, value) {
