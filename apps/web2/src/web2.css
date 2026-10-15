@@ -85,3 +85,53 @@
   background: transparent;
   color: var(--tma-primary);
 }
+
+/* T8: the BYOK OpenRouter key field. */
+.w2-keyfield {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.w2-keyfield-label {
+  font-weight: 500;
+}
+
+.w2-keyfield-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.w2-input {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--tma-line-strong);
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-surface);
+  color: inherit;
+}
+
+.w2-input:focus-visible {
+  outline: none;
+  box-shadow: var(--tma-focus-ring);
+}
+
+.w2-keyfield-why {
+  color: var(--tma-text-muted);
+  font-size: 14px;
+}
+
+.w2-keyfield-why a {
+  color: var(--tma-primary);
+}
+
+.w2-keyfield-ok {
+  color: var(--tma-success-text);
+}
+
+.w2-keyfield-error {
+  color: var(--tma-danger-text);
+}

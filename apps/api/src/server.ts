@@ -15,6 +15,8 @@ import { evaluationsConfigFromEnv } from "./evaluations/config.js";
 import { runCostEstimator } from "./evaluations/estimate.js";
 import { createEvaluationIssuer } from "./evaluations/issuer.js";
 import { openRouterPrices } from "./domain/model-prices.js";
+import { createOpenRouterKeyProbe } from "./models/openrouter-key.js";
+import { platformKeyConfigFromEnv } from "./models/platform-key.js";
 import { solUsdProvider } from "./evaluations/price.js";
 import { SolanaPayGateway } from "./payments/adapters/solana-pay-gateway.js";
 import { PgEvaluationsStore } from "./evaluations/store.pg.js";
@@ -49,6 +51,8 @@ const reputation = new PgReputationStore(getPool);
 const proofIssuer = proofIssuerHook(proofs, reputation);
 // Needs db/migrations/0008_evaluations_payments.sql applied.
 const evaluationsStore = new PgEvaluationsStore(getPool());
+// One cached OpenRouter list-price lookup: the run estimate and the platform path's low-cost rule.
+const modelPrices = openRouterPrices();
 createEvaluationIssuer({ store: evaluationsStore, runs: runsStore, proofIssuer }).start();
 
 // T5 Login with DFL (needs 0018_users_principal.sql). Fails at boot on an invalid TMA_MIN_IAM_LEVEL.
@@ -82,8 +86,12 @@ createApp(repo, {
     config: evaluationsConfigFromEnv(),
     price: solUsdProvider(),
     payments: new SolanaPayGateway(),
-    estimate: runCostEstimator(runsStore, openRouterPrices()),
+    estimate: runCostEstimator(runsStore, modelPrices),
     runKeySecret: process.env.ITERA_RUN_KEY_SECRET,
+    // T8: the OpenRouter `GET /key` probe of the free BYOK path, and the platform-key flag (off by default).
+    probeModelKey: createOpenRouterKeyProbe(),
+    platformKey: platformKeyConfigFromEnv(),
+    modelPrice: modelPrices,
   },
   // U14: public evaluation profile (needs 0008).
   publicProfiles: new PgPublicProfilesStore(getPool()),

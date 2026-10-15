@@ -13,6 +13,8 @@ import {
   type PaymentRecord,
   type ResolvedTask,
   type RollupColumns,
+  PLATFORM_KEY_PRICE_SOURCE,
+  PlatformQuotaExceededError,
   TooManyQueuedError,
   checkDailyQuota,
   QUOTA_WINDOW_MS,
@@ -145,6 +147,14 @@ export class FakeEvaluationsStore implements EvaluationsStore {
     }
     const active = this.runs.filter((r) => this.runOwners.get(r.id) === input.ownerWallet && (r.status === "queued" || r.status === "running")).length;
     if (active >= input.maxActiveRuns) throw new TooManyQueuedError(active, input.maxActiveRuns);
+    const platform = input.keySource === "platform";
+    if (platform) {
+      const dayAgo = clock.getTime() - QUOTA_WINDOW_MS;
+      const platformEvals = new Set(this.evaluations.filter((e) => e.ownerWallet === input.ownerWallet && e.priceSource === PLATFORM_KEY_PRICE_SOURCE).map((e) => e.id));
+      const used = this.runs.filter((r) => platformEvals.has(r.evaluationId) && Date.parse(r.startedAt) > dayAgo).length;
+      const max = input.maxPlatformRunsPerDay ?? 0;
+      if (used + input.tasks.length > max) throw new PlatformQuotaExceededError(used, max);
+    }
     // Like the foreign key runs → task_packs: a run needs a known task pack. Checked for every run
     // BEFORE any write, so a failure leaves nothing behind (the pg store rolls back).
     for (const t of input.tasks) {
@@ -170,7 +180,7 @@ export class FakeEvaluationsStore implements EvaluationsStore {
       feeUsd: 0,
       feeLamports: 0,
       solUsdRate: 0,
-      priceSource: "",
+      priceSource: platform ? PLATFORM_KEY_PRICE_SOURCE : "",
       paymentId: null,
       txSig: null,
       score: null,

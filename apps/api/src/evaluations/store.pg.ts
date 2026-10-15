@@ -14,6 +14,8 @@ import {
   type NewFreeEvaluation,
   type ResolvedTask,
   type RollupColumns,
+  PLATFORM_KEY_PRICE_SOURCE,
+  PlatformQuotaExceededError,
   TooManyQueuedError,
   checkDailyQuota,
 } from "./store.js";
@@ -382,15 +384,27 @@ export class PgEvaluationsStore implements EvaluationsStore {
       );
       const n = num(active.rows[0]?.n);
       if (n >= input.maxActiveRuns) throw new TooManyQueuedError(n, input.maxActiveRuns);
+      const platform = input.keySource === "platform";
+      if (platform) {
+        // ADR-5: the platform-paid runs of the last 24 h, under the same owner lock.
+        const used = await client.query(
+          `select count(*) as n from public.runs r join public.evaluations e on e.id = r.evaluation_id
+            where e.owner_wallet = $1 and e.price_source = $2 and r.started_at > $3::timestamptz - interval '24 hours'`,
+          [input.ownerWallet, PLATFORM_KEY_PRICE_SOURCE, input.now ?? new Date()],
+        );
+        const u = num(used.rows[0]?.n);
+        const max = input.maxPlatformRunsPerDay ?? 0;
+        if (u + input.tasks.length > max) throw new PlatformQuotaExceededError(u, max);
+      }
 
       await client.query(
         `insert into public.evaluations
            (id, short_id, owner_wallet, agent_id, agent_version_id, model_id, model_release, tasks, status, task_count,
-            is_public, model_api_key_enc, payment_kind)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$11,'free_byok')`,
+            is_public, model_api_key_enc, payment_kind, price_source)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$11,'free_byok',$12)`,
         [
           input.evaluationId, input.shortId, input.ownerWallet, input.agentId, input.agentVersionId, input.modelId, input.modelRelease,
-          JSON.stringify(input.tasks), input.tasks.length, input.isPublic, input.modelApiKeyEnc,
+          JSON.stringify(input.tasks), input.tasks.length, input.isPublic, input.modelApiKeyEnc, platform ? PLATFORM_KEY_PRICE_SOURCE : null,
         ],
       );
       const release = await client.query(

@@ -35,6 +35,7 @@ import { profileEnrichment } from "./http/profile-enrich.js";
 import type { AvatarStorage } from "./domain/avatar.js";
 import type { AgentAvatarStore } from "./domain/agent-avatar-store.js";
 import { createFaucetRouter, type FaucetRouterDeps } from "./http/faucet-router.js";
+import { createModelsAccessRouter, type ModelsAccessRouterDeps } from "./http/models-access-router.js";
 
 export const SERVICE_NAME = "testmyagent-api";
 export const PRODUCT_NAME = "TestMyAgent";
@@ -115,6 +116,7 @@ const ROUTES = [
   "DELETE /agents/:id/avatar",
   "PUT /admin/agents/:id/avatar",
   "GET /models/:id/access",
+  "POST /models/access",
   "POST /admin/models/sync",
   "GET /public/evaluations/:slugOrHash",
   "GET /public/evaluations/:slugOrHash/manifest.json",
@@ -174,6 +176,8 @@ export interface AppOptions {
   /** T5 Login with DFL (needs 0018_users_principal.sql). Without a users store the exchange answers
    * 503 dfl_auth_not_configured; the SIWS routes do not depend on it. */
   dflAuth?: DflAuthDeps;
+  /** T8: POST /models/access (the BYOK OpenRouter key check). Always mounted; a test injects fetch. */
+  modelsAccess?: ModelsAccessRouterDeps;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -225,6 +229,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   });
 
   app.use(createAuthRouter({ dfl: options.dflAuth }));
+  app.use(createModelsAccessRouter(options.modelsAccess));
   if (options.runs) app.use(createRunsRouter({ repo, ...options.runs }));
   // Before the 410 router: both answer POST /evaluations (the v2 one falls through on a legacy
   // body).

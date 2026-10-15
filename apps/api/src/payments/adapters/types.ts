@@ -21,6 +21,8 @@ export type PaymentKind = "solana_pay" | "free_byok";
 export interface PaymentOutcome {
   status: number;
   body: unknown;
+  /** Extra response headers (for example `Retry-After` on a 503). */
+  headers?: Record<string, string>;
 }
 
 /** The input of `quote`, after the router resolved and checked the agent and the tasks. */

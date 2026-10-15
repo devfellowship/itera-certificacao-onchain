@@ -92,7 +92,9 @@ export const api = {
   tasks: (query: T.TasksQuery = {}) => request<T.TasksResponse>('/tasks', { query: { ...query } }),
   tags: (kind?: T.TagKind) => request<T.TagsResponse>('/tags', { query: { kind } }),
   models: () => request<T.ModelsResponse>('/models'),
-  modelAccess: (openrouterKey: string) => request<{ accessible: string[] }>('/models/access', { method: 'POST', body: json({ openrouterKey }) }),
+  /** T8: checks an OpenRouter key (never stored). 422 model_key_invalid | model_key_no_credit. */
+  modelAccess: (openrouterKey: string) =>
+    request<{ label: string | null; limitRemaining: number | null; isFreeTier: boolean | null }>('/models/access', { method: 'POST', body: json({ openrouterKey }) }),
 
   // GitHub [EXISTING] + branches/commits [NEW]
   githubInstallUrl: () => request<{ url: string; state: string }>('/github/install-url'),

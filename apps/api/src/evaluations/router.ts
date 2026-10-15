@@ -26,6 +26,8 @@ import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { requireWallet } from "../http/auth.js";
 import { createPaymentAdapters, paymentAdapterFor, type PaymentOutcome } from "../payments/adapters/index.js";
 import type { ModelKeyProbe } from "../payments/adapters/free-byok.js";
+import type { PriceLookup } from "../domain/model-prices.js";
+import type { PlatformKeyConfig } from "../models/platform-key.js";
 import type { PaymentGateway } from "../payments/adapters/solana-pay-gateway.js";
 import { lamportsToSol, round4, type EvaluationsConfig } from "./config.js";
 import type { RunCostEstimator } from "./estimate.js";
@@ -45,6 +47,10 @@ export interface EvaluationsRouterDeps {
   runKeySecret?: string;
   /** The free path's model key probe (T8: the OpenRouter `GET /key` check). Default: format only. */
   probeModelKey?: ModelKeyProbe;
+  /** ADR-5 platform-key allowance of the free path. Default: off. */
+  platformKey?: PlatformKeyConfig;
+  /** OpenRouter list prices, for the platform path's low-cost model rule. */
+  modelPrice?: PriceLookup;
   now?: () => number;
 }
 
@@ -64,7 +70,10 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
   // ADR-6: the payment adapter follows the principal kind (siws → solana_pay, dfl → free_byok).
   const adapters = createPaymentAdapters({ ...deps, now });
   const adapterOf = (req: Request) => paymentAdapterFor(adapters, req.principal!.kind);
-  const send = (res: Response, o: PaymentOutcome) => void res.status(o.status).json(o.body);
+  const send = (res: Response, o: PaymentOutcome) => {
+    if (o.headers) res.set(o.headers);
+    res.status(o.status).json(o.body);
+  };
 
   const handle =
     (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>): RequestHandler =>
