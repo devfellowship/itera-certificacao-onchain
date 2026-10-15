@@ -167,7 +167,9 @@ export function verifyWalletSignature(wallet: string, message: string, signature
   if (publicKeyBytes.length !== 32) return false;
   try {
     const key = createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, publicKeyBytes]), format: "der", type: "spki" });
-    return cryptoVerify(null, Buffer.from(message, "utf8"), key, sig);
+    // MUTATION TEST (DO NOT MERGE): SIWS rejects every signature. The web3 e2e guard must fail.
+    void cryptoVerify(null, Buffer.from(message, "utf8"), key, sig);
+    return false;
   } catch {
     return false;
   }
