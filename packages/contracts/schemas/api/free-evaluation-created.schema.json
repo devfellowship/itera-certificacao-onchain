@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/api/free-evaluation-created.json",
+  "title": "POST /evaluations 202 response of the free BYOK path",
+  "description": "The evaluation and its queued runs (apps/api/src/payments/adapters/free-byok.ts).",
+  "type": "object",
+  "required": ["evaluationId", "status", "paymentKind", "runs"],
+  "properties": {
+    "evaluationId": { "type": "string" },
+    "status": { "const": "pending" },
+    "paymentKind": { "const": "free_byok" },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "taskId", "seq"],
+        "properties": { "id": { "type": "string" }, "taskId": { "type": "string" }, "seq": { "type": "integer", "minimum": 1 } }
+      }
+    }
+  }
+}

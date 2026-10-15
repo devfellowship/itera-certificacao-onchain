@@ -11,11 +11,14 @@ import {
   type EvaluationsStore,
   type NewQuote,
   type PaymentRecord,
+  type NewFreeEvaluation,
   type ResolvedTask,
   type RollupColumns,
+  TooManyQueuedError,
 } from "./store.js";
 
 const MIGRATION = "0008_evaluations_payments.sql";
+const FREE_MIGRATION = "0019_evaluations_payment_kind.sql";
 
 function pgCode(e: unknown): string | undefined {
   return typeof e === "object" && e !== null && "code" in e ? String((e as { code: unknown }).code) : undefined;
@@ -91,6 +94,8 @@ function toEvaluation(r: Row): EvaluationListRow {
     modelRelease: r.model_release,
     tasks: (r.tasks ?? []) as EvalTask[],
     status: r.status,
+    // 0019. A row read before it has no column: solana_pay.
+    paymentKind: r.payment_kind === "free_byok" ? "free_byok" : "solana_pay",
     taskCount: num(r.task_count),
     priceUsdPerRun: num(r.price_usd_per_run),
     feeUsd: num(r.fee_usd),
@@ -352,6 +357,61 @@ export class PgEvaluationsStore implements EvaluationsStore {
     }
   }
 
+  async createFreeEvaluation(input: NewFreeEvaluation): Promise<{ evaluationId: string; runIds: string[] }> {
+    if (input.runIds.length !== input.tasks.length) throw new Error("one run id per task is required");
+    let client: PoolClient | null = null;
+    try {
+      client = await this.pool.connect();
+      await client.query("begin");
+      // The same per-owner lock as the runs flow (runs-store.pg.ts): two requests cannot both pass.
+      await client.query(`select pg_advisory_xact_lock(hashtext('itera-runs:' || $1))`, [input.ownerWallet]);
+      const active = await client.query(
+        `select count(*) as n from public.runs where owner_wallet = $1 and status in ('queued', 'running')`,
+        [input.ownerWallet],
+      );
+      const n = num(active.rows[0]?.n);
+      if (n >= input.maxActiveRuns) throw new TooManyQueuedError(n, input.maxActiveRuns);
+
+      await client.query(
+        `insert into public.evaluations
+           (id, short_id, owner_wallet, agent_id, agent_version_id, model_id, model_release, tasks, status, task_count,
+            is_public, model_api_key_enc, payment_kind)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$11,'free_byok')`,
+        [
+          input.evaluationId, input.shortId, input.ownerWallet, input.agentId, input.agentVersionId, input.modelId, input.modelRelease,
+          JSON.stringify(input.tasks), input.tasks.length, input.isPublic, input.modelApiKeyEnc,
+        ],
+      );
+      const release = await client.query(
+        `insert into public.release_declarations (agent_id, release_ref) values ($1, $2)
+         on conflict (agent_id, release_ref) do update set release_ref = excluded.release_ref returning id`,
+        [input.agentId, input.agentCommit],
+      );
+      for (let i = 0; i < input.tasks.length; i++) {
+        const t = input.tasks[i]!;
+        // No run_start_sig: a free run has no payment tx and gets no proof.
+        await client.query(
+          `insert into public.runs
+             (id, release_declaration_id, task_pack_id, task_pack_version, nonce, status, owner_wallet, agent_version_id,
+              model_api_key_enc, evaluation_id, task_id, task_version_id, seq)
+           values ($1,$2,$3,$4,gen_random_uuid()::text,'queued',$5,$6,$7,$8,$9,$10,$11)`,
+          [
+            input.runIds[i], release.rows[0]!.id, t.packId, t.packVersion, input.ownerWallet, input.agentVersionId,
+            input.modelApiKeyEnc, input.evaluationId, t.taskId, t.taskVersionId, i + 1,
+          ],
+        );
+      }
+      await client.query("commit");
+      return { evaluationId: input.evaluationId, runIds: input.runIds };
+    } catch (e) {
+      if (client) await client.query("rollback").catch(() => undefined);
+      if (isMissingSchema(e)) throw new SchemaNotReadyError(FREE_MIGRATION, e);
+      throw e;
+    } finally {
+      client?.release();
+    }
+  }
+
   async getEvaluation(id: string): Promise<EvaluationRecord | null> {
     try {
       const { rows } = await this.pool.query(`${EVAL_SELECT} where e.id = $1`, [id]);
@@ -421,7 +481,7 @@ export class PgEvaluationsStore implements EvaluationsStore {
     try {
       const { rows } = await this.pool.query(
         `select id from public.evaluations
-          where issued_at is null and status <> 'failed' and created_at > now() - interval '3 days'
+          where issued_at is null and status not in ('failed', 'graded') and created_at > now() - interval '3 days'
           order by created_at limit $1`,
         [limit],
       );

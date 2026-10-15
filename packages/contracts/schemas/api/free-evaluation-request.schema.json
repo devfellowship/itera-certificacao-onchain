@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/api/free-evaluation-request.json",
+  "title": "POST /evaluations request body of the free BYOK path (web2 client, DFL principal)",
+  "description": "Plan 20261015-testmyagent-web2-client, ADR-5 and ADR-6. The API refuses a missing key with 422 model_key_required and a malformed key with 422 model_key_invalid.",
+  "type": "object",
+  "required": ["agentId", "taskIds", "modelApiKey"],
+  "properties": {
+    "agentId": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+    "taskIds": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "modelApiKey": { "type": "string", "pattern": "^sk-or-" },
+    "modelRelease": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -4,7 +4,11 @@
  */
 import type { AgentVersionRef } from "../domain/runs-store.js";
 
-export type EvaluationStatus = "pending" | "in_progress" | "review" | "issuing" | "issued" | "cancelled" | "failed";
+/** `graded`: the terminal state of a `free_byok` evaluation (no proof). `issued`: of a `solana_pay` one. */
+export type EvaluationStatus = "pending" | "in_progress" | "review" | "issuing" | "issued" | "graded" | "cancelled" | "failed";
+
+/** evaluations.payment_kind (0019). Absent on a row read before 0019: `solana_pay`. */
+export type EvaluationPaymentKind = "solana_pay" | "free_byok";
 
 /** One task of an evaluation, resolved at quote time. */
 export interface EvalTask {
@@ -82,6 +86,8 @@ export interface EvaluationRecord {
   modelRelease: string | null;
   tasks: EvalTask[];
   status: EvaluationStatus;
+  /** ADR-6. Absent (a row before 0019, or an older fixture) means `solana_pay`. */
+  paymentKind?: EvaluationPaymentKind;
   taskCount: number;
   priceUsdPerRun: number;
   feeUsd: number;
@@ -165,6 +171,36 @@ export interface RollupColumns {
 
 export class EvaluationConflictError extends Error {}
 
+/** The free path's abuse floor (ADR-9): the principal already has too many queued or running runs. */
+export class TooManyQueuedError extends Error {
+  readonly active: number;
+  readonly max: number;
+  constructor(active: number, max: number) {
+    super(`too many queued runs: ${active} queued or running (max ${max})`);
+    this.active = active;
+    this.max = max;
+  }
+}
+
+/** The input of `createFreeEvaluation`: a resolved, compatible, free evaluation. */
+export interface NewFreeEvaluation {
+  evaluationId: string;
+  runIds: string[];
+  ownerWallet: string;
+  shortId: string;
+  agentId: string;
+  agentVersionId: string;
+  agentCommit: string;
+  modelId: string;
+  modelRelease: string | null;
+  tasks: EvalTask[];
+  isPublic: boolean;
+  /** Sealed BYOK key (AES-256-GCM, domain/run-key.ts). Required on the free path. */
+  modelApiKeyEnc: string;
+  /** Refuse (TooManyQueuedError) when the owner already has this many `queued`/`running` runs. */
+  maxActiveRuns: number;
+}
+
 export interface EvaluationsStore {
   getAgent(agentId: string): Promise<AgentForEval | null>;
   /** The version at `pinnedCommit` when given, else the latest synced version. */
@@ -197,13 +233,21 @@ export interface EvaluationsStore {
     agentCommit: string;
   }): Promise<{ evaluationId: string; runIds: string[]; created: boolean }>;
 
+  /**
+   * The free path (ADR-6, `free_byok`). In one transaction, under the owner's run lock: count the
+   * owner's `queued`/`running` runs (TooManyQueuedError when >= maxActiveRuns); insert the
+   * evaluation (`payment_kind='free_byok'`, no fee, no payment), the release declaration, and one
+   * `queued` run per task with the sealed key. Nothing is written when any step fails.
+   */
+  createFreeEvaluation(input: NewFreeEvaluation): Promise<{ evaluationId: string; runIds: string[] }>;
+
   getEvaluation(id: string): Promise<EvaluationRecord | null>;
   listRuns(evaluationId: string): Promise<EvalRun[]>;
   listProofs(runIds: string[]): Promise<EvalProof[]>;
   listForWallet(wallet: string, limit: number): Promise<EvaluationListRow[]>;
   /** Queued runs → cancelled; evaluation → cancelled. Returns the number of runs cancelled. */
   cancel(evaluationId: string): Promise<number>;
-  /** Evaluation ids the issuer job still has work on (not issued/failed, recent). */
+  /** Evaluation ids the issuer job still has work on (not issued/graded/failed, recent). */
   listOpen(limit: number): Promise<string[]>;
   saveRollup(evaluationId: string, rollup: RollupColumns): Promise<void>;
   /** Gate Q1: one free retry of an infra_error run. Null when the slot was already retried. */

@@ -142,6 +142,15 @@ jobs:
           test -n "$agent"
           echo "E2E_AGENT_ID=$agent" >> "$GITHUB_ENV"
 
+      # T7 (free BYOK path): the pg store against the migrated schema — one transaction for the
+      # evaluation and its runs, the abuse floor, `graded`, and the 0019 CHECKs. It runs BEFORE the
+      # worker starts and deletes its own fixtures, so the worker never claims its queued runs.
+      - name: Evaluations store contract test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/evaluations/store.contract.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       - name: Start the stubs, the API and the runner worker (from this commit)
         run: |
           set -euo pipefail

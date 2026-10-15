@@ -8,10 +8,12 @@ import {
   type EvaluationListRow,
   type EvaluationRecord,
   type EvaluationsStore,
+  type NewFreeEvaluation,
   type NewQuote,
   type PaymentRecord,
   type ResolvedTask,
   type RollupColumns,
+  TooManyQueuedError,
 } from "./store.js";
 
 /** In-memory EvaluationsStore for tests. */
@@ -25,6 +27,10 @@ export class FakeEvaluationsStore implements EvaluationsStore {
   proofs: EvalProof[] = [];
   recentRuns = 0;
   keys = new Map<string, string | null>();
+  /** runs.model_api_key_enc by run id. */
+  runKeys = new Map<string, string | null>();
+  /** runs.owner_wallet by run id. */
+  runOwners = new Map<string, string>();
 
   async getAgent(id: string) {
     return this.agents.find((a) => a.id === id) ?? null;
@@ -116,8 +122,84 @@ export class FakeEvaluationsStore implements EvaluationsStore {
         completedAt: null,
       }),
     );
+    for (const id of p.plannedRunIds) {
+      this.runOwners.set(id, input.ownerWallet);
+      this.runKeys.set(id, input.modelApiKeyEnc);
+    }
     Object.assign(p, { status: "confirmed", txSig: input.txSig, evaluationId: p.plannedEvaluationId, confirmedAt: now });
     return { evaluationId: p.plannedEvaluationId, runIds: p.plannedRunIds, created: true };
+  }
+  async createFreeEvaluation(input: NewFreeEvaluation) {
+    if (input.runIds.length !== input.tasks.length) throw new Error("one run id per task is required");
+    const active = this.runs.filter((r) => this.runOwners.get(r.id) === input.ownerWallet && (r.status === "queued" || r.status === "running")).length;
+    if (active >= input.maxActiveRuns) throw new TooManyQueuedError(active, input.maxActiveRuns);
+    // Like the foreign key runs → task_packs: a run needs a known task pack. Checked for every run
+    // BEFORE any write, so a failure leaves nothing behind (the pg store rolls back).
+    for (const t of input.tasks) {
+      if (!t.packId || !this.tasks.some((k) => k.packId === t.packId && k.packVersion === t.packVersion)) {
+        throw new Error(`insert or update on table "runs" violates foreign key constraint (task pack ${t.packId}@${t.packVersion})`);
+      }
+    }
+    const now = new Date().toISOString();
+    this.evaluations.push({
+      id: input.evaluationId,
+      slug: null,
+      shortId: input.shortId,
+      ownerWallet: input.ownerWallet,
+      agentId: input.agentId,
+      agentVersionId: input.agentVersionId,
+      modelId: input.modelId,
+      modelRelease: input.modelRelease,
+      tasks: input.tasks,
+      status: "pending",
+      paymentKind: "free_byok",
+      taskCount: input.tasks.length,
+      priceUsdPerRun: 0,
+      feeUsd: 0,
+      feeLamports: 0,
+      solUsdRate: 0,
+      priceSource: "",
+      paymentId: null,
+      txSig: null,
+      score: null,
+      passCount: 0,
+      failCount: 0,
+      invalidCount: 0,
+      testsPassed: 0,
+      testsTotal: 0,
+      manifestSha256: null,
+      isPublic: input.isPublic,
+      freeRetriesUsed: 0,
+      createdAt: now,
+      startedAt: null,
+      completedAt: null,
+      issuedAt: null,
+      cancelledAt: null,
+    });
+    this.keys.set(input.evaluationId, input.modelApiKeyEnc);
+    input.tasks.forEach((t, i) => {
+      const id = input.runIds[i]!;
+      this.runs.push({
+        id,
+        evaluationId: input.evaluationId,
+        seq: i + 1,
+        taskId: t.taskId,
+        taskVersionId: t.taskVersionId,
+        status: "queued",
+        phase: null,
+        scoreTotal: null,
+        evidenceManifest: null,
+        runStartSig: null,
+        error: null,
+        retryOfRunId: null,
+        startedAt: now,
+        claimedAt: null,
+        completedAt: null,
+      });
+      this.runKeys.set(id, input.modelApiKeyEnc);
+      this.runOwners.set(id, input.ownerWallet);
+    });
+    return { evaluationId: input.evaluationId, runIds: input.runIds };
   }
   async getEvaluation(id: string) {
     return this.evaluations.find((e) => e.id === id) ?? null;
@@ -151,7 +233,7 @@ export class FakeEvaluationsStore implements EvaluationsStore {
     return n;
   }
   async listOpen() {
-    return this.evaluations.filter((e) => !e.issuedAt && e.status !== "failed").map((e) => e.id);
+    return this.evaluations.filter((e) => !e.issuedAt && e.status !== "failed" && e.status !== "graded").map((e) => e.id);
   }
   async saveRollup(id: string, r: RollupColumns) {
     const e = this.evaluations.find((x) => x.id === id)!;

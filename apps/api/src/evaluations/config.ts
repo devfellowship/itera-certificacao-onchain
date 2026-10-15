@@ -19,6 +19,9 @@ export interface EvaluationsConfig {
   maxTasks: number;
   /** Public web origin, for share URLs. */
   webBaseUrl: string;
+  /** Free path (ADR-9): refuse a new free evaluation when the user already has this many queued or
+   * running runs (`429 too_many_queued`). Default 3. */
+  maxQueuedRunsPerUser?: number;
 }
 
 export function evaluationsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): EvaluationsConfig {
@@ -30,6 +33,7 @@ export function evaluationsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
     treasury: env.ITERA_TREASURY_ADDRESS?.trim() || null,
     runsPerWalletPerDay: Number(env.ITERA_EVALUATION_RUNS_PER_WALLET_PER_DAY ?? 30),
     maxTasks: Number(env.ITERA_EVALUATION_MAX_TASKS ?? 9),
+    maxQueuedRunsPerUser: Number(env.TMA_MAX_QUEUED_RUNS_PER_USER ?? 3),
     webBaseUrl: (env.ITERA_PUBLIC_WEB_BASE_URL ?? "https://itera-agent-credentials.devfellowship.com").replace(/\/+$/, ""),
   };
 }

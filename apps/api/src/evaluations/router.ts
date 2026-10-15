@@ -3,7 +3,8 @@
  *
  *   POST /evaluations/quote                          price N runs in SOL (Pyth → CoinGecko), 120 s
  *   POST /evaluations/quote/:reference/transaction   the unsigned payment tx for the wallet (1 prompt)
- *   POST /evaluations                                verify the payment (Solana Pay) → queue N runs
+ *   POST /evaluations                                verify the payment (Solana Pay) → queue N runs;
+ *                                                    a DFL principal: the free BYOK path → queue N runs
  *   GET  /evaluations?scope=all|my_agents|others     My evaluations
  *   GET  /evaluations/:id                            roll-up (uiState, stages, tasks, events, proofs)
  *   POST /evaluations/:id/cancel                     queued runs → cancelled; no refund (Gate Q1)
@@ -20,18 +21,18 @@
  * The legacy vendor flow also answers `POST /evaluations` (body with `idempotencyKey`): such a body
  * falls through to it.
  */
-import type { Compatibility } from "@itera/contracts";
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { requireWallet } from "../http/auth.js";
 import { createPaymentAdapters, paymentAdapterFor, type PaymentOutcome } from "../payments/adapters/index.js";
+import type { ModelKeyProbe } from "../payments/adapters/free-byok.js";
 import type { PaymentGateway } from "../payments/adapters/solana-pay-gateway.js";
 import { lamportsToSol, round4, type EvaluationsConfig } from "./config.js";
-import { compatibilityOf } from "./compatibility.js";
 import type { RunCostEstimator } from "./estimate.js";
 import { PriceUnavailableError, type SolUsdProvider } from "./price.js";
+import { parseEvaluationRequest, resolveEvaluationRequest } from "./resolve.js";
 import { initialsOf, rollup } from "./rollup.js";
-import type { EvalTask, EvaluationListRow, EvaluationsStore } from "./store.js";
+import type { EvaluationListRow, EvaluationsStore } from "./store.js";
 
 export interface EvaluationsRouterDeps {
   store: EvaluationsStore;
@@ -40,17 +41,15 @@ export interface EvaluationsRouterDeps {
   payments: PaymentGateway;
   /** Forecast model cost of one run. Absent → every run is priced at the fallback. */
   estimate?: RunCostEstimator;
-  /** ITERA_RUN_KEY_SECRET — only for the optional BYOK key. */
+  /** ITERA_RUN_KEY_SECRET — the BYOK key (optional on solana_pay, required on free_byok). */
   runKeySecret?: string;
+  /** The free path's model key probe (T8: the OpenRouter `GET /key` check). Default: format only. */
+  probeModelKey?: ModelKeyProbe;
   now?: () => number;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LIST_LIMIT = 200;
-
-function isNonEmptyString(v: unknown): v is string {
-  return typeof v === "string" && v.trim().length > 0;
-}
 
 function shareOf(e: EvaluationListRow, webBaseUrl: string) {
   if (e.status !== "issued" || !e.slug) return { kind: "none" as const, url: null };
@@ -82,18 +81,9 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
     requireWallet,
     handle(async (req, res) => {
       const wallet = req.wallet!;
-      const body = (req.body ?? {}) as { agentId?: unknown; taskIds?: unknown; modelRelease?: unknown };
-      if (!isNonEmptyString(body.agentId) || !UUID_RE.test(body.agentId)) {
-        res.status(400).json({ error: "agentId (uuid) is required" });
-        return;
-      }
-      const taskIds = Array.isArray(body.taskIds) ? [...new Set(body.taskIds.filter(isNonEmptyString).map((t) => t.trim()))] : [];
-      if (taskIds.length === 0) {
-        res.status(400).json({ error: "taskIds (non-empty array) is required" });
-        return;
-      }
-      if (taskIds.length > config.maxTasks) {
-        res.status(400).json({ error: `at most ${config.maxTasks} tasks per evaluation` });
+      const parsed = parseEvaluationRequest(req.body, config);
+      if (!parsed.ok) {
+        send(res, parsed.outcome);
         return;
       }
       const adapter = adapterOf(req);
@@ -102,49 +92,12 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         send(res, gate);
         return;
       }
-      const agent = await store.getAgent(body.agentId);
-      if (!agent || (agent.ownerWallet !== wallet && agent.visibility !== "listed")) {
-        res.status(404).json({ error: "agent not found" });
+      const resolved = await resolveEvaluationRequest(store, config, wallet, parsed);
+      if (!resolved.ok) {
+        send(res, resolved.outcome);
         return;
       }
-      const version = await store.agentVersionFor(agent.id, agent.pinnedCommit);
-      if (!version) {
-        res.status(409).json({ error: "agent has no synced version yet — connect its repository first" });
-        return;
-      }
-      const tasks: EvalTask[] = [];
-      const incompatible: Array<{ taskId: string; slug: string; reasons: Compatibility["reasons"] }> = [];
-      for (const id of taskIds) {
-        const t = await store.resolveTask(id);
-        // U19: a private (user) task exists only for its owner.
-        if (!t || (!t.isPublic && t.ownerWallet != null && t.ownerWallet !== wallet)) {
-          res.status(404).json({ error: `unknown task ${id}` });
-          return;
-        }
-        if (!t.runnable) {
-          res.status(409).json({ error: `task ${t.slug} is not runnable yet` });
-          return;
-        }
-        // ADR-11 / U28: an incompatible agent/task pair is refused here, before any payment.
-        const c = compatibilityOf(agent, t);
-        if (!c.compatible) incompatible.push({ taskId: t.taskId, slug: t.slug, reasons: c.reasons });
-        const { runnable: _r, ownerWallet: _o, contract: _c, ...task } = t;
-        tasks.push(task);
-      }
-      if (incompatible.length > 0) {
-        res.status(422).json({
-          error: `the agent is not compatible with ${incompatible.length === 1 ? `task ${incompatible[0]!.slug}` : `${incompatible.length} tasks`}: ${incompatible.flatMap((x) => x.reasons.map((r) => r.message)).join("; ")}`,
-          code: "incompatible",
-          incompatible,
-        });
-        return;
-      }
-      const recent = await store.countRecentRuns(wallet);
-      if (recent + tasks.length > config.runsPerWalletPerDay) {
-        res.status(429).json({ error: `daily limit: ${config.runsPerWalletPerDay} runs per wallet per 24h (${recent} used)` });
-        return;
-      }
-
+      const { agent, version, tasks } = resolved;
       send(res, await adapter.quote({ principalId: wallet, agent, version, tasks }));
     }),
   );
@@ -260,7 +213,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         res.status(404).json({ error: "evaluation not found" });
         return;
       }
-      if (ev.status === "issued" || ev.status === "failed") {
+      if (ev.status === "issued" || ev.status === "graded" || ev.status === "failed") {
         res.status(409).json({ error: `evaluation is ${ev.status}; nothing to cancel` });
         return;
       }

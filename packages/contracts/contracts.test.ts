@@ -214,3 +214,21 @@ describe('agent requires + compatibility (U28)', () => {
     expect(r).toMatchObject({ compatible: false, reasons: [{ code: 'missing_builtin_tool', requirement: 'tool:bash' }] });
   });
 });
+
+import { validateApiResponse } from './index.js';
+
+describe('free BYOK evaluation API schemas (T7)', () => {
+  const body = { agentId: '0d4a5b6c-1e2f-4a3b-8c9d-0e1f2a3b4c5d', taskIds: ['webhook-ledger'], modelApiKey: 'sk-or-v1-abc' };
+  it('accepts the request body and refuses a missing or non-OpenRouter key', () => {
+    expect(validateApiResponse('freeEvaluationRequest', body).ok).toBe(true);
+    expect(validateApiResponse('freeEvaluationRequest', { ...body, modelApiKey: undefined }).ok).toBe(false);
+    expect(validateApiResponse('freeEvaluationRequest', { ...body, modelApiKey: 'sk-ant-x' }).ok).toBe(false);
+    expect(validateApiResponse('freeEvaluationRequest', { ...body, taskIds: [] }).ok).toBe(false);
+  });
+  it('accepts the 202 and refuses a response without runs', () => {
+    const created = { evaluationId: 'e', status: 'pending', paymentKind: 'free_byok', runs: [{ id: 'r', taskId: 't', seq: 1 }] };
+    expect(validateApiResponse('freeEvaluationCreated', created).ok).toBe(true);
+    expect(validateApiResponse('freeEvaluationCreated', { ...created, runs: [] }).ok).toBe(false);
+    expect(validateApiResponse('freeEvaluationCreated', { ...created, paymentKind: 'solana_pay' }).ok).toBe(false);
+  });
+});
