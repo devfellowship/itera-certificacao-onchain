@@ -1,7 +1,7 @@
 # fleet-research (task A of plan 20261012-testmyagent-dfl-benchmark-tasks)
 
 A research task over a synthetic fleet of **14 real git repos in 2 orgs**, served by the
-`repos@1` catalog server (`mcp/catalog/repos/`). The agent answers 6 questions with cited
+`repos@2` catalog server (`mcp/catalog/repos/`). The agent answers 6 questions with cited
 evidence (`org/repo:path:line` + an exact quote) and writes `out/answers.json` and `out/report.md`.
 
 | Fact | Question | What it tests |
@@ -26,9 +26,21 @@ evidence (`org/repo:path:line` + an exact quote) and writes `out/answers.json` a
 
 ## Grading notes
 
-- A citation may be **±1 line** off: the upstream `read_text_file` prints no line numbers.
+- A citation may be **±1 line** off, no more. Version 2 keeps this rule strict (TMA-QA = C). The check
+  proves it: +-1 passes, 2 lines off fails.
+- `fixtures/check.mjs` also checks that the reference solution cites the exact line and reads every
+  cited file with `read_file_lines`.
 - Plan weights (45/20/10/15) map to case counts: hidden = 1 schema + 5 answers + 5 evidence +
   1 abstention + 1 report; the read log is the separate `mcp_state` scorer. PASS needs all.
+
+## Versions
+
+| Task version | Catalog | Why |
+|---|---|---|
+| 1 | `repos@1` | First version (K5). The read tools print no line numbers, so the agent counted lines. Campaign `k7-dfl-bench-1`: a free model cited line 11 for text on line 13, and failed the evidence check. |
+| 2 | `repos@2` | TMA-QA = C (TG 21527). `repos@2` adds `read_file_lines`, a read tool with line numbers. The instruction tells the agent to take the line number from it. The grader, the questions, the seed and the key are the same as in version 1 (same seed 1). |
+
+Version 1 is not edited: it stays as a published row in `task_packs`. Version 2 is a new row.
 
 ## Validate
 

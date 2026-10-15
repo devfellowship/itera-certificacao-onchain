@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 
 export const QUESTIONS = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'];
-/** A cited line may be off by this many lines: the read tool returns no line numbers (repos@1 README). */
+/** A cited line may be off by this many lines. repos@2 `read_file_lines` prints exact numbers, so the slack is only for the other read tools. It did not grow: a citation 2 lines off fails. */
 export const LINE_TOLERANCE = 1;
 export const MIN_QUOTE = 6;
 

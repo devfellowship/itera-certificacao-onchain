@@ -6,3 +6,15 @@
 {"server":"repos","tool":"search_files","arguments":{"path":"/repos","pattern":"**/*payments*"}}
 {"server":"repos","tool":"read_multiple_files","arguments":{"paths":["/repos/acme/acme-services/payments/config.example.env","/repos/acmehq/acme-api/src/payments/config.ts"]}}
 {"server":"repos","tool":"search_files","arguments":{"path":"/repos","pattern":"**/*{helm,chart,k8s,kube}*"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acmehq/acme-player/README.md"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-schema/.github/workflows/push-migrations.yml"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-harness/skills/summarize-pr/SKILL.md"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-harness/skills/pr-digest/SKILL.md"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-harness/skills/rotate-token/SKILL.md"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-harness/skills/token-refresh/SKILL.md"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-harness/skills/deploy-app/SKILL.md"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-harness/skills/ship-app/SKILL.md"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acmehq/acme-api/.github/workflows/lint.yml"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-infra/inventory/repos.yaml"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-services/payments/config.example.env"}}
+{"server":"repos","tool":"read_file_lines","arguments":{"path":"/repos/acmehq/acme-api/src/payments/config.ts"}}

@@ -3,7 +3,9 @@
 //
 //   1. Reproducible: the generator with the committed seed writes the committed files, byte for byte.
 //   2. Grader: the reference solution passes every check; the empty skeleton (no-op) and a
-//      fabricated answer to the unanswerable question fail.
+//      fabricated answer to the unanswerable question fail. Strict evidence: a citation within
+//      +-1 line passes, 2 lines off fails (task version 2, TMA-QA = C). The task uses repos@2 and
+//      the reference solution reads every cited file with read_file_lines.
 //   3. Denylist: no real organisation, repo, host, person or private marker in the task content,
 //      and no secret-shaped string.
 //
@@ -51,6 +53,43 @@ if (!failed(grade({ answersText: JSON.stringify(fab), reportText: report, key })
 const off = JSON.parse(solution);
 off.answers.q1.evidence = [{ ref: 'acmehq/acme-player:README.md:9', quote: 'the learner-facing app' }];
 if (!failed(grade({ answersText: JSON.stringify(off), reportText: report, key })).includes('q1-evidence')) problems.push('a citation on the wrong line is not caught');
+
+// 2b. Strict evidence (TMA-QA = C, task version 2). repos@2 `read_file_lines` prints the exact line, so the
+// grader keeps its +-1 slack and nothing more: the reference cites the exact line, a citation 1 line off still
+// passes, a citation 2 lines off fails (campaign k7: the agent cited line 11 for text on line 13).
+const shift = (by) => {
+  const o = JSON.parse(solution);
+  const e = o.answers.q1.evidence[0];
+  const at = e.ref.lastIndexOf(':');
+  e.ref = `${e.ref.slice(0, at)}:${Number(e.ref.slice(at + 1)) + by}`;
+  return failed(grade({ answersText: JSON.stringify(o), reportText: report, key })).includes('q1-evidence');
+};
+const exactLine = (ref, quote) => {
+  const at = ref.lastIndexOf(':');
+  const lines = key.snapshot[ref.slice(0, at)].split('\n');
+  return lines[Number(ref.slice(at + 1)) - 1]?.includes(quote);
+};
+for (const [q, a] of Object.entries(JSON.parse(solution).answers)) {
+  for (const e of a.evidence) if (!exactLine(e.ref, e.quote)) problems.push(`the reference solution cites ${e.ref} but the quote is not on that exact line (${q})`);
+}
+if (shift(0) || shift(1) || shift(-1)) problems.push('a citation within +-1 line fails (the documented slack is gone)');
+if (!shift(2) || !shift(-2)) problems.push('a citation 2 lines off passes (the grader is not strict)');
+
+// 2c. The task uses repos@2 and the reference solution reads every cited file with line numbers.
+if (task.task.version !== '2') problems.push(`task.version is ${task.task.version}, expected 2 (repos@2 is a new task version)`);
+const mcp = task.environment.tools.mcp.find((m) => m.name === 'repos');
+if (mcp?.catalog !== 'repos@2') problems.push(`catalog is ${mcp?.catalog}, expected repos@2`);
+if (!mcp?.allowed_tools?.includes('read_file_lines')) problems.push('read_file_lines is not in allowed_tools');
+const calls = readFileSync(join(root, 'solution/mcp-calls.jsonl'), 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+for (const c of calls) if (!mcp.allowed_tools.includes(c.tool)) problems.push(`solution/mcp-calls.jsonl calls ${c.tool}, which is not in allowed_tools`);
+const numbered = new Set(calls.filter((c) => c.tool === 'read_file_lines').map((c) => c.arguments.path));
+for (const a of Object.values(JSON.parse(solution).answers)) {
+  for (const e of a.evidence) {
+    const at = e.ref.lastIndexOf(':');
+    const path = `/repos/${e.ref.slice(0, at).replace(':', '/')}`;
+    if (!numbered.has(path)) problems.push(`the reference solution cites ${e.ref} without reading ${path} through read_file_lines`);
+  }
+}
 
 // 3. Denylist (this file is the only place that names the terms).
 const DENY = [
