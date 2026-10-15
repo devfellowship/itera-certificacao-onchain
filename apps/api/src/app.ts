@@ -45,6 +45,7 @@ const ROUTES = [
   "/hello-world",
   "POST /auth/nonce",
   "POST /auth/verify",
+  "POST /auth/dfl/exchange",
   "GET /auth/me",
   "POST /runs",
   "GET /runs?mine=1",
