@@ -209,6 +209,10 @@ Login with DFL (web2) reads `DFL_SUPABASE_URL` (default: the DFL project), `DFL_
 The free path (DFL principals) has abuse controls: `TMA_RUNS_PER_USER_PER_DAY` (default 10 runs in
 24 h, `429 quota_exceeded`), `TMA_MAX_QUEUED_RUNS_PER_USER` (default 3, `429 too_many_queued`), and the
 `users.disabled` kill switch (`403 account_disabled` on every write route). SIWS wallets are not affected.
+`GET /health` answers `{status, db, queued, runnerSeenAt}`. It returns 503 when the database does not answer
+within 2 s. `runnerSeenAt` comes from `runner_heartbeats` (migration 0020, written by the runner every 30 s).
+With `TMA_HEALTH_REQUIRE_RUNNER=true` a heartbeat older than 5 minutes also returns 503. The default is off.
+The workflow `post-deploy-verify` checks `/health` and renders both clients every 6 hours.
 
 To run one agent on one task on your machine, see "Step 1: local CLI" in
 [`services/runner/README.md`](services/runner/README.md).

@@ -1,6 +1,7 @@
 import cors from "cors";
 import express, { type Express } from "express";
 import { CORS_ALLOWED_ORIGINS, TRUST_PROXY_HOPS } from "./config.js";
+import { createHealthHandler, type HealthDeps } from "./http/health.js";
 import { createRateLimiters } from "./http/rate-limit.js";
 import { createAuthRouter } from "./http/auth.js";
 import { createAccountGuard } from "./auth/account-guard.js";
@@ -178,6 +179,8 @@ export interface AppOptions {
   dflAuth?: DflAuthDeps;
   /** T8: POST /models/access (the BYOK OpenRouter key check). Always mounted; a test injects fetch. */
   modelsAccess?: ModelsAccessRouterDeps;
+  /** T12: DB ping + queue depth + runner heartbeat on GET /health. Absent → the minimal `{status:"ok"}`. */
+  health?: HealthDeps;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -191,7 +194,10 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   // on purpose: a healthcheck should be as cheap and stable as possible, not carry service
   // metadata that changes with every version bump. Not rate-limited or CORS-gated — it's an
   // infra-to-infra check, not a public API call.
-  app.get("/health", (_req, res) => {
+  // T12: with `options.health` it also pings the DB and reports the queue depth and the runner
+  // heartbeat (http/health.ts). Without it (unit tests, no database) it keeps answering {"status":"ok"}.
+  // `status: "ok"` stays in every 200 body, so the Docker HEALTHCHECK and the CI curl are unchanged.
+  app.get("/health", options.health ? createHealthHandler(options.health) : (_req, res) => {
     res.json({ status: "ok" });
   });
 

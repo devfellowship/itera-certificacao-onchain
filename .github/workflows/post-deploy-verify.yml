@@ -1,0 +1,85 @@
+name: post-deploy verify
+
+# Render check of both deployed clients plus the API /health (T12, plan
+# 20261015-testmyagent-web2-client). It runs by hand (workflow_dispatch) and every 6 hours.
+# It does NOT run on pull requests: it tests what is deployed, not the code of a commit.
+#
+# For each client it runs the three assertions of scripts/e2e/verify-render.mjs:
+#   1. the root element is non-empty   2. zero pageerror events   3. a positive-data control.
+# web2 reports `skip` when its host name does not resolve (NXDOMAIN, deploy not done yet).
+# Every other error fails the job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'API base URL for the /health check'
+        required: false
+        default: 'https://itera-agent-credentials-api.devfellowship.com'
+  schedule:
+    - cron: '23 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-deploy-verify
+  cancel-in-progress: false
+
+env:
+  WEB3_URL: https://itera-agent-credentials.devfellowship.com
+  WEB2_URL: https://testmyagent.devfellowship.com
+  API_URL: ${{ inputs.api_url || 'https://itera-agent-credentials-api.devfellowship.com' }}
+
+jobs:
+  verify:
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Playwright and chromium
+        run: |
+          npm install --no-save --no-package-lock --ignore-scripts playwright@1.64.0
+          npx playwright install --with-deps chromium
+
+      - name: Self-test the checker (it must fail on a broken page)
+        run: node scripts/e2e/verify-render.mjs --self-test
+
+      - name: API /health
+        id: api
+        run: |
+          set -o pipefail
+          code=$(curl -s -o health.json -w '%{http_code}' --max-time 20 "$API_URL/health" || true)
+          echo "GET $API_URL/health -> HTTP $code"
+          cat health.json 2>/dev/null || true; echo
+          if [ "$code" != "200" ]; then
+            echo "::error title=API /health::HTTP $code, expected 200"
+            exit 1
+          fi
+          echo "- API /health: HTTP 200 \`$(cat health.json)\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Render check, web3 (apps/web)
+        if: always()
+        run: |
+          node scripts/e2e/verify-render.mjs --url "$WEB3_URL" --min-count '[data-testid=landing-page]=1'
+          echo "- web3 \`$WEB3_URL\`: render check passed (root non-empty, zero pageerror, landing-page present)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Render check, web2 (apps/web2)
+        if: always()
+        run: |
+          set +e
+          node scripts/e2e/verify-render.mjs --url "$WEB2_URL" --min-count '[data-testid=login-dfl]=1' --skip-on-nxdomain
+          rc=$?
+          if [ "$rc" = "10" ]; then
+            echo "::warning title=web2 skipped::$WEB2_URL does not resolve (NXDOMAIN). The web2 deploy may not exist yet."
+            echo "- web2 \`$WEB2_URL\`: **skip** (host name does not resolve, NXDOMAIN)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$rc" != "0" ]; then exit "$rc"; fi
+          echo "- web2 \`$WEB2_URL\`: render check passed (root non-empty, zero pageerror, login-dfl present)" >> "$GITHUB_STEP_SUMMARY"
