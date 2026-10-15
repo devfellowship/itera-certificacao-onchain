@@ -1,0 +1,151 @@
+/* Screen 03 — values from "03 Select Tasks.dc.html" (design brief 2.5). Tokens only. */
+.st-page {
+  gap: 32px;
+}
+.st-head {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.st-head__row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+.st-head__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.st-head__titles .tma-h1 {
+  margin: 0;
+}
+.st-head__sub {
+  font-size: 15px;
+  color: var(--tma-text-muted);
+}
+.st-head .tma-step {
+  align-items: center;
+}
+.st-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+  align-items: start;
+}
+.st-summary {
+  background: var(--tma-surface);
+  border: 1px solid var(--tma-line);
+  border-radius: var(--tma-radius-lg);
+  overflow: hidden;
+}
+.st-summary__head {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--tma-line);
+}
+.st-summary__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.st-mono {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+}
+.st-muted {
+  color: var(--tma-text-muted);
+}
+.st-text {
+  color: var(--tma-text);
+}
+.st-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  font-size: 13px;
+}
+.st-k,
+.st-v {
+  padding: 10px 20px;
+  border-top: 1px solid var(--tma-line);
+}
+.st-kv > :nth-child(-n + 2) {
+  border-top: 0;
+}
+.st-k {
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tma-text-muted);
+}
+.st-v {
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-actions {
+  padding: 0 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.st-pay {
+  width: 100%;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-primary);
+  color: var(--tma-on-primary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.st-pay:hover:not(:disabled) {
+  background: var(--tma-primary-hover);
+}
+.st-pay:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.st-error,
+.st-danger {
+  font-size: 13px;
+  color: var(--tma-danger-text);
+}
+.st-foot {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+@media (max-width: 1023px) {
+  .st-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .st-head__row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* web2: the model select and the BYOK key field in the summary card. */
+.st-select {
+  width: 100%;
+  max-width: 100%;
+}
+.st-model-label {
+  display: block;
+  margin-top: 6px;
+}
+.st-key {
+  padding: 16px 20px;
+  border-top: 1px solid var(--tma-line);
+}
+.st-filter {
+  display: contents;
+}

@@ -13,7 +13,6 @@ import { AddAgentPage } from './pages/AddAgentPage'
 import { AgentDetailPage } from './pages/AgentDetailPage'
 import { AgentsPage } from './pages/AgentsPage'
 import { DflCallbackPage } from './pages/DflCallbackPage'
-import { EvaluationPage } from './pages/EvaluationPage'
 import { GithubCallbackPage } from './pages/GithubCallbackPage'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
@@ -22,6 +21,7 @@ import { NewEvaluationPage } from './pages/NewEvaluationPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ProfileSettingsPage } from './pages/ProfileSettingsPage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
+import { RunningEvaluationPage } from './pages/RunningEvaluationPage'
 import { SelectTasksPage } from './pages/SelectTasksPage'
 import { TaskEditorPage } from './pages/TaskEditorPage'
 import { TaskProfilePage } from './pages/TaskProfilePage'
@@ -80,8 +80,7 @@ export const routes: RouteObject[] = [
           { path: '/agents/new', element: <AddAgentPage /> },
           { path: '/agents/:aid/evaluate', element: <SelectTasksPage /> },
           { path: '/evaluations', element: <MyEvaluationsPage /> },
-          // The existing page reads :id. UI5 switches this to RunningEvaluationPage (:eid).
-          { path: '/evaluations/:id', element: <EvaluationPage /> },
+          { path: '/evaluations/:eid', element: <RunningEvaluationPage /> },
           { path: '/tasks', element: <TasksPage /> },
           { path: '/tasks/new', element: <TaskEditorPage /> },
           { path: '/tasks/:id/edit', element: <TaskEditorPage /> },
