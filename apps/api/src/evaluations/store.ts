@@ -214,6 +214,20 @@ export function checkDailyQuota(startedAts: Date[], newRuns: number, limit: numb
   return new QuotaExceededError(used, limit, resetAt.toISOString());
 }
 
+/** The platform-key allowance (ADR-5): the principal used its platform-paid runs of the last 24 h. */
+export class PlatformQuotaExceededError extends Error {
+  readonly used: number;
+  readonly max: number;
+  constructor(used: number, max: number) {
+    super(`platform quota exceeded: ${used} platform runs in 24 h (max ${max})`);
+    this.used = used;
+    this.max = max;
+  }
+}
+
+/** `evaluations.price_source` of a free evaluation that the platform key pays (ADR-5). Null for BYOK. */
+export const PLATFORM_KEY_PRICE_SOURCE = "platform_key";
+
 /** The input of `createFreeEvaluation`: a resolved, compatible, free evaluation. */
 export interface NewFreeEvaluation {
   evaluationId: string;
@@ -236,6 +250,11 @@ export interface NewFreeEvaluation {
   dailyRunLimit?: number;
   /** The clock of the 24 h window. Default: the current time. */
   now?: Date;
+  /** `platform`: the platform key pays (ADR-5). Absent: the user's own key (BYOK). */
+  keySource?: "byok" | "platform";
+  /** With `keySource: "platform"`: refuse (PlatformQuotaExceededError) when the owner's platform runs
+   * of the last 24 h plus this evaluation's runs exceed it. */
+  maxPlatformRunsPerDay?: number;
 }
 
 export interface EvaluationsStore {

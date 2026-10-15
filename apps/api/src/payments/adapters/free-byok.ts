@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { RunCostEstimator } from "../../evaluations/estimate.js";
 import { DEFAULT_MAX_QUEUED_RUNS_PER_USER, DEFAULT_RUNS_PER_USER_PER_DAY, round4, type EvaluationsConfig } from "../../evaluations/config.js";
 import { parseEvaluationRequest, resolveEvaluationRequest } from "../../evaluations/resolve.js";
-import { QuotaExceededError, TooManyQueuedError, type EvaluationsStore } from "../../evaluations/store.js";
+import { PlatformQuotaExceededError, QuotaExceededError, TooManyQueuedError, type EvaluationsStore } from "../../evaluations/store.js";
+import type { PriceLookup } from "../../domain/model-prices.js";
+import { PLATFORM_KEY_OFF, type PlatformKeyConfig } from "../../models/platform-key.js";
 import { isModelApiKey } from "../../http/runs-router.js";
 import { sealModelApiKey } from "./model-key.js";
 import type { AfterGradedContext, PaymentAdapter, PaymentOutcome } from "./types.js";
@@ -21,13 +23,19 @@ import type { AfterGradedContext, PaymentAdapter, PaymentOutcome } from "./types
  *   afterGraded  nothing: a free evaluation ends at `graded`, with no proof.
  */
 
-/** The result of a model key probe. `code` is the 422 refusal code. */
-export type ModelKeyProbeResult = { ok: true } | { ok: false; code: "model_key_invalid" | "model_key_no_credit"; message: string };
+/**
+ * The result of a model key probe. `model_key_invalid` / `model_key_no_credit` are 422 refusals.
+ * `model_key_probe_unavailable` (OpenRouter did not answer in time) is a 503 with Retry-After.
+ */
+export type ModelKeyProbeResult =
+  | { ok: true }
+  | { ok: false; code: "model_key_invalid" | "model_key_no_credit"; message: string }
+  | { ok: false; code: "model_key_probe_unavailable"; message: string; retryAfterSeconds: number };
 
 /**
- * The model key probe seam. Task T8 fills it with the OpenRouter `GET /api/v1/key` check (ADR-5:
- * non-200 → `model_key_invalid`, `limit_remaining` 0 → `model_key_no_credit`). It is called after
- * the format check, so it only receives a well-formed key.
+ * The model key probe seam. T8 fills it with the OpenRouter `GET /api/v1/key` check
+ * (`models/openrouter-key.ts`; ADR-5: non-200 → `model_key_invalid`, `limit_remaining` 0 →
+ * `model_key_no_credit`). It is called after the format check, so it only receives a well-formed key.
  */
 export type ModelKeyProbe = (modelApiKey: string) => Promise<ModelKeyProbeResult>;
 
@@ -49,6 +57,10 @@ export interface FreeByokAdapterDeps {
   probeModelKey?: ModelKeyProbe;
   /** The clock of the daily quota window (ms). Default: `Date.now`. */
   now?: () => number;
+  /** ADR-5 platform-key allowance. Default: off (a key is required). */
+  platformKey?: PlatformKeyConfig;
+  /** OpenRouter list prices: the platform key pays only models at or below the max prompt price. */
+  modelPrice?: PriceLookup;
 }
 
 /** Web2 ends at `graded`: no proof. */
@@ -66,6 +78,14 @@ export function createFreeByokAdapter(deps: FreeByokAdapterDeps): PaymentAdapter
   const maxQueued = config.maxQueuedRunsPerUser ?? DEFAULT_MAX_QUEUED_RUNS_PER_USER;
   const dailyRunLimit = config.runsPerUserPerDay ?? DEFAULT_RUNS_PER_USER_PER_DAY;
   const clock = deps.now ?? Date.now;
+  const platform = deps.platformKey ?? PLATFORM_KEY_OFF;
+
+  /** ADR-5: the platform key pays only a cheap OpenRouter model (list price per prompt token). */
+  const platformAllows = async (modelId: string): Promise<boolean> => {
+    if (!deps.modelPrice) return false;
+    const price = await deps.modelPrice(modelId).catch(() => null);
+    return price !== null && price.prompt <= platform.maxPromptUsdPerToken;
+  };
 
   return {
     kind: "free_byok",
@@ -98,23 +118,43 @@ export function createFreeByokAdapter(deps: FreeByokAdapterDeps): PaymentAdapter
       const body = (rawBody ?? {}) as { modelApiKey?: unknown; modelRelease?: unknown };
       const parsed = parseEvaluationRequest(rawBody, config);
       if (!parsed.ok) return parsed.outcome;
-      // ADR-5: BYOK is required on the free path (the platform-key flag is off at launch).
-      if (body.modelApiKey === undefined || body.modelApiKey === null || body.modelApiKey === "") {
+      // ADR-5: BYOK is required on the free path, unless the platform-key flag is on (off at launch).
+      const noKey = body.modelApiKey === undefined || body.modelApiKey === null || body.modelApiKey === "";
+      if (noKey && !platform.enabled) {
         return out(422, { error: "modelApiKey (your OpenRouter API key) is required", code: "model_key_required" });
       }
-      if (!isOpenRouterKey(body.modelApiKey)) {
+      if (!noKey && !isOpenRouterKey(body.modelApiKey)) {
         return out(422, { error: "modelApiKey is not a valid OpenRouter API key (sk-or-…)", code: "model_key_invalid" });
       }
       if (!deps.runKeySecret) return out(503, { error: "BYOK is not configured on this server (ITERA_RUN_KEY_SECRET)" });
+      if (noKey && !platform.key) {
+        return out(503, { error: "the platform model key is not configured on this server; send modelApiKey", code: "platform_key_not_configured" });
+      }
 
       const resolved = await resolveEvaluationRequest(store, config, principalId, parsed);
       if (!resolved.ok) return resolved.outcome;
       const { agent, version, tasks } = resolved;
 
-      const probed = await probe(body.modelApiKey.trim());
-      if (!probed.ok) return out(422, { error: probed.message, code: probed.code });
+      let runKey: string;
+      if (noKey) {
+        // The platform path: a cheap model only, then the per-principal daily platform quota (in the store transaction).
+        if (!(await platformAllows(agent.model ?? ""))) {
+          return out(422, { error: "the platform model key pays only low-cost models; send your own OpenRouter API key (modelApiKey)", code: "platform_model_not_allowed" });
+        }
+        runKey = platform.key!;
+      } else {
+        runKey = (body.modelApiKey as string).trim();
+        const probed = await probe(runKey);
+        if (!probed.ok) {
+          // Nothing is written on any probe refusal: no evaluation, no runs.
+          if (probed.code === "model_key_probe_unavailable") {
+            return { status: 503, body: { error: probed.message, code: probed.code }, headers: { "Retry-After": String(probed.retryAfterSeconds) } };
+          }
+          return out(422, { error: probed.message, code: probed.code });
+        }
+      }
 
-      const sealed = sealModelApiKey(body.modelApiKey, deps.runKeySecret);
+      const sealed = sealModelApiKey(runKey, deps.runKeySecret);
       if (!sealed.ok) return sealed.outcome;
       if (!sealed.modelApiKeyEnc) return out(422, { error: "modelApiKey is required", code: "model_key_required" });
 
@@ -136,6 +176,7 @@ export function createFreeByokAdapter(deps: FreeByokAdapterDeps): PaymentAdapter
           maxActiveRuns: maxQueued,
           dailyRunLimit,
           now: new Date(clock()),
+          ...(noKey ? { keySource: "platform" as const, maxPlatformRunsPerDay: platform.runsPerUserPerDay } : {}),
         });
         return out(202, {
           evaluationId: created.evaluationId,
@@ -146,6 +187,9 @@ export function createFreeByokAdapter(deps: FreeByokAdapterDeps): PaymentAdapter
       } catch (e) {
         if (e instanceof QuotaExceededError) {
           return out(429, { error: "quota_exceeded", code: "quota_exceeded", resetAt: e.resetAt, limit: e.limit, used: e.used });
+        }
+        if (e instanceof PlatformQuotaExceededError) {
+          return out(429, { error: `you used ${e.used} of ${e.max} platform-paid runs in the last 24 h; send your own OpenRouter API key (modelApiKey)`, code: "platform_quota_exceeded" });
         }
         if (e instanceof TooManyQueuedError) {
           return out(429, { error: `you already have ${e.active} runs queued or running (max ${e.max}); wait for them to finish`, code: "too_many_queued" });
