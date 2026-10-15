@@ -369,6 +369,20 @@ export async function workerLoop(deps: WorkerDeps, opts: LoopOptions): Promise<v
 /** Below the 480 s Dokploy stop grace period (README step 8), so the worker exits before SIGKILL. */
 export const DEFAULT_DRAIN_MS = 420_000;
 
+/**
+ * Age after which a `running` run counts as lost (reapStale). It must exceed the longest run this
+ * worker can make: the agent wall cap (ITERA_RUN_MAX_WALL_MS, up to 900 s since K11) plus setup and
+ * grading. K7 campaign 2026-10-15: with the old fixed 15 min, a task-C run that used its full 900 s
+ * wall and then graded PASS 100 was reaped as infra_error 3 s before it finished.
+ * An explicit ITERA_RUNNER_STALE_MS still wins, but never below maxWallMs + the margin.
+ */
+export const STALE_MARGIN_MS = 15 * 60_000;
+export function staleMsFor(maxWallMs: number, envValue?: string): number {
+  const floor = maxWallMs + STALE_MARGIN_MS;
+  const configured = Number(envValue);
+  return Number.isFinite(configured) && configured > 0 ? Math.max(configured, floor) : Math.max(15 * 60_000, floor);
+}
+
 async function main(): Promise<void> {
   const { default: pg } = await import('pg');
   const { readFileSync } = await import('node:fs');
@@ -418,7 +432,7 @@ async function main(): Promise<void> {
   const recovered = await recoverLostRuns({ docker, store, selfHost });
   const orphans = await removeOrphans({ docker, store, selfHost });
   log({
-    event: 'boot', workerId, image: config.image, imageId, runnerDigest: facts.runnerDigest.slice(0, 12), opencode: facts.opencodeVersion, prunedImages, wallMs: config.wallMs, maxWallMs: config.maxWallMs, maxCostUsd: config.maxCostUsd,
+    event: 'boot', workerId, image: config.image, imageId, runnerDigest: facts.runnerDigest.slice(0, 12), opencode: facts.opencodeVersion, prunedImages, wallMs: config.wallMs, maxWallMs: config.maxWallMs, staleMs: staleMsFor(config.maxWallMs, process.env.ITERA_RUNNER_STALE_MS), maxCostUsd: config.maxCostUsd,
     platformKey: Boolean(platformModelKey), opencodeGoKey: Boolean(opencodeGoKey), byok: Boolean(runKeySecret), userTasksGithub: Boolean(taskReader), orphansRemoved: orphans.removed, orphansKept: orphans.kept,
     runsRequeued: recovered.requeued, runsFailed: recovered.failed, runsOfLiveWorkers: recovered.keptLive,
   });
@@ -444,7 +458,7 @@ async function main(): Promise<void> {
     {
       concurrency: Number(process.env.ITERA_RUNNER_CONCURRENCY ?? 2),
       pollMs: Number(process.env.ITERA_RUNNER_POLL_MS ?? 3000),
-      staleMs: Number(process.env.ITERA_RUNNER_STALE_MS ?? 15 * 60_000),
+      staleMs: staleMsFor(config.maxWallMs, process.env.ITERA_RUNNER_STALE_MS),
       drainMs: Number(process.env.ITERA_RUNNER_DRAIN_MS ?? DEFAULT_DRAIN_MS),
       signal: controller.signal,
     },
