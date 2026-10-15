@@ -55,16 +55,6 @@ jobs:
     # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        # mirror.gcr.io: Google's pull-through cache of Docker Hub (anonymous Docker Hub pulls hit 429).
-        image: mirror.gcr.io/library/postgres:16-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -135,9 +125,13 @@ jobs:
             solana airdrop 10 "$a" --url http://127.0.0.1:8899 --commitment confirmed
           done
 
+      # Not a `services:` container: the Docker Hub mirror step restarts dockerd, which kills it.
       - name: Database (roles, migrations in order, fixtures)
         run: |
           set -euo pipefail
+          docker run -d --name e2e-postgres -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16-alpine
+          for i in $(seq 1 60); do pg_isready -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1 && break; sleep 1; done
+          pg_isready -h 127.0.0.1 -p 5432 -U postgres
           psql "$DATABASE_URL_ADMIN" -v ON_ERROR_STOP=1 -q -f scripts/e2e/hermetic/db-pre.sql
           for f in db/migrations/*.sql; do
             echo "apply $f"
