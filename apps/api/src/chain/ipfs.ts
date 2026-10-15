@@ -12,7 +12,14 @@ export interface Pinner {
 
 export class PinError extends Error {}
 
-const PINATA_PIN_FILE_URL = "https://api.pinata.cloud/pinning/pinFileToIPFS";
+/**
+ * Pinata API origin. `ITERA_PINATA_API_URL` replaces it only for a local stub (the hermetic web3
+ * e2e guard, scripts/e2e/hermetic/stubs.mjs); production leaves it unset.
+ */
+export function pinataPinFileUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const origin = (env.ITERA_PINATA_API_URL?.trim() || "https://api.pinata.cloud").replace(/\/+$/, "");
+  return `${origin}/pinning/pinFileToIPFS`;
+}
 
 export class PinataPinner implements Pinner {
   constructor(private readonly jwt: string) {}
@@ -23,7 +30,7 @@ export class PinataPinner implements Pinner {
     form.append("pinataMetadata", JSON.stringify({ name: filename }));
     // CIDv1 so the CID is the same one any IPFS tool computes for these raw bytes.
     form.append("pinataOptions", JSON.stringify({ cidVersion: 1 }));
-    const response = await fetch(PINATA_PIN_FILE_URL, {
+    const response = await fetch(pinataPinFileUrl(), {
       method: "POST",
       headers: { Authorization: `Bearer ${this.jwt}` },
       body: form,

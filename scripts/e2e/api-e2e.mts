@@ -15,6 +15,12 @@
  *          POST /faucet, that never touched the GitHub App: the agent comes from the sample repo.
  * Options: --no-pay stops before the payment (free steps only). --evaluation <id> re-verifies an
  *          evaluation that is already paid (no new payment): the quote and pay steps are skipped.
+ * Hermetic guard (T14, .github/workflows/web3-e2e-guard.yml, local stack of the PR head):
+ *   --agent-id <uuid>     use an agent that already exists and is owned by the wallet (a DB fixture);
+ *                         the GitHub App steps are skipped, POST /agents is replaced by GET /agents/:id.
+ *   --no-web              no web host: the link-preview and web badge-redirect checks are skipped.
+ *   --ipfs-gateway <url>  IPFS gateway of the in-browser verifier step (default: the public one).
+ *   --verify-strict       the verifier step fails on a SKIPPED check too (every check must pass).
  * Output: <out>/api-e2e.json and <out>/api-e2e.md (default ./e2e-report).
  * Exit code: 0 when every step passes, 1 when one fails, 2 on a usage or setup error.
  *
@@ -25,9 +31,10 @@ import { createPrivateKey, sign as edSign } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { getBase58Decoder, getBase58Encoder } from "@solana/kit";
+import { createSolanaRpc, getBase58Decoder, getBase58Encoder } from "@solana/kit";
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { validateApiResponse } from "@itera/contracts";
+import { IPFS_GATEWAY_URL, runVerification } from "../../apps/web/src/verify.ts";
 
 // ------------------------------------------------------------------------------------------------
 // Options
@@ -51,6 +58,10 @@ const { values: argv } = parseArgs({
     "no-pay": { type: "boolean", default: false },
     sample: { type: "boolean", default: false },
     evaluation: { type: "string", default: "" },
+    "agent-id": { type: "string", default: "" },
+    "no-web": { type: "boolean", default: false },
+    "ipfs-gateway": { type: "string", default: "" },
+    "verify-strict": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
   allowPositionals: false,
@@ -70,6 +81,12 @@ const POLL_TIMEOUT_MS = Number(argv["poll-timeout-min"]) * 60_000;
 const OUT_DIR = argv.out!;
 
 const SAMPLE = argv.sample === true;
+const AGENT_ID = argv["agent-id"]!.trim();
+const NO_WEB = argv["no-web"] === true;
+if (AGENT_ID && SAMPLE) {
+  console.error("--agent-id and --sample exclude each other.");
+  process.exit(2);
+}
 const secretB58 = SAMPLE ? "" : process.env.E2E_WALLET_SECRET_B58;
 if (!SAMPLE && !secretB58) {
   console.error("E2E_WALLET_SECRET_B58 is required (base58 secret key of the wallet that logs in and pays).");
@@ -384,6 +401,7 @@ async function main(): Promise<void> {
   // -- 5. GitHub routes (App installation owned by the wallet; --sample: none, the sample repo) ------------
   const [owner, repoName] = REPO.split("/");
   await step("github", SAMPLE ? `no installation on this wallet; GET /github/sample-repos lists ${REPO}` : `GET /github/installations and /github/repos include ${REPO}`, async (f) => {
+    if (AGENT_ID) skip("--agent-id: the agent is a fixture; the GitHub App is not used");
     const token = need(S.token, "a session");
     const i = await http("GET", "/github/installations", { token });
     must(i.status === 200, `/github/installations -> ${i.status}`);
@@ -403,6 +421,7 @@ async function main(): Promise<void> {
   let defaultBranch = "main";
   let headSha = "";
   await step("github", "GET branches (default first) and commits (HEAD first, <= 20)", async (f) => {
+    if (AGENT_ID) skip("--agent-id: the agent is a fixture; the GitHub App is not used");
     const token = need(S.token, "a session");
     const b = await http("GET", `/github/repos/${owner}/${repoName}/branches`, { token });
     must(b.status === 200 && b.json.branches.length > 0, `branches -> ${b.status} ${b.text.slice(0, 120)}`);
@@ -419,6 +438,7 @@ async function main(): Promise<void> {
     return `${b.json.branches.length} branches, HEAD ${headSha.slice(0, 7)}`;
   });
   await step("github", "GET agent-candidates and POST /agents/validate (ok, summary, files)", async (f) => {
+    if (AGENT_ID) skip("--agent-id: the agent is a fixture; the GitHub App is not used");
     const token = need(S.token, "a session");
     const c = await http("GET", `/github/repos/${owner}/${repoName}/agent-candidates`, { token });
     must(c.status === 200 && c.json.candidates.length > 0, `agent-candidates -> ${c.status}`);
@@ -434,7 +454,25 @@ async function main(): Promise<void> {
   });
 
   // -- 6. Agent -------------------------------------------------------------------------------------------
+  if (AGENT_ID) {
+    await step("agent", `GET /agents/:id of the fixture agent ${AGENT_ID.slice(0, 8)}..., GET /agents, another wallet gets 404`, async (f) => {
+      const token = need(S.token, "a session");
+      const one = await http("GET", `/agents/${AGENT_ID}`, { token });
+      must(one.status === 200 && one.json?.agent?.id === AGENT_ID, `GET /agents/${AGENT_ID} -> ${one.status} ${one.text.slice(0, 200)}`);
+      must(one.json.agent.ownerWallet === wallet.address, "the fixture agent is not owned by the wallet");
+      S.agent = one.json.agent;
+      const list = await http("GET", "/agents", { token });
+      must(list.status === 200 && list.json.agents.some((a: any) => a.id === AGENT_ID), "agent missing from GET /agents");
+      const other = await http("GET", `/agents/${AGENT_ID}`, { token: S.strangerToken ?? (S.strangerToken = (await login(stranger)).token) });
+      must(other.status === 404, `another wallet reads the agent -> ${other.status}`);
+      f.agentId = AGENT_ID;
+      f.slug = S.agent.slug;
+      f.model = S.agent.model;
+      return `agent ${AGENT_ID} slug ${S.agent.slug ?? "-"} model ${S.agent.model}`;
+    });
+  }
   await step("agent", "POST /agents (upsert on repo and path), GET /agents/:id, GET /agents", async (f) => {
+    if (AGENT_ID) skip("--agent-id: the agent is a fixture; POST /agents needs the GitHub App");
     const token = need(S.token, "a session");
     const model = need(S.model, "a model");
     const src = SAMPLE ? { source: "sample" } : {};
@@ -756,6 +794,23 @@ async function main(): Promise<void> {
     f.proofKeys = Object.keys(p.json);
     return `proof ${hash.slice(0, 12)}..., mint ${run.proof.nftMint.slice(0, 8)}...`;
   });
+  await step("proof", `verify: apps/web/src/verify.ts on the NFT mint (chain + IPFS only) says VERIFIED${argv["verify-strict"] ? ", every check passes" : ""}`, async (f) => {
+    const run = need(S.run, "a run");
+    const mint = need(run.proof?.nftMint as string | undefined, "an NFT mint");
+    const gateway = argv["ipfs-gateway"] || IPFS_GATEWAY_URL;
+    const report = await runVerification(createSolanaRpc(argv.rpc!) as never, mint as never, { ipfsGatewayUrl: gateway });
+    f.checks = report.checks.map((c) => ({ id: c.id, status: c.status, detail: c.detail.slice(0, 160) }));
+    f.gateway = gateway;
+    const failed = report.checks.filter((c) => c.status === "fail");
+    must(report.overall === "VERIFIED" && failed.length === 0, `${report.overall}: ${failed.map((c) => `${c.id} (${c.detail})`).join("; ")}`);
+    must(report.manifestSha256 === S.hash, `on-chain manifest_sha256 ${report.manifestSha256} != evaluation hash ${S.hash}`);
+    const skipped = report.checks.filter((c) => c.status === "skip");
+    if (argv["verify-strict"]) must(skipped.length === 0, `skipped checks: ${skipped.map((c) => `${c.id} (${c.detail})`).join("; ")}`);
+    for (const id of ["mint-exists", "non-transferable", "known-schema", "known-credential", "nonce-binding", "single-holder"]) {
+      must(report.checks.some((c) => c.id === id && c.status === "pass"), `check ${id} did not pass`);
+    }
+    return `${report.overall}: ${report.checks.filter((c) => c.status === "pass").length} pass, ${skipped.length} skip`;
+  });
   await step("proof", "GET /leaderboard?benchmark= lists the agent (best run per agent) with a proof link", async (f) => {
     const run = need(S.run, "a run");
     const r = await http("GET", `/leaderboard?benchmark=${encodeURIComponent(run.benchmark.id)}&version=${encodeURIComponent(run.benchmark.version ?? "")}`);
@@ -806,6 +861,7 @@ async function main(): Promise<void> {
     }
   });
   await step("public", "link preview: the web host serves /e/:slug HTML with og:title, og:image and twitter:card to a crawler", async (f) => {
+    if (NO_WEB) skip("--no-web: no web host in this run");
     const slug = need(S.slug, "a slug");
     const r = await http("GET", `/e/${slug}`, { base: WEB, headers: { "user-agent": "Twitterbot/1.0" } });
     must(r.status === 200 && (r.headers.get("content-type") ?? "").includes("text/html"), `/e/${slug} -> ${r.status}`);
@@ -830,8 +886,10 @@ async function main(): Promise<void> {
       must(!/<script/i.test(r.text), "badge contains a script");
     }
     // The web host answers /b/:slug.svg with a 302 to the API (README badges embed the web URL).
-    const hop = await http("GET", `/b/${slug}.svg`, { base: WEB });
-    must(hop.status === 302 && String(hop.headers.get("location")).startsWith(`${API}/b/${slug}.svg`), `web /b/ -> ${hop.status} ${hop.headers.get("location")}`);
+    if (!NO_WEB) {
+      const hop = await http("GET", `/b/${slug}.svg`, { base: WEB });
+      must(hop.status === 302 && String(hop.headers.get("location")).startsWith(`${API}/b/${slug}.svg`), `web /b/ -> ${hop.status} ${hop.headers.get("location")}`);
+    }
     const none = await http("GET", "/b/no-such-badge-e2e.svg");
     must(none.status === 404 || (none.status === 200 && none.text.includes("not found")), `unknown badge -> ${none.status}`);
   });

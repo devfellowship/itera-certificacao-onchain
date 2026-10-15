@@ -1,0 +1,223 @@
+name: web3 e2e guard
+
+# Hermetic end-to-end guard of the hackathon web3 flow (plan 20261015-testmyagent-web2-client, T14):
+#   SIWS login -> quote -> Solana Pay payment -> run (real runner + grader) -> SAS attestation -> verify
+# against the code of THIS commit, never the deployed app. The job builds its own stack:
+#   - Postgres with db/migrations/*.sql, plus scripts/e2e/hermetic/db-seed.sql (one agent fixture);
+#   - solana-test-validator with the SAS program cloned from devnet and the TestMyAgent Credential,
+#     Schema and schema mint loaded at their real addresses (the job's hot signer is an added signer);
+#   - the API (apps/api) and the runner worker (services/runner) from source;
+#   - scripts/e2e/hermetic/stubs.mjs for the model (deterministic: it applies the reference patch),
+#     the SOL/USD price, Pinata and the IPFS gateway.
+# Every key is generated in the job. No repository secret and no paid key is used.
+# Not covered here: the GitHub App routes (no App credential in CI; the agent is a DB fixture) and
+# the web host (link previews, badge redirect).
+
+on:
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/**'
+      - 'services/**'
+      - 'packages/**'
+      - 'db/migrations/**'
+      - 'mcp/**'
+      - 'benchmarks/**'
+      - 'graders/**'
+      - 'scripts/e2e/**'
+      - '.github/workflows/web3-e2e-guard.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web3-e2e-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AGAVE_VERSION: v4.2.2
+  # The run's model gateway container reaches the stub through the Docker bridge gateway.
+  STUB_PORT: '18080'
+  API_PORT: '3000'
+  E2E_DIR: ${{ github.workspace }}/.e2e
+  DATABASE_URL_ADMIN: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+  DATABASE_URL: postgresql://itera_api_service:e2e-local-only@127.0.0.1:5432/postgres
+
+jobs:
+  web3-e2e:
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        # mirror.gcr.io: Google's pull-through cache of Docker Hub (anonymous Docker Hub pulls hit 429).
+        image: mirror.gcr.io/library/postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+
+      - name: Use a Docker Hub mirror
+        run: |
+          echo '{"registry-mirrors":["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
+      - name: Cache the Agave (Solana) CLI
+        id: agave-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/agave/${{ env.AGAVE_VERSION }}
+          key: agave-${{ env.AGAVE_VERSION }}-x86_64-linux
+      - name: Install the Agave (Solana) CLI
+        if: steps.agave-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.cache/agave/$AGAVE_VERSION
+          curl -sSfL --retry 4 -o /tmp/agave.tar.bz2 \
+            "https://github.com/anza-xyz/agave/releases/download/$AGAVE_VERSION/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          tar -xjf /tmp/agave.tar.bz2 -C ~/.cache/agave/$AGAVE_VERSION
+      - name: Put the Agave CLI on PATH
+        run: |
+          echo "$HOME/.cache/agave/$AGAVE_VERSION/solana-release/bin" >> "$GITHUB_PATH"
+          "$HOME/.cache/agave/$AGAVE_VERSION/solana-release/bin/solana-test-validator" --version
+
+      - name: Generate the job keys (hot signer, treasury, paying wallet)
+        run: |
+          set -euo pipefail
+          node scripts/e2e/hermetic/keys.mjs "$E2E_DIR"
+          secret=$(grep '^E2E_WALLET_SECRET_B58=' "$E2E_DIR/keys.env" | cut -d= -f2)
+          echo "::add-mask::$secret"
+          cat "$E2E_DIR/keys.env" >> "$GITHUB_ENV"
+          echo "ITERA_HOT_SIGNER_KEYPAIR_PATH=$E2E_DIR/hot-signer.json" >> "$GITHUB_ENV"
+          echo "DOCKER_BRIDGE_IP=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')" >> "$GITHUB_ENV"
+
+      - name: SAS accounts for the local validator (read from devnet, hot signer added)
+        run: node scripts/e2e/hermetic/setup-chain.mjs --hot-signer "$E2E_DIR/hot-signer.json" --out "$E2E_DIR/accounts"
+
+      - name: Start solana-test-validator (SAS program cloned from devnet)
+        run: |
+          set -euo pipefail
+          accounts=()
+          for f in "$E2E_DIR"/accounts/*.json; do
+            accounts+=(--account "$(node -p "require('$f').pubkey")" "$f")
+          done
+          nohup solana-test-validator --reset --quiet --ledger "$E2E_DIR/ledger" \
+            --url https://api.devnet.solana.com \
+            --clone-upgradeable-program 22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG \
+            "${accounts[@]}" > "$E2E_DIR/validator.log" 2>&1 &
+          for i in $(seq 1 90); do
+            if solana cluster-version --url http://127.0.0.1:8899 >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          solana cluster-version --url http://127.0.0.1:8899
+          solana account 22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG --url http://127.0.0.1:8899 | head -4
+
+      - name: Fund the job keys on the local validator
+        run: |
+          set -euo pipefail
+          for a in "$HOT_SIGNER_ADDRESS" "$TREASURY_ADDRESS" "$E2E_WALLET_ADDRESS"; do
+            solana airdrop 10 "$a" --url http://127.0.0.1:8899 --commitment confirmed
+          done
+
+      - name: Database (roles, migrations in order, fixtures)
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL_ADMIN" -v ON_ERROR_STOP=1 -q -f scripts/e2e/hermetic/db-pre.sql
+          for f in db/migrations/*.sql; do
+            echo "apply $f"
+            psql "$DATABASE_URL_ADMIN" -v ON_ERROR_STOP=1 -q -f "$f" > /dev/null
+          done
+          out=$(psql "$DATABASE_URL_ADMIN" -v ON_ERROR_STOP=1 -tA -v wallet="$E2E_WALLET_ADDRESS" -v model=qwen/qwen3-coder -f scripts/e2e/hermetic/db-seed.sql)
+          agent=$(echo "$out" | grep '^AGENT_ID=' | cut -d= -f2)
+          test -n "$agent"
+          echo "E2E_AGENT_ID=$agent" >> "$GITHUB_ENV"
+
+      - name: Start the stubs, the API and the runner worker (from this commit)
+        run: |
+          set -euo pipefail
+          nohup node scripts/e2e/hermetic/stubs.mjs --port "$STUB_PORT" \
+            --patch benchmarks/webhook-ledger/solution/solution.patch > "$E2E_DIR/stubs.log" 2>&1 &
+          STUB="http://127.0.0.1:$STUB_PORT"
+          common=(
+            DATABASE_URL="$DATABASE_URL" ITERA_DB_SSL=disable
+            ITERA_RUN_KEY_SECRET=e2e-local-run-key-secret-not-a-real-secret-0001
+            ITERA_SOLANA_RPC_URL=http://127.0.0.1:8899 ITERA_SOLANA_WSS_URL=ws://127.0.0.1:8900
+          )
+          env "${common[@]}" PORT="$API_PORT" ITERA_API_TRUST_PROXY=0 \
+            ITERA_SESSION_SECRET=e2e-local-session-secret-not-a-real-secret-01 \
+            ITERA_MODELS_SYNC=off ITERA_MCP_CATALOG_SYNC=off \
+            ITERA_TREASURY_ADDRESS="$TREASURY_ADDRESS" \
+            ITERA_PYTH_HERMES_URL="$STUB" ITERA_COINGECKO_URL="$STUB" \
+            ITERA_PINATA_API_URL="$STUB" PINATA_JWT=e2e-stub-not-a-real-token \
+            ITERA_PUBLIC_API_BASE_URL="http://127.0.0.1:$API_PORT" \
+            ITERA_EVALUATION_ISSUER_INTERVAL_MS=3000 \
+            nohup npx tsx apps/api/src/server.ts > "$E2E_DIR/api.log" 2>&1 &
+          env "${common[@]}" ITERA_RUNNER_OPENROUTER_KEY=e2e-stub-not-a-real-key \
+            ITERA_MODEL_UPSTREAM="http://$DOCKER_BRIDGE_IP:$STUB_PORT" \
+            ITERA_RUNNER_CONCURRENCY=1 ITERA_RUNNER_POLL_MS=1000 ITERA_USER_TASKS=off \
+            ITERA_WORKER_NAME=e2e-guard \
+            nohup npx tsx services/runner/src/worker.ts > "$E2E_DIR/worker.log" 2>&1 &
+          for i in $(seq 1 60); do curl -sf "http://127.0.0.1:$API_PORT/health" >/dev/null && break; sleep 2; done
+          curl -sf "http://127.0.0.1:$API_PORT/health"
+          curl -sf "$STUB/health"
+          # The worker builds the sandbox image at boot, then logs {"event":"boot"}.
+          for i in $(seq 1 240); do grep -q '"event":"boot"' "$E2E_DIR/worker.log" && break; grep -q '"event":"fatal"' "$E2E_DIR/worker.log" && break; sleep 2; done
+          grep '"event":"boot"' "$E2E_DIR/worker.log" || { tail -50 "$E2E_DIR/worker.log"; exit 1; }
+
+      - name: 'API e2e: SIWS -> quote -> pay -> run -> attestation -> verify'
+        run: |
+          npx tsx scripts/e2e/api-e2e.mts \
+            --base "http://127.0.0.1:$API_PORT" --rpc http://127.0.0.1:8899 \
+            --agent-id "$E2E_AGENT_ID" --task tsk_webhook_dup --treasury "$TREASURY_ADDRESS" \
+            --no-web --ipfs-gateway "http://127.0.0.1:$STUB_PORT/ipfs" --verify-strict \
+            --poll-timeout-min 15 --out e2e-report
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## web3 e2e guard (hermetic, this commit)"
+            echo
+            echo "Covered: SIWS, catalog, quote (stub SOL/USD), Solana Pay payment and validation on a local validator,"
+            echo "the real runner and grader (stub model that applies the reference patch), IPFS pin (stub),"
+            echo "the SAS tokenized attestation, and apps/web/src/verify.ts on the minted NFT."
+            echo
+            echo "**Not covered here:** the GitHub App routes (no App credential in CI: the agent is a DB fixture)"
+            echo "and the web host (link preview, badge redirect). The browser e2e does not run in this job."
+            echo
+            if [ -f e2e-report/api-e2e.md ]; then cat e2e-report/api-e2e.md; else echo "No e2e report: the job failed before the driver ran."; fi
+            echo
+            echo "### Stub counters"
+            echo '```'
+            curl -s "http://127.0.0.1:$STUB_PORT/health" || echo "stub not reachable"
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p e2e-report/logs
+          cp "$E2E_DIR"/*.log e2e-report/logs/ 2>/dev/null || true
+          docker ps -a --format '{{.Names}} {{.Status}}' > e2e-report/logs/docker-ps.txt || true
+
+      - name: Upload the e2e report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web3-e2e-report
+          path: e2e-report/
+          if-no-files-found: warn
+          retention-days: 14
