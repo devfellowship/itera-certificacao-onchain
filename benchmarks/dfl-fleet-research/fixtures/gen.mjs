@@ -288,20 +288,23 @@ export function generate(seed) {
     '',
     '- q6: no file in the fleet defines a Helm chart or a Kubernetes manifest. I did not find the fact, so I do not answer it.',
   ]);
-  const read = (paths) => paths.map((p) => `/repos/${p.replace(':', '/')}`);
-  // repos@2: the agent takes each line number from read_file_lines. After the discovery reads below,
-  // the reference solution re-reads every file it cites with line numbers (one call per cited file).
+  // Task version 3 (TMA-QA2 = A): the only tool that returns file content is read_file_lines. The reference
+  // solution lists and searches, then reads every file it needs (discovery reads and cited files) with
+  // read_file_lines, one call per file, so each cited line number is the one the tool printed.
   const cited = [...new Set(Object.values(answers.answers).flatMap((a) => a.evidence.map((e) => e.ref.slice(0, e.ref.lastIndexOf(':')))))];
+  const discovery = [
+    `${player}:README.md`, `${ORG_A}/acme-iterate:README.md`,
+    `${ORG_A}/acme-schema:.github/workflows/${applyName}`,
+    ...Object.keys(skillFiles).map((p) => `${ORG_A}/acme-harness:${p}`),
+    `${ORG_A}/acme-infra:docs/ci-rules.md`, `${ORG_A}/acme-infra:inventory/repos.yaml`, `${violatorRepo}:${violatorFile}`,
+    ...secretRefs.map((r) => `${r.id}:${r.path}`),
+  ];
+  const read = (paths) => paths.map((p) => `/repos/${p.replace(':', '/')}`);
   const calls = [
     { tool: 'directory_tree', arguments: { path: '/repos', excludePatterns: ['**/.git'] } },
-    { tool: 'read_multiple_files', arguments: { paths: read([`${player}:README.md`, `${ORG_A}/acme-iterate:README.md`]) } },
-    { tool: 'read_text_file', arguments: { path: read([`${ORG_A}/acme-schema:.github/workflows/${applyName}`])[0] } },
-    { tool: 'read_multiple_files', arguments: { paths: read(Object.keys(skillFiles).map((p) => `${ORG_A}/acme-harness:${p}`)) } },
-    { tool: 'read_multiple_files', arguments: { paths: read([`${ORG_A}/acme-infra:docs/ci-rules.md`, `${ORG_A}/acme-infra:inventory/repos.yaml`, `${violatorRepo}:${violatorFile}`]) } },
     { tool: 'search_files', arguments: { path: '/repos', pattern: '**/*payments*' } },
-    { tool: 'read_multiple_files', arguments: { paths: read(secretRefs.map((r) => `${r.id}:${r.path}`)) } },
     { tool: 'search_files', arguments: { path: '/repos', pattern: '**/*{helm,chart,k8s,kube}*' } },
-    ...cited.map((p) => ({ tool: 'read_file_lines', arguments: { path: read([p])[0] } })),
+    ...[...new Set([...discovery, ...cited])].map((p) => ({ tool: 'read_file_lines', arguments: { path: read([p])[0] } })),
   ].map((c) => ({ server: 'repos', ...c }));
   const assertions = [
     ...[`${player}:README.md`, `${ORG_A}/acme-schema:.github/workflows/${applyName}`, `${violatorRepo}:${violatorFile}`, `${ORG_A}/acme-infra:inventory/repos.yaml`, ...secretRefs.map((r) => `${r.id}:${r.path}`), ...key.questions.q3.evidence_files].map((id) => ({

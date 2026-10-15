@@ -5,7 +5,8 @@
 //   2. Grader: the reference solution passes every check; the empty skeleton (no-op) and a
 //      fabricated answer to the unanswerable question fail. Strict evidence: a citation within
 //      +-1 line passes, 2 lines off fails (task version 2, TMA-QA = C). The task uses repos@2 and
-//      the reference solution reads every cited file with read_file_lines.
+//      the reference solution reads every cited file with read_file_lines. Version 3 (TMA-QA2 = A):
+//      read_file_lines is the ONLY tool that returns file content, in allowed_tools and in the reference calls.
 //   3. Denylist: no real organisation, repo, host, person or private marker in the task content,
 //      and no secret-shaped string.
 //
@@ -54,7 +55,7 @@ const off = JSON.parse(solution);
 off.answers.q1.evidence = [{ ref: 'acmehq/acme-player:README.md:9', quote: 'the learner-facing app' }];
 if (!failed(grade({ answersText: JSON.stringify(off), reportText: report, key })).includes('q1-evidence')) problems.push('a citation on the wrong line is not caught');
 
-// 2b. Strict evidence (TMA-QA = C, task version 2). repos@2 `read_file_lines` prints the exact line, so the
+// 2b. Strict evidence (TMA-QA = C, task versions 2 and 3). repos@2 `read_file_lines` prints the exact line, so the
 // grader keeps its +-1 slack and nothing more: the reference cites the exact line, a citation 1 line off still
 // passes, a citation 2 lines off fails (campaign k7: the agent cited line 11 for text on line 13).
 const shift = (by) => {
@@ -76,12 +77,19 @@ if (shift(0) || shift(1) || shift(-1)) problems.push('a citation within +-1 line
 if (!shift(2) || !shift(-2)) problems.push('a citation 2 lines off passes (the grader is not strict)');
 
 // 2c. The task uses repos@2 and the reference solution reads every cited file with line numbers.
-if (task.task.version !== '2') problems.push(`task.version is ${task.task.version}, expected 2 (repos@2 is a new task version)`);
+if (task.task.version !== '3') problems.push(`task.version is ${task.task.version}, expected 3 (read_file_lines is the only content tool: a new task version)`);
 const mcp = task.environment.tools.mcp.find((m) => m.name === 'repos');
 if (mcp?.catalog !== 'repos@2') problems.push(`catalog is ${mcp?.catalog}, expected repos@2`);
 if (!mcp?.allowed_tools?.includes('read_file_lines')) problems.push('read_file_lines is not in allowed_tools');
+// Task version 3: no other tool may return file content. git_show prints the content of a file in a diff.
+const CONTENT_TOOLS = ['read_text_file', 'read_multiple_files', 'read_media_file', 'read_file', 'git_show', 'git_diff', 'git_diff_staged', 'git_diff_unstaged'];
+for (const t of CONTENT_TOOLS) if (mcp?.allowed_tools?.includes(t)) problems.push(`${t} is in allowed_tools: read_file_lines must be the only tool that returns file content`);
+const NAVIGATION = ['list_directory', 'directory_tree', 'search_files', 'git_log'];
+for (const t of mcp?.allowed_tools ?? []) if (t !== 'read_file_lines' && !NAVIGATION.includes(t)) problems.push(`${t} is in allowed_tools but is neither read_file_lines nor a navigation tool`);
 const calls = readFileSync(join(root, 'solution/mcp-calls.jsonl'), 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 for (const c of calls) if (!mcp.allowed_tools.includes(c.tool)) problems.push(`solution/mcp-calls.jsonl calls ${c.tool}, which is not in allowed_tools`);
+const unnumbered = calls.filter((c) => !NAVIGATION.includes(c.tool) && c.tool !== 'read_file_lines');
+if (unnumbered.length) problems.push(`solution/mcp-calls.jsonl reads content with ${[...new Set(unnumbered.map((c) => c.tool))].join(', ')}`);
 const numbered = new Set(calls.filter((c) => c.tool === 'read_file_lines').map((c) => c.arguments.path));
 for (const a of Object.values(JSON.parse(solution).answers)) {
   for (const e of a.evidence) {
