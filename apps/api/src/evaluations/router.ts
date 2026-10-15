@@ -12,24 +12,26 @@
  * reference) and the Memo `itera-eval:v1:{evaluation_id, run_ids, …}`. Its signature is every
  * run's run_start_sig. TestMyAgent pays the model tokens (Gate Q2) and the proof issuance.
  *
+ * Payment adapter seam (plan 20261015-testmyagent-web2-client, ADR-6): the quote, the payment
+ * transaction and the settle step belong to the payment adapter of the caller's principal kind
+ * (`siws` → `solana_pay`, `dfl` → `free_byok`). This router keeps the shared work. See
+ * `payments/adapters/`.
+ *
  * The legacy vendor flow also answers `POST /evaluations` (body with `idempotencyKey`): such a body
  * falls through to it.
  */
-import { randomUUID } from "node:crypto";
 import type { Compatibility } from "@itera/contracts";
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
-import { encryptRunKey } from "../domain/run-key.js";
 import { requireWallet } from "../http/auth.js";
-import { isModelApiKey } from "../http/runs-router.js";
-import { lamportsToSol, round4, usdToLamports, type EvaluationsConfig } from "./config.js";
+import { createPaymentAdapters, paymentAdapterFor, type PaymentOutcome } from "../payments/adapters/index.js";
+import type { PaymentGateway } from "../payments/adapters/solana-pay-gateway.js";
+import { lamportsToSol, round4, type EvaluationsConfig } from "./config.js";
 import { compatibilityOf } from "./compatibility.js";
-import { buildEvaluationMemo } from "./memo.js";
-import { priceRun, type RunCostEstimator } from "./estimate.js";
+import type { RunCostEstimator } from "./estimate.js";
 import { PriceUnavailableError, type SolUsdProvider } from "./price.js";
 import { initialsOf, rollup } from "./rollup.js";
-import type { PaymentGateway } from "./solana-pay.js";
-import { EvaluationConflictError, type EvalTask, type EvaluationListRow, type EvaluationsStore, type PaymentRecord } from "./store.js";
+import type { EvalTask, EvaluationListRow, EvaluationsStore } from "./store.js";
 
 export interface EvaluationsRouterDeps {
   store: EvaluationsStore;
@@ -44,49 +46,10 @@ export interface EvaluationsRouterDeps {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,90}$/;
 const LIST_LIMIT = 200;
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
-}
-
-function quoteView(p: PaymentRecord, transferUrl: string) {
-  const sum = (f: (t: EvalTask) => number | null | undefined) => round4(p.tasks.reduce((a, t) => a + (f(t) ?? 0), 0));
-  return {
-    quoteId: p.id,
-    // Itemized (Tainan TG 20986): forecast model cost + base fee per run, rounded up to the cent.
-    modelCostEstimateUsd: sum((t) => t.pricing?.modelCostEstimateUsd),
-    baseFeeUsd: sum((t) => t.pricing?.baseFeeUsd),
-    totalUsd: p.amountUsd,
-    totalLamports: p.amountLamports,
-    solUsd: p.solUsdRate,
-    priceUsdPerRun: p.priceUsdPerRun,
-    taskCount: p.taskCount,
-    amountUsd: p.amountUsd,
-    solUsdRate: p.solUsdRate,
-    priceSource: p.priceSource,
-    amountLamports: p.amountLamports,
-    sol: lamportsToSol(p.amountLamports),
-    treasury: p.treasury,
-    reference: p.reference,
-    memo: p.memo,
-    transferUrl,
-    expiresAt: p.quoteExpiresAt,
-    evaluationId: p.plannedEvaluationId,
-    runIds: p.plannedRunIds,
-    tasks: p.tasks.map((t, i) => ({
-      taskId: t.taskId,
-      slug: t.slug,
-      name: t.name,
-      seq: i + 1,
-      runId: p.plannedRunIds[i],
-      modelCostEstimateUsd: t.pricing?.modelCostEstimateUsd ?? null,
-      baseFeeUsd: t.pricing?.baseFeeUsd ?? null,
-      priceUsd: t.pricing?.priceUsd ?? null,
-      estimateBasis: t.pricing?.basis ?? null,
-    })),
-  };
 }
 
 function shareOf(e: EvaluationListRow, webBaseUrl: string) {
@@ -99,6 +62,10 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
   const { store, config } = deps;
   const now = deps.now ?? Date.now;
   const router = Router();
+  // ADR-6: the payment adapter follows the principal kind (siws → solana_pay, dfl → free_byok).
+  const adapters = createPaymentAdapters({ ...deps, now });
+  const adapterOf = (req: Request) => paymentAdapterFor(adapters, req.principal!.kind);
+  const send = (res: Response, o: PaymentOutcome) => void res.status(o.status).json(o.body);
 
   const handle =
     (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>): RequestHandler =>
@@ -129,8 +96,10 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         res.status(400).json({ error: `at most ${config.maxTasks} tasks per evaluation` });
         return;
       }
-      if (!config.treasury) {
-        res.status(503).json({ error: "payments are not configured on this server (ITERA_TREASURY_ADDRESS)" });
+      const adapter = adapterOf(req);
+      const gate = adapter.quoteGate();
+      if (gate) {
+        send(res, gate);
         return;
       }
       const agent = await store.getAgent(body.agentId);
@@ -176,52 +145,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
         return;
       }
 
-      const modelId = agent.model ?? "unknown";
-      for (const t of tasks) {
-        const est = deps.estimate && t.packId ? await deps.estimate(t.packId, t.packVersion, modelId).catch(() => null) : null;
-        t.pricing = priceRun(est, config.baseFeeUsd, config.fallbackPriceUsd);
-      }
-      const rate = await deps.price();
-      const amountUsd = round4(tasks.reduce((a, t) => a + t.pricing!.priceUsd, 0));
-      const amountLamports = usdToLamports(amountUsd, rate.solUsdRate);
-      const plannedEvaluationId = randomUUID();
-      const plannedRunIds = tasks.map(() => randomUUID());
-      const memo = buildEvaluationMemo({
-        evaluationId: plannedEvaluationId,
-        runIds: plannedRunIds,
-        agentRepo: agent.repoFullName,
-        agentCommit: version.commitSha,
-        modelId,
-        tasks: tasks.map((t) => `${t.packId || t.slug}@${t.packVersion || "1"}`),
-      });
-      const payment = await store.createQuote({
-        payerWallet: wallet,
-        agentId: agent.id,
-        agentVersionId: version.id,
-        modelId,
-        tasks,
-        taskCount: tasks.length,
-        priceUsdPerRun: round4(amountUsd / tasks.length),
-        amountUsd,
-        amountLamports,
-        solUsdRate: rate.solUsdRate,
-        priceSource: rate.priceSource,
-        treasury: config.treasury,
-        quoteExpiresAt: new Date(now() + config.quoteTtlMs).toISOString(),
-        reference: deps.payments.newReference(),
-        plannedEvaluationId,
-        plannedRunIds,
-        memo,
-      });
-      const transferUrl = deps.payments.transferUrl({
-        recipient: payment.treasury,
-        lamports: payment.amountLamports,
-        reference: payment.reference,
-        memo: payment.memo,
-        label: "TestMyAgent",
-        message: `Evaluation of ${agent.name} · ${tasks.length} task${tasks.length === 1 ? "" : "s"}`,
-      });
-      res.status(201).json(quoteView(payment, transferUrl));
+      send(res, await adapter.quote({ principalId: wallet, agent, version, tasks }));
     }),
   );
 
@@ -229,38 +153,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
     "/evaluations/quote/:reference/transaction",
     requireWallet,
     handle(async (req, res) => {
-      const reference = String(req.params.reference);
-      const payment = BASE58_RE.test(reference) ? await store.getPaymentByReference(reference) : null;
-      if (!payment || payment.payerWallet !== req.wallet) {
-        res.status(404).json({ error: "quote not found" });
-        return;
-      }
-      if (payment.evaluationId) {
-        res.status(409).json({ error: "this quote is already paid", evaluationId: payment.evaluationId });
-        return;
-      }
-      if (now() > Date.parse(payment.quoteExpiresAt)) {
-        res.status(402).json({ error: "quote expired", code: "quote_expired" });
-        return;
-      }
-      const account = (req.body as { account?: unknown } | undefined)?.account ?? req.wallet;
-      if (!isNonEmptyString(account) || !BASE58_RE.test(account)) {
-        res.status(400).json({ error: "account must be a base58 public key" });
-        return;
-      }
-      try {
-        const transaction = await deps.payments.buildTransferTx(account, {
-          recipient: payment.treasury,
-          lamports: payment.amountLamports,
-          reference: payment.reference,
-          memo: payment.memo,
-        });
-        res.json({ transaction, memo: payment.memo, expiresAt: payment.quoteExpiresAt });
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        // createTransfer checks the payer: "sender not found" / "insufficient funds".
-        res.status(/insufficient|not found/i.test(message) ? 402 : 502).json({ error: message, code: /insufficient/i.test(message) ? "insufficient_funds" : "build_failed" });
-      }
+      send(res, await adapterOf(req).transaction({ principalId: req.wallet!, reference: String(req.params.reference), body: req.body }));
     }),
   );
 
@@ -278,100 +171,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
     requireWallet,
     handle(async (req, res) => {
       const wallet = req.wallet!;
-      const body = (req.body ?? {}) as { reference?: unknown; txSig?: unknown; modelApiKey?: unknown; modelRelease?: unknown };
-      const txSig = isNonEmptyString(body.txSig) ? body.txSig.trim() : null;
-      if (txSig && !BASE58_RE.test(txSig)) {
-        res.status(400).json({ error: "txSig must be a base58 signature" });
-        return;
-      }
-      let payment: PaymentRecord | null = null;
-      if (isNonEmptyString(body.reference)) payment = await store.getPaymentByReference(body.reference.trim());
-      else if (txSig) payment = await store.getPaymentByTxSig(txSig);
-      else {
-        res.status(400).json({ error: "reference (from POST /evaluations/quote) is required" });
-        return;
-      }
-      if (!payment) {
-        res.status(404).json({ error: "quote not found" });
-        return;
-      }
-      if (payment.payerWallet !== wallet) {
-        res.status(403).json({ error: "this quote belongs to another wallet" });
-        return;
-      }
-      // Idempotent on the payment (and so on txSig): the same evaluation, never a second one.
-      if (payment.evaluationId) {
-        if (txSig && payment.txSig && txSig !== payment.txSig) {
-          res.status(409).json({ error: "this quote was paid by another transaction", evaluationId: payment.evaluationId });
-          return;
-        }
-        res.status(200).json({ evaluationId: payment.evaluationId, status: "existing", txSig: payment.txSig, runs: payment.plannedRunIds.map((runId, i) => ({ runId, taskId: payment!.tasks[i]?.taskId, seq: i + 1 })) });
-        return;
-      }
-      if (txSig) {
-        const other = await store.getPaymentByTxSig(txSig);
-        if (other && other.id !== payment.id) {
-          res.status(409).json({ error: "this transaction already paid another quote" });
-          return;
-        }
-      }
-
-      let modelApiKeyEnc: string | null = null;
-      if (body.modelApiKey !== undefined && body.modelApiKey !== null && body.modelApiKey !== "") {
-        // Gate Q2 = B: TestMyAgent pays the tokens. BYOK stays optional in the API only.
-        if (!isModelApiKey(body.modelApiKey)) {
-          res.status(400).json({ error: "modelApiKey is not a plausible API key" });
-          return;
-        }
-        if (!deps.runKeySecret) {
-          res.status(503).json({ error: "BYOK is not configured on this server (ITERA_RUN_KEY_SECRET)" });
-          return;
-        }
-        modelApiKeyEnc = encryptRunKey(body.modelApiKey.trim(), deps.runKeySecret);
-      }
-
-      const expiresMs = Date.parse(payment.quoteExpiresAt) + config.quoteGraceMs;
-      const fields = { recipient: payment.treasury, lamports: payment.amountLamports, reference: payment.reference, memo: payment.memo };
-      const verified = await deps.payments.verify(fields, txSig);
-      if (!verified.ok) {
-        if (verified.code === "not_found") {
-          if (now() > expiresMs) res.status(402).json({ error: "quote expired", code: "quote_expired" });
-          else res.status(402).json({ error: `payment not found or not confirmed yet: ${verified.message}`, code: "payment_not_found" });
-          return;
-        }
-        res.status(402).json({ error: verified.message, code: /amount not transferred/.test(verified.message) ? "wrong_amount" : "payment_invalid" });
-        return;
-      }
-      if (verified.blockTimeMs !== null && verified.blockTimeMs > expiresMs) {
-        res.status(402).json({ error: "quote expired: the transfer landed after the quote window", code: "quote_expired", txSig: verified.txSig });
-        return;
-      }
-      const quotedVersion = await store.getAgentVersion(payment.agentVersionId);
-      let created;
-      try {
-        created = await store.createEvaluationFromPayment({
-          paymentId: payment.id,
-          txSig: verified.txSig,
-          ownerWallet: wallet,
-          shortId: payment.plannedEvaluationId.replace(/-/g, "").slice(0, 8),
-          isPublic: payment.tasks.every((t) => t.isPublic),
-          modelRelease: isNonEmptyString(body.modelRelease) ? body.modelRelease.trim() : null,
-          modelApiKeyEnc,
-          agentCommit: quotedVersion?.commitSha ?? "unknown",
-        });
-      } catch (e) {
-        if (e instanceof EvaluationConflictError) {
-          res.status(409).json({ error: e.message });
-          return;
-        }
-        throw e;
-      }
-      res.status(created.created ? 202 : 200).json({
-        evaluationId: created.evaluationId,
-        status: created.created ? "pending" : "existing",
-        txSig: verified.txSig,
-        runs: created.runIds.map((runId, i) => ({ runId, taskId: payment!.tasks[i]?.taskId, seq: i + 1 })),
-      });
+      send(res, await adapterOf(req).settle({ principalId: wallet, body: req.body }));
     }),
   );
 

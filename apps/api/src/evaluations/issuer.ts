@@ -9,6 +9,7 @@
 import { digestOf } from "../domain/digest.js";
 import type { ProofIssuer, RunsStore } from "../domain/runs-store.js";
 import { criteriaFromManifest, hasEvalLog } from "../http/runs-router.js";
+import { AFTER_GRADED, paymentKindOf } from "../payments/adapters/index.js";
 import { needsProof, rollup, slotsOf } from "./rollup.js";
 import type { EvaluationsStore } from "./store.js";
 
@@ -47,38 +48,49 @@ export function createEvaluationIssuer(deps: EvaluationIssuerDeps) {
 
     // 2. Proofs for finished runs.
     let proofs = await deps.store.listProofs(runs.map((r) => r.id));
-    if (deps.proofIssuer) {
+    const proofIssuer = deps.proofIssuer;
+    if (proofIssuer) {
       const byRun = new Map(proofs.map((p) => [p.runId, p]));
+      // ADR-6: the payment adapter of the evaluation decides what follows a graded run
+      // (solana_pay → the proof; free_byok → nothing).
+      const afterGraded = AFTER_GRADED[paymentKindOf(ev)];
       for (const slot of slotsOf(runs)) {
         const r = slot.run;
         if (!needsProof(r)) continue;
         const p = byRun.get(r.id);
-        if (p?.status === "confirmed") {
-          if (p) await deps.store.setProofEvaluation(r.id, id);
-          continue;
-        }
-        if (now() - (lastAttempt.get(r.id) ?? 0) < retryMs) continue;
-        lastAttempt.set(r.id, now());
-        const run = await deps.runs.getRun(r.id);
-        if (!run || !hasEvalLog(run.evidenceManifest)) continue;
-        const [agent, agentVersion] = await Promise.all([
-          run.agentId ? deps.runs.getAgent(run.agentId) : Promise.resolve(null),
-          run.agentVersionId ? deps.runs.getAgentVersion(run.agentVersionId) : Promise.resolve(null),
-        ]);
-        try {
-          const result = await deps.proofIssuer.issueProof({
-            run: { ...run, evaluationId: id, retryOfRunId: r.retryOfRunId },
-            manifest: run.evidenceManifest,
-            manifestSha256: digestOf(run.evidenceManifest),
-            criteria: criteriaFromManifest(run.evidenceManifest),
-            agent,
-            agentVersion,
-          });
-          await deps.store.setProofEvaluation(r.id, id);
-          log({ event: "proof", evaluationId: id, runId: r.id, status: result.status, nftMint: result.nftMint ?? null, error: result.error ?? null });
-        } catch (e) {
-          log({ event: "proof_error", evaluationId: id, runId: r.id, error: e instanceof Error ? e.message : String(e) });
-        }
+        await afterGraded({
+          evaluationId: id,
+          run: r,
+          proof: p,
+          issueProof: async () => {
+            if (p?.status === "confirmed") {
+              if (p) await deps.store.setProofEvaluation(r.id, id);
+              return;
+            }
+            if (now() - (lastAttempt.get(r.id) ?? 0) < retryMs) return;
+            lastAttempt.set(r.id, now());
+            const run = await deps.runs.getRun(r.id);
+            if (!run || !hasEvalLog(run.evidenceManifest)) return;
+            const [agent, agentVersion] = await Promise.all([
+              run.agentId ? deps.runs.getAgent(run.agentId) : Promise.resolve(null),
+              run.agentVersionId ? deps.runs.getAgentVersion(run.agentVersionId) : Promise.resolve(null),
+            ]);
+            try {
+              const result = await proofIssuer.issueProof({
+                run: { ...run, evaluationId: id, retryOfRunId: r.retryOfRunId },
+                manifest: run.evidenceManifest,
+                manifestSha256: digestOf(run.evidenceManifest),
+                criteria: criteriaFromManifest(run.evidenceManifest),
+                agent,
+                agentVersion,
+              });
+              await deps.store.setProofEvaluation(r.id, id);
+              log({ event: "proof", evaluationId: id, runId: r.id, status: result.status, nftMint: result.nftMint ?? null, error: result.error ?? null });
+            } catch (e) {
+              log({ event: "proof_error", evaluationId: id, runId: r.id, error: e instanceof Error ? e.message : String(e) });
+            }
+          },
+        });
       }
       proofs = await deps.store.listProofs(runs.map((r) => r.id));
     }
