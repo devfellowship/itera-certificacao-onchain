@@ -135,3 +135,129 @@
 .w2-keyfield-error {
   color: var(--tma-danger-text);
 }
+
+/* T9: the evaluation flow. */
+.w2-wide {
+  max-width: 880px;
+  align-items: stretch;
+}
+
+.w2-nav-link {
+  color: var(--tma-text-muted);
+  text-decoration: none;
+}
+
+.w2-nav-link:hover {
+  color: var(--tma-primary);
+}
+
+a.w2-btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.w2-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.w2-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.w2-section h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.w2-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.w2-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  padding: 12px 14px;
+  border: 1px solid var(--tma-line-strong);
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-surface);
+  color: inherit;
+  font: inherit;
+}
+
+.w2-option.is-selected {
+  border-color: var(--tma-primary);
+  box-shadow: var(--tma-focus-ring);
+}
+
+.w2-option-title {
+  font-weight: 500;
+}
+
+.w2-option-meta,
+.w2-muted {
+  color: var(--tma-text-muted);
+  font-size: 14px;
+}
+
+.w2-error {
+  color: var(--tma-danger-text);
+}
+
+.w2-status {
+  font-weight: 600;
+}
+
+.w2-status-graded {
+  color: var(--tma-success-text);
+}
+
+.w2-status-failed,
+.w2-status-review {
+  color: var(--tma-danger-text);
+}
+
+.w2-result {
+  padding: 16px;
+  border: 1px solid var(--tma-line-strong);
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-surface);
+}
+
+.w2-result-label {
+  color: var(--tma-text-muted);
+  font-size: 14px;
+}
+
+.w2-result-score {
+  font-size: 48px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.w2-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  display: block;
+  overflow-x: auto;
+}
+
+.w2-table th,
+.w2-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--tma-line-strong);
+}
