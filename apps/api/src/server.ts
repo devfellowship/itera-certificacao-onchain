@@ -16,7 +16,7 @@ import { runCostEstimator } from "./evaluations/estimate.js";
 import { createEvaluationIssuer } from "./evaluations/issuer.js";
 import { openRouterPrices } from "./domain/model-prices.js";
 import { solUsdProvider } from "./evaluations/price.js";
-import { SolanaPayGateway } from "./evaluations/solana-pay.js";
+import { SolanaPayGateway } from "./payments/adapters/solana-pay-gateway.js";
 import { PgEvaluationsStore } from "./evaluations/store.pg.js";
 import { PgPublicProfilesStore } from "./public/store.pg.js";
 import { PgPublicTaskStore } from "./public/task-store.pg.js";

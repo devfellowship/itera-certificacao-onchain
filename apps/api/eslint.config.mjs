@@ -3,14 +3,14 @@
 //
 // `@solana/*` is forbidden in apps/api/src/** except in the files below. The list grandfathers the
 // files that imported Solana when the auth adapter seam landed. A NEW file must not import Solana:
-// put Solana code behind an adapter (auth/adapters/siws*, a payment adapter, chain/**).
+// put Solana code behind an adapter (auth/adapters/siws*, payments/adapters/solana-pay*, chain/**).
 import tseslint from "typescript-eslint";
 
 const SOLANA_ALLOWED = [
   "src/auth/adapters/siws*",
   "src/chain/**",
   "src/domain/solana-attestation*",
-  "src/evaluations/solana-pay*",
+  "src/payments/adapters/solana-pay*",
   // Grandfathered (imported @solana/kit before the seam). Move behind an adapter when touched.
   "src/http/credentials-router.ts",
   "src/http/profile-router.ts",
@@ -34,7 +34,7 @@ export default tseslint.config(
             {
               group: ["@solana/*", "@solana-program/*"],
               message:
-                "Solana belongs behind an adapter (auth/adapters/siws*, payments, chain/**). See apps/api/eslint.config.mjs.",
+                "Solana belongs behind an adapter (auth/adapters/siws*, payments/adapters/solana-pay*, chain/**). See apps/api/eslint.config.mjs.",
             },
           ],
         },
