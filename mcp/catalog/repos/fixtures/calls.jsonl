@@ -9,3 +9,14 @@
 {"tool":"git_log","arguments":{"repo_path":"/repos/acme/acme-ci","max_count":5}}
 {"tool":"git_show","arguments":{"repo_path":"/repos/acme/acme-ci","revision":"HEAD"}}
 {"tool":"git_log","arguments":{"repo_path":"/etc"},"expect_ok":false}
+{"tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-ci/.github/workflows/ci.yml"}}
+{"tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-ci/.github/workflows/ci.yml","start":3,"end":5}}
+{"tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-ci/.github/workflows/ci.yml","start":5,"end":7}}
+{"tool":"read_file_lines","arguments":{"path":"acmehq/acme-player/src/index.ts","start":1,"end":99}}
+{"tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-ci/docs/rules.md","start":9},"expect_ok":false}
+{"tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-ci/docs/rules.md","start":0},"expect_ok":false}
+{"tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-ci/docs/rules.md","start":3,"end":2},"expect_ok":false}
+{"tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-ci/notes/old.md"},"expect_ok":false}
+{"tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-ci/docs"},"expect_ok":false}
+{"tool":"read_file_lines","arguments":{"path":"/repos/acme/acme-ci/.git"},"expect_ok":false}
+{"tool":"read_file_lines","arguments":{"path":"/etc/passwd"},"expect_ok":false}

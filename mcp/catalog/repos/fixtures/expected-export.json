@@ -1,5 +1,5 @@
 {
-  "calls": 8,
+  "calls": 12,
   "calls_outside": 0,
   "dirs_listed": [
     {
@@ -21,13 +21,25 @@
     {
       "first_seq": 5,
       "id": "acme/acme-ci:.github/workflows/ci.yml",
+      "lines": [
+        [
+          1,
+          7
+        ]
+      ],
       "path": ".github/workflows/ci.yml",
-      "reads": 1,
+      "reads": 4,
       "repo": "acme/acme-ci"
     },
     {
       "first_seq": 7,
       "id": "acme/acme-ci:README.md",
+      "lines": [
+        [
+          1,
+          3
+        ]
+      ],
       "path": "README.md",
       "reads": 1,
       "repo": "acme/acme-ci"
@@ -35,6 +47,12 @@
     {
       "first_seq": 7,
       "id": "acme/acme-ci:docs/rules.md",
+      "lines": [
+        [
+          1,
+          3
+        ]
+      ],
       "path": "docs/rules.md",
       "reads": 1,
       "repo": "acme/acme-ci"
@@ -42,7 +60,26 @@
     {
       "first_seq": 6,
       "id": "acmehq/acme-player:README.md",
+      "lines": [
+        [
+          1,
+          2
+        ]
+      ],
       "path": "README.md",
+      "reads": 1,
+      "repo": "acmehq/acme-player"
+    },
+    {
+      "first_seq": 16,
+      "id": "acmehq/acme-player:src/index.ts",
+      "lines": [
+        [
+          1,
+          1
+        ]
+      ],
+      "path": "src/index.ts",
       "reads": 1,
       "repo": "acmehq/acme-player"
     }

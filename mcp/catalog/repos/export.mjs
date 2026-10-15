@@ -1,9 +1,10 @@
-// /itera/export for repos@1: the fleet (HEAD SHA per repo, so a seed change shows) and the READ LOG.
+// /itera/export for repos@2: the fleet (HEAD SHA per repo, so a seed change shows) and the READ LOG.
 // Arrays are sorted by a stable key, so the same seed + the same calls give the same bytes.
 //
 // Shape (the mcp_state scorer filters on one key, so every entry has a single-string `id`):
 //   repos:       [{ id: "org/repo", head, commits, files }]
-//   files_read:  [{ id: "org/repo:path", repo, path, reads, first_seq }]   successful reads of a real file
+//   files_read:  [{ id: "org/repo:path", repo, path, reads, first_seq, lines }]   successful reads of a real file;
+//                `lines` = the merged line ranges the agent has seen, [[1, 12], [30, 41]] (repos@2)
 //   dirs_listed: [{ id: "org/repo:path" | ":org", repo, path, tool, count }]
 //   searches:    [{ seq, tool, repo, path, pattern }]                        search_files calls, in order
 //   git:         [{ seq, tool, repo, revision? }]                           git_log / git_show calls, in order
