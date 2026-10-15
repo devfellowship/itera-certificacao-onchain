@@ -31,6 +31,7 @@ import { PgFaucetStore } from "./domain/faucet-store.pg.js";
 import { Web3FaucetChain } from "./chain/faucet-chain.js";
 import { faucetConfigFromEnv } from "./http/faucet-router.js";
 import { dflAuthConfigFromEnv } from "./config.js";
+import { healthRequiresRunner } from "./http/health.js";
 import { PgUsersStore } from "./domain/users-store.pg.js";
 
 const port = Number(process.env.PORT ?? 3000);
@@ -105,6 +106,8 @@ createApp(repo, {
   // U37 (0016): devnet faucet from the hot signer.
   faucet: { store: new PgFaucetStore(getPool), chain: new Web3FaucetChain(), config: faucetConfigFromEnv(), requireWallet },
   dflAuth: { users },
+  // T12: /health pings the DB; TMA_HEALTH_REQUIRE_RUNNER=true also fails it on a runner heartbeat older than 5 min (0020).
+  health: { db: getPool, requireRunner: healthRequiresRunner() },
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });

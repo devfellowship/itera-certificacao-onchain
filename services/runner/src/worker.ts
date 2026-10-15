@@ -437,6 +437,14 @@ async function main(): Promise<void> {
     runsRequeued: recovered.requeued, runsFailed: recovered.failed, runsOfLiveWorkers: recovered.keptLive,
   });
 
+  // T12: liveness row for GET /health (0020_runner_heartbeats.sql). Never blocks or crashes the worker.
+  const { startHeartbeat, heartbeatIntervalMs } = await import('./heartbeat.js');
+  const concurrency = Number(process.env.ITERA_RUNNER_CONCURRENCY ?? 2);
+  const stopHeartbeat = startHeartbeat({
+    db: pool, runnerId: workerId, version: facts.runnerCommit ?? facts.runnerDigest.slice(0, 12), concurrency,
+    intervalMs: heartbeatIntervalMs(process.env.ITERA_RUNNER_HEARTBEAT_MS), log,
+  });
+
   const controller = new AbortController();
   for (const sig of ['SIGTERM', 'SIGINT'] as const) {
     process.on(sig, () => {
@@ -456,13 +464,14 @@ async function main(): Promise<void> {
       validate: (o) => validateTaskInSandbox({ ...o, config, mcpGate: mcpGate({ lookup: (n, v) => store.mcpCatalog(n, v), runId: o.runId }) }),
     },
     {
-      concurrency: Number(process.env.ITERA_RUNNER_CONCURRENCY ?? 2),
+      concurrency,
       pollMs: Number(process.env.ITERA_RUNNER_POLL_MS ?? 3000),
       staleMs: staleMsFor(config.maxWallMs, process.env.ITERA_RUNNER_STALE_MS),
       drainMs: Number(process.env.ITERA_RUNNER_DRAIN_MS ?? DEFAULT_DRAIN_MS),
       signal: controller.signal,
     },
   );
+  stopHeartbeat();
   await pool.end();
   log({ event: 'exit' });
   process.exit(0);

@@ -157,6 +157,7 @@ temp dir on the trusted side, and deletes it when the job ends (Gate Q5: no copy
 | `ITERA_USER_TASKS` | on | `off` disables the validation queue on this worker. |
 | `ITERA_RUN_MAX_COST_USD` | `0.50` | Hard model-cost cap of one run, enforced by the gateway. |
 | `ITERA_RUNNER_CONCURRENCY` / `ITERA_RUNNER_POLL_MS` / `ITERA_RUNNER_STALE_MS` | `2` / `3000` / `900000` | Worker loop. |
+| `ITERA_RUNNER_HEARTBEAT_MS` | `30000` | Interval of the `runner_heartbeats` upsert (0020). The API `GET /health` reads it as `runnerSeenAt`. A failed write or a missing table never stops the worker. |
 | `ITERA_SANDBOX_IMAGE` | worker: built at boot; CLI: `itera-runner-sandbox:latest` | Image built from `sandbox/`. |
 | `ITERA_MODEL_UPSTREAM` | `https://openrouter.ai` | Gateway upstream of the `openrouter` route. |
 | `OPENCODE_GO_API_KEY` | — | ITERA's opencode go key (K10). Runs with an `opencode-go/<model>` agent need it; without it they end `infra_error`. Kept in the secret store of the deployment. |
