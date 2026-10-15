@@ -28,6 +28,8 @@ import { PgAgentAvatarStore } from "./domain/agent-avatar-store.js";
 import { PgFaucetStore } from "./domain/faucet-store.pg.js";
 import { Web3FaucetChain } from "./chain/faucet-chain.js";
 import { faucetConfigFromEnv } from "./http/faucet-router.js";
+import { dflAuthConfigFromEnv } from "./config.js";
+import { PgUsersStore } from "./domain/users-store.pg.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const repo = new PgRepository(getPool());
@@ -48,6 +50,11 @@ const proofIssuer = proofIssuerHook(proofs, reputation);
 // Needs db/migrations/0008_evaluations_payments.sql applied.
 const evaluationsStore = new PgEvaluationsStore(getPool());
 createEvaluationIssuer({ store: evaluationsStore, runs: runsStore, proofIssuer }).start();
+
+// T5 Login with DFL (needs 0018_users_principal.sql). Fails at boot on an invalid TMA_MIN_IAM_LEVEL.
+// DFL_SUPABASE_ANON_KEY is read per request: without it only POST /auth/dfl/exchange answers 503.
+dflAuthConfigFromEnv();
+const users = new PgUsersStore(getPool);
 
 let tasksGithub: GitHubAppClient | null = null;
 
@@ -89,6 +96,7 @@ createApp(repo, {
   agentAvatars: new PgAgentAvatarStore(getPool()),
   // U37 (0016): devnet faucet from the hot signer.
   faucet: { store: new PgFaucetStore(getPool), chain: new Web3FaucetChain(), config: faucetConfigFromEnv(), requireWallet },
+  dflAuth: { users },
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });
