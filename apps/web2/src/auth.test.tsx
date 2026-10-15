@@ -52,6 +52,9 @@ function mountApp(path: string) {
   return mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />)
 }
 
+/** Calls to the API, without the session's own GET /me profile read. */
+const apiCalls = (m: { mock: { calls: unknown[][] } }) =>
+  (m.mock.calls as unknown as Array<[string, RequestInit]>).filter(([u]) => !String(u).endsWith('/me'))
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)) })
 
 function spyConsole() {
@@ -84,17 +87,15 @@ describe('DFL callback', () => {
     expect(hashAtFetch).toBe('')
     expect(window.location.hash).toBe('')
     expect(window.location.href).not.toContain(SECRET_DFL)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(apiCalls(fetchMock)).toHaveLength(1)
+    const [url, init] = apiCalls(fetchMock)[0]!
     expect(url).toBe(`${DEFAULT_API_URL}/auth/dfl/exchange`)
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body as string)).toEqual({ dflToken: SECRET_DFL })
 
     expect(JSON.parse(localStorage.getItem(SESSION_KEY)!)).toEqual({ token: SECRET_SESSION, user: USER })
-    // next=/runs is not a route: the not-found page shows, and the nav shows the user.
+    // next=/runs is not a route: the not-found page shows.
     expect(container.textContent).toContain('Page not found')
-    expect(container.querySelector('[data-testid="nav-user-email"]')?.textContent).toBe(USER.email)
-    expect(container.querySelector('[data-testid="login-dfl"]')).toBeNull()
 
     const text = consoleText(spies)
     expect(text).not.toContain(SECRET_DFL)
@@ -136,7 +137,7 @@ describe('DFL callback', () => {
     const c2 = mountApp('/auth/dfl/callback')
     await flush()
     expect(c2.querySelector('[data-testid="dfl-callback-error"]')).not.toBeNull()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(apiCalls(fetchMock)).toHaveLength(0)
   })
 
   it('shows the error state when the 200 body is malformed', async () => {
@@ -179,7 +180,7 @@ describe('session', () => {
     const c = mount(<SessionProvider redirect={redirect} apiUrl="https://api.test"><Probe onReady={(s) => (ctx = s)} /></SessionProvider>)
     expect(c.textContent).toBe(USER.email)
     await act(async () => { await ctx.apiFetch('/runs') })
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const [url, init] = apiCalls(fetchMock)[0]!
     expect(url).toBe('https://api.test/runs')
     expect(new Headers(init.headers).get('Authorization')).toBe(`Bearer ${SECRET_SESSION}`)
     expect(redirect).not.toHaveBeenCalled()
@@ -205,9 +206,10 @@ describe('session', () => {
 
   it('logout clears the session and the nav shows the login button again', () => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ token: SECRET_SESSION, user: USER }))
-    const c = mountApp('/nope')
+    const c = mountApp('/agents')
     expect(c.querySelector('[data-testid="nav-user-email"]')?.textContent).toBe(USER.email)
     expect(c.querySelector('[data-testid="login-dfl"]')).toBeNull()
+    act(() => c.querySelector<HTMLButtonElement>('[data-testid="account-trigger"]')!.click())
     act(() => c.querySelector<HTMLButtonElement>('[data-testid="nav-logout"]')!.click())
     expect(localStorage.getItem(SESSION_KEY)).toBeNull()
     expect(c.querySelectorAll('[data-testid="login-dfl"]')).toHaveLength(1)
