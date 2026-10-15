@@ -45,6 +45,24 @@ path) or the runner's sandbox executor (`services/runner/src/grade.ts`, one fres
 suite). A report counts only when it agrees with the verifier exit code; otherwise the suite is
 `report_mismatch` / `no_report` / `timeout` and the run gets an error, never a score.
 
+### Score version 2 (2026-10-15, TMA-QC = B)
+
+`score.total` = `round(hidden.passed / hidden.total × 100)` when every gate holds, else 0
+(`hiddenRatioScore` in `src/score.ts`). The gates: the hidden suite was measured, the patch is not
+empty, the patch stays inside `editable_paths` (else INVALID), and every final-state assertion of a
+scored MCP server holds. The runner adds one gate: the agent finished inside its wall limit and
+cost cap (a `timeout` run scores 0). An `infra_error` run stays unscored, as before.
+
+Why: under version 1 (the sum of five parts) public tests, regression, scope and evidence came
+free on output-only tasks, so a timeout with 1 of 13 hidden checks scored 77 (campaign
+`k7-dfl-bench-1`). The five parts stay in the `score` block as diagnostics.
+
+Every new EvalLog carries `score_version: 2` and `score_rule` (formula, hidden ratio, gates,
+`legacy_total`). A log without `score_version` is version 1. The on-chain SAS schema does not
+change: `score_total` stays a U8 from `runs.score_total`, and the pinned in-toto evidence carries
+the version. Stored runs are not rescored. `services/runner/src/score-v2-preview.ts` is a
+read-only operator CLI that prints what version 2 would give to old runs.
+
 `validateTask({ taskDir, executor, repeats })` is the validation gate of ADR-8.
 
 ```bash

@@ -4,13 +4,13 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkPatchScope } from './patch-scope.js';
-import { computeScore, runScorers, SCORERS } from './score.js';
+import { computeScore, hiddenRatioScore, runScorers, SCORE_VERSION, SCORERS } from './score.js';
 import { MCP_STATE_WEIGHT, mcpStateScore, type McpServerEvidence } from './mcp-state.js';
 import { EMPTY_SUITE, interpretRun, localExecutor, resolveCmd, type SuiteExecutor } from './suite.js';
 import { addTests, hashDirectory, loadTask, materializeWorkspace, scenarioDir, type LoadedTask } from './task.js';
 import type { EvalLog, ExecutorInfo, Score, TestSuiteResult } from './types.js';
 
-export const EVALUATOR_VERSION = '0.2.0';
+export const EVALUATOR_VERSION = '0.3.0';
 export const DEFAULT_INSTALL = ['npm', 'ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'];
 const INSTALL_TIMEOUT_MS = 180_000;
 
@@ -216,16 +216,18 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
     };
     const codeScore = computeScore(scoreInputs);
     const scores: Record<string, Score> = runScorers(scoreInputs);
-    // With MCP state: the code scorers keep their own points (diagnostics) and the total becomes
-    // (100 − MCP_STATE_WEIGHT) % of the code total + the mcp_state points. A scope violation is still 0.
-    const score =
+    // Score version 1 (kept as diagnostics in score_rule.legacy_total): with MCP state the code
+    // scorers weighed (100 − MCP_STATE_WEIGHT) % and the mcp_state points the rest.
+    const legacyTotal =
       mcpScore === null
-        ? codeScore
-        : {
-            ...codeScore,
-            mcp_state: mcpScore.value ?? 0,
-            total: patchScope.allowed ? Math.round((codeScore.total * (100 - MCP_STATE_WEIGHT)) / 100) + (mcpScore.value ?? 0) : 0,
-          };
+        ? codeScore.total
+        : patchScope.allowed
+          ? Math.round((codeScore.total * (100 - MCP_STATE_WEIGHT)) / 100) + (mcpScore.value ?? 0)
+          : 0;
+    // Score version 2 (TMA-QC = B): the hidden ratio × 100 when every gate holds, else 0.
+    const mcpStateHolds = mcpEvidence ? mcpScore!.value !== null && mcpEvidence.every((s) => s.assertions === null || (s.assertions.total > 0 && s.assertions.passed === s.assertions.total)) : null;
+    const v2 = hiddenRatioScore({ hidden, patchEmpty: emptyPatch, patchScopeAllowed: patchScope.allowed, mcpStateHolds, legacyTotal });
+    const score = { ...codeScore, ...(mcpScore ? { mcp_state: mcpScore.value ?? 0 } : {}), total: v2.total };
     if (mcpScore) scores.mcp_state = mcpScore;
     const scorerNames = [...SCORERS.map((x) => x.name), ...(mcpScore ? ['mcp_state'] : [])];
 
@@ -255,6 +257,8 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
         hidden,
       },
       score,
+      score_version: SCORE_VERSION,
+      score_rule: v2.rule,
       errors,
       ...(mcpEvidence ? { mcp: { weight: MCP_STATE_WEIGHT, servers: mcpEvidence } } : {}),
       contract: {

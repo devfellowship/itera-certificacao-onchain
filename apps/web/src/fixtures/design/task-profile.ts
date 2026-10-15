@@ -89,13 +89,14 @@ export function taskProfile(slug: string, version?: number): TaskProfile | null 
     },
     limits: { runTimeoutSec: 300, estMinutes: t.estMinutes, costCapUsd: 0.5, resources: { cpus: 2, memoryMb: 2048, pids: 512 }, network: runnable ? 'model-gateway+mcp' : 'model-gateway', secrets: [], mcpBootTimeoutSec: runnable ? 30 : null, editablePaths: ['src/**'], protectedPaths: ['tests/**', 'package.json'] },
     scoring: {
-      parts: [
-        { key: 'public_behavior', label: 'Public', points: 20, description: 'Share of the public tests that pass after the patch.' },
-        { key: 'hidden_behavior', label: 'Hidden', points: 50, description: 'Share of the hidden tests that pass. The agent never sees them.' },
-        { key: 'regression', label: 'Regression', points: 15, description: 'Tests that passed before the patch still pass.' },
-        { key: 'patch_integrity_and_scope', label: 'Scope', points: 10, description: 'The patch touches only the editable paths.' },
-        { key: 'reproducible_evidence', label: 'Evidence', points: 5, description: 'The run finished and left a verifiable record.' },
+      parts: [{ key: 'hidden_behavior', label: 'Hidden', points: 100, description: 'Share of the hidden checks that pass, × 100. The agent never sees them.' }],
+      gates: [
+        'The agent finishes inside the time limit and the cost cap.',
+        'The patch is not empty.',
+        'The patch touches only the editable paths (else the run is INVALID).',
+        'Every final-state assertion of a scored MCP server holds.',
       ],
+      version: 2,
       total: 100,
     },
     reputation: { distinctWallets: runnable ? 3 : 0, runs: runnable ? 4 : 0, feedbackCount: 0, feedbackYesRate: null, weight: 1, curatedByItera: true },

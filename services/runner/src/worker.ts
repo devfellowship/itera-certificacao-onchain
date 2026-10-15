@@ -11,7 +11,7 @@ import type { ValidationResult } from '../../evaluator/src/validate.js';
 import { materializeAgentFiles } from './agent-files.js';
 import { runAgent, type AgentRunResult } from './agent-run.js';
 import type { ClaimedRun, JobStore, RunOutcome } from './jobs.js';
-import { evalLogOf, finalStatus, rateLimitedFinal, runnerEvidence, statusError } from './outcome.js';
+import { evalLogOf, finalStatus, rateLimitedFinal, runScore, runnerEvidence, statusError } from './outcome.js';
 import { buildProvenance, taskWallMs, type RunnerFacts } from './provenance.js';
 import { decryptRunKey } from './run-key.js';
 import { modelRoute, type SandboxConfig } from './sandbox.js';
@@ -269,8 +269,8 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
             outcome = {
               status,
               phase: 'done',
-              // A run that is not measured carries no score.
-              scoreTotal: status === 'infra_error' ? 0 : Math.round(manifest.score.total),
+              // A run that is not measured carries no score; a run that did not finish scores 0 (score v2).
+              scoreTotal: runScore(status, manifest),
               evidenceManifest: evalLogOf(manifest, agent, status),
               error: statusError(status, manifest, agent.agentErrors, rateLimitedFinal(agent)),
               patch: agent.patch,

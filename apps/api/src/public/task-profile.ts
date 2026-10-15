@@ -32,13 +32,19 @@ export const BUILTIN_TOOL_INFO: Record<string, { name: string; description: stri
 };
 const BUILTIN_ORDER = ["read", "write", "edit", "bash", "search", "list", "todo"];
 
-/** The five score parts, same weights for every task (services/evaluator/src/score.ts). */
+/**
+ * Score version 2 (TMA-QC = B; services/evaluator/src/score.ts hiddenRatioScore): the score is the
+ * share of the hidden checks × 100 when every gate holds, else 0. Same rule for every task.
+ */
 export const SCORE_PARTS = [
-  { key: "public_behavior", label: "Public", points: 20, description: "Share of the public tests that pass after the patch." },
-  { key: "hidden_behavior", label: "Hidden", points: 50, description: "Share of the hidden tests that pass. The agent never sees them." },
-  { key: "regression", label: "Regression", points: 15, description: "Tests that passed before the patch still pass." },
-  { key: "patch_integrity_and_scope", label: "Scope", points: 10, description: "The patch touches only the editable paths." },
-  { key: "reproducible_evidence", label: "Evidence", points: 5, description: "The run finished and left a verifiable record." },
+  { key: "hidden_behavior", label: "Hidden", points: 100, description: "Share of the hidden checks that pass, × 100. The agent never sees them." },
+] as const;
+/** The gates of score version 2: one broken gate makes the score 0. */
+export const SCORE_GATES = [
+  "The agent finishes inside the time limit and the cost cap.",
+  "The patch is not empty.",
+  "The patch touches only the editable paths (else the run is INVALID).",
+  "Every final-state assertion of a scored MCP server holds.",
 ] as const;
 
 const INSTRUCTION_MAX = 8000;
@@ -142,7 +148,7 @@ export interface TaskProfile {
     editablePaths: string[];
     protectedPaths: string[];
   };
-  scoring: { parts: Array<{ key: string; label: string; points: number; description: string }>; total: 100 };
+  scoring: { parts: Array<{ key: string; label: string; points: number; description: string }>; gates: string[]; version: 2; total: 100 };
   reputation: TaskReputation | null;
   /** Runs on this version. */
   results: ResultsView;
@@ -366,7 +372,7 @@ export function buildTaskProfile(src: PublicTaskSource, opts: ProfileOptions): T
       editablePaths: editable,
       protectedPaths,
     },
-    scoring: { parts: SCORE_PARTS.map((p) => ({ ...p })), total: 100 },
+    scoring: { parts: SCORE_PARTS.map((p) => ({ ...p })), gates: [...SCORE_GATES], version: 2, total: 100 },
     reputation: opts.reputation ?? null,
     results,
     resultsAll,

@@ -354,6 +354,17 @@ describe('runEvaluation (integration, real webhook-ledger fixture)', () => {
     expect(manifest.tests.public_after_patch.failed).toBe(0);
     expect(manifest.tests.hidden.failed).toBe(0);
     expect(manifest.score.total).toBe(100);
+    // Score version 2 (TMA-QC = B): the total is the gated hidden ratio, recorded in the log.
+    expect(manifest.score_version).toBe(2);
+    expect(manifest.score_rule).toMatchObject({ formula: 'hidden_ratio_x100_gated', gates: { patch_nonempty: true, patch_scope: true, mcp_state: null }, legacy_total: 100 });
+    expect(manifest.score_rule!.hidden).toBe(`${manifest.tests.hidden.total}/${manifest.tests.hidden.total}`);
+  }, 180_000);
+
+  it('scores a no-op (empty patch) 0, although version 1 paid it the free parts', async () => {
+    const manifest = await runEvaluation({ repoRoot, scenarioId: 'webhook-ledger', patch: '' });
+    expect(manifest.score.total).toBe(0);
+    expect(manifest.score_rule!.gates.patch_nonempty).toBe(false);
+    expect(manifest.score_rule!.legacy_total).toBeGreaterThan(0);
   }, 180_000);
 
   it('rejects a patch that games the public test instead of fixing the bug', async () => {

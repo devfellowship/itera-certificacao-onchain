@@ -1,8 +1,10 @@
 /**
  * The public evaluation profile view (screen 05) and its manifest download. Pure: no I/O.
  *
- * Score rules are ADR-5: the per-task score is the run's `score_total` (five parts: public 20,
- * hidden 50, regression 15, scope 10, evidence 5); the evaluation score is the mean over PASS and
+ * Score rules are ADR-5: the per-task score is the run's `score_total`. Score version 2 (TMA-QC = B):
+ * the hidden ratio × 100 when every gate holds, else 0; runs graded before it carry version 1 (five
+ * parts: public 20, hidden 50, regression 15, scope 10, evidence 5). The parts below stay as
+ * diagnostics for both versions. The evaluation score is the mean over PASS and
  * FAIL tasks (INVALID excluded). Per-test cells are hidden-test booleans in execution order, never
  * names.
  */

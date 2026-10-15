@@ -156,6 +156,15 @@ function summaryView(run: AsyncRun) {
   };
 }
 
+/** Score version and gates of a graded run (no hidden test name, counts only). */
+function scoreRuleView(m: EvidenceManifest) {
+  const x = m as EvidenceManifest & { score_version?: number; score_rule?: { formula?: string; hidden?: string | null; gates?: Record<string, boolean | null> } };
+  return {
+    version: typeof x.score_version === "number" ? x.score_version : 1,
+    ...(x.score_rule ? { rule: { formula: x.score_rule.formula ?? null, hidden: x.score_rule.hidden ?? null, gates: x.score_rule.gates ?? {} } } : {}),
+  };
+}
+
 /** Pinned-evidence keys of the EvalLog (evaluator >= 0.2.0), for the run page. Null when absent. */
 function evidenceView(m: EvidenceManifest) {
   const x = m as EvidenceManifest & {
@@ -190,7 +199,9 @@ async function detailView(store: RunsStore, run: AsyncRun) {
     ...summaryView(run),
     ownerWallet: run.ownerWallet,
     runStartSig: run.runStartSig,
-    score: { parts },
+    // Score version 2 (TMA-QC = B): total = hidden ratio × 100 when the gates hold. A log without
+    // `score_version` is version 1 (the sum of the parts). The parts stay as diagnostics.
+    score: { parts, ...(manifest ? scoreRuleView(manifest) : {}) },
     tests: manifest
       ? {
           public: publicSuiteView(manifest.tests.public_after_patch),

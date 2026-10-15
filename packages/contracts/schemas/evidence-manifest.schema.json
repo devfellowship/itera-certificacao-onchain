@@ -84,7 +84,48 @@
         "total": {
           "type": "number",
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The platform score 0-100. score_version 2: the hidden ratio x 100 when every gate in score_rule holds, else 0. No score_version (version 1): the sum of the five parts."
+        }
+      }
+    },
+    "score_version": {
+      "description": "How score.total was derived. 2 = hidden ratio x 100 behind the gates (TMA-QC = B). Absent = 1 (the sum of the five parts; logs written before 2026-10-15).",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "score_rule": {
+      "type": "object",
+      "description": "Score version 2: the formula, the hidden ratio and each gate (true holds, false broken, null does not apply). legacy_total is the version-1 sum, for diagnostics only.",
+      "required": [
+        "formula",
+        "hidden",
+        "gates",
+        "legacy_total"
+      ],
+      "properties": {
+        "formula": {
+          "const": "hidden_ratio_x100_gated"
+        },
+        "hidden": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "legacy_total": {
+          "type": "number"
         }
       }
     },

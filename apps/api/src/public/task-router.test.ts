@@ -143,7 +143,10 @@ describe("buildTaskProfile", () => {
     expect(p.limits.resources).toEqual({ cpus: 2, memoryMb: 2048, pids: null });
     expect(p.tests).toEqual({ label: "sealed", hiddenCount: 5, publicCount: 3 });
     expect(p.output.checkedBy).toBe("npx vitest run --reporter=json");
-    expect(p.scoring.parts.map((x) => x.points)).toEqual([20, 50, 15, 10, 5]);
+    // Score version 2 (TMA-QC = B): hidden ratio × 100, behind the gates.
+    expect(p.scoring.parts.map((x) => x.points)).toEqual([100]);
+    expect(p.scoring.version).toBe(2);
+    expect(p.scoring.gates).toHaveLength(4);
     expect(p.price.usdPerRun).toBe(0.1);
     const open = buildTaskProfile(source([version(2, { labels: ["open-tests"] })]), opts)!;
     expect(open.tests.label).toBe("open");

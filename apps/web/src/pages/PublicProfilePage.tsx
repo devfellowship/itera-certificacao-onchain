@@ -260,7 +260,7 @@ function Profile({ data }: { data: PublicEvaluation }) {
             <span className="pp-score__value" data-testid="profile-score">
               {fmtScore(data.score)}
             </span>
-            <span className="pp-score__note">out of 100 · hidden tests, regression and patch scope</span>
+            <span className="pp-score__note">out of 100 · hidden checks, when every gate holds</span>
           </div>
           {data.scoreParts && (
             <div className="pp-parts" data-testid="score-parts">

@@ -958,7 +958,8 @@ export interface TaskProfile {
     editablePaths: string[]
     protectedPaths: string[]
   }
-  scoring: { parts: Array<{ key: string; label: string; points: number; description: string }>; total: 100 }
+  /** Score version 2: hidden ratio × 100 when every gate holds, else 0. `gates`/`version` are absent on an older API. */
+  scoring: { parts: Array<{ key: string; label: string; points: number; description: string }>; gates?: string[]; version?: number; total: 100 }
   reputation: TaskReputation | null
   results: TaskResults
   resultsAll: TaskResults
