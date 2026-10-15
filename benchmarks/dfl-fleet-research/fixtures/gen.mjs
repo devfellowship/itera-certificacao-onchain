@@ -16,6 +16,7 @@
 //   solution/mcp-calls.jsonl            the reads that justify each citation
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { MIN_QUOTE } from '../tests/hidden/grade.mjs';
 
 // ---------- seeded randomness (mulberry32) ----------
 function rng(seed) {
@@ -257,6 +258,9 @@ export function generate(seed) {
     const lines = snapshot[`${id}:${path}`].split('\n');
     const line = lines.findIndex((l) => l.includes(quote)) + 1;
     if (line === 0) throw new Error(`generator bug: "${quote}" not in ${id}:${path}`);
+    // Task version 4: a quote of the reference solution is at least MIN_QUOTE characters and unique in its file.
+    if (quote.trim().length < MIN_QUOTE) throw new Error(`generator bug: the quote "${quote}" is shorter than ${MIN_QUOTE} characters`);
+    if (lines.filter((l) => l.includes(quote)).length !== 1) throw new Error(`generator bug: "${quote}" is not unique in ${id}:${path}`);
     return { ref: `${id}:${path}:${line}`, quote };
   };
   const answers = {

@@ -27,8 +27,16 @@ evidence (`org/repo:path:line` + an exact quote) and writes `out/answers.json` a
 
 ## Grading notes
 
-- A citation may be **±1 line** off, no more. Versions 2 and 3 keep this rule strict (TMA-QA = C). The check
+- A citation may be **±1 line** off, no more. Versions 2, 3 and 4 keep this rule strict (TMA-QA = C). The check
   proves it: +-1 passes, 2 lines off fails.
+- **Quote rules (version 4).** A quote has at least **6 characters** after the spaces at both ends are trimmed
+  (`  push:` has 5: refused), and it is **unique in the cited file** (no other line of the file holds it). The
+  instruction states both rules with a minimal valid example, and names `answers.schema.json`. `check.mjs`
+  proves the grader enforces them (a 5-character quote, the same quote padded with spaces, and a quote that a
+  second line repeats all fail `q2-evidence`; a mutation of the grader turns the check red), that the
+  instruction and the schema state the same minimum as the grader (`MIN_QUOTE`), and that the example in the
+  instruction and in `environment/README.md` is valid and is not a real answer. The generator refuses a
+  reference quote that is short or not unique, for any seed.
 - `fixtures/check.mjs` also checks that the reference solution cites the exact line and reads every
   cited file with `read_file_lines`. Version 3 also requires `allowed_tools` to hold no other content-reading
   tool (`read_text_file`, `read_multiple_files`, `git_show`) and every call of the reference solution to be
@@ -44,7 +52,9 @@ evidence (`org/repo:path:line` + an exact quote) and writes `out/answers.json` a
 | 2 | `repos@2` | TMA-QA = C (TG 21527). `repos@2` adds `read_file_lines`, a read tool with line numbers. The instruction tells the agent to take the line number from it. The grader, the questions, the seed and the key are the same as in version 1 (same seed 1). |
 | 3 | `repos@2` | TMA-QA2 = A (TG 21547). In version 2 the agent could still read with `read_text_file` or `read_multiple_files` (no line numbers) and guess the line. Version 3 removes `read_text_file`, `read_multiple_files` and `git_show` (it prints file content in a diff) from `allowed_tools`: the only tool that returns file content is `read_file_lines`. `git_log` (metadata only), `list_directory`, `directory_tree` and `search_files` stay. Same grader, questions, seed and key. |
 
-Versions 1 and 2 are not edited: each stays as a published row in `task_packs`. Version 3 is a new row.
+| 4 | `repos@2` | Tainan, TG 21576. In version 3 a model (`deepseek-v4.1-flash`, 12/13) failed `q2-evidence` because its quote `  push:` has 5 characters and the minimum is 6; the instruction did not say so. A second model (`nemotron-3-ultra:free`) had the right answers but did not write the shape of `answers.schema.json`. Version 4 changes the text and the grader rule on quotes only: the instruction names `answers.schema.json`, shows a minimal valid example, states the minimum quote length, and requires a quote that is unique in its file. The grader keeps the strict ±1 line rule. Tools, catalog, questions, seed and key are the same as in version 3. |
+
+Versions 1, 2 and 3 are not edited: each stays as a published row in `task_packs`. Version 4 is a new row.
 
 ## Validate
 

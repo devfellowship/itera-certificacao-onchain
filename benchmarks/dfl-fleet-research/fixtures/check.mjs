@@ -7,6 +7,9 @@
 //      +-1 line passes, 2 lines off fails (task version 2, TMA-QA = C). The task uses repos@2 and
 //      the reference solution reads every cited file with read_file_lines. Version 3 (TMA-QA2 = A):
 //      read_file_lines is the ONLY tool that returns file content, in allowed_tools and in the reference calls.
+//      Version 4 (Tainan, TG 21576): the quote rules are stated in the instruction and the grader enforces them: at
+//      least 6 characters after trim, unique in the cited file, within +-1 line. The instruction names
+//      answers.schema.json and holds a minimal valid example, and this check validates that example.
 //   3. Denylist: no real organisation, repo, host, person or private marker in the task content,
 //      and no secret-shaped string.
 //
@@ -15,7 +18,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { grade } from '../tests/hidden/grade.mjs';
+import { grade, schemaErrors, MIN_QUOTE } from '../tests/hidden/grade.mjs';
 import { SKELETON } from './gen.mjs';
 
 const root = join(import.meta.dirname, '..');
@@ -76,8 +79,50 @@ for (const [q, a] of Object.entries(JSON.parse(solution).answers)) {
 if (shift(0) || shift(1) || shift(-1)) problems.push('a citation within +-1 line fails (the documented slack is gone)');
 if (!shift(2) || !shift(-2)) problems.push('a citation 2 lines off passes (the grader is not strict)');
 
+// 2b2. Quote rules (task version 4). The instruction states them and the grader enforces them.
+const evidenceFailed = (mutate) => {
+  const o = JSON.parse(solution);
+  const k = structuredClone(key);
+  mutate(o, k);
+  return failed(grade({ answersText: JSON.stringify(o), reportText: report, key: k })).includes('q2-evidence');
+};
+// A quote of 5 characters (and one padded with spaces to 9) is too short, wherever it sits.
+if (!evidenceFailed((o) => (o.answers.q2.evidence[1].quote = 'push:'))) problems.push('a 5-character quote passes');
+if (!evidenceFailed((o) => (o.answers.q2.evidence[1].quote = '  push:  '))) problems.push('a 5-character quote padded with spaces passes');
+// A quote that another line of the same file holds is refused: append a copy of the cited line to the file.
+if (!evidenceFailed((o, k) => {
+  const e = o.answers.q2.evidence[0];
+  const at = e.ref.lastIndexOf(':');
+  k.snapshot[e.ref.slice(0, at)] += `\n${e.quote}\n`;
+})) problems.push('a quote that is not unique in its file passes');
+// The same quote in a file where it is unique still passes (the control for the two mutations above).
+if (evidenceFailed(() => {})) problems.push('the unmutated reference fails q2-evidence');
+for (const [q, a] of Object.entries(JSON.parse(solution).answers)) {
+  for (const e of a.evidence) {
+    if (e.quote.trim().length < MIN_QUOTE) problems.push(`the reference quote in ${e.ref} (${q}) is shorter than ${MIN_QUOTE} characters`);
+  }
+}
+// The instruction, the environment README and the schema state the rules; their examples are valid.
+const instruction = readFileSync(join(root, 'instruction.md'), 'utf-8');
+if (!instruction.includes('answers.schema.json')) problems.push('instruction.md does not name answers.schema.json');
+if (!instruction.includes(`at least ${MIN_QUOTE} characters`)) problems.push(`instruction.md does not state the minimum quote length (${MIN_QUOTE})`);
+if (!/appears on one line only/.test(instruction)) problems.push('instruction.md does not state that the quote is unique in the file');
+if (!/read_file_lines/.test(instruction)) problems.push('instruction.md does not name read_file_lines');
+const schema = JSON.parse(readFileSync(join(root, 'environment/answers.schema.json'), 'utf-8'));
+if (schema.properties.answers.patternProperties['^q[1-6]$'].properties.evidence.items.properties.quote.minLength !== MIN_QUOTE) problems.push(`answers.schema.json quote.minLength is not ${MIN_QUOTE}`);
+for (const [label, text] of [['instruction.md', instruction], ['environment/README.md', readFileSync(join(root, 'environment/README.md'), 'utf-8')]]) {
+  const m = /```json\n([\s\S]*?)\n\s*```/.exec(text); // the example in a list item is indented
+  if (!m) { problems.push(`${label} has no json example`); continue; }
+  let ex;
+  try { ex = JSON.parse(m[1]); } catch (err) { problems.push(`${label}: the example is not JSON (${err.message})`); continue; }
+  const errs = schemaErrors(ex);
+  if (errs.length) problems.push(`${label}: the example is not valid: ${errs.join('; ')}`);
+  for (const a of Object.values(ex.answers ?? {})) for (const e of a.evidence ?? []) if (e.quote.trim().length < MIN_QUOTE) problems.push(`${label}: the example quote "${e.quote}" is shorter than ${MIN_QUOTE}`);
+  if (Object.values(ex.answers ?? {}).some((a) => JSON.stringify(a.answer) === JSON.stringify(JSON.parse(solution).answers.q1.answer))) problems.push(`${label}: the example holds the real answer of q1`);
+}
+
 // 2c. The task uses repos@2 and the reference solution reads every cited file with line numbers.
-if (task.task.version !== '3') problems.push(`task.version is ${task.task.version}, expected 3 (read_file_lines is the only content tool: a new task version)`);
+if (task.task.version !== '4') problems.push(`task.version is ${task.task.version}, expected 4 (the quote rules are stated in the instruction: a new task version)`);
 const mcp = task.environment.tools.mcp.find((m) => m.name === 'repos');
 if (mcp?.catalog !== 'repos@2') problems.push(`catalog is ${mcp?.catalog}, expected repos@2`);
 if (!mcp?.allowed_tools?.includes('read_file_lines')) problems.push('read_file_lines is not in allowed_tools');

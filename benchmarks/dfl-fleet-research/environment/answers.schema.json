@@ -27,8 +27,8 @@
                 "type": "object",
                 "required": ["ref", "quote"],
                 "properties": {
-                  "ref": { "type": "string", "description": "org/repo:path:line, for example acme/acme-ci:README.md:3 (line numbers start at 1)" },
-                  "quote": { "type": "string", "minLength": 6, "description": "text copied exactly from that line" }
+                  "ref": { "type": "string", "description": "org/repo:path:line, for example acme/example-repo:README.md:3. The line number is the one that read_file_lines printed (it starts at 1)." },
+                  "quote": { "type": "string", "minLength": 6, "description": "Text copied exactly from the cited line. At least 6 characters after the spaces at its start and end are removed ('  push:' has 5: too short). The text must appear on one line only in that file; if it repeats, quote a longer part of the line." }
                 }
               }
             }
