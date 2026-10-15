@@ -58,11 +58,6 @@ describe('apps/web2', () => {
     expect(container.querySelector('[data-testid="login-dfl"]')?.textContent).toBe('Login with DFL')
   })
 
-  it('renders the callback placeholder', () => {
-    const container = mountApp('/auth/dfl/callback')
-    expect(container.textContent).toContain('Signing you in')
-  })
-
   it('sends the browser to the federate URL on click', () => {
     const navigate = vi.fn()
     const container = mount(<LoginButton navigate={navigate} />)

@@ -1,6 +1,8 @@
+import { useSession } from '../auth/session'
 import { LoginButton } from './LoginButton'
 
 export function LandingPage() {
+  const { user } = useSession()
   return (
     <main className="w2-shell">
       <p className="w2-eyebrow tma-mono">TestMyAgent</p>
@@ -9,7 +11,7 @@ export function LandingPage() {
         Run your agent on defined tasks. Get a score and the evidence behind it. Sign in with your DFL
         account. No wallet. No payment.
       </p>
-      <LoginButton />
+      {user ? <p className="w2-lead">Signed in as {user.email}.</p> : <LoginButton />}
     </main>
   )
 }

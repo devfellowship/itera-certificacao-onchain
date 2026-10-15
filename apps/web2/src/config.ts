@@ -11,14 +11,19 @@ export const API_URL = trimSlash(import.meta.env.VITE_TMA_API_URL || DEFAULT_API
 /** Base URL of the DFL federate endpoint (no query string). */
 export const DFL_FEDERATE_URL = import.meta.env.VITE_DFL_FEDERATE_URL || DEFAULT_FEDERATE_URL
 
-/** Route of this app that receives the DFL redirect. Task T6 implements the exchange. */
+/** Route of this app that receives the DFL redirect (`pages/DflCallbackPage.tsx`). */
 export const DFL_CALLBACK_PATH = '/auth/dfl/callback'
 
 /**
  * The URL that starts Login with DFL:
- * `<federate>?return=<origin>/auth/dfl/callback&next=/` with the return value URL-encoded.
+ * `<federate>?return=<origin>/auth/dfl/callback&next=<next>` with the return value URL-encoded.
+ * The default `next` is `/` and stays unencoded.
  */
-export function buildFederateUrl(origin: string, federateUrl: string = DFL_FEDERATE_URL): string {
+export function buildFederateUrl(
+  origin: string,
+  federateUrl: string = DFL_FEDERATE_URL,
+  next = '/',
+): string {
   const returnUrl = encodeURIComponent(`${origin}${DFL_CALLBACK_PATH}`)
-  return `${federateUrl}?return=${returnUrl}&next=/`
+  return `${federateUrl}?return=${returnUrl}&next=${next === '/' ? '/' : encodeURIComponent(next)}`
 }
