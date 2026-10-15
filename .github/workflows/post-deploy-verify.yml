@@ -10,8 +10,6 @@ name: post-deploy verify
 # Every other error fails the job.
 
 on:
-  push:
-    branches: [feat/health-runner-heartbeat] # TEMPORARY: first run before the file exists on main; removed in the next commit
   workflow_dispatch:
     inputs:
       api_url:
