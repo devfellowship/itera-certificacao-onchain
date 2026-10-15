@@ -1,0 +1,67 @@
+name: web2 e2e (prod)
+
+# Browser e2e of the web2 client against the DEPLOYED site (T13, plan 20261015-testmyagent-web2-client).
+#   login.spec.ts     Login with DFL through the federation handoff (V5)
+#   free-run.spec.ts  one free BYOK run reaches `graded` and shows a score (V6)
+#
+# SECURITY: the repo is PUBLIC and this job reads secrets (the DFL smoke user and a capped OpenRouter key).
+# So it never runs on `pull_request`. Triggers: push to main (web2 e2e files only), nightly, manual.
+# The nightly and manual runs always use the default branch. Each job step also refuses any other event.
+# Spend: one evaluation per run on the cheapest model, with an OpenRouter key capped at US$5.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 4 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web2/e2e/**'
+      - '.github/workflows/web2-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web2-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.repository == 'devfellowship/itera-certificacao-onchain' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+    env:
+      E2E_WEB2_URL: https://testmyagent.devfellowship.com
+    defaults:
+      run:
+        working-directory: apps/web2/e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Playwright and chromium
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Run login.spec and free-run.spec
+        env:
+          E2E_DFL_EMAIL: ${{ secrets.CLAUDE_SMOKE_USERNAME }}
+          E2E_DFL_PASSWORD: ${{ secrets.CLAUDE_SMOKE_PASSWORD }}
+          E2E_OPENROUTER_KEY: ${{ secrets.OPENROUTER_E2E_KEY }}
+        run: npx playwright test
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web2-e2e-report
+          # JSON only: the repo is public, so an artifact is public. No screenshots, no traces.
+          path: apps/web2/e2e/report/results.json
+          if-no-files-found: ignore
+          retention-days: 14

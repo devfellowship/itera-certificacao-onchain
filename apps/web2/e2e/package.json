@@ -1,0 +1,15 @@
+{
+  "name": "@itera/web2-e2e",
+  "private": true,
+  "license": "UNLICENSED",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser e2e of apps/web2 against the deployed site. Standalone: not a workspace, own lockfile.",
+  "scripts": {
+    "test": "playwright test",
+    "test:login": "playwright test login.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0"
+  }
+}
