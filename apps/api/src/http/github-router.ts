@@ -18,7 +18,7 @@ import {
 import { GitHubApiError, GitHubAppClient, GitHubConfigError, githubAppConfigFromEnv, type GitHubAppApi } from "../github/app-client.js";
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAllowedModel } from "../github/models.js";
 import { findTaskCandidates } from "../github/task-layout.js";
-import { signInstallState, verifyInstallState } from "../github/state.js";
+import { signInstallState, verifyInstallState, verifyInstallStateFor } from "../github/state.js";
 import { isSampleRepo, repoSourceOf, sampleInstallation, sampleReposFromEnv, SampleRepoError, type RepoSource, type SampleKind, type SampleRepos } from "../github/sample-repos.js";
 import { requireWallet as defaultRequireWallet } from "./auth.js";
 
@@ -267,6 +267,15 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     const state = typeof req.query.state === "string" ? req.query.state : "";
     const fromState = state ? verifyInstallState(state, deps.stateSecret()) : null;
     if (fromState) {
+      // A caller that also sends a session must be the principal the state was minted for (ADR-9).
+      // A bare browser redirect from GitHub carries no session: the state alone identifies it.
+      if (req.get("authorization")) {
+        requireWallet(req, res, () => {
+          if (verifyInstallStateFor(state, req.wallet ?? "", deps.stateSecret())) next();
+          else res.status(403).json({ error: "this install state was issued to another account — start again from GET /github/install-url" });
+        });
+        return;
+      }
       req.wallet = fromState;
       next();
       return;

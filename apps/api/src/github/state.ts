@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 /**
- * Signed `state` for the GitHub App install URL: binds the install to the wallet that started it.
+ * Signed `state` for the GitHub App install URL: binds the install to the principal (wallet or `dfl:<uuid>`) that started it.
  * Format: base64url(JSON{w, n, exp}) + "." + base64url(HMAC-SHA256). Keyed with
  * ITERA_SESSION_SECRET (the same secret lane A uses for session tokens), with a distinct prefix so a
  * state can never be replayed as a session token or vice versa.
@@ -32,4 +32,15 @@ export function verifyInstallState(state: string, secret: string, nowSeconds = M
   } catch {
     return null;
   }
+}
+
+/**
+ * Returns true when `state` is valid AND was minted for `principalId`. A state minted for principal A
+ * fails for principal B (ADR-9: a `dfl` account cannot finish an install that another account started).
+ * The HMAC already covers the principal id (`w`); this is the explicit comparison for a caller that
+ * holds a session.
+ */
+export function verifyInstallStateFor(state: string, principalId: string, secret: string, nowSeconds = Math.floor(Date.now() / 1000)): boolean {
+  const owner = verifyInstallState(state, secret, nowSeconds);
+  return owner !== null && owner === principalId;
 }

@@ -1,4 +1,4 @@
-import { createVerify, generateKeyPairSync } from "node:crypto";
+import { createVerify, generateKeyPairSync, randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import { rethrowMissingSchema } from "../domain/github-agents-repository.pg.js";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { AGENT_FILES_MAX_BYTES, findAgentCandidates, normalizeAgentPath, selectAgentFiles } from "../github/agent-files.js";
 import { GitHubApiError, GitHubConfigError, signAppJwt, type GitHubAppApi, type InstallationRepo, type TreeEntry } from "../github/app-client.js";
-import { signInstallState, verifyInstallState } from "../github/state.js";
+import { signInstallState, verifyInstallState, verifyInstallStateFor } from "../github/state.js";
 import { isValidBranchName, slugify } from "./github-router.js";
 import { formatBytes, summarizeAgentFiles } from "../github/agent-files.js";
 import { issueSessionToken, requireWallet } from "./auth.js";
@@ -215,6 +215,30 @@ describe("install flow", () => {
     const { status, body } = await call("GET", "/github/callback?installation_id=42&code=good-code", { wallet: ALICE });
     expect(status).toBe(200);
     expect(body.ownerWallet).toBe(ALICE);
+  });
+
+  it("callback refuses a state minted for another principal when the caller sends a session", async () => {
+    const state = encodeURIComponent(signInstallState(ALICE, "test-session-secret"));
+    const asBob = await call("GET", `/github/callback?installation_id=42&code=good-code&state=${state}`, { wallet: BOB });
+    expect(asBob.status).toBe(403);
+    expect(ghRepo.installations).toHaveLength(0);
+    // The same state with Alice's own session passes.
+    expect((await call("GET", `/github/callback?installation_id=42&code=good-code&state=${state}`, { wallet: ALICE })).status).toBe(200);
+  });
+
+  it("binds the state to a dfl principal too: A's state fails for B, B's own session works", async () => {
+    const a = `dfl:${randomUUID()}`;
+    const b = `dfl:${randomUUID()}`;
+    const dflAuth = (id: string) => ({ Authorization: `Bearer ${issueSessionToken(id, Date.now(), "dfl").token}` });
+    const stateA = encodeURIComponent(signInstallState(a, "test-session-secret"));
+    const url = `${baseUrl}/github/callback?installation_id=42&code=good-code&state=${stateA}`;
+    expect((await fetch(url, { headers: dflAuth(b) })).status).toBe(403);
+    expect(ghRepo.installations).toHaveLength(0);
+    expect(verifyInstallStateFor(decodeURIComponent(stateA), a, "test-session-secret")).toBe(true);
+    expect(verifyInstallStateFor(decodeURIComponent(stateA), b, "test-session-secret")).toBe(false);
+    const ok = await fetch(url, { headers: dflAuth(a) });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).ownerWallet).toBe(a);
   });
 
   it("first bind wins: another wallet cannot take over an installation", async () => {

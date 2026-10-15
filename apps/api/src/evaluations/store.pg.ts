@@ -15,6 +15,7 @@ import {
   type ResolvedTask,
   type RollupColumns,
   TooManyQueuedError,
+  checkDailyQuota,
 } from "./store.js";
 
 const MIGRATION = "0008_evaluations_payments.sql";
@@ -365,6 +366,16 @@ export class PgEvaluationsStore implements EvaluationsStore {
       await client.query("begin");
       // The same per-owner lock as the runs flow (runs-store.pg.ts): two requests cannot both pass.
       await client.query(`select pg_advisory_xact_lock(hashtext('itera-runs:' || $1))`, [input.ownerWallet]);
+      // ADR-9 daily quota, under the same lock. An evaluation of N tasks counts N runs.
+      if (input.dailyRunLimit !== undefined) {
+        const now = input.now ?? new Date();
+        const recent = await client.query<{ started_at: Date }>(
+          `select started_at from public.runs where owner_wallet = $1 and started_at > $2::timestamptz - interval '24 hours' order by started_at asc`,
+          [input.ownerWallet, now],
+        );
+        const over = checkDailyQuota(recent.rows.map((r) => r.started_at), input.tasks.length, input.dailyRunLimit, now);
+        if (over) throw over;
+      }
       const active = await client.query(
         `select count(*) as n from public.runs where owner_wallet = $1 and status in ('queued', 'running')`,
         [input.ownerWallet],

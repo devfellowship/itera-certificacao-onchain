@@ -22,6 +22,24 @@ export interface EvaluationsConfig {
   /** Free path (ADR-9): refuse a new free evaluation when the user already has this many queued or
    * running runs (`429 too_many_queued`). Default 3. */
   maxQueuedRunsPerUser?: number;
+  /** Free path (ADR-9): runs a DFL principal may create in 24 h (`TMA_RUNS_PER_USER_PER_DAY`,
+   * default 10). An evaluation of N tasks counts N runs. Over it: `429 quota_exceeded`. */
+  runsPerUserPerDay?: number;
+}
+
+/** ADR-9 default for `TMA_MAX_QUEUED_RUNS_PER_USER`. */
+export const DEFAULT_MAX_QUEUED_RUNS_PER_USER = 3;
+/** ADR-9 default for `TMA_RUNS_PER_USER_PER_DAY`. */
+export const DEFAULT_RUNS_PER_USER_PER_DAY = 10;
+
+/** A positive integer env var. An unset or empty value gives the default. Any other value that is not
+ * a positive integer throws: a typo must not turn a limit into `NaN`, which would pass every check. */
+export function positiveIntEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name]?.trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`${name} must be an integer >= 1, got "${raw}"`);
+  return n;
 }
 
 export function evaluationsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): EvaluationsConfig {
@@ -33,7 +51,8 @@ export function evaluationsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
     treasury: env.ITERA_TREASURY_ADDRESS?.trim() || null,
     runsPerWalletPerDay: Number(env.ITERA_EVALUATION_RUNS_PER_WALLET_PER_DAY ?? 30),
     maxTasks: Number(env.ITERA_EVALUATION_MAX_TASKS ?? 9),
-    maxQueuedRunsPerUser: Number(env.TMA_MAX_QUEUED_RUNS_PER_USER ?? 3),
+    maxQueuedRunsPerUser: positiveIntEnv(env, "TMA_MAX_QUEUED_RUNS_PER_USER", DEFAULT_MAX_QUEUED_RUNS_PER_USER),
+    runsPerUserPerDay: positiveIntEnv(env, "TMA_RUNS_PER_USER_PER_DAY", DEFAULT_RUNS_PER_USER_PER_DAY),
     webBaseUrl: (env.ITERA_PUBLIC_WEB_BASE_URL ?? "https://itera-agent-credentials.devfellowship.com").replace(/\/+$/, ""),
   };
 }

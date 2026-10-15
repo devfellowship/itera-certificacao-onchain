@@ -3,6 +3,7 @@ import express, { type Express } from "express";
 import { CORS_ALLOWED_ORIGINS, TRUST_PROXY_HOPS } from "./config.js";
 import { createRateLimiters } from "./http/rate-limit.js";
 import { createAuthRouter } from "./http/auth.js";
+import { createAccountGuard } from "./auth/account-guard.js";
 import type { DflAuthDeps } from "./auth/adapters/dfl.js";
 import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
@@ -197,6 +198,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
     }),
   );
   app.use(createRateLimiters());
+  // ADR-9 kill switch: `users.disabled` → 403 account_disabled on every write route of a dfl principal.
+  if (options.dflAuth?.users) app.use(createAccountGuard({ users: options.dflAuth.users }));
   app.use(express.json());
   // U36: owner/author profiles next to every wallet field of a JSON response.
   if (options.catalog) {

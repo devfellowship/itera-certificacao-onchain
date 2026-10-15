@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { Keypair } from "@solana/web3.js";
@@ -68,6 +69,16 @@ describe("rate limit buckets", () => {
     expect((await get("/", { "x-forwarded-for": "203.0.113.99" })).status).toBe(200);
   });
 
+  it("keeps a bucket per dfl principal, whatever the IP, apart from other principals", async () => {
+    const id = `dfl:${randomUUID()}`;
+    const auth = { authorization: `Bearer ${issueSessionToken(id, Date.now(), "dfl").token}` };
+    for (let i = 0; i < 3; i++) expect((await get("/", { ...auth, "x-forwarded-for": `203.0.113.${110 + i}` })).status).toBe(200);
+    expect((await get("/", { ...auth, "x-forwarded-for": "203.0.113.199" })).status).toBe(429);
+    // Another dfl principal on the same IP has a full bucket.
+    const other = { authorization: `Bearer ${issueSessionToken(`dfl:${randomUUID()}`, Date.now(), "dfl").token}` };
+    expect((await get("/", { ...other, "x-forwarded-for": "203.0.113.199" })).status).toBe(200);
+  });
+
   it("falls back to the IP bucket for a forged token", async () => {
     const forged = { authorization: "Bearer aaa.bbb.ccc" };
     for (let i = 0; i < 3; i++) await get("/", { ...forged, "x-forwarded-for": "203.0.113.50" });
@@ -105,6 +116,19 @@ describe("rate limit helpers", () => {
     expect(isPublicCachedRead({ method: "POST", path: "/public/evaluations/x" })).toBe(false);
     expect(isPublicCachedRead({ method: "GET", path: "/runs/1" })).toBe(false);
     expect(isPublicCachedRead({ method: "GET", path: "/publicity" })).toBe(false);
+  });
+
+  it("keys on req.principal.id when a middleware already set it, else on the session principal", () => {
+    const dfl = `dfl:${randomUUID()}`;
+    const wallet = Keypair.generate().publicKey.toBase58();
+    const withPrincipal = (principal: { id: string; kind: "siws" | "dfl" }) =>
+      ({ ip: "203.0.113.1", principal, get: () => undefined }) as unknown as Parameters<typeof rateLimitKey>[0];
+    expect(rateLimitKey(withPrincipal({ id: dfl, kind: "dfl" }))).toBe(`p:${dfl}`);
+    expect(rateLimitKey(withPrincipal({ id: wallet, kind: "siws" }))).toBe(`w:${wallet}`);
+    const withToken = (token: string) =>
+      ({ ip: "203.0.113.1", get: (h: string) => (h.toLowerCase() === "authorization" ? `Bearer ${token}` : undefined) }) as unknown as Parameters<typeof rateLimitKey>[0];
+    expect(rateLimitKey(withToken(issueSessionToken(dfl, Date.now(), "dfl").token))).toBe(`p:${dfl}`);
+    expect(rateLimitKey(withToken(issueSessionToken(wallet).token))).toBe(`w:${wallet}`);
   });
 
   it("keys on the IP when there is no session", () => {

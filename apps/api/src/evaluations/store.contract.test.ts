@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encryptRunKey } from "../domain/run-key.js";
 import { FakeEvaluationsStore } from "./store.fake.js";
 import { PgEvaluationsStore } from "./store.pg.js";
-import { TooManyQueuedError, type EvalTask, type EvaluationsStore, type NewFreeEvaluation, type RollupColumns } from "./store.js";
+import { QuotaExceededError, TooManyQueuedError, type EvalTask, type EvaluationsStore, type NewFreeEvaluation, type RollupColumns } from "./store.js";
 
 interface Harness {
   store: EvaluationsStore;
@@ -97,6 +97,38 @@ function contract(name: string, setup: () => Promise<Harness>) {
       expect(err).toBeInstanceOf(TooManyQueuedError);
       expect(err).toMatchObject({ active: 3, max: 3 });
       expect(await h.rowsOf(owner)).toEqual({ evaluations: 2, runs: 3 });
+    });
+
+    it("refuses with QuotaExceededError when the runs of the last 24 h plus the new ones pass the daily limit", async () => {
+      const owner = `dfl:${randomUUID()}`;
+      const quota = (tasks: EvalTask[], extra: Partial<NewFreeEvaluation> = {}) => ({ ...input(h, owner, tasks, 100), dailyRunLimit: 4, ...extra });
+      await h.store.createFreeEvaluation(quota([h.task, h.task]));
+      // An evaluation of N tasks counts N runs: 2 used + 3 new > 4.
+      const err = await h.store.createFreeEvaluation(quota([h.task, h.task, h.task])).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(QuotaExceededError);
+      expect(err).toMatchObject({ used: 2, limit: 4 });
+      const resetMs = Date.parse((err as QuotaExceededError).resetAt) - Date.now();
+      expect(resetMs).toBeGreaterThan(24 * 3600_000 - 60_000);
+      expect(resetMs).toBeLessThanOrEqual(24 * 3600_000);
+      // Nothing was written by the refused request; two more runs still fit.
+      expect(await h.rowsOf(owner)).toEqual({ evaluations: 1, runs: 2 });
+      await h.store.createFreeEvaluation(quota([h.task, h.task]));
+      // 25 h later the 4 runs left the 24 h window.
+      await h.store.createFreeEvaluation(quota([h.task], { now: new Date(Date.now() + 25 * 3600_000) }));
+      // Another owner has its own quota.
+      await h.store.createFreeEvaluation({ ...input(h, `dfl:${randomUUID()}`, [h.task], 100), dailyRunLimit: 4 });
+    });
+
+    it("parallel requests cannot pass the daily limit (the owner's lock serializes the check)", async () => {
+      const owner = `dfl:${randomUUID()}`;
+      const results = await Promise.allSettled(
+        Array.from({ length: 6 }, () => h.store.createFreeEvaluation({ ...input(h, owner, [h.task], 100), dailyRunLimit: 3 })),
+      );
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(3);
+      const rejected = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      expect(rejected).toHaveLength(3);
+      for (const r of rejected) expect(r.reason).toBeInstanceOf(QuotaExceededError);
+      expect(await h.rowsOf(owner)).toEqual({ evaluations: 3, runs: 3 });
     });
 
     it("stores the graded terminal state, and the issuer job no longer lists it", async () => {
