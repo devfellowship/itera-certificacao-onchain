@@ -3,8 +3,8 @@
   "schema_version": "1.0",
   "task": {
     "name": "itera/dfl-fleet-research",
-    "version": "1",
-    "description": "Research across a synthetic fleet of 14 git repos in 2 orgs through the repos MCP server: 6 questions with cited evidence, one topology trap and one unanswerable question.",
+    "version": "2",
+    "description": "Research across a synthetic fleet of 14 git repos in 2 orgs through the repos MCP server (repos@2: one read tool prints line numbers): 6 questions with cited evidence, one topology trap and one unanswerable question.",
     "authors": [{ "name": "ITERA" }],
     "keywords": ["mcp", "research", "git", "evidence", "abstention"]
   },
@@ -26,10 +26,10 @@
         {
           "name": "repos",
           "description": "The Acme engineering fleet: 14 real git repositories in 2 orgs, read-only (Itera catalog fixture).",
-          "catalog": "repos@1",
+          "catalog": "repos@2",
           "transport": "http",
           "seed": "mcp/repos/seed.json",
-          "allowed_tools": ["list_directory", "directory_tree", "search_files", "read_text_file", "read_multiple_files", "git_log", "git_show"],
+          "allowed_tools": ["list_directory", "directory_tree", "search_files", "read_text_file", "read_multiple_files", "read_file_lines", "git_log", "git_show"],
           "expose_state_to_scorer": true,
           "startup_timeout_sec": 60
         }

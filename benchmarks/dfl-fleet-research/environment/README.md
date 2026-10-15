@@ -5,6 +5,8 @@
 - `out/answers.json` — your answers (starts empty).
 - `out/report.md` — your short report (you create it).
 
+For the `line` in a citation, read the file with the `repos` tool `read_file_lines`: it prints `<number>| <text>`.
+
 Example of `out/answers.json`:
 
 ```json

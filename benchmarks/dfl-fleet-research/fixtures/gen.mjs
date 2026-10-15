@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Generator of the fleet-research task variant (ADR-2, ADR-7 of the plan): a synthetic fleet of
-// real git repos in 2 orgs (the repos@1 seed) plus the answer key, from ONE integer seed. The key
+// real git repos in 2 orgs (the repos seed) plus the answer key, from ONE integer seed. The key
 // is written at the same time as the fixture, so it is true by construction. No real content: every
 // name, path and value is invented (see check.mjs, the denylist).
 //
@@ -8,7 +8,7 @@
 //   node fixtures/gen.mjs --seed 7 --out DIR  write a (sealed) variant somewhere else
 //
 // Files it writes (relative to the task folder or --out):
-//   mcp/repos/seed.json                 the repos@1 seed (orgs → repos → commits → files)
+//   mcp/repos/seed.json                 the repos seed (orgs → repos → commits → files)
 //   tests/hidden/key.json               answers, evidence files, and the text of every file at HEAD
 //   tests/hidden/mcp/repos/assert.json  mcp_state assertions: the key files were read through MCP
 //   solution/answers.json               the reference answer (from the key)
@@ -289,6 +289,9 @@ export function generate(seed) {
     '- q6: no file in the fleet defines a Helm chart or a Kubernetes manifest. I did not find the fact, so I do not answer it.',
   ]);
   const read = (paths) => paths.map((p) => `/repos/${p.replace(':', '/')}`);
+  // repos@2: the agent takes each line number from read_file_lines. After the discovery reads below,
+  // the reference solution re-reads every file it cites with line numbers (one call per cited file).
+  const cited = [...new Set(Object.values(answers.answers).flatMap((a) => a.evidence.map((e) => e.ref.slice(0, e.ref.lastIndexOf(':')))))];
   const calls = [
     { tool: 'directory_tree', arguments: { path: '/repos', excludePatterns: ['**/.git'] } },
     { tool: 'read_multiple_files', arguments: { paths: read([`${player}:README.md`, `${ORG_A}/acme-iterate:README.md`]) } },
@@ -298,6 +301,7 @@ export function generate(seed) {
     { tool: 'search_files', arguments: { path: '/repos', pattern: '**/*payments*' } },
     { tool: 'read_multiple_files', arguments: { paths: read(secretRefs.map((r) => `${r.id}:${r.path}`)) } },
     { tool: 'search_files', arguments: { path: '/repos', pattern: '**/*{helm,chart,k8s,kube}*' } },
+    ...cited.map((p) => ({ tool: 'read_file_lines', arguments: { path: read([p])[0] } })),
   ].map((c) => ({ server: 'repos', ...c }));
   const assertions = [
     ...[`${player}:README.md`, `${ORG_A}/acme-schema:.github/workflows/${applyName}`, `${violatorRepo}:${violatorFile}`, `${ORG_A}/acme-infra:inventory/repos.yaml`, ...secretRefs.map((r) => `${r.id}:${r.path}`), ...key.questions.q3.evidence_files].map((id) => ({
