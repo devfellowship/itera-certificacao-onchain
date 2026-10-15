@@ -1,0 +1,256 @@
+/* Task editor (U20) — layout of screen 02 (add-agent.css) plus the editor's own blocks. Tokens only. */
+.te-head-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.te-meta {
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  color: var(--tma-text-subtle);
+}
+.te-mono {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.te-muted {
+  color: var(--tma-text-subtle);
+  font-size: 13px;
+}
+.te-right {
+  text-align: right;
+}
+.te-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--tma-primary);
+  cursor: pointer;
+}
+.te-link:hover {
+  color: var(--tma-primary-hover);
+}
+.te-link:disabled {
+  color: var(--tma-text-subtle);
+  cursor: default;
+}
+.te-saved {
+  align-self: center;
+  font-size: 13px;
+  color: var(--tma-success-text);
+}
+
+/* Identity: tag chip rows. */
+.te-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.te-tags__row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.te-tags__label {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+  line-height: 26px;
+}
+.te-tags__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 26px;
+  align-items: center;
+}
+
+/* Source: tests label + layout tree. */
+.te-tests-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.te-tests-aside .tmt-tests {
+  align-self: flex-start;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--tma-radius-pill);
+  border: 1px solid var(--tma-line-strong);
+}
+.te-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-surface-code);
+  border: 1px solid var(--tma-line);
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  line-height: 1.75;
+}
+.te-tree__row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.te-tree__mark--ok {
+  color: var(--tma-success-text);
+}
+.te-tree__mark--bad {
+  color: var(--tma-danger-text);
+}
+.te-tree__mark--idle {
+  color: var(--tma-text-subtle);
+}
+.te-tree__note {
+  color: var(--tma-text-subtle);
+}
+.te-tree__row:has(.te-tree__mark--bad) .te-tree__note {
+  color: var(--tma-danger-text);
+}
+.te-tree__foot {
+  margin-top: 6px;
+  color: var(--tma-text-subtle);
+}
+.te-schema-errors {
+  margin: 0;
+  padding-left: 18px;
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-danger-text);
+}
+
+/* Key/value panels inside a card: framed like the 02 info box. */
+.te-kv {
+  border: 1px solid var(--tma-line);
+  border-radius: var(--tma-radius-md);
+  overflow: hidden;
+}
+.te-kv .tma-kv__key,
+.te-kv .tma-kv__value {
+  padding: 10px 14px;
+}
+
+/* Validation gate. */
+.te-gate__intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.te-gate__intro .tma-btn {
+  flex: none;
+}
+.te-elapsed {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-warning-text);
+}
+.te-gate {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tma-line);
+  border-radius: var(--tma-radius-md);
+  overflow: hidden;
+}
+.te-gate__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--tma-line);
+  font-size: 13px;
+}
+.te-gate__row:first-child {
+  border-top: 0;
+}
+.te-gate__group {
+  padding: 8px 14px 6px;
+  border-top: 1px solid var(--tma-line);
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tma-text-subtle);
+}
+.te-gate__group:first-child {
+  border-top: 0;
+}
+.te-gate__key {
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tma-text-muted);
+  align-self: center;
+}
+.te-gate__value {
+  text-align: right;
+}
+.te-gate__row--ok .te-gate__value {
+  color: var(--tma-success-text);
+}
+.te-gate__row--bad .te-gate__value {
+  color: var(--tma-danger-text);
+}
+.te-gate__wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tma-warning-text);
+}
+
+/* Versions. */
+.te-versions {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tma-line);
+  border-radius: var(--tma-radius-md);
+  overflow: hidden;
+}
+.te-version {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 60px 120px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--tma-line);
+  font-size: 13px;
+}
+.te-version:first-child {
+  border-top: 0;
+}
+.te-version__n {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text-muted);
+}
+.te-version__pin {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.te-version__pin .te-muted {
+  font-size: 12px;
+}
+.te-version__date {
+  font-size: 12px;
+  color: var(--tma-text-subtle);
+}
+.te-version__state {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* task.json card: long contracts scroll inside the card. */
+.te-json .tma-code__body {
+  max-height: 560px;
+  overflow: auto;
+}
