@@ -2,7 +2,7 @@
  * Compatibility entry point. The auth code lives in `src/auth/` behind the auth adapter seam
  * (plan 20261015-testmyagent-web2-client, ADR-3):
  * - `auth/adapters/siws.ts` — Sign-In With Solana (`POST /auth/nonce`, `POST /auth/verify`);
- * - `auth/adapters/dfl.ts` — Login with DFL (stub, `POST /auth/dfl/exchange` → 501);
+ * - `auth/adapters/dfl.ts` — Login with DFL (`POST /auth/dfl/exchange`);
  * - `auth/session.ts` — session JWT (`amr` claim);
  * - `auth/principal.ts` — token → `Principal`;
  * - `auth/middleware.ts` — `requirePrincipal` / `optionalPrincipal` (+ `requireWallet` /
@@ -13,5 +13,5 @@ export { NONCE_TTL_MS, buildSignInMessage, resetPendingNoncesForTests, verifyWal
 export type { AuthAdapter, Principal, PrincipalKind } from "../auth/adapters/types.js";
 export { optionalPrincipal, optionalWallet, requirePrincipal, requireWallet } from "../auth/middleware.js";
 export { verifyPrincipalToken, verifySessionToken } from "../auth/principal.js";
-export { createAuthRouter } from "../auth/router.js";
+export { createAuthRouter, type AuthRouterOptions } from "../auth/router.js";
 export { SESSION_TTL_SECONDS, issueSessionToken } from "../auth/session.js";

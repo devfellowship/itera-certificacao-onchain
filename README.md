@@ -203,6 +203,9 @@ The API reads every secret from an env var and fails loud when one is missing (s
 `requiredSecret()` in [`apps/api/src/config.ts`](apps/api/src/config.ts)). Main variables:
 `DATABASE_URL`, `ITERA_SESSION_SECRET`, `ITERA_HOT_SIGNER_KEYPAIR_PATH` or `_B64`, `PINATA_JWT`,
 `GITHUB_APP_*`, `ITERA_RUN_KEY_SECRET` and `ITERA_RUNNER_OPENROUTER_KEY`. Never commit a value.
+Login with DFL (web2) reads `DFL_SUPABASE_URL` (default: the DFL project), `DFL_SUPABASE_ANON_KEY`
+(the public anon key; without it only `POST /auth/dfl/exchange` answers 503) and `TMA_MIN_IAM_LEVEL`
+(default 0).
 
 To run one agent on one task on your machine, see "Step 1: local CLI" in
 [`services/runner/README.md`](services/runner/README.md).

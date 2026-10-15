@@ -10,7 +10,7 @@ import { join } from "node:path";
  */
 export const CORS_ALLOWED_ORIGINS = (
   process.env.ITERA_API_CORS_ORIGINS ??
-  "https://itera-agent-credentials.devfellowship.com,http://localhost:5173"
+  "https://itera-agent-credentials.devfellowship.com,https://testmyagent.devfellowship.com,http://localhost:5173"
 )
   .split(",")
   .map((origin) => origin.trim())
@@ -49,6 +49,35 @@ export const RATE_LIMIT = {
   MAX_REQUESTS: Number(process.env.ITERA_API_RATE_LIMIT_MAX ?? 600),
   PUBLIC_MAX_REQUESTS: Number(process.env.ITERA_API_PUBLIC_RATE_LIMIT_MAX ?? 3000),
 } as const;
+
+/**
+ * Login with DFL (web2 client, plan 20261015-testmyagent-web2-client ADR-2). Read per request so
+ * the API boots without them: the web3 flow never needs them.
+ * - `DFL_SUPABASE_URL`: the DFL Supabase project that issues the DFL token.
+ * - `DFL_SUPABASE_ANON_KEY`: the public anon key of that project (never the service role). When it
+ *   is absent, `POST /auth/dfl/exchange` answers `503 dfl_auth_not_configured`.
+ * - `TMA_MIN_IAM_LEVEL` (default 0): the lowest DFL IAM level that may log in. 0 = any DFL user.
+ */
+export const DEFAULT_DFL_SUPABASE_URL = "https://yoojxnggaxcqtsyjdrdx.supabase.co";
+
+export interface DflAuthConfig {
+  supabaseUrl: string;
+  anonKey: string | null;
+  minIamLevel: number;
+}
+
+export function dflAuthConfigFromEnv(env: NodeJS.ProcessEnv = process.env): DflAuthConfig {
+  const rawLevel = env.TMA_MIN_IAM_LEVEL?.trim();
+  const minIamLevel = rawLevel ? Number(rawLevel) : 0;
+  if (!Number.isInteger(minIamLevel) || minIamLevel < 0) {
+    throw new Error(`TMA_MIN_IAM_LEVEL must be an integer >= 0, got "${rawLevel}"`);
+  }
+  return {
+    supabaseUrl: (env.DFL_SUPABASE_URL?.trim() || DEFAULT_DFL_SUPABASE_URL).replace(/\/+$/, ""),
+    anonKey: env.DFL_SUPABASE_ANON_KEY?.trim() || null,
+    minIamLevel,
+  };
+}
 
 /**
  * House pattern for any future secret this API reads (Solana keys, IPFS pinning tokens, etc. —

@@ -90,7 +90,7 @@ describe("session token → principal", () => {
   });
 });
 
-describe("dfl adapter (stub)", () => {
+describe("dfl adapter without a users store", () => {
   let server: Server;
   let baseUrl: string;
 
@@ -104,13 +104,13 @@ describe("dfl adapter (stub)", () => {
     await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
   });
 
-  it("POST /auth/dfl/exchange answers 501 not_implemented", async () => {
-    const res = await fetch(`${baseUrl}/auth/dfl/exchange`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: "x" }),
-    });
-    expect(res.status).toBe(501);
-    expect(await res.json()).toEqual({ error: "not_implemented" });
+  it("POST /auth/dfl/exchange answers 400 without a token and 503 dfl_auth_not_configured with one", async () => {
+    const post = (body: unknown) =>
+      fetch(`${baseUrl}/auth/dfl/exchange`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const missing = await post({ code: "x" });
+    expect(missing.status).toBe(400);
+    const res = await post({ dflToken: "x" });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "dfl_auth_not_configured" });
   });
 });

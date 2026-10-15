@@ -3,6 +3,7 @@ import express, { type Express } from "express";
 import { CORS_ALLOWED_ORIGINS, TRUST_PROXY_HOPS } from "./config.js";
 import { createRateLimiters } from "./http/rate-limit.js";
 import { createAuthRouter } from "./http/auth.js";
+import type { DflAuthDeps } from "./auth/adapters/dfl.js";
 import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
 import { createLegacyGoneRouter, RETIRED_ROUTES } from "./http/legacy-gone-router.js";
@@ -169,6 +170,9 @@ export interface AppOptions {
   agentAvatars?: AgentAvatarStore;
   /** U37: devnet faucet (needs 0016_sample_repos_faucet.sql). Mounted only when given. */
   faucet?: FaucetRouterDeps;
+  /** T5 Login with DFL (needs 0018_users_principal.sql). Without a users store the exchange answers
+   * 503 dfl_auth_not_configured; the SIWS routes do not depend on it. */
+  dflAuth?: DflAuthDeps;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -217,7 +221,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
     res.type("text/plain").send("Hello, world!");
   });
 
-  app.use(createAuthRouter());
+  app.use(createAuthRouter({ dfl: options.dflAuth }));
   if (options.runs) app.use(createRunsRouter({ repo, ...options.runs }));
   // Before the 410 router: both answer POST /evaluations (the v2 one falls through on a legacy
   // body).
