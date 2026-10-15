@@ -29,7 +29,10 @@ const CA_BUNDLE = readFileSync(join(__dirname, "../../certs/supabase-pooler-ca-b
  */
 export function getPool(): Pool {
   if (!pool) {
-    pool = new Pool({ connectionString: databaseUrl(), ssl: { ca: CA_BUNDLE } });
+    // ITERA_DB_SSL=disable is for a local test database only (the hermetic web3 e2e guard,
+    // .github/workflows/web3-e2e-guard.yml), same flag as services/runner/src/worker.ts.
+    const ssl = process.env.ITERA_DB_SSL === "disable" ? false : { ca: CA_BUNDLE };
+    pool = new Pool({ connectionString: databaseUrl(), ssl });
   }
   return pool;
 }

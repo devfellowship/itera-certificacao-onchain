@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Minter, RunResultData } from "./attestation.js";
 import { IPFS_GATEWAY_URL } from "./config.js";
 import { buildEvidenceDocument, redactText } from "./evidence.js";
-import { manifestBytes, sha256Hex, type Pinner } from "./ipfs.js";
+import { manifestBytes, pinataPinFileUrl, sha256Hex, type Pinner } from "./ipfs.js";
 import { IPFS_NOT_CONFIGURED, issueProof, ProofPreconditionError } from "./issue-proof.js";
 import { renderNftPng } from "./nft-image.js";
 import { FakeProofStore, type ProofRun } from "./proof-store.js";
@@ -222,5 +222,15 @@ describe("evidence + image", () => {
     const png = renderNftPng({ scoreTotal: 100, benchmark: "webhook-ledger", agent: "acme/<agent>", model: "m", proofHash: "ab".repeat(32) });
     expect(png.subarray(1, 4).toString("ascii")).toBe("PNG");
     expect(png.length).toBeGreaterThan(5_000);
+  });
+});
+
+describe("pinataPinFileUrl (T14: a local stub only through ITERA_PINATA_API_URL)", () => {
+  it("is the Pinata API by default", () => {
+    expect(pinataPinFileUrl({})).toBe("https://api.pinata.cloud/pinning/pinFileToIPFS");
+    expect(pinataPinFileUrl({ ITERA_PINATA_API_URL: "  " })).toBe("https://api.pinata.cloud/pinning/pinFileToIPFS");
+  });
+  it("uses the override origin, without a double slash", () => {
+    expect(pinataPinFileUrl({ ITERA_PINATA_API_URL: "http://127.0.0.1:18080/" })).toBe("http://127.0.0.1:18080/pinning/pinFileToIPFS");
   });
 });

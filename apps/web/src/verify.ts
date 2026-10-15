@@ -32,6 +32,14 @@ export const SAS_PROGRAM_ADDRESS = '22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG
 export const ITERA_CREDENTIAL_PDA = 'Dh9NF2L2Ua2u4TUzKRX5u8S5DDCBLNA7aVkunteXt7A3' as Address;
 export const ITERA_RUN_RESULT_SCHEMA_PDA = '3FGWK6AsxtXje8r4Eq3rq3GPdoRd3ifx5UN9oKm4w94x' as Address;
 export const DEVNET_RPC_URL = 'https://api.devnet.solana.com';
+/** Public IPFS gateway of check 4. The same one as apps/api/src/chain/config.ts IPFS_GATEWAY_URL. */
+export const IPFS_GATEWAY_URL = 'https://gateway.pinata.cloud/ipfs';
+
+export interface VerificationOptions {
+  /** IPFS gateway origin + path prefix for check 4. Default IPFS_GATEWAY_URL. The hermetic e2e
+   * guard (scripts/e2e/api-e2e.mts --ipfs-gateway) points it at its local stub. */
+  ipfsGatewayUrl?: string;
+}
 
 export interface CheckResult {
   id: string;
@@ -61,7 +69,8 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
  * own test script) and the kit-plugin-rpc client used elsewhere in the repo. */
 type VerifierRpc = Rpc<Pick<SolanaRpcApi, 'getTokenLargestAccounts' | 'getTransaction' | 'getAccountInfo'>>;
 
-export async function runVerification(rpc: VerifierRpc, attestationMint: Address): Promise<VerificationReport> {
+export async function runVerification(rpc: VerifierRpc, attestationMint: Address, options: VerificationOptions = {}): Promise<VerificationReport> {
+  const ipfsGateway = (options.ipfsGatewayUrl ?? IPFS_GATEWAY_URL).replace(/\/+$/, '');
   const checks: CheckResult[] = [];
   const fail = (id: string, label: string, detail: string) => checks.push({ id, label, status: 'fail', detail });
   const pass = (id: string, label: string, detail: string) => checks.push({ id, label, status: 'pass', detail });
@@ -233,7 +242,7 @@ export async function runVerification(rpc: VerifierRpc, attestationMint: Address
 
   // --- Check 4: sha256 of the pinned manifest's raw bytes matches manifest_sha256 on-chain.
   try {
-    const ipfsResponse = await fetch(`https://gateway.pinata.cloud/ipfs/${data.evidence_cid}`);
+    const ipfsResponse = await fetch(`${ipfsGateway}/${data.evidence_cid}`);
     if (!ipfsResponse.ok) {
       skip('manifest-hash', 'Pinned manifest hash matches on-chain record', `IPFS fetch failed: HTTP ${ipfsResponse.status}.`);
       return done();
@@ -319,10 +328,11 @@ export function createVerifierRpc(): VerifierRpc {
 export async function verifyProof(
   proof: string | { nftMint: string | null | undefined },
   rpc: VerifierRpc = createVerifierRpc(),
+  options: VerificationOptions = {},
 ): Promise<VerificationReport> {
   const mint = typeof proof === 'string' ? proof : proof.nftMint;
   if (!mint) throw new Error('This proof has no NFT yet (status pending or failed) — nothing on chain to verify.');
-  return runVerification(rpc, mint.trim() as Address);
+  return runVerification(rpc, mint.trim() as Address, options);
 }
 
 /** Canonical JSON (object keys sorted), the same as apps/api/src/domain/digest.ts canonicalStringify. */
