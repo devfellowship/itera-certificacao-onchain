@@ -1,12 +1,15 @@
-import { Link } from 'react-router-dom'
+import { ButtonLink } from '../tma/ui'
 
 export function NotFoundPage() {
   return (
-    <main className="w2-shell">
-      <h1>Page not found</h1>
-      <p className="w2-lead">
-        <Link to="/">Back to the start</Link>
-      </p>
+    <main className="tma-page" data-testid="not-found">
+      <h1 className="tma-h1">Page not found</h1>
+      <p className="tma-muted">This page does not exist, or it is private.</p>
+      <div>
+        <ButtonLink href="/" variant="secondary">
+          Go to testmyagent.com
+        </ButtonLink>
+      </div>
     </main>
   )
 }

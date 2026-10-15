@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { saveSession } from './auth/sessionStorage'
 import { DEFAULT_API_URL } from './config'
 import { apiErrorMessage, UPGRADING_MESSAGE } from './lib/errors'
-import { AppLayout } from './pages/AppLayout'
+import { SessionProvider } from './auth/session'
 import { EvaluationPage } from './pages/EvaluationPage'
 import { MyEvaluationsPage } from './pages/MyEvaluationsPage'
 import { NewEvaluationPage } from './pages/NewEvaluationPage'
@@ -120,7 +120,7 @@ function mountAt(path: string, signedIn = true) {
       <MemoryRouter initialEntries={[path]}>
         <LocationProbe />
         <Routes>
-          <Route element={<AppLayout />}>
+          <Route element={<SessionProvider><Outlet /></SessionProvider>}>
             <Route path="/evaluate" element={<NewEvaluationPage />} />
             <Route path="/evaluations" element={<MyEvaluationsPage />} />
             <Route path="/evaluations/:id" element={<EvaluationPage pollMs={10} />} />

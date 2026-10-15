@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
-import { api, TERMINAL_STATUSES, type EvaluationDetail } from '../lib/api'
+import { api, TERMINAL_STATUSES, type EvaluationDetail } from '../lib/web2-api'
 import { apiErrorMessage } from '../lib/errors'
 import { RequireLogin } from './RequireLogin'
 

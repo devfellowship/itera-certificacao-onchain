@@ -23,6 +23,9 @@ afterEach(() => {
 })
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+/** Calls to the API, without the session's own GET /me profile read. */
+const apiCalls = (m: { mock: { calls: unknown[][] } }) =>
+  (m.mock.calls as unknown as Array<[string, RequestInit]>).filter(([u]) => !String(u).endsWith('/me'))
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)) })
 
 function Harness() {
@@ -69,7 +72,7 @@ describe('ModelKeyField', () => {
     const c = mount()
     type(c, KEY)
     await clickCheck(c)
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const [url, init] = apiCalls(fetchMock)[0]!
     expect(url).toBe(`${DEFAULT_API_URL}/models/access`)
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body as string)).toEqual({ openrouterKey: KEY })
@@ -99,7 +102,7 @@ describe('ModelKeyField', () => {
     vi.stubGlobal('fetch', fetchMock)
     const c = mount()
     await clickCheck(c)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(apiCalls(fetchMock)).toHaveLength(0)
     expect(c.querySelector('[data-testid="model-key-error"]')!.textContent).toContain('Enter your OpenRouter API key')
   })
 })

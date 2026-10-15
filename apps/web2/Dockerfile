@@ -15,8 +15,7 @@ COPY services/runner/package.json services/runner/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 RUN npm ci
 COPY apps/web2 apps/web2
-# One visual identity: web2 imports the design tokens of apps/web (a single file).
-COPY apps/web/src/tma/tokens.css apps/web/src/tma/tokens.css
+COPY packages/contracts packages/contracts
 # VITE_* values are read at build time. Pass --build-arg to change them.
 ARG VITE_TMA_API_URL
 ARG VITE_DFL_FEDERATE_URL

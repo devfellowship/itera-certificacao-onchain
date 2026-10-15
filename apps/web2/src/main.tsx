@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
-// One visual identity with apps/web: the design tokens are imported, not copied.
-import '../../web/src/tma/tokens.css'
+import './tma/tokens.css'
+import './tma/ui'
 import './web2.css'
 import { routes } from './routes'
 

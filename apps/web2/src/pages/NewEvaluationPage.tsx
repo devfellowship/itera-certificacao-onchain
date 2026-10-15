@@ -8,7 +8,7 @@
 import { useEffect, useId, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSession } from '../auth/session'
-import { api, type Agent, type Model, type Task } from '../lib/api'
+import { api, type Agent, type Model, type Task } from '../lib/web2-api'
 import { apiErrorMessage } from '../lib/errors'
 import { ModelKeyField } from '../models/ModelKeyField'
 import { RequireLogin } from './RequireLogin'

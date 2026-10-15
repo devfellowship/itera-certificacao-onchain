@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSession } from '../auth/session'
-import { api, type EvaluationListItem } from '../lib/api'
+import { api, type EvaluationListItem } from '../lib/web2-api'
 import { apiErrorMessage } from '../lib/errors'
 import { RequireLogin } from './RequireLogin'
 

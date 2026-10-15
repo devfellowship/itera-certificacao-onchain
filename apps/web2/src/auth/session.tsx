@@ -1,10 +1,30 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { API_URL } from '../config'
+import { api, setSessionToken, setUnauthorizedHandler } from '../lib/api'
+import type { Me } from '../lib/api'
+import { initialsOf } from '../tma/ui'
 import { loginWithDfl } from './dflFederation'
 import type { TmaSession, TmaUser } from './exchangeDflToken'
 import { clearStoredSession, loadSession, saveSession } from './sessionStorage'
 
-export interface SessionContextValue {
+export type SessionStatus = 'disconnected' | 'signed-in'
+
+/** The fields that the apps/web screens read from `useSession()`. */
+export interface Session {
+  status: SessionStatus
+  /** The principal `dfl:<uuid>` (the DFL user id). */
+  wallet: string | null
+  walletName: string | null
+  me: Me | null
+  error: string | null
+  /** Starts Login with DFL and comes back to the current path. */
+  signIn: () => void
+  signOut: () => Promise<void>
+  /** Replaces the profile after the settings page saves it (no refetch). */
+  setMe: (me: Me) => void
+}
+
+export interface SessionContextValue extends Session {
   user: TmaUser | null
   token: string | null
   /** Store a new session (after the DFL exchange). */
@@ -16,6 +36,11 @@ export interface SessionContextValue {
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null)
+
+function fallbackMe(id: string, email: string): Me {
+  const letters = email.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase()
+  return { wallet: id, username: null, displayName: email || null, handle: null, avatarUrl: null, initials: letters || initialsOf(id) }
+}
 
 const defaultRedirect = (url: string) => window.location.assign(url)
 
@@ -39,9 +64,50 @@ export function SessionProvider({
   const logout = useCallback(() => {
     clearStoredSession()
     setSessionState(null)
+    setMe(null)
   }, [])
 
+  const signIn = useCallback(
+    () => loginWithDfl(`${window.location.pathname}${window.location.search}`, redirectRef.current),
+    [],
+  )
+  const signOut = useCallback(async () => logout(), [logout])
+
   const token = session?.token ?? null
+
+  // Install the token before any child effect fires a request (as apps/web does).
+  setSessionToken(token)
+
+  const [me, setMe] = useState<Me | null>(null)
+  const userId = session?.user.id ?? null
+  const userEmail = session?.user.email ?? null
+  const redirectRef = useRef(redirect)
+  redirectRef.current = redirect
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      clearStoredSession()
+      setSessionState(null)
+      setMe(null)
+      loginWithDfl(`${window.location.pathname}${window.location.search}`, redirectRef.current)
+    })
+    return () => setUnauthorizedHandler(null)
+  }, [])
+
+  useEffect(() => {
+    if (!userId) {
+      setMe(null)
+      return
+    }
+    let live = true
+    api
+      .me()
+      .then((m) => live && setMe(m))
+      .catch(() => live && setMe(fallbackMe(userId, userEmail ?? '')))
+    return () => {
+      live = false
+    }
+  }, [userId, userEmail, token])
 
   const apiFetch = useCallback(
     async (path: string, init: RequestInit = {}) => {
@@ -59,8 +125,22 @@ export function SessionProvider({
   )
 
   const value = useMemo<SessionContextValue>(
-    () => ({ user: session?.user ?? null, token, setSession, logout, apiFetch }),
-    [session, token, setSession, logout, apiFetch],
+    () => ({
+      user: session?.user ?? null,
+      token,
+      setSession,
+      logout,
+      apiFetch,
+      status: session ? 'signed-in' : 'disconnected',
+      wallet: userId,
+      walletName: 'DFL',
+      me: me ?? (userId ? fallbackMe(userId, userEmail ?? '') : null),
+      error: null,
+      signIn,
+      signOut,
+      setMe,
+    }),
+    [session, token, setSession, logout, apiFetch, userId, userEmail, me, signIn, signOut],
   )
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }
