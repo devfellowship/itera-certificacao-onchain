@@ -7,9 +7,9 @@ import { saveSession } from './auth/sessionStorage'
 import { DEFAULT_API_URL } from './config'
 import { apiErrorMessage, UPGRADING_MESSAGE } from './lib/errors'
 import { SessionProvider } from './auth/session'
-import { EvaluationPage } from './pages/EvaluationPage'
 import { MyEvaluationsPage } from './pages/MyEvaluationsPage'
 import { NewEvaluationPage } from './pages/NewEvaluationPage'
+import { RunningEvaluationPage } from './pages/RunningEvaluationPage'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -57,18 +57,25 @@ function evaluationView(status: string, runStatus: string, score: number | null)
     shortId: '11111111',
     slug: null,
     status,
-    uiState: status === 'graded' ? 'graded' : 'running',
+    uiState: status === 'graded' ? 'graded' : status === 'cancelled' ? 'cancelled' : status === 'pending' ? 'queued' : 'running',
     paymentKind: 'free_byok',
     createdAt: '2026-10-15T10:00:00.000Z',
     elapsedMs: 1000,
-    agent: { id: AGENT_ID, name: 'testmyagent-demo-agent', repo: 'devfellowship/testmyagent-demo-agent', commit: 'abc1234' },
+    agent: { id: AGENT_ID, name: 'testmyagent-demo-agent', initials: 'TD', repo: 'devfellowship/testmyagent-demo-agent', commit: 'abc1234' },
     model: { id: 'openai/gpt-5-mini', release: null },
     taskCount: 1,
     tasks: [
-      { runId: 'r1', slotRunId: 'r1', seq: 1, attempts: 1, taskId: TASK_ID, name: 'Fix the bug', slug: 'fix-the-bug', stage: 'graded', status: runStatus, phase: null, outcome: runStatus === 'pass' ? 'PASS' : null, score, testsPassed: score === null ? null : 4, testsTotal: score === null ? null : 5 },
+      { runId: 'r1', slotRunId: 'r1', seq: 1, attempts: 1, taskId: TASK_ID, name: 'Fix the bug', slug: 'fix-the-bug', stage: runStatus === 'pass' ? 'graded' : runStatus === 'cancelled' ? 'cancelled' : runStatus === 'queued' ? 'queued' : 'grading', status: runStatus, phase: null, outcome: runStatus === 'pass' ? 'PASS' : null, score, testsPassed: score === null ? null : 4, testsTotal: score === null ? null : 5 },
+    ],
+    stages: [
+      { key: 'contract', state: 'done', detail: null },
+      { key: 'agent_calls', state: status === 'graded' ? 'done' : 'active', detail: null },
+      { key: 'grading', state: status === 'graded' ? 'done' : 'wait', detail: null },
     ],
     events: [],
     proofs: [],
+    isPublic: false,
+    shareUrl: null,
     score,
     counts: { pass: runStatus === 'pass' ? 1 : 0, fail: 0, invalid: 0, review: 0, cancelled: 0, queued: 0, running: runStatus === 'running' ? 1 : 0 },
   }
@@ -89,7 +96,7 @@ function stubApi(overrides: Record<string, Handler> = {}) {
       evalPolls++
       return evalPolls < 2 ? json(200, evaluationView('in_progress', 'running', null)) : json(200, evaluationView('graded', 'pass', 87.5))
     },
-    'GET /evaluations': () => json(200, { evaluations: [{ id: EVAL_ID, shortId: '11111111', agent: { id: AGENT_ID, name: 'demo' }, createdAt: '2026-10-15T10:00:00.000Z', tasks: [{ id: TASK_ID, slug: 'fix-the-bug', name: 'Fix the bug' }], counts: { pass: 1, fail: 0, invalid: 0 }, score: 87.5, status: 'graded', share: { kind: 'none', url: null } }] }),
+    'GET /evaluations': () => json(200, { evaluations: [{ id: EVAL_ID, shortId: '11111111', agent: { id: AGENT_ID, name: 'demo', initials: 'DE', authorName: 'ana', isMine: true }, feeSol: '0', createdAt: '2026-10-15T10:00:00.000Z', tasks: [{ id: TASK_ID, slug: 'fix-the-bug', name: 'Fix the bug' }], counts: { pass: 1, fail: 0, invalid: 0 }, score: 87.5, status: 'graded', share: { kind: 'none', url: null } }], totals: { spentLamports: 0, spentSol: '0', usd: 0, counts: { all: 1, myAgents: 1, others: 0 } } }),
     ...overrides,
   }
   const fetchMock = vi.fn(async (input: string, init: RequestInit = {}) => {
@@ -123,7 +130,7 @@ function mountAt(path: string, signedIn = true) {
           <Route element={<SessionProvider><Outlet /></SessionProvider>}>
             <Route path="/evaluate" element={<NewEvaluationPage />} />
             <Route path="/evaluations" element={<MyEvaluationsPage />} />
-            <Route path="/evaluations/:id" element={<EvaluationPage pollMs={10} />} />
+            <Route path="/evaluations/:eid" element={<RunningEvaluationPage pollMs={10} />} />
           </Route>
         </Routes>
       </MemoryRouter>,
@@ -177,10 +184,12 @@ describe('web2 evaluation flow', () => {
     await waitFor(() => q(c, 'evaluation-status')?.dataset.status === 'graded', 'graded')
     expect(q(c, 'score-total')!.textContent).toBe('87.5')
     expect(q(c, 'run-score')!.textContent).toBe('87.5')
-    expect(q(c, 'run-status')!.textContent).toBe('Pass')
+    expect(q(c, 'run-row')!.textContent).toContain('PASS')
+    expect(q(c, 'evaluation-status')!.textContent).toBe('Graded')
     expect(q(c, 'cancel-evaluation')).toBeNull()
     const text = c.textContent!.toLowerCase()
-    for (const word of ['proof', 'verify', 'nft', 'attestation', 'solana']) expect(text).not.toContain(word)
+    for (const word of ['proof', 'verify', 'nft', 'attestation', 'solana', 'wallet']) expect(text).not.toContain(word)
+    expect(c.textContent).not.toMatch(/\bSOL\b/)
     for (const a of Array.from(c.querySelectorAll('a'))) expect(a.getAttribute('href')).not.toMatch(/proof|verify|nft|\/e\//)
     // The key is not in the page, the storage or the console.
     expect(c.textContent).not.toContain('T9SECRET')
@@ -197,7 +206,8 @@ describe('web2 evaluation flow', () => {
     const { c } = mountAt(`/evaluations/${EVAL_ID}`)
     await waitFor(() => q(c, 'evaluation-status') !== null, 'status')
     expect(q(c, 'evaluation-status')!.dataset.status).toBe('in_progress')
-    expect(q(c, 'run-status')!.textContent).toBe('Running')
+    expect(q(c, 'run-row')!.textContent).toContain('Grading')
+    expect(q(c, 'evaluation-status')!.textContent).toBe('In progress')
     expect(q(c, 'score-total')).toBeNull()
     expect(q(c, 'cancel-evaluation')).not.toBeNull()
     finished = true
@@ -210,7 +220,7 @@ describe('web2 evaluation flow', () => {
     expect(polls()).toBe(n)
   })
 
-  it('cancel posts to the cancel route for the owner', async () => {
+  it('cancel posts to the cancel route for the owner and returns to My evaluations', async () => {
     let cancelled = false
     const fetchMock = stubApi({
       [`GET /evaluations/${EVAL_ID}`]: () => json(200, cancelled ? evaluationView('cancelled', 'cancelled', null) : evaluationView('pending', 'queued', null)),
@@ -219,10 +229,12 @@ describe('web2 evaluation flow', () => {
         return json(200, { evaluationId: EVAL_ID, status: 'cancelled', cancelledRuns: 1, refund: null })
       },
     })
+    vi.stubGlobal('confirm', () => true)
     const { c } = mountAt(`/evaluations/${EVAL_ID}`)
     await waitFor(() => q(c, 'cancel-evaluation') !== null, 'cancel button')
     act(() => q(c, 'cancel-evaluation')!.click())
-    await waitFor(() => q(c, 'evaluation-status')?.dataset.status === 'cancelled', 'cancelled')
+    // The cancel button returns to My evaluations (as the apps/web page does).
+    await waitFor(() => probe.pathname === '/evaluations', 'navigation to My evaluations')
     expect(fetchMock.mock.calls.some(([u, i]) => String(u).endsWith('/cancel') && (i as RequestInit).method === 'POST')).toBe(true)
   })
 
@@ -271,6 +283,9 @@ describe('web2 evaluation flow', () => {
     expect(link.getAttribute('href')).toBe(`/evaluations/${EVAL_ID}`)
     expect(q(c, 'evaluation-row')!.textContent).toContain('87.5')
     expect(c.textContent!.toLowerCase()).not.toContain('proof')
+    expect(q(c, 'evaluations-list')).not.toBeNull()
+    expect(q(c, 'status-graded')!.textContent).toBe('Graded')
+    expect(c.textContent).not.toMatch(/\bSOL\b|wallet|fee/i)
   })
 
   it('asks a signed-out user to log in, with one login button', () => {

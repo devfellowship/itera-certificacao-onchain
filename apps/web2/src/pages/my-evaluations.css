@@ -1,0 +1,230 @@
+/* Screen 09 My evaluations — local layout only; every color is a --tma-* token. */
+.tme-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+.tme-head__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tme-sub {
+  font-size: 15px;
+  color: var(--tma-text-muted);
+}
+
+/* Tabs row: underline tabs on the left, "Spent" on the right, one shared 1px line. */
+.tme-tabsrow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--tma-line);
+}
+.tme-tabsrow .tma-tabs {
+  border-bottom: 0;
+}
+.tme-tabsrow .tma-tab {
+  gap: 8px;
+}
+
+/* Table: the mock's row padding is 14, the primitive's is 15. */
+.tme .tma-table__row {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.tme-agent {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.tme-agent .tma-avatar {
+  font-size: 12px;
+  box-sizing: content-box; /* the mock's 40 px avatar plus its 1 px border */
+}
+.tme-agent__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tme-agent__name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--tma-text);
+}
+.tme-agent__name:hover {
+  color: var(--tma-text);
+}
+.tme-agent__by {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--tma-text-muted);
+}
+.tme-agent__meta {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tme-tasks {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+.tme-task {
+  height: 24px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  border-radius: var(--tma-radius-pill);
+  background: var(--tma-surface-raised);
+  border: 1px solid var(--tma-line);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tme-more {
+  flex: none;
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text-muted);
+}
+
+.tme-outcome {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.tme-dash {
+  color: var(--tma-text-subtle);
+}
+
+.tme-score {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.tme-score--none {
+  color: var(--tma-text-subtle);
+}
+
+.tme-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.tme-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.tme-dot--success {
+  background: var(--tma-success-dot);
+}
+.tme-dot--warning {
+  background: var(--tma-warning-dot);
+}
+.tme-dot--danger {
+  background: var(--tma-danger-dot);
+}
+.tme-dot--neutral {
+  background: var(--tma-neutral-dot);
+}
+
+.tme-share {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 13px;
+}
+.tme-share__copy {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--tma-primary);
+  cursor: pointer;
+}
+.tme-share__copy:hover {
+  color: var(--tma-primary-text);
+}
+.tme-share__none {
+  color: var(--tma-text-subtle);
+}
+
+.tme-note {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text-subtle);
+}
+
+/* Loading: skeleton rows with the same grid as the real rows. */
+.tme-skel {
+  display: block;
+  height: 14px;
+  border-radius: var(--tma-radius-xs);
+  background: var(--tma-surface-raised);
+  animation: tme-pulse 1.4s ease-in-out infinite;
+}
+.tme-skel--avatar {
+  height: 40px;
+  width: 40px;
+  border-radius: 9px;
+}
+.tme-skel-agent {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.tme-skel-agent__lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+@keyframes tme-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tme-skel {
+    animation: none;
+  }
+}
+
+.tme-empty-text {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+  max-width: 420px;
+}
+
+/* "Grading…" pill of the mock: mono 11, not uppercased. */
+.tme-grading {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--tma-radius-pill);
+  background: var(--tma-warning-bg);
+  color: var(--tma-warning-text);
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+}

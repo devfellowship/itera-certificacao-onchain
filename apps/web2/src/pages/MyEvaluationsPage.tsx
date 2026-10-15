@@ -1,83 +1,309 @@
-/** My evaluations (plan 20261015-testmyagent-web2-client, T9). Graded-only: no share, proof or NFT links. */
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { useSession } from '../auth/session'
-import { api, type EvaluationListItem } from '../lib/web2-api'
-import { apiErrorMessage } from '../lib/errors'
-import { RequireLogin } from './RequireLogin'
+/**
+ * Screen 09 — My evaluations (design: "09 My Evaluations.dc.html"; plan 20261012-itera-testmyagent-ui-refactor, U13).
+ * Data: GET /evaluations?scope=all|my_agents|others (apps/api/src/evaluations/router.ts).
+ * The list is every evaluation the account started; the tabs split it by who wrote the agent.
+ * Copy for web2 (plan 20261015-testmyagent-web2-client, UI5): free evaluations, no fee column.
+ * Row click: always the evaluation screen (04), /evaluations/:id.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { ApiError, api } from '../lib/api'
+import type { Agent, EvaluationListItem as ApiEvaluationListItem, EvaluationScope, EvaluationStatus as ApiEvaluationStatus, EvaluationsResponse } from '../lib/api'
+import { AgentAvatar, Badge, Button, ButtonLink, Table, TableEmpty, Tabs, type Column, type Tone } from '../tma/ui'
+import { TaskName } from '../tma/task-filter'
+import './my-evaluations.css'
 
-export function MyEvaluationsPage() {
+/** lib/api types predate the web2 end state: a free evaluation ends at `graded`. */
+type EvaluationStatus = ApiEvaluationStatus | 'graded'
+type EvaluationListItem = Omit<ApiEvaluationListItem, 'status'> & { status: EvaluationStatus }
+
+type Tab = 'all' | 'my_agents' | 'others'
+const TAB_IDS: Tab[] = ['all', 'my_agents', 'others']
+
+/** Every evaluation state the API can answer, as the dot + word of the status column. */
+const STATUS: Record<EvaluationStatus, { label: string; tone: Tone }> = {
+  pending: { label: 'Queued', tone: 'neutral' },
+  in_progress: { label: 'Running', tone: 'warning' },
+  review: { label: 'Needs review', tone: 'warning' },
+  graded: { label: 'Graded', tone: 'success' },
+  issuing: { label: 'Graded', tone: 'success' },
+  issued: { label: 'Graded', tone: 'success' },
+  cancelled: { label: 'Cancelled', tone: 'neutral' },
+  failed: { label: 'Failed', tone: 'danger' },
+}
+
+const dateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
+
+function evId(shortId: string) {
+  return shortId.startsWith('ev_') ? shortId : `ev_${shortId}`
+}
+
+/** Where a row leads: always the evaluation screen. */
+export function rowTarget(e: EvaluationListItem): string {
+  return `/evaluations/${e.id ?? e.shortId}`
+}
+
+function absoluteUrl(url: string) {
+  try {
+    return new URL(url, window.location.origin).toString()
+  } catch {
+    return url
+  }
+}
+
+function StatusCell({ status }: { status: EvaluationStatus }) {
+  const s = STATUS[status] ?? { label: status, tone: 'neutral' as Tone }
   return (
-    <RequireLogin what="see your evaluations">
-      <MyEvaluationsList />
-    </RequireLogin>
+    <span className="tme-status" data-testid={`status-${status}`}>
+      <span className={`tme-dot tme-dot--${s.tone}`} />
+      {s.label}
+    </span>
   )
 }
 
-function MyEvaluationsList() {
-  const { apiFetch } = useSession()
-  const [rows, setRows] = useState<EvaluationListItem[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+function OutcomeCell({ e }: { e: EvaluationListItem }) {
+  const { pass, fail, invalid } = e.counts
+  if (pass + fail + invalid > 0) {
+    return (
+      <span className="tme-outcome">
+        {pass > 0 && <Badge tone="success">{pass} PASS</Badge>}
+        {fail > 0 && <Badge tone="danger">{fail} FAIL</Badge>}
+        {invalid > 0 && <Badge tone="neutral">{invalid} INVALID</Badge>}
+      </span>
+    )
+  }
+  if (e.status === 'pending') return <Badge tone="neutral">Queued…</Badge>
+  if (e.status === 'cancelled' || e.status === 'failed' || e.status === 'graded' || e.status === 'issued') return <span className="tme-dash">—</span>
+  return <span className="tme-grading">Grading…</span>
+}
+
+function ShareCell({ e }: { e: EvaluationListItem }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  if (e.share.kind === 'private') return <span className="tme-share tme-share__none">Private</span>
+  if (e.share.kind === 'none' || !e.share.url) return <span className="tme-share tme-share__none">—</span>
+  const url = absoluteUrl(e.share.url)
+  const copy = async (ev: React.MouseEvent) => {
+    ev.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      window.prompt('Copy this link', url)
+    }
+    setCopied(true)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <span className="tme-share">
+      <button type="button" className="tme-share__copy" onClick={copy} data-testid="copy-link">
+        {copied ? 'Copied' : 'Copy link'}
+      </button>
+    </span>
+  )
+}
+
+const COLUMNS: Column<EvaluationListItem>[] = [
+  {
+    key: 'agent',
+    header: 'Agent',
+    width: 'minmax(0,1fr)',
+    render: (e) => (
+      <span className="tme-agent">
+        <AgentAvatar id={e.agent.id} name={e.agent.name} src={e.agent.avatarUrl} size={40} author={{ name: e.agent.authorName, avatarUrl: e.agent.authorProfile?.avatarUrl }} />
+        <span className="tme-agent__text">
+          <span>
+            <Link to={rowTarget(e)} className="tme-agent__name" onClick={(ev) => ev.stopPropagation()}>
+              {e.agent.name}
+            </Link>{' '}
+            <span className="tme-agent__by">by {e.agent.isMine ? 'you' : e.agent.authorName}</span>
+          </span>
+          <span className="tme-agent__meta">
+            {evId(e.shortId)} · {dateFmt.format(new Date(e.createdAt))}
+          </span>
+        </span>
+      </span>
+    ),
+  },
+  {
+    key: 'tasks',
+    header: 'Tasks',
+    width: '260px',
+    render: (e) => (
+      <span className="tme-tasks" title={e.tasks.map((t) => t.name).join('\n')}>
+        {e.tasks[0] && <TaskName className="tme-task" name={e.tasks[0].name} taskId={e.tasks[0].id} />}
+        {e.tasks.length > 1 && <span className="tme-more">+{e.tasks.length - 1}</span>}
+      </span>
+    ),
+  },
+  { key: 'outcome', header: 'Outcome', width: '150px', render: (e) => <OutcomeCell e={e} /> },
+  {
+    key: 'score',
+    header: 'Score',
+    width: '72px',
+    align: 'right',
+    render: (e) => (e.score != null ? <span className="tme-score">{e.score.toFixed(1)}</span> : <span className="tme-score tme-score--none">—</span>),
+  },
+  { key: 'status', header: 'Status', width: '130px', render: (e) => <StatusCell status={e.status} /> },
+  { key: 'share', header: 'Share', width: '110px', align: 'right', render: (e) => <ShareCell e={e} /> },
+]
+
+/** Loading state: the same grid, six rows of placeholders. */
+const SKELETON_COLUMNS: Column<number>[] = [
+  {
+    key: 'agent',
+    header: 'Agent',
+    width: 'minmax(0,1fr)',
+    render: () => (
+      <span className="tme-skel-agent">
+        <span className="tme-skel tme-skel--avatar" />
+        <span className="tme-skel-agent__lines">
+          <span className="tme-skel" style={{ width: '45%' }} />
+          <span className="tme-skel" style={{ width: '70%', height: 10 }} />
+        </span>
+      </span>
+    ),
+  },
+  { key: 'tasks', header: 'Tasks', width: '260px', render: () => <span className="tme-skel" style={{ width: 180, height: 24 }} /> },
+  { key: 'outcome', header: 'Outcome', width: '150px', render: () => <span className="tme-skel" style={{ width: 90, height: 20 }} /> },
+  { key: 'score', header: 'Score', width: '72px', align: 'right', render: () => <span className="tme-skel" style={{ width: 36, height: 18 }} /> },
+  { key: 'status', header: 'Status', width: '130px', render: () => <span className="tme-skel" style={{ width: 70 }} /> },
+  { key: 'share', header: 'Share', width: '110px', align: 'right', render: () => <span className="tme-skel" style={{ width: 64 }} /> },
+]
+const SKELETON_ROWS = [0, 1, 2, 3, 4, 5]
+
+type Load = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; data: EvaluationsResponse }
+
+export function MyEvaluationsPage() {
+  const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const raw = params.get('tab')
+  const tab: Tab = TAB_IDS.includes(raw as Tab) ? (raw as Tab) : 'all'
+  const [load, setLoad] = useState<Load>({ state: 'loading' })
+  const [attempt, setAttempt] = useState(0)
+  // Counts cover every evaluation, whatever the tab: keep them while a tab loads.
+  const [totals, setTotals] = useState<EvaluationsResponse['totals'] | null>(null)
+  const [myAgents, setMyAgents] = useState<Agent[] | null>(null)
 
   useEffect(() => {
-    let alive = true
-    void api.myEvaluations(apiFetch).then((res) => {
-      if (!alive) return
-      if (res.ok) setRows(res.body.evaluations)
-      else setError(apiErrorMessage(res.status, res.body))
-    })
+    let cancelled = false
+    setLoad({ state: 'loading' })
+    api
+      .evaluations(tab as EvaluationScope)
+      .then((data) => {
+        if (cancelled) return
+        setTotals(data.totals)
+        setLoad({ state: 'ready', data })
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setLoad({ state: 'error', message: err instanceof ApiError || err instanceof Error ? err.message : 'Request failed' })
+      })
     return () => {
-      alive = false
+      cancelled = true
     }
-  }, [apiFetch])
+  }, [tab, attempt])
+
+  // "New evaluation" → 03 for the user's agent, or 02 when the user has none yet.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .agents()
+      .then((r) => !cancelled && setMyAgents(r.agents))
+      .catch(() => !cancelled && setMyAgents(null))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const newEvaluationHref = useMemo(() => {
+    if (myAgents == null) return '/agents'
+    return myAgents.length > 0 ? `/agents/${myAgents[0].id}/evaluate` : '/agents/new'
+  }, [myAgents])
+
+  const setTab = useCallback(
+    (id: Tab) => {
+      const next = new URLSearchParams(params)
+      if (id === 'all') next.delete('tab')
+      else next.set('tab', id)
+      setParams(next, { replace: true })
+    },
+    [params, setParams],
+  )
+
+  const tabs = [
+    { id: 'all' as const, label: 'All', count: totals?.counts.all },
+    { id: 'my_agents' as const, label: 'On my agents', count: totals?.counts.myAgents },
+    { id: 'others' as const, label: 'On other agents', count: totals?.counts.others },
+  ]
+
+  let body
+  if (load.state === 'loading') {
+    body = (
+      <div aria-busy="true" data-testid="evaluations-loading">
+        <Table columns={SKELETON_COLUMNS} rows={SKELETON_ROWS} rowKey={(r) => String(r)} testId="evaluations-skeleton" />
+      </div>
+    )
+  } else if (load.state === 'error') {
+    body = (
+      <div className="tma-table" data-testid="evaluations-error" role="alert">
+        <TableEmpty title="Could not load your evaluations">
+          <span className="tme-empty-text">{load.message}</span>
+          <Button variant="secondary" size={32} onClick={() => setAttempt((n) => n + 1)}>
+            Try again
+          </Button>
+        </TableEmpty>
+      </div>
+    )
+  } else {
+    const rows = load.data.evaluations
+    const none = {
+      all: { title: 'No evaluations yet', text: 'Every run you start shows up here, with its score.', cta: 'Choose an agent to evaluate', to: newEvaluationHref },
+      my_agents: { title: 'No evaluations on your agents yet', text: 'Evaluations on agents you wrote appear here.', cta: 'Evaluate one of your agents', to: newEvaluationHref },
+      others: { title: 'No evaluations on other agents yet', text: 'Rank other agents on tasks you care about; the runs you start appear here.', cta: 'Browse agents', to: '/agents' },
+    }[tab]
+    body = (
+      <div className="tme" data-testid="evaluations-list">
+        <Table
+          columns={COLUMNS}
+          rows={rows}
+          rowKey={(e) => e.id ?? e.shortId}
+          onRowClick={(e) => navigate(rowTarget(e))}
+          testId="evaluation"
+          empty={
+            <div data-testid="evaluations-empty">
+              <TableEmpty title={none.title}>
+                <span className="tme-empty-text">{none.text}</span>
+                <Link to={none.to} className="tma-body-sm">
+                  {none.cta} →
+                </Link>
+              </TableEmpty>
+            </div>
+          }
+        />
+      </div>
+    )
+  }
 
   return (
-    <main className="w2-shell w2-wide">
-      <h1>My evaluations</h1>
-      <p>
-        <Link to="/evaluate" className="w2-btn" data-testid="new-evaluation">
+    <main className="tma-page tme" data-testid="my-evaluations">
+      <div className="tme-head">
+        <div className="tme-head__text">
+          <h1 className="tma-h1">My evaluations</h1>
+          <span className="tme-sub">Every run you started, on your agents or anyone's.</span>
+        </div>
+        <ButtonLink variant="primary" href={newEvaluationHref} data-testid="new-evaluation">
           New evaluation
-        </Link>
-      </p>
-      {error ? (
-        <p className="w2-error" role="alert" data-testid="evaluation-error">
-          {error}
-        </p>
-      ) : rows === null ? (
-        <p className="w2-lead">Loading…</p>
-      ) : rows.length === 0 ? (
-        <p className="w2-muted" data-testid="evaluations-empty">
-          You have no evaluations yet.
-        </p>
-      ) : (
-        <table className="w2-table" data-testid="evaluations-list">
-          <thead>
-            <tr>
-              <th>Evaluation</th>
-              <th>Agent</th>
-              <th>Tasks</th>
-              <th>Status</th>
-              <th>Score</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((e) => (
-              <tr key={e.id} data-testid="evaluation-row">
-                <td>
-                  <Link to={`/evaluations/${encodeURIComponent(e.id)}`} className="tma-mono">
-                    {e.shortId}
-                  </Link>
-                  <div className="w2-muted">{new Date(e.createdAt).toLocaleString()}</div>
-                </td>
-                <td>{e.agent.name}</td>
-                <td>{e.tasks.map((t) => t.name).join(', ')}</td>
-                <td>{e.status}</td>
-                <td className="tma-mono">{e.score === null ? '—' : e.score}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+        </ButtonLink>
+      </div>
+
+      <div className="tme-tabsrow">
+        <Tabs items={tabs} value={tab} onChange={setTab} />
+      </div>
+
+      {body}
+
+      <span className="tme-note">Evaluations on private tasks stay private. Only evaluations on public tasks get a shareable profile.</span>
     </main>
   )
 }
