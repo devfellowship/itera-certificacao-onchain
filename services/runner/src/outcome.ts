@@ -61,6 +61,17 @@ export function zeroTestSuites(manifest: EvidenceManifest): string[] {
   return (['public_baseline', 'public_after_patch', 'hidden'] as const).filter((k) => !t[k] || t[k].total === 0);
 }
 
+/**
+ * Score version 2 (TMA-QC = B): the stored score of a run. An infra_error run is unscored (0, as
+ * before). A run that did not finish (wall limit or cost cap = `timeout`) scores 0: the agent did
+ * not deliver, whatever the hidden checks found in the partial output (K7 run 63cf78c2 scored 77
+ * with 1/13 hidden checks under version 1). Every other run keeps the evaluator's gated total.
+ */
+export function runScore(status: FinalStatus, manifest: Pick<EvidenceManifest, 'score'>): number {
+  if (status === 'infra_error' || status === 'timeout') return 0;
+  return Math.round(manifest.score.total);
+}
+
 /** The error text stored for a run, or null. */
 export function statusError(status: FinalStatus, manifest: EvidenceManifest, agentErrors: string[], rateLimited = 0): string | null {
   if (status === 'timeout') return agentErrors.join('; ') || 'agent wall limit reached';
@@ -99,8 +110,15 @@ export function evalLogOf(manifest: EvidenceManifest, agent: AgentRunResult, sta
   const solver = { name: 'opencode', model: agent.model, agent_files: agent.agentFiles };
   const state = status === 'timeout' ? 'timeout' : status === 'infra_error' ? 'infra_error' : 'completed';
   const verdict = status === 'infra_error' ? 'inconclusive' : status === 'timeout' ? 'invalid' : status;
+  // Score version 2: the runner-side gate (the agent finished) goes into the stored log, so the
+  // log's score.total equals runs.score_total and the pinned evidence says why a timeout is 0.
+  const finished = status !== 'timeout';
+  const scoreRule = manifest.score_rule ? { ...manifest.score_rule, gates: { ...manifest.score_rule.gates, agent_finished: finished } } : undefined;
   return {
     ...manifest,
+    // infra_error keeps the log as before (result.scored = false says the total measures nothing).
+    ...(manifest.score_version === 2 && status === 'timeout' ? { score: { ...manifest.score, total: 0 } } : {}),
+    ...(scoreRule ? { score_rule: scoreRule } : {}),
     runner: runnerEvidence(agent),
     ...(manifest.eval ? { eval: { ...manifest.eval, solver } } : {}),
     ...(manifest.plan

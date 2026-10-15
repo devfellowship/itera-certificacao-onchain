@@ -1,4 +1,4 @@
-import type { Score, ScoreBreakdown, TestSuiteResult } from './types.js';
+import type { Score, ScoreBreakdown, ScoreRule, TestSuiteResult } from './types.js';
 
 // Weights match benchmarks/scenarios.json's shared_protocol.score_100 exactly — do not change
 // one side without the other, or a manifest's score stops matching the scenario spec it claims
@@ -99,7 +99,11 @@ export function runScorers(inputs: ScoreInputs): Record<ScorerName, Score> {
   return Object.fromEntries(SCORERS.map((s) => [s.name, s.score(inputs)])) as Record<ScorerName, Score>;
 }
 
-/** The legacy `score` block of the manifest (points per component + total). Unchanged numbers. */
+/**
+ * The legacy `score` block of the manifest (points per component + their sum). Score version 1.
+ * Since score version 2 (TMA-QC = B) the sum is NOT the platform score: it stays in
+ * `score_rule.legacy_total` for diagnostics, and `score.total` comes from hiddenRatioScore().
+ */
 export function computeScore(inputs: ScoreInputs): ScoreBreakdown {
   const public_behavior = Math.round(suiteRatio(inputs.publicAfterPatch) * SCORE_WEIGHTS.public_behavior);
   const hidden_behavior = Math.round(suiteRatio(inputs.hidden) * SCORE_WEIGHTS.hidden_behavior);
@@ -123,5 +127,55 @@ export function computeScore(inputs: ScoreInputs): ScoreBreakdown {
     patch_integrity_and_scope,
     reproducible_evidence,
     total,
+  };
+}
+
+/**
+ * Score version. 1 = the sum of the five parts (score_100). 2 = the hidden ratio × 100 when every
+ * gate holds, else 0 (TMA-QC = B, TG 21519). Stored on every new EvalLog as `score_version`, so an
+ * old score and a new score stay distinguishable. A log without the key is version 1.
+ */
+export const SCORE_VERSION = 2 as const;
+export const SCORE_FORMULA = 'hidden_ratio_x100_gated' as const;
+
+export interface ScoreGateInputs {
+  hidden: TestSuiteResult;
+  /** The agent changed nothing: a no-op earns no point. */
+  patchEmpty: boolean;
+  /** Safety gate: the patch stays inside editable_paths (a violation is INVALID). */
+  patchScopeAllowed: boolean;
+  /** ADR-11: every final-state assertion holds on every scored MCP server. null = the task scores no MCP state. */
+  mcpStateHolds: boolean | null;
+  /** The v1 total, kept for diagnostics. */
+  legacyTotal: number;
+}
+
+/**
+ * Score version 2: `round(hidden.passed / hidden.total × 100)` when every gate holds, else 0.
+ * Public tests, regression, scope and evidence no longer pay points: on an output-only task they
+ * came free, so a timeout with 1/13 hidden checks scored 77 (K7 run 63cf78c2). They stay in the
+ * `score` block as diagnostics. An unmeasured hidden suite (0 tests or an untrusted report) scores
+ * 0 here; the runner then classifies the run as infra_error (unscored), as before.
+ * The runner adds one more gate that only it can see: the agent finished inside its wall and cost
+ * cap (`agent_finished`, see services/runner/src/outcome.ts applyRunGates).
+ */
+export function hiddenRatioScore(i: ScoreGateInputs): { total: number; rule: ScoreRule } {
+  const hiddenMeasured = measured(i.hidden);
+  const gates: ScoreRule['gates'] = {
+    hidden_measured: hiddenMeasured,
+    patch_nonempty: !i.patchEmpty,
+    patch_scope: i.patchScopeAllowed,
+    mcp_state: i.mcpStateHolds,
+  };
+  const hold = Object.values(gates).every((g) => g !== false);
+  const total = hold ? Math.round(suiteRatio(i.hidden) * 100) : 0;
+  return {
+    total,
+    rule: {
+      formula: SCORE_FORMULA,
+      hidden: hiddenMeasured ? `${i.hidden.passed}/${i.hidden.total}` : null,
+      gates,
+      legacy_total: i.legacyTotal,
+    },
   };
 }

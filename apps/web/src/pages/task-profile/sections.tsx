@@ -306,7 +306,18 @@ export function ScoringSection({ task }: { task: TaskProfile }) {
           </div>
         ))}
       </div>
-      <p className="tma-body-sm tma-muted">Score = the sum of the five parts, 0 to 100.</p>
+      {task.scoring.gates && task.scoring.gates.length > 0 ? (
+        <>
+          <p className="tma-body-sm tma-muted">Score = the share of the hidden checks that pass × 100, when every gate holds. One broken gate makes the score 0.</p>
+          <ul className="tma-body-sm tma-muted" data-testid="score-gates">
+            {task.scoring.gates.map((g) => (
+              <li key={g}>{g}</li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="tma-body-sm tma-muted">Score = the sum of the parts, 0 to 100.</p>
+      )}
       {task.mcp.scorerReads.length > 0 && <p className="tma-body-sm tma-muted">The scorer also reads the final state of: <span className="tp-mono13">{task.mcp.scorerReads.join(', ')}</span>.</p>}
       <div className="tp-tests-card" data-testid="tests-card">
         <TestsPill task={task} />

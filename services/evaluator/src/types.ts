@@ -34,7 +34,28 @@ export interface ScoreBreakdown {
   reproducible_evidence: number;
   /** ADR-11: points of the mcp_state Scorer (only for a task whose MCP state is scored). */
   mcp_state?: number;
+  /** The platform score 0-100. Score version 2: see EvalLog.score_rule. Version 1: the sum of the parts. */
   total: number;
+}
+
+/**
+ * Score version 2 (TMA-QC = B): how `score.total` was derived. Each gate is true (holds), false
+ * (broken: the total is 0) or null (does not apply to this run). `legacy_total` is the v1 sum of
+ * the five parts, for diagnostics only.
+ */
+export interface ScoreRule {
+  formula: 'hidden_ratio_x100_gated';
+  /** "passed/total" of the hidden checks, or null when they were not measured. */
+  hidden: string | null;
+  gates: {
+    hidden_measured: boolean;
+    patch_nonempty: boolean;
+    patch_scope: boolean;
+    mcp_state: boolean | null;
+    /** Set by the runner: the agent finished inside its wall limit and its cost cap. */
+    agent_finished?: boolean;
+  };
+  legacy_total: number;
 }
 
 /** Where the verifier ran, and what was enforced there. No temp path, no secret. */
@@ -143,6 +164,10 @@ export interface EvalLog {
     hidden: TestSuiteResult;
   };
   score: ScoreBreakdown;
+  /** 2 = score.total is the gated hidden ratio (ScoreRule). Absent = 1 (the sum of the five parts). */
+  score_version?: 2;
+  /** How score.total was derived (score version 2). */
+  score_rule?: ScoreRule;
   errors: string[];
   /** ADR-11: per MCP server, digests and counts of the final-state check (the raw export stays private). */
   mcp?: { weight: number; servers: import('./mcp-state.js').McpServerEvidence[] };

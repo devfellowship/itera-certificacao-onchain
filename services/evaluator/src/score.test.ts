@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeScore, SCORE_WEIGHTS } from './score.js';
+import { computeScore, hiddenRatioScore, SCORE_WEIGHTS } from './score.js';
 import type { TestSuiteResult } from './types.js';
 
 function suite(total: number, passed: number): TestSuiteResult {
@@ -86,5 +86,54 @@ describe('computeScore', () => {
     });
     expect(score.public_behavior).toBe(0);
     expect(score.hidden_behavior).toBe(0);
+  });
+});
+
+describe('hiddenRatioScore (score version 2, TMA-QC = B)', () => {
+  const base = { patchEmpty: false, patchScopeAllowed: true, mcpStateHolds: null, legacyTotal: 0 };
+
+  it('scores hidden ratio × 100 when every gate holds', () => {
+    expect(hiddenRatioScore({ ...base, hidden: suite(13, 13) }).total).toBe(100);
+    expect(hiddenRatioScore({ ...base, hidden: suite(20, 14) }).total).toBe(70);
+    // Rounded like every other part: Math.round.
+    expect(hiddenRatioScore({ ...base, hidden: suite(13, 10) }).total).toBe(77); // 76.9
+    expect(hiddenRatioScore({ ...base, hidden: suite(13, 1) }).total).toBe(8); // 7.7
+    expect(hiddenRatioScore({ ...base, hidden: suite(5, 0) }).total).toBe(0);
+  });
+
+  it('scores 0 for a no-op (empty patch), whatever the free parts would pay', () => {
+    // Build lanes: an empty patch scored 69 (A), 22 (B), 88 (C) under version 1.
+    const r = hiddenRatioScore({ ...base, hidden: suite(6, 3), patchEmpty: true, legacyTotal: 88 });
+    expect(r.total).toBe(0);
+    expect(r.rule.gates.patch_nonempty).toBe(false);
+    expect(r.rule.legacy_total).toBe(88);
+  });
+
+  it('scores 0 when the safety gate breaks (scope violation = INVALID)', () => {
+    // K7 run 2f98d3cb: 19/20 hidden checks, scope violation → 0.
+    expect(hiddenRatioScore({ ...base, hidden: suite(20, 19), patchScopeAllowed: false }).total).toBe(0);
+  });
+
+  it('scores 0 when an MCP final-state assertion does not hold', () => {
+    expect(hiddenRatioScore({ ...base, hidden: suite(6, 6), mcpStateHolds: false }).total).toBe(0);
+    expect(hiddenRatioScore({ ...base, hidden: suite(6, 6), mcpStateHolds: true }).total).toBe(100);
+  });
+
+  it('scores 0 with 0 hidden checks or an untrusted hidden report (no divide by zero)', () => {
+    const zero = hiddenRatioScore({ ...base, hidden: suite(0, 0) });
+    expect(zero.total).toBe(0);
+    expect(zero.rule.hidden).toBeNull();
+    expect(zero.rule.gates.hidden_measured).toBe(false);
+    expect(hiddenRatioScore({ ...base, hidden: { ...suite(5, 5), state: 'timeout' } }).total).toBe(0);
+  });
+
+  it('records the formula, the hidden ratio and the gates', () => {
+    const r = hiddenRatioScore({ ...base, hidden: suite(13, 13), mcpStateHolds: true, legacyTotal: 100 });
+    expect(r.rule).toEqual({
+      formula: 'hidden_ratio_x100_gated',
+      hidden: '13/13',
+      gates: { hidden_measured: true, patch_nonempty: true, patch_scope: true, mcp_state: true },
+      legacy_total: 100,
+    });
   });
 });
