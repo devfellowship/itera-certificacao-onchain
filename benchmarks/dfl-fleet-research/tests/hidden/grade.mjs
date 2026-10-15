@@ -5,12 +5,16 @@
 //
 // Checks (13): schema (gate) · q1..q5 answer · q1..q5 evidence · q6 abstention (hard gate: an answer
 // to the unanswerable question = FAIL) · report states what was not verified.
+// Evidence rule (task version 4): a quote has at least MIN_QUOTE characters after trimming, it is on ONE
+// line of the cited file, that line is within LINE_TOLERANCE lines of the cited number, and no other line
+// of the file holds the quote (the quote is unique in the file).
 // "Evidence was read" is NOT here: it is the mcp_state scorer (tests/hidden/mcp/repos/assert.json).
 import { readFileSync } from 'node:fs';
 
 export const QUESTIONS = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'];
 /** A cited line may be off by this many lines. repos@2 `read_file_lines` prints exact numbers, so the slack is only for the other read tools. It did not grow: a citation 2 lines off fails. */
 export const LINE_TOLERANCE = 1;
+/** Minimum length of a quote after `norm` (trim, collapse spaces, lower case). The instruction and the schema state the same number. */
 export const MIN_QUOTE = 6;
 
 const norm = (s) => String(s).trim().replace(/\s+/g, ' ').toLowerCase().replace(/^\/+|\/+$/g, '');
@@ -70,7 +74,17 @@ export function parseRef(ref) {
   return m ? { file: `${m[1]}:${m[2].replace(/^\/+/, '')}`, line: Number(m[3]) } : null;
 }
 
-/** Every citation is real (the file exists at HEAD, a line within ±1 holds the quote) and one cites a key file. */
+/** The 1-based numbers of the lines of `text` that hold the (normalized) `quote`. */
+export function quoteLines(text, quote) {
+  const q = norm(quote);
+  const out = [];
+  text.split('\n').forEach((l, i) => {
+    if (norm(l).includes(q)) out.push(i + 1);
+  });
+  return out;
+}
+
+/** Every citation is real (the file exists at HEAD, a line within ±1 holds the quote, and that is the only line that holds it) and one cites a key file. */
 export function evidenceOk(q, evidence, key) {
   if (!Array.isArray(evidence) || evidence.length === 0) return { ok: false, why: 'no evidence' };
   let relevant = false;
@@ -81,10 +95,10 @@ export function evidenceOk(q, evidence, key) {
     if (text === undefined) return { ok: false, why: `no such file ${r.file}` };
     const quote = norm(e.quote ?? '');
     if (quote.length < MIN_QUOTE) return { ok: false, why: `quote too short in ${e.ref}` };
-    const lines = text.split('\n');
-    const hit = [];
-    for (let d = -LINE_TOLERANCE; d <= LINE_TOLERANCE; d++) hit.push(norm(lines[r.line - 1 + d] ?? ''));
-    if (!hit.some((l) => l.includes(quote))) return { ok: false, why: `quote not on line ${e.ref}` };
+    // Version 4: the quote must be unique in the file. Every line that holds it is counted.
+    const at = quoteLines(text, quote);
+    if (at.length > 1) return { ok: false, why: `quote is not unique in the file (${at.length} lines hold it) in ${e.ref}` };
+    if (at.length === 0 || Math.abs(at[0] - r.line) > LINE_TOLERANCE) return { ok: false, why: `quote not on line ${e.ref}` };
     if (key.questions[q].evidence_files.includes(r.file)) relevant = true;
   }
   return relevant ? { ok: true } : { ok: false, why: 'no citation of a file that holds the fact' };

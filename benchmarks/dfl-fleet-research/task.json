@@ -3,8 +3,8 @@
   "schema_version": "1.0",
   "task": {
     "name": "itera/dfl-fleet-research",
-    "version": "3",
-    "description": "Research across a synthetic fleet of 14 git repos in 2 orgs through the repos MCP server (repos@2: the only tool that returns file content is read_file_lines, which prints line numbers): 6 questions with cited evidence, one topology trap and one unanswerable question.",
+    "version": "4",
+    "description": "Research across a synthetic fleet of 14 git repos in 2 orgs through the repos MCP server (repos@2; read_file_lines is the only content tool): 6 questions with cited evidence (quote of 6+ characters, unique in its file), one topology trap and one unanswerable question.",
     "authors": [{ "name": "ITERA" }],
     "keywords": ["mcp", "research", "git", "evidence", "abstention"]
   },
