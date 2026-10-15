@@ -67,6 +67,8 @@ test('free BYOK run: start, wait for graded, score is shown', async ({ page }) =
     await expect(status).toHaveAttribute('data-status', 'graded')
   } catch (err) {
     // Do not leave a running evaluation behind.
+    // The cancel button asks window.confirm; accept it.
+    page.once('dialog', (d) => void d.accept())
     const cancel = page.getByTestId('cancel-evaluation')
     if (await cancel.isVisible().catch(() => false)) await cancel.click().catch(() => undefined)
     throw err
@@ -88,5 +90,5 @@ test('free BYOK run: start, wait for graded, score is shown', async ({ page }) =
   // The list links each evaluation by its full id; the short id is its first 8 characters.
   await page.getByTestId('nav-my-evaluations').click()
   await expect(page.locator(`a[href="/evaluations/${evaluationId}"]`)).toBeVisible({ timeout: 30_000 })
-  await expect(page.locator('[data-testid=evaluation-row]', { has: page.locator(`a[href="/evaluations/${evaluationId}"]`) })).toContainText('graded')
+  await expect(page.locator('[data-testid=evaluation-row]', { has: page.locator(`a[href="/evaluations/${evaluationId}"]`) })).toContainText(/graded/i)
 })
