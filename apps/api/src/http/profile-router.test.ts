@@ -14,6 +14,8 @@ import { createProfileRouter } from "./profile-router.js";
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
 
 const ME = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU";
+const DFL = "dfl:11111111-2222-4333-8444-555555555555";
+const AVATAR_KEY_SHAPE = /^[1-9A-HJ-NP-Za-km-z]{32,44}\/[0-9a-f]{16}\.webp$/;
 const OTHER = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
 const ADMIN = "HhTf16UWj1Tku3GEt19EViXiyC9cRVTg7weSeGdHZVUS";
 
@@ -30,7 +32,7 @@ let sourceFetch: typeof fetch;
 let agents: FakeAgentAvatarStore;
 const AGENT = "5c0caea5-19ce-4917-af7a-b3d344a4b9c7";
 
-const auth = (w: string) => ({ Authorization: `Bearer ${issueSessionToken(w).token}` });
+const auth = (w: string) => ({ Authorization: `Bearer ${issueSessionToken(w, Date.now(), w.startsWith("dfl:") ? "dfl" : "siws").token}` });
 
 async function upload(bytes: Buffer, type = "image/png", wallet = ME) {
   const form = new FormData();
@@ -74,6 +76,16 @@ describe("processAvatar", () => {
     expect(out.key).toMatch(new RegExp(`^${ME}/[0-9a-f]{16}\\.webp$`));
   });
 
+  it("gives separate DFL profiles stable, distinct opaque storage folders", async () => {
+    const picture = await png();
+    const first = await processAvatar(DFL, picture);
+    const second = await processAvatar("dfl:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", picture);
+    expect(first.key).toMatch(AVATAR_KEY_SHAPE);
+    expect(second.key).toMatch(AVATAR_KEY_SHAPE);
+    expect(first.sha256).toBe(second.sha256);
+    expect(first.key).not.toBe(second.key);
+  });
+
   it("rejects a non-image, a GIF and an oversize file", async () => {
     await expect(processAvatar(ME, Buffer.from("not an image"))).rejects.toMatchObject({ status: 415 });
     const gif = await sharp(await png(40, 40)).gif().toBuffer();
@@ -101,6 +113,34 @@ describe("POST /me/avatar", () => {
     const del = await fetch(`${base}/me/avatar`, { method: "DELETE", headers: auth(ME) });
     expect(((await del.json()) as any).avatarUrl).toBeNull();
     expect(storage.objects.size).toBe(0);
+  });
+
+  it("persists DFL pictures with database-compatible keys and replaces only that profile's object", async () => {
+    const picture = await png();
+    const walletPicture = await upload(picture);
+    const first = await upload(picture, "image/png", DFL);
+    expect(first.status).toBe(201);
+    const firstProfile = (await store.getProfile(DFL))!;
+    // This is profiles_avatar_key_shape from 0015_profile_avatars.sql: the fake store does not enforce SQL checks.
+    expect(firstProfile.avatarKey).toMatch(AVATAR_KEY_SHAPE);
+    const firstFolder = firstProfile.avatarKey!.split("/")[0];
+    expect(firstFolder).not.toBe(ME);
+    expect(first.body.wallet).toBe(DFL);
+    const reloaded = await (await fetch(`${base}/me`, { headers: auth(DFL) })).json() as any;
+    expect(reloaded.avatarUrl).toBe(first.body.avatarUrl);
+    const repeated = await upload(picture, "image/png", DFL);
+    expect(repeated.body.avatarUrl).toBe(first.body.avatarUrl);
+    const second = await upload(await png(300, 300, 220), "image/png", DFL);
+    expect(second.body.avatarUrl).not.toBe(first.body.avatarUrl);
+    const secondKey = (await store.getProfile(DFL))!.avatarKey!;
+    expect(secondKey).toMatch(AVATAR_KEY_SHAPE);
+    expect(secondKey.split("/")[0]).toBe(firstFolder);
+    expect(storage.objects.has(firstProfile.avatarKey!)).toBe(false);
+    expect(storage.objects.size).toBe(2);
+    await fetch(`${base}/me/avatar`, { method: "DELETE", headers: auth(DFL) });
+    expect((await store.getProfile(DFL))!.avatarUrl).toBeNull();
+    expect(storage.objects.size).toBe(1);
+    expect((await store.getProfile(ME))!.avatarUrl).toBe(walletPicture.body.avatarUrl);
   });
 
   it("rejects a wrong type, an oversize file and a non-multipart body", async () => {
