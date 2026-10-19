@@ -36,7 +36,7 @@ export function createEvaluationIssuer(deps: EvaluationIssuerDeps) {
     let runs = await deps.store.listRuns(id);
 
     // 1. Free retry (Gate Q1): once per slot, never after a cancel.
-    if (!ev.cancelledAt) {
+    if (!ev.cancelledAt && !ev.tasks.some((t) => t.historicalRunId)) {
       for (const slot of slotsOf(runs)) {
         if (slot.run.status === "infra_error" && slot.attempts === 1) {
           const retry = await deps.store.insertFreeRetry(id, slot.run.id);

@@ -64,6 +64,9 @@ export interface ProfileResult {
 }
 
 export interface ProfileEvaluation {
+  ownerWallet?: string | null;
+  status?: string;
+  taskNames?: string[];
   id: string;
   slug: string | null;
   shortId: string | null;
@@ -129,6 +132,8 @@ export interface EvidenceRow {
 }
 
 export interface AgentProfile {
+  /** Private account history. It never contributes to public evidence or badges. */
+  history: Array<{ id: string; score: number | null; status: string; at: string | null; taskNames: string[]; path: string }>;
   agent: {
     id: string;
     slug: string | null;
@@ -207,7 +212,7 @@ export function publicResults(data: ProfileData): ProfileResult[] {
 }
 
 export function publicEvaluations(data: ProfileData): ProfileEvaluation[] {
-  return data.evaluations.filter((e) => e.isPublic);
+  return data.evaluations.filter((e) => e.isPublic && (!e.status || e.status === "issued"));
 }
 
 /** An agent is publicly visible when it is listed and has at least one public result. */
@@ -361,6 +366,10 @@ export function buildProfile({ agent, data, viewerWallet }: ProfileInput): Agent
     evidence,
     latestAttestation,
     evaluations,
+    history: isMine ? data.evaluations.filter((e) => e.ownerWallet === viewerWallet).map((e) => ({
+      id: e.id, score: e.score, status: e.status ?? "issued", at: e.issuedAt,
+      taskNames: e.taskNames ?? [], path: `/evaluations/${encodeURIComponent(e.id)}`,
+    })) : [],
     badge: public_ ? { path: `/badge/agents/${encodeURIComponent(key)}.svg`, markdownLinkPath: latestAttestation?.evaluationSlug ? `/e/${latestAttestation.evaluationSlug}` : null } : null,
   };
 }

@@ -201,6 +201,22 @@ describe("the web3 path is unchanged (siws principal)", () => {
 });
 
 describe("free_byok roll-up and issuer", () => {
+  it("keeps an imported historical infrastructure failure in review without a retry", async () => {
+    const token = dflToken(dfl);
+    await call("POST", "/evaluations", token, freeBody());
+    const ev = store.evaluations[0]!;
+    const run = store.runs[0]!;
+    Object.assign(ev.tasks[0]!, { historicalRunId: run.id });
+    Object.assign(run, { status: "infra_error", scoreTotal: null, completedAt: new Date().toISOString() });
+    const issuer = createEvaluationIssuer({ store, runs: new FakeRunsStore(), log: () => undefined });
+    await issuer.processEvaluation(ev.id);
+    expect(store.runs).toHaveLength(1);
+    expect(ev).toMatchObject({ status: "review", score: null, freeRetriesUsed: 0 });
+    const view = await call("GET", `/evaluations/${ev.id}`, token);
+    expect(view.body).toMatchObject({ status: "review", uiState: "error", counts: { review: 1 } });
+    expect(view.body.events[0]).toMatchObject({ label: "Historical evaluation imported" });
+  });
+
   it("ends at graded, with no proof; the issuer never calls the proof issuer; cancel is refused", async () => {
     const token = dflToken(dfl);
     const created = await call("POST", "/evaluations", token, freeBody());

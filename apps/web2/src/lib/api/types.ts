@@ -348,6 +348,7 @@ export interface AgentProfile {
   badge: { path: string; markdownLinkPath: string | null } | null
 }
 export interface AgentProfileResponse extends AgentProfile {
+  history?: Array<{ id: string; score: number | null; status: string; at: string | null; taskNames: string[]; path: string }>
   price: { usdPerRun: number; solUsdRate: number | null; priceSource: string | null; runCostLamports: number | null; runCostSol: string | null; indicative: boolean }
 }
 export interface MyResultRow {

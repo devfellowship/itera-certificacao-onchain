@@ -115,7 +115,7 @@ export class PgRankingStore implements RankingStore {
          left join public.github_installations gi on gi.installation_id = a.gh_installation_id
          ${profile ? "left join public.profiles p on p.wallet::text = a.owner_wallet" : ""}
          ${model ? "left join public.models m on m.id::text = a.model" : ""}
-        where a.connector = 'github' and a.owner_wallet is not null
+        where a.connector in ('github', 'endpoint') and a.owner_wallet is not null
         limit 5000`,
     );
     return r.rows.map((row) => ({
