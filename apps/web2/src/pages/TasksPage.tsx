@@ -85,7 +85,7 @@ function columns(onDelete: (t: Task) => void): Column<Task>[] {
         </span>
       ),
     },
-    { key: 'agents', header: 'Agents', width: '64px', align: 'right', render: (t) => <span className="tkp-num">{t.agentsCount ? t.agentsCount : '–'}</span> },
+    { key: 'agents', header: 'Agents', width: '64px', align: 'right', render: (t) => <span className="tkp-num">{(t.agentsCount ?? t.agentsRunCount) > 0 ? (t.agentsCount ?? t.agentsRunCount) : '–'}</span> },
     {
       key: 'best',
       header: 'Best result',
@@ -96,6 +96,11 @@ function columns(onDelete: (t: Task) => void): Column<Task>[] {
             <AgentAvatar size={28} id={t.bestResult.agent.id} name={t.bestResult.agent.name} src={t.bestResult.agent.avatarUrl} author={t.bestResult.agent.author ?? null} />
             <span className="tkp-best__name">{t.bestResult.agent.name}</span>
             <span className="tkp-best__score">{t.bestResult.score.toFixed(1)}</span>
+          </span>
+        ) : (t.evaluationCount ?? 0) > 0 ? (
+          <span className="tkp-best tkp-best--history" data-testid="task-unranked">
+            <span>{t.rankingEligible === false ? 'Unranked' : 'No ranked result'}</span>
+            <span className="tkp-best__history-count">{t.evaluationCount} evaluation{t.evaluationCount === 1 ? '' : 's'}</span>
           </span>
         ) : (
           <span className="tkp-best tkp-best--none">Not run</span>
@@ -114,6 +119,15 @@ const SKELETON: Column<number>[] = [
   skel('best', 'Best result', '190px', 110),
   skel('action', '', '120px', 80),
 ]
+
+/** Ready owned tasks have a history page. Draft and invalid tasks stay in the editor workflow. */
+export function taskRowTarget(t: Task): string {
+  const publicHref = publicTaskHref(t)
+  if (publicHref) return publicHref
+  if (t.mine && t.status === 'ready') return `/tasks/${encodeURIComponent(t.id)}`
+  if (t.mine) return editHref(t)
+  return `/tasks/${encodeURIComponent(t.slug)}`
+}
 
 export function TasksPage() {
   const navigate = useNavigate()
@@ -175,7 +189,7 @@ export function TasksPage() {
     [inTab, tag, needle],
   )
 
-  const onRow = (t: Task) => navigate(publicTaskHref(t) ?? (t.mine ? editHref(t) : `/tasks/${encodeURIComponent(t.slug)}`))
+  const onRow = (t: Task) => navigate(taskRowTarget(t))
 
   let body: React.ReactNode
   if (load.state === 'loading') {

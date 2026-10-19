@@ -156,6 +156,8 @@ function eligibleAgents(data: RankingData, callerWallet: string): RankAgent[] {
 export interface TaskOverview {
   /** Distinct visible agents with a counted result on the task. */
   agentsCount: number;
+  /** Agent ids behind `agentsCount`; used to merge private account history without double-counting. */
+  agentIds: string[];
   /** The agent with the top score on the task; ties go to the newest result. Null without a counted result. */
   best: { agent: RankAgent; score: number } | null;
 }
@@ -175,6 +177,7 @@ export function taskOverviews(data: RankingData, callerWallet: string, tasks: Ar
     for (const r of mine) if (!top || r.score > top.score || (r.score === top.score && r.at > top.at)) top = r;
     out.set(t.id, {
       agentsCount: new Set(mine.map((r) => r.agentId)).size,
+      agentIds: [...new Set(mine.map((r) => r.agentId))],
       best: top ? { agent: agents.get(top.agentId)!, score: round1(top.score) } : null,
     });
   }

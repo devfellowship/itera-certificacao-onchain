@@ -95,6 +95,7 @@ const ROUTES = [
   "GET /leaderboard?benchmark=&version=",
   "GET /tasks?source=&tag=&kind=&runnable=&q=",
   "GET /tasks/:idOrSlug",
+  "GET /tasks/:idOrSlug/evaluations",
   "POST /tasks/layout",
   "POST /tasks",
   "PATCH /tasks/:id",

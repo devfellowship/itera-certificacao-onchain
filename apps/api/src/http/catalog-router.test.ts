@@ -7,6 +7,7 @@ import { FakeCatalogStore, type CatalogTask, type Tag } from "../domain/catalog-
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { issueSessionToken } from "./auth.js";
 import { createCatalogRouter } from "./catalog-router.js";
+import type { EvaluationListRow, EvaluationsStore } from "../evaluations/store.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
 
@@ -348,6 +349,19 @@ describe("GET /tasks?include=overview (U35)", () => {
     agentId, runId: `${agentId}-${taskKeys[0]}-${score}`, runOwnerWallet: null, score, at: "2026-10-12T10:00:00.000Z", issued: true,
     taskKeys, taskKind: "itera", taskOwnerWallet: null, ...over,
   });
+  const evaluation = (id: string, ownerWallet: string, agentId: string, taskId: string, taskSlug: string, over: Partial<EvaluationListRow> = {}): EvaluationListRow => ({
+    id, slug: null, shortId: id.slice(0, 8), ownerWallet, agentId, agentVersionId: "11111111-1111-4111-8111-111111111111",
+    modelId: "model", modelRelease: null, tasks: [{ taskId, taskVersionId: null, slug: taskSlug, name: "Task", packId: "pack", packVersion: "1", isPublic: false }],
+    status: "graded", paymentKind: "free_byok", taskCount: 1, priceUsdPerRun: 0, feeUsd: 0, feeLamports: 0,
+    solUsdRate: 0, priceSource: "historical_import", paymentId: null, txSig: null, score: 92, passCount: 1,
+    failCount: 0, invalidCount: 0, testsPassed: 4, testsTotal: 5, manifestSha256: null, isPublic: false,
+    freeRetriesUsed: 0, createdAt: "2026-10-19T10:00:00.000Z", startedAt: null, completedAt: null, issuedAt: null,
+    cancelledAt: null, agentName: `Agent ${agentId}`, agentSlug: null, agentOwnerWallet: ownerWallet, agentAuthorName: "Tainan", ...over,
+  });
+  const evaluationsStore = (rows: EvaluationListRow[]): Pick<EvaluationsStore, "listForWallet" | "listForTaskAndWallet"> => ({
+    listForWallet: async (wallet) => rows.filter((e) => e.ownerWallet === wallet),
+    listForTaskAndWallet: async (taskId, taskSlug, wallet) => rows.filter((e) => e.ownerWallet === wallet && e.tasks.some((t) => t.taskId === taskId || t.slug === taskSlug)),
+  });
 
   async function overview(rank: FakeRankingStore | undefined, path = "/tasks?include=overview", wallet?: string) {
     const app = express();
@@ -398,6 +412,56 @@ describe("GET /tasks?include=overview (U35)", () => {
     const body = await overview(rank);
     expect(body.tasks[0].bestResult).toBeNull();
     expect(body.tasks[0].agentsCount).toBe(0);
+  });
+
+  it("shows open-test history as unranked activity with real evaluation and agent counts", async () => {
+    const dup = store.tasks[0]!;
+    dup.latest!.labels = ["open-tests"];
+    const rank = new FakeRankingStore();
+    rank.data = { agents: [agent("a1", "Ledgerline", ME), agent("a2", "Patchwright", ME)], results: [result("a1", [dup.id, dup.slug], 99, { taskRanked: false, runOwnerWallet: ME })], evaluations: [] };
+    const rows = [
+      evaluation("11111111-0000-4000-8000-000000000001", ME, "a1", dup.id, dup.slug),
+      evaluation("11111111-0000-4000-8000-000000000002", ME, "a2", dup.id, dup.slug, { score: 80, passCount: 0, failCount: 1 }),
+      evaluation("11111111-0000-4000-8000-000000000003", ME, "a1", dup.id, dup.slug, { score: null, passCount: 0, invalidCount: 1 }),
+    ];
+    const app = express();
+    app.use(createCatalogRouter(store, { ranking: rank, evaluations: evaluationsStore(rows) }));
+    const srv = app.listen(0);
+    try {
+      const res = await fetch(`http://127.0.0.1:${(srv.address() as AddressInfo).port}/tasks?include=overview`, { headers: auth(ME) });
+      const body = await res.json() as any;
+      expect(body.tasks.find((t: any) => t.id === dup.id)).toMatchObject({ bestResult: null, agentsCount: 2, evaluationCount: 3, rankingEligible: false });
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()));
+    }
+  });
+
+  it("serves owner-scoped task evaluation history and hides another wallet's private task", async () => {
+    const mine = store.tasks[2]!;
+    mine.status = "ready";
+    mine.latest!.labels = ["open-tests"];
+    const rows = [evaluation("22222222-0000-4000-8000-000000000001", ME, "a1", mine.id, mine.slug)];
+    const app = express();
+    app.use(createCatalogRouter(store, { evaluations: evaluationsStore(rows) }));
+    const srv = app.listen(0);
+    const endpoint = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/tasks/${mine.id}/evaluations`;
+    try {
+      expect((await fetch(endpoint)).status).toBe(401);
+      expect((await fetch(endpoint, { headers: auth(OTHER) })).status).toBe(404);
+      const response = await fetch(endpoint, { headers: auth(ME) });
+      expect(response.status).toBe(200);
+      const body = await response.json() as any;
+      expect(body.task).toMatchObject({ id: mine.id, mine: true, visibility: "private" });
+      expect(body.summary).toEqual({ evaluations: 1, agents: 1, rankingEligible: false });
+      expect(body.evaluations[0]).toMatchObject({ id: rows[0]!.id, score: 92, counts: { pass: 1, fail: 0, invalid: 0 }, tests: { passed: 4, total: 5 }, agent: { id: "a1" } });
+
+      rows.length = 0;
+      const empty = await (await fetch(endpoint, { headers: auth(ME) })).json() as any;
+      expect(empty.evaluations).toEqual([]);
+      expect(empty.summary.evaluations).toBe(0);
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()));
+    }
   });
 
   it("without a ranking store (or when it fails) the task still carries its author; plain GET /tasks is unchanged", async () => {

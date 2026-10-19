@@ -102,6 +102,10 @@ export interface Task {
   author?: TaskAuthor
   /** [EXT U35, `include=overview`] distinct visible agents with a counted result. */
   agentsCount?: number
+  /** Owner-visible evaluations whose task snapshot names this task. */
+  evaluationCount?: number
+  /** False for open-test tasks. Their history is visible, but it never produces a competitive best result. */
+  rankingEligible?: boolean
   /** [EXT U35, `include=overview`] top counted result; null when none. */
   bestResult?: TaskBestResult | null
 }
@@ -128,6 +132,46 @@ export interface TasksQuery {
 export interface TasksResponse {
   tasks: Task[]
   counts: { all: number; public: number; mine: number }
+}
+export interface TaskHistoryEvaluation {
+  id: string
+  shortId: string
+  createdAt: string
+  status: EvaluationStatus | 'graded'
+  score: number | null
+  counts: OutcomeCounts
+  tests: { passed: number; total: number }
+  agent: {
+    id: string
+    slug: string | null
+    name: string
+    authorName: string
+    authorWallet: string | null
+    authorProfile?: UserProfile
+    avatarUrl?: string | null
+  }
+}
+export interface TaskHistoryResponse {
+  task: Task & {
+    createdAt: string
+    updatedAt: string
+    latestVersion: null | {
+      id: string
+      version: number
+      source: string
+      labels: string[]
+      runnable: boolean
+      hiddenTestsCount: number | null
+      fixtureDigest: string | null
+      hiddenDigest: string | null
+      validatedAt: string | null
+      createdAt: string
+      packId?: string | null
+      packVersion?: string | null
+    }
+  }
+  evaluations: TaskHistoryEvaluation[]
+  summary: { evaluations: number; agents: number; rankingEligible: boolean }
 }
 export interface TagsResponse {
   tags: Tag[]

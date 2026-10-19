@@ -240,6 +240,9 @@ export class FakeEvaluationsStore implements EvaluationsStore {
         return { ...e, agentName: a?.name ?? "agent", agentSlug: a?.slug ?? null, agentOwnerWallet: a?.ownerWallet ?? null };
       });
   }
+  async listForTaskAndWallet(taskId: string, taskSlug: string, wallet: string): Promise<EvaluationListRow[]> {
+    return (await this.listForWallet(wallet)).filter((e) => e.tasks.some((t) => t.taskId === taskId || t.slug === taskSlug));
+  }
   async cancel(evaluationId: string) {
     let n = 0;
     for (const r of this.runs) {

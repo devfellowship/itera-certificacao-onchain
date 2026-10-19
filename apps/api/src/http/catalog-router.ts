@@ -13,6 +13,7 @@ import { SchemaNotReadyError } from "../domain/runs-store.js";
 import type { ModelsSyncResult } from "../domain/models-sync.js";
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAllowedModel } from "../github/models.js";
 import { optionalWallet, requireWallet } from "./auth.js";
+import type { EvaluationListRow, EvaluationsStore } from "../evaluations/store.js";
 
 /**
  * Catalog routes (U5, plan 20261012-itera-testmyagent-ui-refactor). Tables: 0007_catalog.sql.
@@ -179,6 +180,8 @@ export function modelAccessCheck(store: CatalogStore): (modelId: string) => Prom
 export interface CatalogRouterOptions {
   /** Ranking data for `GET /tasks?include=overview` (author, agents count, best result). Without it the flag adds only the author. */
   ranking?: RankingStore;
+  /** Owner-scoped evaluation history for task summaries and `GET /tasks/:id/evaluations`. */
+  evaluations?: Pick<EvaluationsStore, "listForWallet" | "listForTaskAndWallet">;
   /** Runs one OpenRouter sync (POST /admin/models/sync). Absent → 503. */
   syncModels?: () => Promise<ModelsSyncResult>;
   /** Wallets allowed to call admin routes. Default: ITERA_ADMIN_WALLETS (comma separated). */
@@ -205,8 +208,13 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
       // Best effort: a task row is useful without its best result when the runs schema is not ready.
       overviews = await opts.ranking.load(wallet ?? "").then((data) => taskOverviews(data, wallet ?? "", tasks), () => null);
     }
+    const history = wallet && opts.evaluations ? await opts.evaluations.listForWallet(wallet, 5_000).catch(() => []) : [];
     return tasks.map((t) => {
       const ov = overviews?.get(t.id);
+      const evaluations = history.filter((e) => e.tasks.some((task) => task.taskId === t.id || task.slug === t.slug));
+      const historyAgents = evaluations.map((e) => e.agentId);
+      const agentsCount = Math.max(t.agentsRunCount, new Set([...(ov?.agentIds ?? []), ...historyAgents]).size);
+      const rankingEligible = !(t.latest?.labels ?? []).includes("open-tests");
       const p = t.ownerWallet ? (profiles.get(t.ownerWallet) ?? null) : null;
       const author = t.ownerWallet
         ? { wallet: t.ownerWallet, name: p?.displayName ?? p?.handle ?? shortWallet(t.ownerWallet), handle: p?.handle ?? null, username: p?.handle ?? null, avatarUrl: p?.avatarUrl ?? null, isDfl: false }
@@ -214,7 +222,9 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
       return {
         ...taskJson(t, wallet),
         author,
-        agentsCount: ov?.agentsCount ?? t.agentsRunCount,
+        agentsCount,
+        evaluationCount: evaluations.length,
+        rankingEligible,
         bestResult: ov?.best
           ? {
               agent: {
@@ -231,6 +241,23 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
       };
     });
   };
+
+  const evaluationJson = (e: EvaluationListRow) => ({
+    id: e.id,
+    shortId: e.shortId,
+    createdAt: e.createdAt,
+    status: e.status,
+    score: e.score,
+    counts: { pass: e.passCount, fail: e.failCount, invalid: e.invalidCount },
+    tests: { passed: e.testsPassed, total: e.testsTotal },
+    agent: {
+      id: e.agentId,
+      slug: e.agentSlug,
+      name: e.agentName,
+      authorName: e.agentAuthorName ?? (e.agentOwnerWallet ? shortWallet(e.agentOwnerWallet) : "unknown"),
+      authorWallet: e.agentOwnerWallet,
+    },
+  });
 
   router.get(
     "/tasks",
@@ -276,6 +303,33 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
         return;
       }
       res.json({ tasks: await withOverview(tasks, wallet), counts });
+    }),
+  );
+
+  router.get(
+    "/tasks/:idOrSlug/evaluations",
+    requireWallet,
+    handle(async (req, res) => {
+      const wallet = req.wallet!;
+      const t = await store.getVisibleTask(String(req.params.idOrSlug), wallet);
+      if (!t) {
+        res.status(404).json({ error: "task not found" });
+        return;
+      }
+      if (!opts.evaluations) {
+        res.status(503).json({ error: "task evaluation history is not configured" });
+        return;
+      }
+      const evaluations = await opts.evaluations.listForTaskAndWallet(t.id, t.slug, wallet);
+      res.json({
+        task: taskDetailJson(t, wallet),
+        evaluations: evaluations.map(evaluationJson),
+        summary: {
+          evaluations: evaluations.length,
+          agents: new Set(evaluations.map((e) => e.agentId)).size,
+          rankingEligible: !(t.latest?.labels ?? []).includes("open-tests"),
+        },
+      });
     }),
   );
 

@@ -133,6 +133,18 @@
 .tkp-best--none {
   color: var(--tma-text-muted);
 }
+.tkp-best--history {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  color: var(--tma-warning-text);
+  line-height: 1.35;
+}
+.tkp-best__history-count {
+  color: var(--tma-text-muted);
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+}
 .tkp-actions {
   position: relative;
   display: flex;

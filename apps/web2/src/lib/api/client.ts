@@ -91,6 +91,7 @@ export const api = {
 
   // Catalog
   tasks: (query: T.TasksQuery = {}) => request<T.TasksResponse>('/tasks', { query: { ...query } }),
+  taskEvaluations: (idOrSlug: string) => request<T.TaskHistoryResponse>(`/tasks/${encodeURIComponent(idOrSlug)}/evaluations`),
   tags: (kind?: T.TagKind) => request<T.TagsResponse>('/tags', { query: { kind } }),
   models: () => request<T.ModelsResponse>('/models'),
   /** T8: checks an OpenRouter key (never stored). 422 model_key_invalid | model_key_no_credit. */
