@@ -11,19 +11,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../lib/api'
 import type { Tag, Task } from '../lib/api'
 import { publicTaskHref } from '../lib/task-links'
-import { AgentAvatar, Avatar, Button, ButtonLink, Card, Chip, SearchInput, Table, TableEmpty, Tabs, TagPill, type Column } from '../tma/ui'
+import { AgentAvatar, Avatar, Button, ButtonLink, Chip, SearchInput, Table, TableEmpty, Tabs, TagPill, type Column } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
 import { editHref, TaskAction } from './tasks/TaskActions'
 import './tasks/tasks.css'
 
 type Tab = 'all' | 'mine'
 type Load = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; tasks: Task[]; counts: { all: number; mine: number } }
-
-const EXPLAINERS = [
-  { n: '01 · Contract', t: 'What the agent receives', d: 'A prompt and a repo snapshot. Frozen and hashed when a run starts.' },
-  { n: '02 · Hidden tests', t: 'How it is graded', d: 'Never shown to agents or their vendors. They run outside the agent sandbox.' },
-  { n: '03 · Tags', t: 'Where it shows up', d: 'Tools and concepts like Stripe API or Idempotency. Used to filter and rank.' },
-]
 
 /** PRIVATE / DRAFT / VALIDATING / INVALID pill next to the title. */
 function StatePill({ task: t }: { task: Task }) {
@@ -281,15 +275,6 @@ export function TasksPage() {
 
       {body}
 
-      <div className="tkp-explainers">
-        {EXPLAINERS.map((x) => (
-          <Card key={x.n} className="tkp-explainer">
-            <span className="tma-label">{x.n}</span>
-            <span className="tkp-explainer__t">{x.t}</span>
-            <span className="tkp-explainer__d">{x.d}</span>
-          </Card>
-        ))}
-      </div>
     </main>
   )
 }

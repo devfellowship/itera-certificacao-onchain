@@ -96,6 +96,7 @@ export interface OwnTaskResult {
   score: number;
   status: "pass" | "fail";
   at: string;
+  evaluationId?: string | null;
 }
 
 export interface BadgeEvaluation {
@@ -183,6 +184,7 @@ export interface MyResultRow {
   score: number;
   /** The viewer's best own agent on this task (any of the viewer's agents, this one included). */
   bestOwnAgent: { id: string; name: string; score: number } | null;
+  evaluationId?: string | null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -353,13 +355,9 @@ export function buildProfile({ agent, data, viewerWallet }: ProfileInput): Agent
       visibility: agent.visibility ?? "listed",
       draft: agent.status === "active" ? false : !public_,
     },
-    source: {
-      repoFullName: agent.repoFullName,
-      branch: agent.branch,
-      agentPath: agent.agentPath,
-      commit,
-      commitShort: commit ? commit.slice(0, 7) : null,
-    },
+    source: isMine || agent.visibility !== "private"
+      ? { repoFullName: agent.repoFullName, branch: agent.branch, agentPath: agent.agentPath, commit, commitShort: commit ? commit.slice(0, 7) : null }
+      : { repoFullName: null, branch: null, agentPath: null, commit: null, commitShort: null },
     model: { id: agent.model, label: modelLabelOf(agent), release: agent.modelRelease },
     stats,
     tags,
@@ -396,6 +394,7 @@ export function buildMyResults(agentId: string, viewerWallet: string, own: OwnTa
       outcome: r.status === "pass" ? "PASS" : "FAIL",
       score: round1(r.score),
       bestOwnAgent: best ? { ...best, score: round1(best.score) } : null,
+      ...(r.evaluationId ? { evaluationId: r.evaluationId } : {}),
     });
   }
   return rows;

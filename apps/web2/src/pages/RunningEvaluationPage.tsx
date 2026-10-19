@@ -94,6 +94,41 @@ function modelText(m: Detail['model']): string {
   return typeof m === 'string' ? m : m.id
 }
 
+function downloadPatch(runId: string, patch: string) {
+  const url = URL.createObjectURL(new Blob([patch], { type: 'text/x-diff;charset=utf-8' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${runId}-patch.diff`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function ArtifactResult({ task, run }: { task: DetailTask; run: Run | undefined }) {
+  if (!run) return <div className="re-artifact re-artifact--loading" aria-busy="true">Loading stored result…</div>
+  const changed = run.patchScope?.changedFiles ?? []
+  const hasDetails = Boolean(run.patch || changed.length || run.evidence || run.errors?.length || run.tests)
+  return (
+    <article className="re-artifact" data-testid="artifact-result" data-run-id={task.runId}>
+      <header className="re-artifact__head">
+        <div><span className="tma-label">TASK RESULT</span><strong>{task.name}</strong></div>
+        <span className="re-mono re-muted">{run.actionsCount ?? 0} actions</span>
+      </header>
+      {!hasDetails ? <p className="re-muted">This legacy run has no stored artifact.</p> : <>
+        <div className="re-artifact__facts">
+          <span><b>Result</b>{run.result?.verdict ?? run.status}</span>
+          <span><b>Public tests</b>{run.tests?.public ? `${run.tests.public.passed}/${run.tests.public.total}` : '—'}</span>
+          <span><b>Hidden tests</b>{run.tests?.hidden ? `${run.tests.hidden.passed}/${run.tests.hidden.total}` : '—'}</span>
+          <span><b>Patch scope</b>{run.patchScope ? (run.patchScope.allowed ? 'Allowed' : 'Outside scope') : '—'}</span>
+        </div>
+        {changed.length > 0 && <div className="re-artifact__files" data-testid="artifact-files"><span className="tma-label">Changed files</span>{changed.map((f) => <code key={f}>{f}</code>)}</div>}
+        {run.evidence && <details><summary>Evidence and diagnostics</summary><dl className="re-artifact__evidence"><div><dt>Executor</dt><dd>{run.evidence.executorProfile ?? '—'}</dd></div><div><dt>Environment digest</dt><dd>{run.evidence.environmentDigest ?? '—'}</dd></div><div><dt>Contract digest</dt><dd>{run.evidence.contractDigest ?? '—'}</dd></div></dl>{run.evidence.limitations?.map((x) => <p key={x}>{x}</p>)}</details>}
+        {(run.errors?.length ?? 0) > 0 && <details><summary>Errors</summary>{run.errors!.map((x, i) => <pre key={i}>{x}</pre>)}</details>}
+        {run.patch && <details className="re-artifact__preview" data-testid="artifact-preview"><summary>Stored patch preview</summary><div className="re-artifact__toolbar"><span>Patch preview reconstructed from the stored run artifact.</span><button type="button" onClick={() => downloadPatch(task.runId, run.patch!)}>Download patch</button></div><pre>{run.patch}</pre></details>}
+      </>}
+    </article>
+  )
+}
+
 export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number }) {
   const { eid = '' } = useParams()
   const navigate = useNavigate()
@@ -507,6 +542,13 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
           </div>
         </div>
       </div>
+
+      {terminal && (
+        <section className="re-artifacts" data-testid="artifacts-results">
+          <div className="re-card__head"><div><span className="tma-label">ARTIFACTS AND RESULTS</span><h2 className="tma-h2">Stored run evidence</h2></div><span className="re-mono re-muted">Owner access</span></div>
+          {d.tasks.map((t) => <ArtifactResult key={t.runId} task={t} run={runs[t.runId]} />)}
+        </section>
+      )}
     </main>
   )
 }

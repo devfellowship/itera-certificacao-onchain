@@ -16,6 +16,7 @@ export interface AgentAvatarStore {
   /** Owner and current picture key, or null when the agent does not exist. */
   getAgent(id: string): Promise<{ ownerWallet: string | null; avatarKey: string | null } | null>;
   setAvatar(id: string, avatarUrl: string | null, avatarKey: string | null): Promise<void>;
+  setName(id: string, name: string): Promise<void>;
   /** Agents (by id or slug) that HAVE a picture. One query. */
   listAvatars(ids: string[], slugs: string[]): Promise<AgentAvatarRow[]>;
 }
@@ -54,6 +55,14 @@ export class PgAgentAvatarStore implements AgentAvatarStore {
     }
   }
 
+  async setName(id: string, name: string) {
+    try {
+      await this.pool.query(`update public.agents set name = $2 where id = $1`, [id, name]);
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+
   async listAvatars(ids: string[], slugs: string[]) {
     const i = [...new Set(ids.filter(isUuid))].slice(0, 500);
     const s = [...new Set(slugs)].slice(0, 500);
@@ -80,6 +89,10 @@ export class FakeAgentAvatarStore implements AgentAvatarStore {
   async setAvatar(id: string, avatarUrl: string | null, avatarKey: string | null) {
     const a = this.agents.get(id);
     if (a) Object.assign(a, { avatarUrl, avatarKey });
+  }
+  async setName(id: string, name: string) {
+    const a = this.agents.get(id);
+    if (a) Object.assign(a, { name });
   }
   async listAvatars(ids: string[], slugs: string[]) {
     return [...this.agents.entries()]

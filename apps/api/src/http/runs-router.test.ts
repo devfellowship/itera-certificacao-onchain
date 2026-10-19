@@ -196,7 +196,7 @@ describe("GET /runs", () => {
     expect((await fetch(`${baseUrl}/runs`, { headers: auth(OWNER) })).status).toBe(400);
   });
 
-  it("GET /runs/:id is public and redacted", async () => {
+  it("GET /runs/:id keeps stored artifacts owner-only while the public summary stays redacted", async () => {
     const { runId } = await (await createRun()).json();
     finish(runId);
     const res = await fetch(`${baseUrl}/runs/${runId}`);
@@ -208,7 +208,7 @@ describe("GET /runs", () => {
       phase: "done",
       scoreTotal: 85,
       tests: { public: { total: 4, passed: 4 }, hidden: { total: 6, passed: 5, failed: 1 } },
-      patchScope: { changedFiles: ["src/ledger.ts"], allowed: true },
+      patchScope: { changedFiles: [], allowed: true },
       actionsCount: 7,
       proof: null,
     });
@@ -216,6 +216,19 @@ describe("GET /runs", () => {
     const text = JSON.stringify(body);
     expect(text).not.toContain("/tmp/");
     expect(text).not.toContain("idempotency.test");
+    expect(body.patch).toBeNull();
+    expect(body.evidence).toBeNull();
+    expect(body.errors).toEqual([]);
+
+    const other = await (await fetch(`${baseUrl}/runs/${runId}`, { headers: auth(OTHER) })).json();
+    expect(other.patch).toBeNull();
+    expect(other.patchScope.changedFiles).toEqual([]);
+    expect(other.evidence).toBeNull();
+
+    const owner = await (await fetch(`${baseUrl}/runs/${runId}`, { headers: auth(OWNER) })).json();
+    expect(owner.patch).toContain("diff --git");
+    expect(owner.patchScope.changedFiles).toEqual(["src/ledger.ts"]);
+    expect(owner.errors).toHaveLength(1);
     // U22: the response matches packages/contracts/schemas/api/run-detail.schema.json (Ajv), and
     // the operational state is kept apart from the verdict.
     expect(validateApiResponse("runDetail", body)).toEqual({ ok: true, value: body });

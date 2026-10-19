@@ -88,6 +88,8 @@ export const api = {
     form.append('file', file, filename)
     return request<{ agentId: string; avatarUrl: string }>(`/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'POST', body: form })
   },
+  deleteAgentAvatar: (agentId: string) => request<{ agentId: string; avatarUrl: null }>(`/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'DELETE' }),
+  patchAgentProfile: (agentId: string, name: string) => request<{ agentId: string; name: string }>(`/agents/${encodeURIComponent(agentId)}/profile`, { method: 'PATCH', body: json({ name }) }),
 
   // Catalog
   tasks: (query: T.TasksQuery = {}) => request<T.TasksResponse>('/tasks', { query: { ...query } }),

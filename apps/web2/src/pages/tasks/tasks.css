@@ -228,29 +228,14 @@
     animation: none;
   }
 }
-.tkp-explainers {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  padding-top: 24px;
-}
-.tkp-explainer {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.tkp-explainer__t {
-  font-size: 15px;
-  font-weight: 600;
-}
-.tkp-explainer__d {
-  font-size: 13px;
-  color: var(--tma-text-muted);
-  text-wrap: pretty;
-}
-@media (max-width: 900px) {
-  .tkp-explainers {
-    grid-template-columns: 1fr;
+
+@media (max-width: 700px) {
+  .tkp .tma-table {
+    overflow-x: auto;
+  }
+
+  .tkp .tma-table__head,
+  .tkp .tma-table__row {
+    min-width: 1200px;
   }
 }

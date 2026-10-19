@@ -288,6 +288,29 @@ describe('web2 evaluation flow', () => {
     expect(c.textContent).not.toMatch(/\bSOL\b|wallet|fee/i)
   })
 
+  it('shows the owner-authorized stored patch, changed files, results and download action', async () => {
+    stubApi({
+      [`GET /evaluations/${EVAL_ID}`]: () => json(200, evaluationView('graded', 'pass', 100)),
+      'GET /runs/r1': () => json(200, {
+        runId: 'r1', status: 'pass', phase: 'done', scoreTotal: 100, modelCostUsd: 0.1, actionsCount: 119,
+        tests: { public: { passed: 20, total: 20 }, hidden: { passed: 5, total: 5 } },
+        patchScope: { changedFiles: ['out/answers.json', 'out/report.md'], allowed: true },
+        patch: 'diff --git a/out/report.md b/out/report.md\n+verified report',
+        result: { state: 'finished', verdict: 'PASS', scored: true },
+        evidence: { executorProfile: 'sandbox', environmentDigest: 'sha256:safe', contractDigest: 'sha256:contract', limitations: [] },
+        errors: [], proof: null,
+      }),
+      'GET /runs/r1/actions': () => json(200, { runId: 'r1', afterSeq: 0, actions: [], hasMore: false, nextAfterSeq: 0 }),
+    })
+    const { c } = mountAt(`/evaluations/${EVAL_ID}`)
+    await waitFor(() => q(c, 'artifact-preview') !== null, 'artifact preview')
+    expect(q(c, 'artifacts-results')!.textContent).toContain('119 actions')
+    expect(q(c, 'artifact-files')!.textContent).toContain('out/answers.json')
+    expect(q(c, 'artifact-files')!.textContent).toContain('out/report.md')
+    expect(q(c, 'artifact-preview')!.textContent).toContain('Download patch')
+    expect(q(c, 'artifact-preview')!.textContent).toContain('verified report')
+  })
+
   it('asks a signed-out user to log in, with one login button', () => {
     stubApi()
     const { c } = mountAt('/evaluate', false)

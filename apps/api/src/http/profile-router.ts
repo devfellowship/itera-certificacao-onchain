@@ -222,6 +222,23 @@ export function createProfileRouter(deps: ProfileRouterDeps): Router {
       return { agentId: id, avatarUrl: url };
     };
 
+    router.patch(
+      "/agents/:id/profile",
+      requireWallet,
+      wrap(async (req, res) => {
+        const a = await ownedAgent(req, res);
+        if (!a) return;
+        const raw = (req.body ?? {}) as { name?: unknown };
+        const name = typeof raw.name === "string" ? raw.name.trim() : "";
+        if (name.length < 2 || name.length > 80) {
+          res.status(400).json({ error: "agent name must be between 2 and 80 characters" });
+          return;
+        }
+        await agents.setName(a.id, name);
+        res.json({ agentId: a.id, name });
+      }),
+    );
+
     router.post(
       "/agents/:id/avatar",
       requireWallet,

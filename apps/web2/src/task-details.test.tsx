@@ -58,6 +58,7 @@ const task = {
     id: 'v4', version: 4, source: 'curated', labels: ['open-tests'], runnable: true, hiddenTestsCount: 0,
     fixtureDigest: 'abc', hiddenDigest: null, validatedAt: null, createdAt: '2026-10-12T10:00:00.000Z',
     packId: 'dfl-fleet-research', packVersion: '4',
+    sourceLink: { provider: 'GitHub', repo: 'devfellowship/itera-certificacao-onchain', path: 'benchmarks/dfl-fleet-research', commit: '0fbb6c534fce7077cdff7e2743846501ee08964d' },
   },
 }
 
@@ -89,6 +90,7 @@ it('renders open-test activity as Unranked with truthful counts in the Tasks tab
   expect(container.querySelector('[data-testid="task-unranked"]')?.textContent).toContain('17 evaluations')
   expect(container.textContent).toContain('3')
   expect(container.textContent).not.toContain('Not run')
+  expect(container.textContent).not.toContain('What the agent receives')
 })
 
 it('routes a ready owned task to details while drafts remain in the editor', () => {
@@ -112,13 +114,16 @@ it('shows owned task facts and every evaluation with scores and detail links', a
   await flush()
   expect(container.querySelector('[data-testid="owned-task-details"]')).not.toBeNull()
   expect(container.querySelector('[data-testid="task-detail-title"]')?.textContent).toBe('Repository Research')
-  expect(container.querySelector('[data-testid="task-unranked-explanation"]')?.textContent).toContain('not a competitive ranking')
+  expect(container.querySelector('[data-testid="task-unranked-explanation"]')).toBeNull()
   const links = [...container.querySelectorAll<HTMLAnchorElement>('[data-testid="task-evaluation-link"]')]
   expect(links).toHaveLength(2)
   expect(links.map((link) => link.getAttribute('href'))).toEqual(history.evaluations.map((e) => `/evaluations/${e.id}`))
   expect([...container.querySelectorAll('[data-testid="task-evaluation-score"]')].map((node) => node.textContent)).toEqual(['100.0', 'No score'])
   expect(container.textContent).toContain('1 task passed')
   expect(container.textContent).toContain('Task result unavailable')
+  expect(container.textContent).not.toContain('checks passed')
+  expect(container.textContent).not.toContain('ev_4491c225')
+  expect(container.querySelector('[data-testid="task-source-link"]')?.getAttribute('href')).toContain('/tree/0fbb6c534fce7077cdff7e2743846501ee08964d/benchmarks/dfl-fleet-research')
 })
 
 it('shows the history empty state without inventing a result', async () => {

@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionProvider } from './auth/session'
+import { saveSession } from './auth/sessionStorage'
 import { AgentDetailPage } from './pages/AgentDetailPage'
 import { AgentsPage } from './pages/AgentsPage'
 
@@ -17,6 +18,7 @@ afterEach(() => {
   act(() => root?.unmount())
   root = undefined
   document.body.innerHTML = ''
+  localStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -123,5 +125,33 @@ describe('agents pages (web2 copy, no web3 parts)', () => {
     expect(c.textContent).not.toMatch(/\bSOL\b/)
     expect(c.textContent).toContain('Free. Bring your own OpenRouter key.')
     expect(c.querySelector('[data-testid="open-evaluation-profile"]')).not.toBeNull()
+  })
+
+  it('formats private history, shows owned task results and owner controls', async () => {
+    saveSession({ token: 'owner-token', user: { id: 'dfl:1', email: 'owner@example.com' } })
+    const owned = {
+      ...profile,
+      agent: { ...profile.agent, isMine: true },
+      history: [{ id: 'ev-1', score: 100, status: 'graded', at: '2026-10-15T10:00:00.000Z', taskNames: ['Repository Research'], path: '/evaluations/ev-1' }],
+    }
+    const c = mountAt('/agents/agent-1', (url) => {
+      const path = new URL(url).pathname
+      if (path === '/me') return json(200, { wallet: 'dfl:1', displayName: 'Owner', handle: null, avatarUrl: null, initials: 'OW' })
+      if (path.endsWith('/profile')) return json(200, owned)
+      if (path.endsWith('/my-results')) return json(200, { results: [
+        { task: { id: 't1', name: 'Repository Research' }, outcome: 'PASS', score: 100, bestOwnAgent: { id: 'agent-1', name: 'Profile Agent', score: 100 }, evaluationId: 'ev-1' },
+        { task: { id: 't2', name: 'UI Design Audits' }, outcome: 'PASS', score: 100, bestOwnAgent: null, evaluationId: 'ev-2' },
+        { task: { id: 't3', name: 'HTML Reports' }, outcome: 'PASS', score: 100, bestOwnAgent: null, evaluationId: 'ev-3' },
+      ] })
+      return json(404, { error: 'not found' })
+    })
+    await waitFor(() => c.querySelectorAll('[data-testid="account-history-row"]').length === 1, 'history')
+    await waitFor(() => c.querySelector('[data-testid="my-results-table"]')?.textContent?.includes('HTML Reports') === true, 'owned tasks')
+    expect(c.querySelector('[data-testid="account-history-row"]')?.textContent).toContain('100.0')
+    expect(c.querySelector('[data-testid="account-history-row"]')?.getAttribute('href')).toBe('/evaluations/ev-1')
+    expect(c.querySelector('[data-testid="agent-source-link"]')?.getAttribute('href')).toContain('github.com/ana/agent/tree/abc1234abc/agent')
+    expect(c.querySelector('[data-testid="edit-agent"]')).not.toBeNull()
+    act(() => (c.querySelector('[data-testid="edit-agent"]') as HTMLButtonElement).click())
+    expect(c.querySelector('[data-testid="agent-editor"]')).not.toBeNull()
   })
 })

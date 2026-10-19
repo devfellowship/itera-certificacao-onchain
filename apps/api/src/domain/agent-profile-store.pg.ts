@@ -165,11 +165,12 @@ export class PgProfileStore implements ProfileStore {
       const r = await this.pool().query(
         `select a.id::text as agent_id, a.name as agent_name, a.owner_wallet as agent_owner,
                 t.id::text as task_id, t.name as task_name, r.score_total::float8 as score, r.status,
+                r.evaluation_id::text as evaluation_id,
                 coalesce(r.completed_at, r.started_at) as at
            from (select r.*, ${RUN_TASK_UUID} as task_uuid
                    from public.runs r
                   where r.status in ('pass', 'fail') and r.score_total is not null) r
-           join public.tasks t on t.id = r.task_uuid and t.kind = 'user' and t.owner_wallet = $1
+           join public.tasks t on t.id = r.task_uuid and t.owner_wallet = $1
            join public.agent_versions av on av.id = r.agent_version_id
            join public.agents a on a.id = av.agent_id
           order by at desc
@@ -185,6 +186,7 @@ export class PgProfileStore implements ProfileStore {
         score: Number(row.score),
         status: row.status === "pass" ? "pass" : "fail",
         at: iso(row.at) ?? "",
+        evaluationId: str(row.evaluation_id),
       }));
     });
   }

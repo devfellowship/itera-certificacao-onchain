@@ -10,8 +10,10 @@ import { Link, useParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { ApiError, api } from '../lib/api'
 import type { AgentEvidenceRow, AgentProfileResponse, MyResultRow } from '../lib/api'
-import { AgentAvatar, Badge, Breadcrumb, Button, ButtonLink, Card, ModelLabel, TagPill, Table, TableEmpty, type Column } from '../tma/ui'
+import { AgentAvatar, Badge, Breadcrumb, Button, ButtonLink, Card, Input, ModelLabel, TagPill, Table, TableEmpty, type Column } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
+import { AvatarCropper, renderCrop, type CropState } from './profile-settings/AvatarCropper'
+import './profile-settings/profile-settings.css'
 import './agent-detail.css'
 
 const shortDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
@@ -165,10 +167,10 @@ export function AgentDetailPage() {
       </main>
     )
   }
-  return <Ready profile={load.profile} signedIn={signedIn} onConnect={session.signIn} />
+  return <Ready profile={load.profile} signedIn={signedIn} onConnect={session.signIn} onChanged={() => setAttempt((n) => n + 1)} />
 }
 
-function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse; signedIn: boolean; onConnect: () => void }) {
+function Ready({ profile, signedIn, onConnect, onChanged }: { profile: AgentProfileResponse; signedIn: boolean; onConnect: () => void; onChanged: () => void }) {
   const { agent, source, model, stats, tags, evidence, latestAttestation } = profile
   const age = relativeAge(stats.lastVerifiedAt)
   // Screen 03 reads GET /agents/:id and posts the quote with the agent id; the slug would answer 404 "Agent not found".
@@ -199,6 +201,8 @@ function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse
             </div>
           </div>
 
+          {agent.isMine && <AgentEditor profile={profile} onChanged={onChanged} />}
+
           {agent.description && <p className="tad-desc">{agent.description}</p>}
 
           {tags.length > 0 && (
@@ -212,16 +216,16 @@ function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse
           )}
 
           <div className="tad-stats" data-testid="agent-stats">
-            <Stat label="Score" testId="stat-score">
+            <Stat label="Public score" testId="stat-score">
               {formatScore(stats.score)}
             </Stat>
-            <Stat label="Tasks evaluated" testId="stat-tasks">
+            <Stat label="Public tasks" testId="stat-tasks">
               {stats.tasksEvaluated}
             </Stat>
-            <Stat label="Evaluations" testId="stat-evaluations">
+            <Stat label="Public evaluations" testId="stat-evaluations">
               {stats.evaluations}
             </Stat>
-            <Stat label="Last verified" testId="stat-last">
+            <Stat label="Last public result" testId="stat-last">
               {age ? (
                 <>
                   {age.value} <span className="tad-stat__unit">{age.unit}</span>
@@ -240,9 +244,18 @@ function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse
                 <span className="tad-section__title">Your evaluation history</span>
                 <span className="tad-section__sub">Private results, visible only to you.</span>
               </div>
-              {profile.history!.map((e) => (
-                <p key={e.id}><Link to={e.path}>{e.taskNames.join(', ') || 'Evaluation'}</Link> · {e.status} · score {formatScore(e.score)}{e.at && <> · {shortDate.format(new Date(e.at))}</>}</p>
-              ))}
+              <div className="tad-history" role="table" aria-label="Your evaluation history">
+                <div className="tad-history__head" role="row"><span>Task</span><span>Status</span><span>Score</span><span>Date</span><span /></div>
+                {profile.history!.map((e) => (
+                  <Link className="tad-history__row" role="row" key={e.id} to={e.path} data-testid="account-history-row">
+                    <strong>{e.taskNames.join(', ') || 'Evaluation'}</strong>
+                    <Badge tone={e.status === 'graded' || e.status === 'issued' ? 'success' : e.status === 'failed' ? 'danger' : 'neutral'}>{e.status}</Badge>
+                    <span className="tad-history__score">{formatScore(e.score)}</span>
+                    <time>{e.at ? shortDate.format(new Date(e.at)) : '—'}</time>
+                    <span className="tad-history__arrow" aria-hidden="true">→</span>
+                  </Link>
+                ))}
+              </div>
             </Card>
           )}
 
@@ -275,6 +288,14 @@ function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse
         </div>
 
         <aside className="tad-rail">
+          <Card pad className="tad-source" data-testid="agent-source">
+            <span className="tma-label">Source</span>
+            {source.repoFullName ? (
+              <a href={`https://github.com/${source.repoFullName}/tree/${source.commit ?? source.branch ?? 'HEAD'}/${source.agentPath && source.agentPath !== '.' ? source.agentPath : ''}`} target="_blank" rel="noreferrer" data-testid="agent-source-link">
+                <strong>{source.repoFullName}</strong><span>{source.agentPath && source.agentPath !== '.' ? source.agentPath : 'Repository root'} ↗</span>
+              </a>
+            ) : <span className="tad-source__empty">No verified repository source is available for this agent.</span>}
+          </Card>
           {latestAttestation?.evaluationSlug && (
             <ButtonLink variant="secondary" block href={`/e/${latestAttestation.evaluationSlug}`} data-testid="open-evaluation-profile">
               Open evaluation profile
@@ -296,6 +317,79 @@ function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse
         </aside>
       </div>
     </main>
+  )
+}
+
+const AGENT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+function imageFrom(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('This file is not a readable image.'))
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+function AgentEditor({ profile, onChanged }: { profile: AgentProfileResponse; onChanged: () => void }) {
+  const agent = profile.agent
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState(agent.name)
+  const [crop, setCrop] = useState<CropState | null>(null)
+  const [removeImage, setRemoveImage] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const select = async (file: File | undefined) => {
+    if (!file) return
+    if (!AGENT_IMAGE_TYPES.includes(file.type) || file.size > 2 * 1024 * 1024) {
+      setNotice({ tone: 'bad', text: 'Use a PNG, JPEG, or WebP image up to 2 MB.' })
+      return
+    }
+    try {
+      setCrop({ img: await imageFrom(file), zoom: 1, x: 0, y: 0 })
+      setRemoveImage(false)
+      setNotice(null)
+    } catch (e) {
+      setNotice({ tone: 'bad', text: e instanceof Error ? e.message : 'Could not read this image.' })
+    }
+  }
+  const save = async () => {
+    const clean = name.trim()
+    if (clean.length < 2 || clean.length > 80) {
+      setNotice({ tone: 'bad', text: 'Use between 2 and 80 characters for the agent name.' })
+      return
+    }
+    setBusy(true)
+    setNotice(null)
+    try {
+      await api.patchAgentProfile(agent.id, clean)
+      if (crop) await api.uploadAgentAvatar(agent.id, await renderCrop(crop), 'agent.png')
+      else if (removeImage) await api.deleteAgentAvatar(agent.id)
+      setNotice({ tone: 'ok', text: 'Agent saved.' })
+      setCrop(null)
+      setRemoveImage(false)
+      onChanged()
+    } catch (e) {
+      setNotice({ tone: 'bad', text: e instanceof Error ? e.message : 'Could not save the agent.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (!open) return <Button variant="secondary" size={32} onClick={() => setOpen(true)} data-testid="edit-agent">Edit agent</Button>
+  return (
+    <Card pad className="tad-editor" data-testid="agent-editor">
+      <div className="tad-editor__head"><strong>Edit agent</strong><Button variant="text" size={32} onClick={() => setOpen(false)}>Close</Button></div>
+      <label><span className="tma-label">Name</span><Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} aria-label="Agent name" /></label>
+      <input ref={fileRef} type="file" hidden accept={AGENT_IMAGE_TYPES.join(',')} onChange={(e) => void select(e.target.files?.[0])} />
+      <div className="tad-editor__image-actions">
+        <Button variant="secondary" size={32} onClick={() => fileRef.current?.click()}>{agent.avatarUrl ? 'Replace image' : 'Upload image'}</Button>
+        {(agent.avatarUrl || crop) && <Button variant="text" size={32} onClick={() => { setCrop(null); setRemoveImage(true) }}>Remove image</Button>}
+      </div>
+      {crop && <AvatarCropper crop={crop} onChange={setCrop} />}
+      {removeImage && <span className="tad-editor__pending">The current image will be removed when you save.</span>}
+      {notice && <span className={`tad-editor__notice tad-editor__notice--${notice.tone}`} role="status">{notice.text}</span>}
+      <Button variant="primary" onClick={() => void save()} disabled={busy} data-testid="save-agent">{busy ? 'Saving…' : 'Save agent'}</Button>
+    </Card>
   )
 }
 
@@ -347,6 +441,7 @@ function OnYourTasks({ agent, signedIn, onConnect, chooseHref }: { agent: AgentP
           <span className="tad-subtle">—</span>
         ),
     },
+    { key: 'evaluation', header: '', width: '42px', align: 'right', render: (r) => r.evaluationId ? <Link to={`/evaluations/${r.evaluationId}`} aria-label={`Open evaluation for ${r.task.name}`}>→</Link> : <span>—</span> },
   ]
 
   return (
