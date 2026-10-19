@@ -16,7 +16,7 @@ import {
 } from "../domain/runs-store.js";
 import { encryptRunKey } from "../domain/run-key.js";
 import { openRouterPrices, type PriceLookup } from "../domain/model-prices.js";
-import { requireWallet } from "./auth.js";
+import { optionalWallet, requireWallet } from "./auth.js";
 import { sanitizeActionTarget, sanitizeToolName } from "./run-actions.js";
 
 /**
@@ -181,7 +181,7 @@ function evidenceView(m: EvidenceManifest) {
   };
 }
 
-async function detailView(store: RunsStore, run: AsyncRun) {
+async function detailView(store: RunsStore, run: AsyncRun, includePrivateArtifacts = false) {
   const manifest = hasEvalLog(run.evidenceManifest) ? run.evidenceManifest : null;
   const [patch, actionsCount, proof] = await Promise.all([store.getPatch(run.id), store.countActions(run.id), store.getProof(run.id)]);
   const errors: string[] = [];
@@ -210,15 +210,15 @@ async function detailView(store: RunsStore, run: AsyncRun) {
           hidden: { total: manifest.tests.hidden.total, passed: manifest.tests.hidden.passed, failed: manifest.tests.hidden.failed },
         }
       : null,
-    patchScope: manifest ? { changedFiles: manifest.patch_scope.changed_files, allowed: manifest.patch_scope.allowed } : null,
-    patch,
+    patchScope: manifest ? { changedFiles: includePrivateArtifacts ? manifest.patch_scope.changed_files : [], allowed: manifest.patch_scope.allowed } : null,
+    patch: includePrivateArtifacts ? patch : null,
     actionsCount,
     modelTokens: run.modelTokensIn == null && run.modelTokensOut == null ? null : { in: run.modelTokensIn ?? 0, out: run.modelTokensOut ?? 0 },
-    errors: errors.map(redactText),
+    errors: includePrivateArtifacts ? errors.map(redactText) : [],
     proof: proofView(proof),
     /** Operational state kept apart from the verdict; scored=false means score.total measures nothing. */
     result: runResult(run.status, manifest as { result?: { state: string; verdict: string; scored: boolean } } | null),
-    evidence: manifest ? evidenceView(manifest) : null,
+    evidence: includePrivateArtifacts && manifest ? evidenceView(manifest) : null,
   };
 }
 
@@ -401,6 +401,7 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
   // Public read: a run page is shareable. The view is redacted (no hidden test names, no paths).
   router.get(
     "/runs/:id",
+    optionalWallet,
     handle(async (req, res) => {
       const id = String(req.params.id);
       if (!UUID_RE.test(id)) {
@@ -413,7 +414,7 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
         res.status(404).json({ error: "run not found" });
         return;
       }
-      res.json(await detailView(store, run));
+      res.json(await detailView(store, run, req.wallet === run.ownerWallet));
     }),
   );
 
