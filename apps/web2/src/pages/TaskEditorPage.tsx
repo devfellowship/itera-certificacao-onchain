@@ -452,7 +452,8 @@ function PinSummary({ detail, onChange, changeOff }: { detail: UserTaskDetail; o
 // ---------------------------------------------------------------------------------------------
 // Page
 
-type Loaded = { state: 'new' } | { state: 'loading' } | { state: 'missing' } | { state: 'error'; message: string } | { state: 'ready'; detail: UserTaskDetail }
+type PackSnapshot = { name: string; description: string; latestVersion: { version: number; packId: string; packVersion: string; fixtureDigest: string | null } | null }
+type Loaded = { state: 'new' } | { state: 'loading' } | { state: 'missing' } | { state: 'error'; message: string } | { state: 'ready'; detail: UserTaskDetail } | { state: 'snapshot'; detail: PackSnapshot }
 
 export function TaskEditorPage() {
   const { id } = useParams()
@@ -482,6 +483,10 @@ export function TaskEditorPage() {
     if (isNew || !id) return
     try {
       const r = await api.myTask(id)
+      if (r.task?.mine && String((r.task as unknown as { source?: string }).source) === 'curated') {
+        setLoaded({ state: 'snapshot', detail: r.task as unknown as PackSnapshot })
+        return
+      }
       // Another wallet's task (or a catalog task) answers the catalog view, without `task`.
       if (!r || !r.task || r.task.kind !== 'user' || !Array.isArray(r.task.versions)) setLoaded({ state: 'missing' })
       else setLoaded({ state: 'ready', detail: r.task })
@@ -647,6 +652,23 @@ export function TaskEditorPage() {
 
   // ---- not loaded states
   const crumbs = [{ label: 'Tasks', to: '/tasks?tab=mine' }, { label: isNew ? 'New task' : (detail?.name ?? 'Task') }]
+  if (loaded.state === 'snapshot') {
+    const snapshot = loaded.detail
+    const v = snapshot.latestVersion
+    return (
+      <main className="tma-page tma-page--flow" data-testid="task-snapshot">
+        <Breadcrumb items={[{ label: 'Tasks', to: '/tasks?tab=mine' }, { label: snapshot.name }]} />
+        <h1 className="tma-h1">{snapshot.name}</h1>
+        <Card className="ta-card">
+          <span className="tma-label">Read-only benchmark task</span>
+          <p>{snapshot.description}</p>
+          {v && <p>Task pack: <code>{v.packId}@{v.packVersion}</code> · version {v.version}</p>}
+          <p>The benchmark repository defines this task. Its recorded results keep their original task versions.</p>
+          <ButtonLink href="/evaluations" variant="secondary">My evaluations</ButtonLink>
+        </Card>
+      </main>
+    )
+  }
   if (loaded.state === 'loading' || loaded.state === 'missing' || loaded.state === 'error') {
     return (
       <main className="tma-page tma-page--flow" data-testid="task-editor">

@@ -20,6 +20,8 @@ export interface EvalTask {
   packId: string;
   packVersion: string;
   isPublic: boolean;
+  /** Existing operator run adopted as account history. Never queue a replacement run. */
+  historicalRunId?: string;
   /** Forecast price of this task's run, fixed at quote time. Absent on rows quoted before it existed. */
   pricing?: { modelCostEstimateUsd: number | null; baseFeeUsd: number; priceUsd: number; basis: "history" | "list_price" | "fallback" };
 }

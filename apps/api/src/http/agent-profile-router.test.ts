@@ -83,6 +83,17 @@ function data(extra: Partial<ProfileData> = {}): ProfileData {
 }
 
 describe("buildProfile", () => {
+  it("returns private historical evaluations only to their account owner", () => {
+    const d = data({ evaluations: [Object.assign({ id: "historical", slug: null, shortId: "H1", score: 100, issuedAt: "2026-10-15T00:00:00Z", isPublic: false, taskCount: 1, passCount: 1, failCount: 0, invalidCount: 0 }, { ownerWallet: OWNER, status: "graded", taskNames: ["Repository Research"] })] });
+    const own = buildProfile({ agent: agent(), data: d, viewerWallet: OWNER });
+    expect(own).toMatchObject({ history: [{ id: "historical", score: 100, path: "/evaluations/historical", taskNames: ["Repository Research"] }] });
+    expect(own.stats.lastVerifiedAt).toBeNull();
+    expect(own.badge).toBeNull();
+    for (const viewerWallet of [ME, null]) {
+      expect(buildProfile({ agent: agent(), data: d, viewerWallet })).toMatchObject({ history: [] });
+    }
+  });
+
   it("shows the latest public result per task, counts tags per task and builds the stat strip", () => {
     const d = data({
       results: [

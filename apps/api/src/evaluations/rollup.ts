@@ -153,7 +153,8 @@ export function rollup(input: RollupInput) {
   const free = ev.paymentKind === "free_byok";
 
   // A free retry still to come (the issuer job inserts it on the next tick) keeps the slot open.
-  const retryPending = !cancelled && slots.some((s) => s.run.status === "infra_error" && s.attempts === 1);
+  const historical = ev.tasks.some((t) => t.historicalRunId);
+  const retryPending = !cancelled && !historical && slots.some((s) => s.run.status === "infra_error" && s.attempts === 1);
 
   let status: EvaluationStatus;
   if (cancelled) status = "cancelled";
@@ -261,7 +262,9 @@ export function rollup(input: RollupInput) {
   const t0 = Date.parse(ev.createdAt);
   const runsLabel = `${ev.taskCount} run${ev.taskCount === 1 ? "" : "s"}`;
   const events: Array<{ tMs: number; tone: "ok" | "live" | "idle" | "bad"; label: string; detail: string }> = [
-    free
+    historical
+      ? { tMs: 0, tone: "ok", label: "Historical evaluation imported", detail: `${runsLabel} · original result · no new run` }
+      : free
       ? { tMs: 0, tone: "ok", label: "Evaluation queued", detail: `${runsLabel} · free · your model key` }
       : { tMs: 0, tone: "ok", label: "Payment confirmed", detail: `${runsLabel} · US$${ev.feeUsd.toFixed(2)} · tx ${short(ev.txSig, 8) ?? "—"}` },
   ];

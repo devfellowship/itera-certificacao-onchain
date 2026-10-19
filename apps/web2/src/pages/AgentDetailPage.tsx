@@ -234,6 +234,18 @@ function Ready({ profile, signedIn, onConnect }: { profile: AgentProfileResponse
 
           <OnYourTasks agent={agent} signedIn={signedIn} onConnect={onConnect} chooseHref={chooseHref} />
 
+          {agent.isMine && (profile.history?.length ?? 0) > 0 && (
+            <Card className="tad-section" data-testid="account-history">
+              <div className="tad-section__head">
+                <span className="tad-section__title">Your evaluation history</span>
+                <span className="tad-section__sub">Private results, visible only to you.</span>
+              </div>
+              {profile.history!.map((e) => (
+                <p key={e.id}><Link to={e.path}>{e.taskNames.join(', ') || 'Evaluation'}</Link> · {e.status} · score {formatScore(e.score)}{e.at && <> · {shortDate.format(new Date(e.at))}</>}</p>
+              ))}
+            </Card>
+          )}
+
           <Card className="tad-section" data-testid="public-evidence">
             <div className="tad-section__head tad-section__head--baseline">
               <span className="tad-section__title">Public evidence</span>

@@ -51,7 +51,7 @@ export class PgProfileStore implements ProfileStore {
            left join public.github_installations gi on gi.installation_id = a.gh_installation_id
            left join public.profiles p on p.wallet::text = a.owner_wallet
            left join public.models m on m.id::text = a.model
-          where a.connector = 'github' and a.owner_wallet is not null
+          where a.connector in ('github', 'endpoint') and a.owner_wallet is not null
             and ${UUID_RE.test(idOrSlug) ? "a.id = $1::uuid" : "a.slug = $1"}
           limit 1`,
         [idOrSlug],
@@ -109,9 +109,9 @@ export class PgProfileStore implements ProfileStore {
         ),
         pool.query(
           `select e.id::text as id, e.slug, e.short_id, e.score::float8 as score, coalesce(e.issued_at, e.completed_at, e.created_at) as issued_at,
-                  e.is_public, e.task_count, e.pass_count, e.fail_count, e.invalid_count
+                  e.is_public, e.task_count, e.pass_count, e.fail_count, e.invalid_count, e.owner_wallet, e.status, e.tasks
              from public.evaluations e
-            where e.agent_id = $1::uuid and e.status = 'issued'
+            where e.agent_id = $1::uuid and e.status in ('issued', 'graded', 'review', 'failed')
             order by issued_at desc
             limit 500`,
           [agentId],
@@ -141,6 +141,9 @@ export class PgProfileStore implements ProfileStore {
         };
       });
       const mappedEvaluations: ProfileEvaluation[] = evaluations.rows.map((row) => ({
+        ownerWallet: str(row.owner_wallet),
+        status: str(row.status) ?? undefined,
+        taskNames: Array.isArray(row.tasks) ? row.tasks.map((t: { name?: string }) => t.name ?? "Task") : [],
         id: String(row.id),
         slug: str(row.slug),
         shortId: str(row.short_id),
