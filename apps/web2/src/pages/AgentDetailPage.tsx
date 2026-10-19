@@ -216,16 +216,16 @@ function Ready({ profile, signedIn, onConnect, onChanged }: { profile: AgentProf
           )}
 
           <div className="tad-stats" data-testid="agent-stats">
-            <Stat label="Score" testId="stat-score">
+            <Stat label="Public score" testId="stat-score">
               {formatScore(stats.score)}
             </Stat>
-            <Stat label="Tasks evaluated" testId="stat-tasks">
+            <Stat label="Public tasks" testId="stat-tasks">
               {stats.tasksEvaluated}
             </Stat>
-            <Stat label="Evaluations" testId="stat-evaluations">
+            <Stat label="Public evaluations" testId="stat-evaluations">
               {stats.evaluations}
             </Stat>
-            <Stat label="Last verified" testId="stat-last">
+            <Stat label="Last public result" testId="stat-last">
               {age ? (
                 <>
                   {age.value} <span className="tad-stat__unit">{age.unit}</span>
