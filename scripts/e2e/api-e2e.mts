@@ -722,7 +722,7 @@ async function main(): Promise<void> {
   await step("run", "GET /runs/:id: result, evidence, no tmp paths, schema-valid (runDetail)", async (f) => {
     const runId = need(S.runIds?.[0], "a run");
     need(S.evaluation, "a finished evaluation");
-    const r = await http("GET", `/runs/${runId}`);
+    const r = await http("GET", `/runs/${runId}`, { token: S.token });
     must(r.status === 200, `/runs/${runId} -> ${r.status}`);
     S.run = r.json;
     const v = validateApiResponse("runDetail", r.json);
@@ -738,6 +738,13 @@ async function main(): Promise<void> {
     must(!JSON.stringify(r.json).includes("hidden/"), "a hidden test path leaks");
     must(r.json.proof?.status === "confirmed" && r.json.proof.nftMint && r.json.proof.txSig, `proof ${JSON.stringify(r.json.proof)}`);
     must(typeof r.json.modelCostUsd === "number" || r.json.modelCostUsd === null, "modelCostUsd");
+    const publicRun = await http("GET", `/runs/${runId}`);
+    const strangerRun = await http("GET", `/runs/${runId}`, { token: S.strangerToken });
+    for (const [name, view] of [["public", publicRun], ["stranger", strangerRun]] as const) {
+      must(view.status === 200, `${name} run summary -> ${view.status}`);
+      must(view.json.patch === null && view.json.evidence === null, `${name} received stored artifacts`);
+      must(view.json.patchScope?.changedFiles?.length === 0 && view.json.errors?.length === 0, `${name} received private diagnostics`);
+    }
     f.status = r.json.status;
     f.scoreTotal = r.json.scoreTotal;
     f.hidden = r.json.tests.hidden;
