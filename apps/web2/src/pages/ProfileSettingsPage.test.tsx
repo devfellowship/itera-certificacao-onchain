@@ -25,7 +25,7 @@ beforeEach(() => {
     if (path === '/me/avatar') {
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer profile-test-session')
       expect(init?.body).toBeInstanceOf(FormData)
-      if (failUpload) return json({ error: 'The picture could not be stored.' }, 500)
+      if (failUpload) return new Response('<!doctype html><title>Error</title>Internal Server Error', { status: 500 })
       profile = { ...profile, avatarUrl: AVATAR }
       return json(profile, 201)
     }
@@ -114,7 +114,7 @@ it('an avatar failure stays visible after identity saves and retains the crop fo
   act(() => container.querySelector<HTMLButtonElement>('[data-testid="profile-save"]')!.click())
   await flush()
   expect(profile.displayName).toBe('After')
-  expect(container.querySelector('[data-testid="profile-error"]')?.textContent).toBe('The picture could not be stored.')
+  expect(container.querySelector('[data-testid="profile-error"]')?.textContent).toBe('Request failed with status 500. Try again.')
   expect(container.querySelector('[data-testid="profile-saved"]')).toBeNull()
   expect(container.querySelector('[aria-label="Zoom"]')).not.toBeNull()
   failUpload = false
