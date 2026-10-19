@@ -228,3 +228,14 @@
     animation: none;
   }
 }
+
+@media (max-width: 700px) {
+  .tkp .tma-table {
+    overflow-x: auto;
+  }
+
+  .tkp .tma-table__head,
+  .tkp .tma-table__row {
+    min-width: 900px;
+  }
+}
