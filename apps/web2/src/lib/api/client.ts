@@ -58,7 +58,7 @@ export async function request<R>(path: string, init: RequestInit & { query?: Que
   if (!res.ok) {
     const body = (await res.json().catch(() => ({ error: res.statusText }))) as { error?: string }
     if (res.status === 401 && auth && sessionToken) onUnauthorized?.()
-    throw new ApiError(res.status, body?.error ?? `request failed with status ${res.status}`, body)
+    throw new ApiError(res.status, body?.error || `Request failed with status ${res.status}. Try again.`, body)
   }
   if (res.status === 204) return undefined as R
   return (await res.json()) as R

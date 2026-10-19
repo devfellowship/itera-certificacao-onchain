@@ -11,7 +11,9 @@ import sharp from "sharp";
  *
  * Storage: the public Supabase Storage bucket `avatars` of the TestMyAgent project. Object key =
  * `<wallet>/<first 16 hex of sha256(webp)>.webp` for a user, `agents/<agent id>/<hash>.webp` for an agent: the same picture gives the same key, and a new
- * picture gives a new URL (no stale CDN cache).
+ * picture gives a new URL (no stale CDN cache). DFL profiles use a deterministic, opaque
+ * base58 SHA-256 folder to satisfy the existing profile-key constraint; this is a storage folder,
+ * never a wallet or principal id. SIWS and agent folders stay unchanged.
  */
 
 export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
@@ -33,6 +35,19 @@ export interface ProcessedAvatar {
   bytes: Buffer;
   sha256: string;
   key: string;
+}
+
+/** Opaque storage namespace for web2 profiles, compatible with profiles_avatar_key_shape. */
+function storagePrefix(prefix: string): string {
+  if (!prefix.startsWith("dfl:")) return prefix;
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let value = BigInt(`0x${createHash("sha256").update(`testmyagent:avatar:${prefix}`).digest("hex")}`);
+  let folder = "";
+  while (value > 0n) {
+    folder = alphabet[Number(value % 58n)]! + folder;
+    value /= 58n;
+  }
+  return folder.padStart(32, "1");
 }
 
 /**
@@ -63,7 +78,7 @@ export async function processAvatar(prefix: string, input: Buffer): Promise<Proc
     .webp({ quality: 86 })
     .toBuffer();
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  return { bytes, sha256, key: `${prefix}/${sha256.slice(0, 16)}.webp` };
+  return { bytes, sha256, key: `${storagePrefix(prefix)}/${sha256.slice(0, 16)}.webp` };
 }
 
 export interface AvatarStorage {
