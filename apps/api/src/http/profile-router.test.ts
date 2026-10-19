@@ -229,6 +229,18 @@ describe("agent pictures", () => {
     expect(storage.objects.size).toBe(0);
   });
 
+  it("lets only the owner update the agent name", async () => {
+    const change = (wallet: string, name: string) => fetch(`${base}/agents/${AGENT}/profile`, {
+      method: "PATCH", headers: { ...auth(wallet), "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+    });
+    expect((await change(OTHER, "Stolen name")).status).toBe(404);
+    expect((await change(ME, "x")).status).toBe(400);
+    const saved = await change(ME, "  Research agent  ");
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ agentId: AGENT, name: "Research agent" });
+    expect((agents.agents.get(AGENT) as any).name).toBe("Research agent");
+  });
+
   it("an admin seeds an agent picture from an allow-listed host", async () => {
     const res = await fetch(`${base}/admin/agents/${AGENT}/avatar`, {
       method: "PUT",

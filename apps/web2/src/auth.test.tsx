@@ -207,9 +207,10 @@ describe('session', () => {
   it('logout clears the session and the nav shows the login button again', () => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ token: SECRET_SESSION, user: USER }))
     const c = mountApp('/agents')
-    expect(c.querySelector('[data-testid="nav-user-email"]')?.textContent).toBe(USER.email)
+    expect(c.querySelector('[data-testid="nav-user-email"]')).toBeNull()
     expect(c.querySelector('[data-testid="login-dfl"]')).toBeNull()
     act(() => c.querySelector<HTMLButtonElement>('[data-testid="account-trigger"]')!.click())
+    expect(c.querySelector('[data-testid="account-menu"]')?.textContent).toContain(USER.email)
     act(() => c.querySelector<HTMLButtonElement>('[data-testid="nav-logout"]')!.click())
     expect(localStorage.getItem(SESSION_KEY)).toBeNull()
     expect(c.querySelectorAll('[data-testid="login-dfl"]')).toHaveLength(1)

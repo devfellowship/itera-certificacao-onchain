@@ -1054,6 +1054,13 @@ textarea.tma-input {
   background: var(--tma-surface-raised);
   border-color: var(--tma-line-strong);
 }
+.tma-account__trigger--avatar {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+  border-radius: var(--tma-radius-pill);
+}
 .tma-account__short {
   font-family: var(--tma-font-mono);
   font-size: 12px;

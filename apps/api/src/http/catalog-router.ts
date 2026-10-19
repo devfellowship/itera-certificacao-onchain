@@ -53,6 +53,21 @@ export const DFL_AUTHOR = { name: "DevFellowship", avatarUrl: "https://brand.dev
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v.trim() : undefined);
 
+const CURATED_TASK_SOURCES: Record<string, { repo: string; path: string; commit: string }> = {
+  "dfl-html-report": { repo: "devfellowship/itera-certificacao-onchain", path: "benchmarks/dfl-html-report", commit: "25971880c35c590e2a8cfa5ba703d7c68cd79e90" },
+  "dfl-fleet-research": { repo: "devfellowship/itera-certificacao-onchain", path: "benchmarks/dfl-fleet-research", commit: "0fbb6c534fce7077cdff7e2743846501ee08964d" },
+  "dfl-ui-design-audit": { repo: "devfellowship/itera-certificacao-onchain", path: "benchmarks/dfl-ui-design-audit", commit: "447af282d6cba107648f0d41d8677d78847b6cb6" },
+};
+
+function taskSource(t: CatalogTask, mine: boolean) {
+  const v = t.latest;
+  if (!v || !mine) return null;
+  if (v.source === "github" && v.repoFullName && v.commitSha) {
+    return { provider: "GitHub", repo: v.repoFullName, path: v.repoPath || ".", commit: v.commitSha };
+  }
+  return v.packId ? CURATED_TASK_SOURCES[v.packId] ? { provider: "GitHub", ...CURATED_TASK_SOURCES[v.packId] } : null : null;
+}
+
 function taskJson(t: CatalogTask, wallet: string | null) {
   const mine = wallet !== null && t.ownerWallet === wallet;
   const v = t.latest;
@@ -96,6 +111,7 @@ function taskDetailJson(t: CatalogTask, wallet: string | null) {
       hiddenDigest: v.hiddenDigest,
       validatedAt: v.validatedAt,
       createdAt: v.createdAt,
+      sourceLink: taskSource(t, mine),
       ...(v.source === "curated" ? { packId: v.packId, packVersion: v.packVersion } : {}),
       // The repo pin is the owner's business; others only see the digests.
       ...(v.source === "github" && mine

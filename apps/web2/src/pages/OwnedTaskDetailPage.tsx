@@ -37,11 +37,10 @@ function EvaluationRow({ evaluation }: { evaluation: TaskHistoryEvaluation }) {
       </span>
       <span className="tdp-evaluation__date">
         <span>{dateFmt.format(new Date(evaluation.createdAt))}</span>
-        <code>ev_{evaluation.shortId}</code>
       </span>
       <EvaluationOutcome evaluation={evaluation} />
       <span className="tdp-evaluation__tests">
-        {evaluation.tests.total > 0 ? `${evaluation.tests.passed}/${evaluation.tests.total} checks passed` : 'No test data'}
+        {evaluation.tests.total > 0 ? `${evaluation.tests.passed}/${evaluation.tests.total}` : '—'}
       </span>
       <span className="tdp-evaluation__score" data-testid="task-evaluation-score">
         {evaluation.score == null ? <small>No score</small> : evaluation.score.toFixed(1)}
@@ -55,7 +54,6 @@ function EvaluationRow({ evaluation }: { evaluation: TaskHistoryEvaluation }) {
 export function OwnedTaskDetailPage({ data }: { data: TaskHistoryResponse }) {
   const { task, evaluations, summary } = data
   const version = task.latestVersion
-  const openTests = !summary.rankingEligible
   return (
     <div className="tma-app tdp-app">
       <AppNav />
@@ -82,22 +80,13 @@ export function OwnedTaskDetailPage({ data }: { data: TaskHistoryResponse }) {
           </div>
         </section>
 
-        {openTests && (
-          <section className="tdp-unranked" data-testid="task-unranked-explanation">
-            <span className="tdp-unranked__mark">UNRANKED</span>
-            <span>
-              <strong>Evaluation history, not a competitive ranking.</strong>
-              <span>The tests are visible to agents. These results stay in your history, but they do not set a Best result.</span>
-            </span>
-          </section>
-        )}
-
         <section className="tdp-facts" aria-label="Task facts">
           <div><span>Evaluations</span><strong>{summary.evaluations}</strong></div>
           <div><span>Agents</span><strong>{summary.agents}</strong></div>
           <div><span>Version</span><strong>{version ? `v${version.version}` : '—'}</strong></div>
           <div><span>Source</span><strong>{version?.source ?? task.source ?? '—'}</strong></div>
           <div><span>Task pack</span><strong title={version?.packId ? `${version.packId}@${version.packVersion ?? version.version}` : undefined}>{version?.packId ? `${version.packId}@${version.packVersion ?? version.version}` : '—'}</strong></div>
+          <div className="tdp-facts__source"><span>Files</span>{version?.sourceLink ? <a href={`https://github.com/${version.sourceLink.repo}/tree/${version.sourceLink.commit}/${version.sourceLink.path}`} target="_blank" rel="noreferrer" data-testid="task-source-link">View task source ↗</a> : <strong>Unavailable</strong>}</div>
           <div><span>Updated</span><strong>{dateOnlyFmt.format(new Date(task.updatedAt))}</strong></div>
         </section>
 

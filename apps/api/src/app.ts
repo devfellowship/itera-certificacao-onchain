@@ -116,6 +116,7 @@ const ROUTES = [
   "PUT /admin/profiles/:wallet",
   "POST /agents/:id/avatar",
   "DELETE /agents/:id/avatar",
+  "PATCH /agents/:id/profile",
   "PUT /admin/agents/:id/avatar",
   "GET /models/:id/access",
   "POST /models/access",

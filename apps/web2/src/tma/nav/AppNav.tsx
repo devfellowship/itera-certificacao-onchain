@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useSession } from '../../auth/session'
 import { LoginButton } from '../../pages/LoginButton'
-import { Avatar, IconChevronDown, Lockup } from '../ui'
+import { Avatar, Lockup } from '../ui'
 
 export type NavSection = 'agents' | 'evaluations' | 'tasks'
 
 const LINKS: Array<{ id: NavSection; label: string; to: string; testId: string }> = [
   { id: 'agents', label: 'Agents', to: '/agents', testId: 'nav-agents' },
   { id: 'tasks', label: 'Tasks', to: '/tasks', testId: 'nav-tasks' },
-  { id: 'evaluations', label: 'My evaluations', to: '/evaluations', testId: 'nav-my-evaluations' },
+  { id: 'evaluations', label: 'Evaluations', to: '/evaluations', testId: 'nav-my-evaluations' },
 ]
 
 /** Section of the nav that a pathname marks active (02, 03, 08 → agents; 04, 09 → evaluations). */
@@ -20,7 +20,7 @@ export function sectionFor(pathname: string): NavSection | null {
   return null
 }
 
-/** App Nav (design brief 2.0): lockup + three links left (Agents, Tasks, My evaluations), account menu right. Height 56. */
+/** App Nav: lockup + three links left and an avatar-only account menu trigger. */
 export function AppNav({ active }: { active?: NavSection | null }) {
   const { pathname } = useLocation()
   const current = active === undefined ? sectionFor(pathname) : active
@@ -41,19 +41,30 @@ export function AppNav({ active }: { active?: NavSection | null }) {
   )
 }
 
-/** Account trigger (28 px avatar + email) and the dropdown: name, email, Profile settings, Log out. */
+/** Account trigger and dropdown: identity stays in the menu to keep the navbar compact. */
 export function AccountMenu({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const session = useSession()
   const [open, setOpen] = useState(defaultOpen)
   const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!open) return
     const onDown = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
     document.addEventListener('pointerdown', onDown)
-    return () => document.removeEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   if (session.status !== 'signed-in' || !session.user) return <LoginButton />
@@ -64,12 +75,8 @@ export function AccountMenu({ defaultOpen = false }: { defaultOpen?: boolean }) 
 
   return (
     <div className="tma-account" ref={ref}>
-      <button type="button" className="tma-account__trigger" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="account-trigger">
+      <button ref={triggerRef} type="button" className="tma-account__trigger tma-account__trigger--avatar" aria-label="Open account menu" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="account-trigger">
         <Avatar initials={initials} size={28} src={me?.avatarUrl} shape="circle" />
-        <span className="tma-account__short" title={email} data-testid="nav-user-email">
-          {email}
-        </span>
-        <IconChevronDown style={{ color: 'var(--tma-text-muted)' }} />
       </button>
       {open && (
         <div className="tma-account__menu" role="menu" data-testid="account-menu">

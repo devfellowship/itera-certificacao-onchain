@@ -94,7 +94,11 @@ describe('UI foundation: AppNav and the session gate', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })))
     const { c, root } = mountRoutes('/agents')
     expect(c.querySelectorAll('[data-testid="app-nav"]')).toHaveLength(1)
-    expect(c.querySelector('[data-testid="nav-user-email"]')?.textContent).toBe('ana@example.com')
+    expect(c.querySelector('[data-testid="nav-user-email"]')).toBeNull()
+    const trigger = c.querySelector<HTMLButtonElement>('[data-testid="account-trigger"]')!
+    expect(trigger.getAttribute('aria-label')).toBe('Open account menu')
+    act(() => trigger.click())
+    expect(c.querySelector('[data-testid="account-menu"]')?.textContent).toContain('ana@example.com')
     for (const id of ['nav-agents', 'nav-tasks', 'nav-my-evaluations']) expect(c.querySelector(`[data-testid="${id}"]`)).not.toBeNull()
     expect(c.textContent).not.toContain('SOL')
     expect(c.querySelector('[data-testid="require-session"]')).toBeNull()

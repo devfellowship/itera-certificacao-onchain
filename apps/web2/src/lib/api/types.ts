@@ -168,6 +168,7 @@ export interface TaskHistoryResponse {
       createdAt: string
       packId?: string | null
       packVersion?: string | null
+      sourceLink?: { provider: string; repo: string; path: string; commit: string } | null
     }
   }
   evaluations: TaskHistoryEvaluation[]
@@ -400,6 +401,7 @@ export interface MyResultRow {
   outcome: 'PASS' | 'FAIL'
   score: number
   bestOwnAgent: { id: string; name: string; score: number } | null
+  evaluationId?: string | null
 }
 export interface AgentMyResultsResponse {
   results: MyResultRow[]
@@ -641,7 +643,14 @@ export interface Run {
   modelCostUsd?: number | null
   actionsCount?: number | null
   completedAt?: string | null
-  tests?: { public?: { passed: number; total: number }; hidden?: { passed: number; total: number; results?: boolean[] } }
+  tests?: { public?: { passed: number; total: number; failed?: number }; publicBaseline?: { passed: number; total: number; failed?: number }; hidden?: { passed: number; total: number; failed?: number; results?: boolean[] } } | null
+  patch?: string | null
+  patchScope?: { changedFiles: string[]; allowed: boolean } | null
+  errors?: string[]
+  evidence?: { executorProfile: string | null; environmentDigest: string | null; contractDigest: string | null; limitations: string[] } | null
+  result?: { state?: string; verdict?: string; scored?: boolean } | null
+  score?: { parts: Record<string, number> | null; version?: number; rule?: unknown } | null
+  modelTokens?: { in: number; out: number } | null
   proof: { status: string; nftMint: string | null; txSig: string | null; proofHash: string | null } | null
   [extra: string]: unknown
 }

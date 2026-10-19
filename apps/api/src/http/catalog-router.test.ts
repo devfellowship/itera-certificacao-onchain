@@ -191,6 +191,16 @@ describe("GET /tasks/:id", () => {
     mine.latest = { ...mine.latest!, source: "github", installationId: 42, repoFullName: "me/tasks", branch: "main", commitSha: "a".repeat(40), repoPath: "ledger" };
     const { body } = await get("/tasks/my_ledger", ME);
     expect(body.task.latestVersion.github).toEqual({ installationId: 42, repo: "me/tasks", branch: "main", commitSha: "a".repeat(40), path: "ledger" });
+    expect(body.task.latestVersion.sourceLink).toEqual({ provider: "GitHub", repo: "me/tasks", path: "ledger", commit: "a".repeat(40) });
+  });
+
+  it("returns the verified curated source only to the owner", async () => {
+    const mine = store.tasks.find((t) => t.slug === "my_ledger")!;
+    mine.latest = { ...mine.latest!, source: "curated", packId: "dfl-html-report", packVersion: "1" };
+    const { body } = await get("/tasks/my_ledger", ME);
+    expect(body.task.latestVersion.sourceLink).toEqual({
+      provider: "GitHub", repo: "devfellowship/itera-certificacao-onchain", path: "benchmarks/dfl-html-report", commit: "25971880c35c590e2a8cfa5ba703d7c68cd79e90",
+    });
   });
 });
 
