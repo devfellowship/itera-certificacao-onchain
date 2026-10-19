@@ -38,6 +38,7 @@ export const STATUS_WORDS = {
   review: { tone: 'warning', label: 'Review' },
   issuing: { tone: 'warning', label: 'Issuing' },
   issued: { tone: 'success', label: 'Issued' },
+  graded: { tone: 'success', label: 'Graded' },
   cancelled: { tone: 'neutral', label: 'Cancelled' },
   failed: { tone: 'danger', label: 'Failed' },
   // proof / record / payment

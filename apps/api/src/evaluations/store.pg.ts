@@ -479,6 +479,24 @@ export class PgEvaluationsStore implements EvaluationsStore {
     }
   }
 
+  async listForTaskAndWallet(taskId: string, taskSlug: string, wallet: string): Promise<EvaluationListRow[]> {
+    try {
+      const { rows } = await this.pool.query(
+        `${EVAL_SELECT}
+          where e.owner_wallet = $1
+            and exists (
+              select 1 from jsonb_array_elements(e.tasks) task
+               where task ->> 'taskId' = $2 or task ->> 'slug' = $3
+            )
+          order by e.created_at desc`,
+        [wallet, taskId, taskSlug],
+      );
+      return rows.map(toEvaluation);
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+
   async cancel(evaluationId: string): Promise<number> {
     const client = await this.pool.connect();
     try {

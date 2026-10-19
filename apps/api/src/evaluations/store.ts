@@ -304,6 +304,8 @@ export interface EvaluationsStore {
   listRuns(evaluationId: string): Promise<EvalRun[]>;
   listProofs(runIds: string[]): Promise<EvalProof[]>;
   listForWallet(wallet: string, limit: number): Promise<EvaluationListRow[]>;
+  /** Every evaluation owned by `wallet` whose frozen task snapshot names this catalog task. */
+  listForTaskAndWallet(taskId: string, taskSlug: string, wallet: string): Promise<EvaluationListRow[]>;
   /** Queued runs → cancelled; evaluation → cancelled. Returns the number of runs cancelled. */
   cancel(evaluationId: string): Promise<number>;
   /** Evaluation ids the issuer job still has work on (not issued/graded/failed, recent). */

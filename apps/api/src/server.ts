@@ -81,7 +81,7 @@ createApp(repo, {
     installations: new PgGithubAgentsRepository(getPool),
     requireWallet,
   },
-  catalogOptions: { syncModels: () => syncModels(catalog), ranking: new PgRankingStore(getPool) },
+  catalogOptions: { syncModels: () => syncModels(catalog), ranking: new PgRankingStore(getPool), evaluations: evaluationsStore },
   evaluations: {
     store: evaluationsStore,
     config: evaluationsConfigFromEnv(),

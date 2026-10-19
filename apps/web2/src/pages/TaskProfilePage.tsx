@@ -11,15 +11,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { api, ApiError } from '../lib/api'
-import type { TaskProfile } from '../lib/api/types'
+import type { TaskHistoryResponse, TaskProfile } from '../lib/api/types'
 import { Badge, Breadcrumb, Button, ButtonLink, Lockup, TagPill, middle } from '../tma/ui'
 import { NotFoundPage } from './NotFoundPage'
 import { RailCard, RunButton } from './task-profile/RailCard'
 import { GoalSection, InjectSection, IoSection, LimitsSection, McpSection, ResultsSection, ScoringSection, TestsPill, ToolsSection, VersionSection } from './task-profile/sections'
 import { SECTIONS, scrollToSection } from './task-profile/helpers'
 import './task-profile/task-profile.css'
+import { OwnedTaskDetailPage } from './OwnedTaskDetailPage'
 
-type State = { kind: 'loading' } | { kind: 'ok'; task: TaskProfile } | { kind: 'notfound' } | { kind: 'mine'; id: string } | { kind: 'error'; message: string }
+type State = { kind: 'loading' } | { kind: 'ok'; task: TaskProfile } | { kind: 'owned'; data: TaskHistoryResponse } | { kind: 'notfound' } | { kind: 'mine'; id: string } | { kind: 'error'; message: string }
 
 function TaskHeader() {
   const { status } = useSession()
@@ -46,38 +47,38 @@ export function TaskProfilePage() {
   const session = useSession()
   const [state, setState] = useState<State>({ kind: 'loading' })
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setState({ kind: 'loading' })
-    api
-      .publicTask(slug, version)
-      .then(async (task) => setState({ kind: 'ok', task }))
-      .catch(async (e: unknown) => {
+    if (session.status === 'signed-in') {
+      try {
+        const data = await api.taskEvaluations(slug)
+        if (data.task.mine) {
+          setState(data.task.status === 'ready' ? { kind: 'owned', data } : { kind: 'mine', id: data.task.id })
+          return
+        }
+      } catch (e) {
         if (!(e instanceof ApiError && e.status === 404)) {
           setState({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
           return
         }
-        // The owner of a private task who opens its slug goes to the editor (no hint for anyone else).
-        if (session.status === 'signed-in') {
-          try {
-            const { task: t } = await api.myTask(slug)
-            if (t.mine) {
-              setState({ kind: 'mine', id: t.id })
-              return
-            }
-          } catch {
-            /* not visible to this wallet: the generic not-found below */
-          }
-        }
-        setState({ kind: 'notfound' })
-      })
+      }
+    }
+    try {
+      setState({ kind: 'ok', task: await api.publicTask(slug, version) })
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) setState({ kind: 'notfound' })
+      else setState({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
   }, [slug, version, session.status])
-  useEffect(load, [load])
+  useEffect(() => { void load() }, [load])
 
   useEffect(() => {
     if (state.kind === 'ok') document.title = `${state.task.name} — task on TestMyAgent`
+    if (state.kind === 'owned') document.title = `${state.data.task.name} — task details on TestMyAgent`
   }, [state])
 
   if (state.kind === 'mine') return <Navigate to={`/tasks/${encodeURIComponent(state.id)}/edit`} replace />
+  if (state.kind === 'owned') return <OwnedTaskDetailPage data={state.data} />
 
   return (
     <div className="tma-app tp">
