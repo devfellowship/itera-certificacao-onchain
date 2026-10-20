@@ -21,8 +21,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
+      - name: Restore the npm cache
+        id: npm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.npm
+          key: node-cache-${{ runner.os }}-${{ runner.arch }}-npm-${{ hashFiles('**/package-lock.json') }}
       - run: npm ci
+      - name: Save the npm cache (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.npm
+          key: node-cache-${{ runner.os }}-${{ runner.arch }}-npm-${{ hashFiles('**/package-lock.json') }}
       - run: npx tsx scripts/check-tasks.mts
       # Generated benchmark tasks: reproducible from their seed, reference solution passes its grader,
       # a no-op fails, and a denylist + secret scan of the task content (plan ADR-2). One check.mjs per task.
@@ -91,8 +102,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
+      - name: Restore the npm cache
+        id: npm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.npm
+          key: node-cache-${{ runner.os }}-${{ runner.arch }}-npm-${{ hashFiles('**/package-lock.json') }}
       - run: npm ci
+      - name: Save the npm cache (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.npm
+          key: node-cache-${{ runner.os }}-${{ runner.arch }}-npm-${{ hashFiles('**/package-lock.json') }}
       # U29: sidecar lifecycle, mcp_state score and the validation-gate mcp step on the demo task,
       # against the image this job just built (benchmarks/helpdesk-refunds).
       - name: Runner MCP integration test

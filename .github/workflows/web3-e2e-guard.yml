@@ -60,8 +60,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
+      - name: Restore the npm cache
+        id: npm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.npm
+          key: node-cache-${{ runner.os }}-${{ runner.arch }}-npm-${{ hashFiles('**/package-lock.json') }}
       - run: npm ci
+      - name: Save the npm cache (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.npm
+          key: node-cache-${{ runner.os }}-${{ runner.arch }}-npm-${{ hashFiles('**/package-lock.json') }}
 
       - name: Use a Docker Hub mirror
         run: |
@@ -70,7 +81,7 @@ jobs:
 
       - name: Cache the Agave (Solana) CLI
         id: agave-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/agave/${{ env.AGAVE_VERSION }}
           key: agave-${{ env.AGAVE_VERSION }}-x86_64-linux
@@ -82,6 +93,12 @@ jobs:
           curl -sSfL --retry 4 -o /tmp/agave.tar.bz2 \
             "https://github.com/anza-xyz/agave/releases/download/$AGAVE_VERSION/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
           tar -xjf /tmp/agave.tar.bz2 -C ~/.cache/agave/$AGAVE_VERSION
+      - name: Save the Agave (Solana) CLI cache (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.agave-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/agave/${{ env.AGAVE_VERSION }}
+          key: agave-${{ env.AGAVE_VERSION }}-x86_64-linux
       - name: Put the Agave CLI on PATH
         run: |
           echo "$HOME/.cache/agave/$AGAVE_VERSION/solana-release/bin" >> "$GITHUB_PATH"
@@ -217,10 +234,10 @@ jobs:
           docker ps -a --format '{{.Names}} {{.Status}}' > e2e-report/logs/docker-ps.txt || true
 
       - name: Upload the e2e report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: web3-e2e-report
           path: e2e-report/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
