@@ -57,11 +57,11 @@ jobs:
         run: npx playwright test
 
       - name: Upload the report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: web2-e2e-report
           # JSON only: the repo is public, so an artifact is public. No screenshots, no traces.
           path: apps/web2/e2e/report/results.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
