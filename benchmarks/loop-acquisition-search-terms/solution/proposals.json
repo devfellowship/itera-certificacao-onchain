@@ -1,0 +1,44 @@
+{
+  "proposals": [
+    {
+      "term": "free hiking boots",
+      "action": "add_negative_keyword",
+      "reason": "41 clicks and 38.70 USD spent with zero conversions."
+    },
+    {
+      "term": "hiking boots repair near me",
+      "action": "add_negative_keyword",
+      "reason": "27 clicks and 24.10 USD spent with zero conversions."
+    },
+    {
+      "term": "how to clean hiking boots",
+      "action": "add_negative_keyword",
+      "reason": "33 clicks and 22.60 USD spent with zero conversions."
+    },
+    {
+      "term": "hiking boot lace tutorial pdf",
+      "action": "add_negative_keyword",
+      "reason": "12 clicks and 9.40 USD spent with zero conversions."
+    },
+    {
+      "term": "outdoor store jobs",
+      "action": "add_negative_keyword",
+      "reason": "19 clicks and 15.80 USD spent with zero conversions."
+    },
+    {
+      "term": "used tents for sale",
+      "action": "add_negative_keyword",
+      "reason": "28 clicks and 25.30 USD spent with zero conversions."
+    },
+    {
+      "term": "sleeping bag diy",
+      "action": "add_negative_keyword",
+      "reason": "8 clicks and 6.90 USD spent with zero conversions."
+    },
+    {
+      "term": "trail running shoes for free",
+      "action": "add_negative_keyword",
+      "reason": "15 clicks and 12.20 USD spent with zero conversions."
+    }
+  ]
+}
