@@ -1,6 +1,6 @@
 import type { TreeEntry } from "./app-client.js";
 
-/** Total size cap of one agent snapshot (AGENTS.md + CLAUDE.md + skills/**). */
+/** Total size cap of one agent snapshot (AGENTS.md + CLAUDE.md + optional POLICY.md + skills/**). */
 export const AGENT_FILES_MAX_BYTES = 200 * 1024;
 
 export interface AgentFile {
@@ -59,7 +59,7 @@ export type SelectResult =
   | { ok: false; reason: "no_agent_file" }
   | { ok: false; reason: "too_large"; totalBytes: number };
 
-/** Picks AGENTS.md, CLAUDE.md and skills/** under agentPath. Fails (never silently truncates) when
+/** Picks AGENTS.md, CLAUDE.md, an optional POLICY.md and skills/** under agentPath. Fails (never silently truncates) when
  * the total exceeds the cap — a run must see the exact agent the user registered. */
 export function selectAgentFiles(entries: TreeEntry[], agentPath: string, maxBytes = AGENT_FILES_MAX_BYTES): SelectResult {
   const prefix = prefixOf(agentPath);
@@ -67,9 +67,9 @@ export function selectAgentFiles(entries: TreeEntry[], agentPath: string, maxByt
     .filter(isFile)
     .filter((e) => e.path.startsWith(prefix))
     .map((e) => ({ ...e, relPath: e.path.slice(prefix.length), size: e.size ?? 0 }))
-    .filter((e) => e.relPath === "AGENTS.md" || e.relPath === "CLAUDE.md" || e.relPath.startsWith("skills/"));
+    .filter((e) => e.relPath === "AGENTS.md" || e.relPath === "CLAUDE.md" || e.relPath === "POLICY.md" || e.relPath.startsWith("skills/"));
   if (!picked.some((e) => e.relPath === "AGENTS.md" || e.relPath === "CLAUDE.md")) return { ok: false, reason: "no_agent_file" };
-  const rank = (p: string) => (p === "AGENTS.md" ? 0 : p === "CLAUDE.md" ? 1 : 2);
+  const rank = (p: string) => (p === "AGENTS.md" ? 0 : p === "CLAUDE.md" ? 1 : p === "POLICY.md" ? 2 : 3);
   picked.sort((a, b) => rank(a.relPath) - rank(b.relPath) || a.relPath.localeCompare(b.relPath));
   const totalBytes = picked.reduce((s, e) => s + e.size, 0);
   if (totalBytes > maxBytes) return { ok: false, reason: "too_large", totalBytes };
@@ -102,6 +102,7 @@ export function summarizeAgentFiles(files: { path: string; size: number }[]): { 
   const parts: string[] = [];
   if (files.some((f) => f.path === "AGENTS.md")) parts.push("AGENTS.md");
   if (files.some((f) => f.path === "CLAUDE.md")) parts.push("CLAUDE.md");
+  if (files.some((f) => f.path === "POLICY.md")) parts.push("POLICY.md");
   const skills = new Set<string>();
   for (const f of files) {
     if (!f.path.startsWith("skills/")) continue;
