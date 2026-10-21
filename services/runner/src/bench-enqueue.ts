@@ -28,7 +28,7 @@ import { isAllowedAgentPath } from './agent-files.js';
 export const BENCH_VENDOR = 'ITERA benchmark campaign';
 const TERMINAL = new Set(['pass', 'fail', 'invalid', 'timeout', 'infra_error', 'cancelled']);
 
-/** The agent file snapshot of a directory: AGENTS.md, CLAUDE.md and skills/** only (same rule as the worker). */
+/** The agent file snapshot of a directory: AGENTS.md, CLAUDE.md, POLICY.md and skills/** only (same rule as the worker). */
 export async function readAgentFiles(dir: string): Promise<Array<{ path: string; content: string }>> {
   const out: Array<{ path: string; content: string }> = [];
   const walk = async (d: string): Promise<void> => {
