@@ -1,0 +1,158 @@
+{
+  "account": "Fixture Outdoor Gear (synthetic)",
+  "period": {
+    "from": "2026-10-05",
+    "to": "2026-10-11"
+  },
+  "currency": "USD",
+  "fields": {
+    "cost_micros": "cost in millionths of a currency unit",
+    "conversions": "conversions attributed to the term; can be fractional"
+  },
+  "terms": [
+    {
+      "term": "trail running shoes",
+      "campaign": "Shoes",
+      "impressions": 5400,
+      "clicks": 212,
+      "cost_micros": 164500000,
+      "conversions": 9
+    },
+    {
+      "term": "waterproof hiking boots",
+      "campaign": "Boots",
+      "impressions": 4100,
+      "clicks": 160,
+      "cost_micros": 131200000,
+      "conversions": 6
+    },
+    {
+      "term": "buy hiking boots online",
+      "campaign": "Boots",
+      "impressions": 1800,
+      "clicks": 74,
+      "cost_micros": 70400000,
+      "conversions": 4
+    },
+    {
+      "term": "hiking boots sale",
+      "campaign": "Boots",
+      "impressions": 2600,
+      "clicks": 98,
+      "cost_micros": 79100000,
+      "conversions": 3
+    },
+    {
+      "term": "tent footprint",
+      "campaign": "Camping",
+      "impressions": 900,
+      "clicks": 31,
+      "cost_micros": 26800000,
+      "conversions": 0.5
+    },
+    {
+      "term": "camping stove",
+      "campaign": "Camping",
+      "impressions": 2300,
+      "clicks": 87,
+      "cost_micros": 61300000,
+      "conversions": 2
+    },
+    {
+      "term": "free hiking boots",
+      "campaign": "Boots",
+      "impressions": 1500,
+      "clicks": 41,
+      "cost_micros": 38700000,
+      "conversions": 0
+    },
+    {
+      "term": "hiking boots repair near me",
+      "campaign": "Boots",
+      "impressions": 980,
+      "clicks": 27,
+      "cost_micros": 24100000,
+      "conversions": 0
+    },
+    {
+      "term": "how to clean hiking boots",
+      "campaign": "Boots",
+      "impressions": 1250,
+      "clicks": 33,
+      "cost_micros": 22600000,
+      "conversions": 0
+    },
+    {
+      "term": "hiking boot lace tutorial pdf",
+      "campaign": "Boots",
+      "impressions": 610,
+      "clicks": 12,
+      "cost_micros": 9400000,
+      "conversions": 0
+    },
+    {
+      "term": "outdoor store jobs",
+      "campaign": "Brand",
+      "impressions": 770,
+      "clicks": 19,
+      "cost_micros": 15800000,
+      "conversions": 0
+    },
+    {
+      "term": "used tents for sale",
+      "campaign": "Camping",
+      "impressions": 1320,
+      "clicks": 28,
+      "cost_micros": 25300000,
+      "conversions": 0
+    },
+    {
+      "term": "sleeping bag diy",
+      "campaign": "Camping",
+      "impressions": 480,
+      "clicks": 8,
+      "cost_micros": 6900000,
+      "conversions": 0
+    },
+    {
+      "term": "hiking boots wallpaper",
+      "campaign": "Boots",
+      "impressions": 360,
+      "clicks": 0,
+      "cost_micros": 0,
+      "conversions": 0
+    },
+    {
+      "term": "boots clip art",
+      "campaign": "Boots",
+      "impressions": 220,
+      "clicks": 0,
+      "cost_micros": 0,
+      "conversions": 0
+    },
+    {
+      "term": "trail running shoes size guide",
+      "campaign": "Shoes",
+      "impressions": 1150,
+      "clicks": 36,
+      "cost_micros": 31900000,
+      "conversions": 1
+    },
+    {
+      "term": "trail running shoes for free",
+      "campaign": "Shoes",
+      "impressions": 640,
+      "clicks": 15,
+      "cost_micros": 12200000,
+      "conversions": 0
+    },
+    {
+      "term": "stove fuel canister",
+      "campaign": "Camping",
+      "impressions": 1020,
+      "clicks": 40,
+      "cost_micros": 28400000,
+      "conversions": 3
+    }
+  ]
+}
