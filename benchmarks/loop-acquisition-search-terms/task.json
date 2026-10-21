@@ -1,0 +1,38 @@
+{
+  "$schema": "../../packages/contracts/schemas/task.schema.json",
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/loop-acquisition-search-terms",
+    "version": "1",
+    "description": "From a synthetic paid-search terms report, propose negative keywords: only terms that spent money with zero conversions, each with a reason, never a term that converted.",
+    "authors": [{ "name": "ITERA" }],
+    "keywords": ["loop-agent", "paid-search", "negative-keywords", "evidence"]
+  },
+  "metadata": {
+    "title": "Negative keyword proposals from a search-terms report",
+    "tags": { "tools": [], "concepts": ["data-report", "precision"] }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": ["npm", "ci", "--include=dev", "--no-audit", "--no-fund", "--ignore-scripts"],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048,
+    "tools": { "builtin": ["read", "write", "edit", "bash", "search", "list", "todo"], "mcp": [] },
+    "run_egress": ["model-gateway"],
+    "secrets": [],
+    "resources": { "cpus": 2, "memory_mb": 2048, "pids": 512 }
+  },
+  "tests": { "public": "tests/public", "hidden": "tests/hidden" },
+  "solution": { "patch": "solution/solution.patch" },
+  "editable_paths": ["out/**"],
+  "protected_paths": ["tests/**", "data/**", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.*"],
+  "verifier": {
+    "cmd": ["npx", "vitest", "run", "{tests}", "--reporter=json", "--outputFile={report}"],
+    "report": "vitest-json",
+    "timeout_sec": 120
+  },
+  "agent": { "timeout_sec": 300 },
+  "est_minutes": 3
+}
