@@ -1,0 +1,11 @@
+{
+  "item_id": "synth-acme-main-1__agent-a7f3",
+  "session_meta": {
+    "domain": "infra",
+    "type": "feature",
+    "outcome": "blocked",
+    "links": ["https://git.example.test/acme/acme-widget/pull/43"]
+  },
+  "tainan_corrections": [],
+  "decision_candidates": []
+}

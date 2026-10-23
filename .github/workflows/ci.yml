@@ -39,6 +39,10 @@ jobs:
       # a no-op fails, and a denylist + secret scan of the task content (plan ADR-2). One check.mjs per task.
       - name: Benchmark task checks
         run: for c in benchmarks/*/fixtures/check.mjs; do [ -f "$c" ] || continue; node "$c"; done
+      # dfl-transcript-mining: the real transcripts and labels are private. Fail on a real repo name, an internal
+      # host, a corpus marker, a chat id or a secret in the task folder (its check.mjs above also mutation-tests this scan).
+      - name: Transcript-mining denylist
+        run: node benchmarks/dfl-transcript-mining/fixtures/denylist.mjs
       - run: npm run check
       - run: npm run test
       - run: npm run build

@@ -1,0 +1,39 @@
+{
+  "$schema": "../../packages/contracts/schemas/task.schema.json",
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/dfl-transcript-mining",
+    "version": "1",
+    "description": "Mine ONE agent session transcript into one strict JSON record: verbatim quotes, the human's corrections, durable decisions, session metadata. Graded offline: schema and redaction gates, quote literalness, correction and decision recall/precision, subagent abstention.",
+    "authors": [{ "name": "ITERA" }],
+    "keywords": ["extraction", "transcripts", "verbatim-quotes", "abstention", "json-schema"]
+  },
+  "metadata": {
+    "title": "Mine one session transcript into a strict record",
+    "tags": { "tools": [], "concepts": ["extraction", "citation", "abstention"] },
+    "variant": { "visibility": "open", "synthetic": true }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": ["npm", "ci", "--include=dev", "--no-audit", "--no-fund", "--ignore-scripts"],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048,
+    "tools": { "builtin": ["read", "write", "edit", "list", "todo"], "mcp": [] },
+    "run_egress": ["model-gateway"],
+    "secrets": [],
+    "resources": { "cpus": 2, "memory_mb": 2048, "pids": 512 }
+  },
+  "tests": { "public": "tests/public", "hidden": "tests/hidden" },
+  "solution": { "patch": "solution/solution.patch" },
+  "editable_paths": ["out/**"],
+  "protected_paths": ["tests/**", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.*", "item.txt", "rubric/**", "README.md"],
+  "verifier": {
+    "cmd": ["npx", "vitest", "run", "{tests}", "--reporter=json", "--outputFile={report}"],
+    "report": "vitest-json",
+    "timeout_sec": 120
+  },
+  "agent": { "timeout_sec": 600 },
+  "est_minutes": 5
+}

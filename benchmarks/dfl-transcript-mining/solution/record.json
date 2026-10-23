@@ -1,0 +1,66 @@
+{
+  "item_id": "synth-acme-main-1",
+  "session_id": "synth-acme-main-1",
+  "is_subagent": false,
+  "parent_session_id": null,
+  "first_ts": "2026-01-05T10:00:00Z",
+  "last_ts": "2026-01-05T10:24:00Z",
+  "directive_violations": [
+    {
+      "rule": "CI runner: always fleet-x",
+      "evidence_quote": "I will move the job to ubuntu-hosted-large.",
+      "evidence_pointer": "synth-acme-main-1@2026-01-05T10:02:00Z",
+      "severity": "med"
+    },
+    {
+      "rule": "Docs follow the change",
+      "evidence_quote": "I will add the fleet-x runner to the README in a follow-up change.",
+      "evidence_pointer": "synth-acme-main-1@2026-01-05T10:21:00Z",
+      "severity": "low"
+    }
+  ],
+  "skill_routing_misses": [
+    {
+      "skill": "safe-merge",
+      "what_was_run_instead": "git-cli merge acme/acme-widget 42 --squash",
+      "why_plausible": "The agent had just read the checks with ci-cli, so a direct merge looked like the short path; safe-merge repeats that check on the head commit.",
+      "evidence_pointer": "synth-acme-main-1@2026-01-05T10:13:00Z"
+    }
+  ],
+  "improvement_signals": [],
+  "decision_candidates": [
+    {
+      "decision_text": "Every acme-widget CI job runs on the fleet-x runner, never on a hosted runner.",
+      "date": "2026-01-05",
+      "decided_by": "tainan",
+      "domain": "infra",
+      "evidence_pointer": "synth-acme-main-1@2026-01-05T10:03:30Z"
+    },
+    {
+      "decision_text": "The widget cache stays at 512 MB.",
+      "date": "2026-01-05",
+      "decided_by": "tainan",
+      "domain": "infra",
+      "evidence_pointer": "synth-acme-main-1@2026-01-05T10:08:00Z"
+    }
+  ],
+  "tainan_corrections": [
+    { "quote": "não, nada de hosted. usa o runner fleet-x, sempre", "topic": "runner choice", "evidence_pointer": "synth-acme-main-1@2026-01-05T10:03:00Z" },
+    { "quote": "você esqueceu de atualizar o README com o runner novo", "topic": "README not updated", "evidence_pointer": "synth-acme-main-1@2026-01-05T10:20:00Z" }
+  ],
+  "skill_gaps": [],
+  "session_meta": {
+    "domain": "infra",
+    "type": "bugfix",
+    "outcome": "pr_merged",
+    "links": ["https://git.example.test/acme/acme-widget/pull/42", "https://plans.example.test/20260105-acme-widget-runner"],
+    "one_line_summary": "Fixed the red acme-widget CI by moving its jobs to the fleet-x runner and merged pull request 42."
+  },
+  "knowledge_nuggets": [
+    {
+      "claim": "The hosted-small runners of acme run out of disk on the acme-widget build; the fleet-x runner does not.",
+      "where_it_belongs": "acme-widget README, CI section",
+      "evidence_pointer": "synth-acme-main-1@2026-01-05T10:01:00Z"
+    }
+  ]
+}

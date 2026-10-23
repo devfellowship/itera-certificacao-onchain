@@ -1,0 +1,38 @@
+{
+  "item_id": "synth-acme-main-1",
+  "session_meta": {
+    "domain": "infra",
+    "type": "bugfix",
+    "outcome": "pr_merged",
+    "links": ["https://git.example.test/acme/acme-widget/pull/42", "https://plans.example.test/20260105-acme-widget-runner"]
+  },
+  "tainan_corrections": [
+    { "anchor_quote": "não, nada de hosted. usa o runner fleet-x, sempre", "msg": 6, "ts": "2026-01-05T10:03:00Z", "topic": "runner choice", "tier": "core" },
+    { "anchor_quote": "você esqueceu de atualizar o README com o runner novo", "msg": 17, "ts": "2026-01-05T10:20:00Z", "topic": "README not updated", "tier": "core" },
+    { "anchor_quote": "o cache do widget fica em 512 MB, não mexe nisso", "msg": 11, "ts": "2026-01-05T10:08:00Z", "topic": "cache size", "tier": "acceptable" }
+  ],
+  "decision_candidates": [
+    {
+      "decision_text": "Every acme-widget CI job runs on the fleet-x runner, never on a hosted runner.",
+      "anchor_quote": "From now on every job of acme-widget runs on the fleet-x runner",
+      "msg": 7,
+      "also_msgs": [6],
+      "ts": "2026-01-05T10:03:30Z",
+      "key_terms": ["fleet-x", "acme-widget", "runner"],
+      "decided_by": "tainan",
+      "domain": "infra",
+      "tier": "core"
+    },
+    {
+      "decision_text": "The widget cache stays at 512 MB.",
+      "anchor_quote": "o cache do widget fica em 512 MB",
+      "msg": 11,
+      "also_msgs": [12],
+      "ts": "2026-01-05T10:08:00Z",
+      "key_terms": ["cache", "512"],
+      "decided_by": "tainan",
+      "domain": "infra",
+      "tier": "core"
+    }
+  ]
+}
