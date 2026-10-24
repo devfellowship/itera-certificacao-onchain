@@ -1,0 +1,51 @@
+name: web3 hermetic services
+description: >
+  Starts the stubs (model, SOL/USD price, Pinata, IPFS gateway), the API (apps/api) and the runner
+  worker (services/runner) from the code of THIS commit, on the stack of ./.github/actions/web3-hermetic-stack.
+  The caller sets STUB_PORT, API_PORT, E2E_DIR and DATABASE_URL in the job env.
+
+inputs:
+  cors-origins:
+    description: Extra value for ITERA_API_CORS_ORIGINS (a web origin of the job). Empty keeps the API default.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Start the stubs, the API and the runner worker (from this commit)
+      shell: bash
+      env:
+        CORS_ORIGINS: ${{ inputs.cors-origins }}
+      run: |
+        set -euo pipefail
+        nohup node scripts/e2e/hermetic/stubs.mjs --port "$STUB_PORT" \
+          --patch benchmarks/webhook-ledger/solution/solution.patch > "$E2E_DIR/stubs.log" 2>&1 &
+        STUB="http://127.0.0.1:$STUB_PORT"
+        common=(
+          DATABASE_URL="$DATABASE_URL" ITERA_DB_SSL=disable
+          ITERA_RUN_KEY_SECRET=e2e-local-run-key-secret-not-a-real-secret-0001
+          ITERA_SOLANA_RPC_URL=http://127.0.0.1:8899 ITERA_SOLANA_WSS_URL=ws://127.0.0.1:8900
+        )
+        api_extra=()
+        if [ -n "$CORS_ORIGINS" ]; then api_extra+=(ITERA_API_CORS_ORIGINS="$CORS_ORIGINS"); fi
+        env "${common[@]}" "${api_extra[@]}" PORT="$API_PORT" ITERA_API_TRUST_PROXY=0 \
+          ITERA_SESSION_SECRET=e2e-local-session-secret-not-a-real-secret-01 \
+          ITERA_MODELS_SYNC=off ITERA_MCP_CATALOG_SYNC=off \
+          ITERA_TREASURY_ADDRESS="$TREASURY_ADDRESS" \
+          ITERA_PYTH_HERMES_URL="$STUB" ITERA_COINGECKO_URL="$STUB" \
+          ITERA_PINATA_API_URL="$STUB" PINATA_JWT=e2e-stub-not-a-real-token \
+          ITERA_PUBLIC_API_BASE_URL="http://127.0.0.1:$API_PORT" \
+          ITERA_EVALUATION_ISSUER_INTERVAL_MS=3000 \
+          nohup npx tsx apps/api/src/server.ts > "$E2E_DIR/api.log" 2>&1 &
+        env "${common[@]}" ITERA_RUNNER_OPENROUTER_KEY=e2e-stub-not-a-real-key \
+          ITERA_MODEL_UPSTREAM="http://$DOCKER_BRIDGE_IP:$STUB_PORT" \
+          ITERA_RUNNER_CONCURRENCY=1 ITERA_RUNNER_POLL_MS=1000 ITERA_USER_TASKS=off \
+          ITERA_WORKER_NAME=e2e-guard \
+          nohup npx tsx services/runner/src/worker.ts > "$E2E_DIR/worker.log" 2>&1 &
+        for i in $(seq 1 60); do curl -sf "http://127.0.0.1:$API_PORT/health" >/dev/null && break; sleep 2; done
+        curl -sf "http://127.0.0.1:$API_PORT/health"
+        curl -sf "$STUB/health"
+        # The worker builds the sandbox image at boot, then logs {"event":"boot"}.
+        for i in $(seq 1 240); do grep -q '"event":"boot"' "$E2E_DIR/worker.log" && break; grep -q '"event":"fatal"' "$E2E_DIR/worker.log" && break; sleep 2; done
+        grep '"event":"boot"' "$E2E_DIR/worker.log" || { tail -50 "$E2E_DIR/worker.log"; exit 1; }
