@@ -146,6 +146,21 @@
   color: var(--tma-text-secondary);
   font-size: 13px;
 }
+.tdp-evaluation__model {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.tdp-evaluation__model .tma-model-label__text {
+  overflow: hidden;
+  color: var(--tma-text);
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
 .tdp-evaluation__date > span,
 .tdp-evaluation__tests {
   font-size: 12px;

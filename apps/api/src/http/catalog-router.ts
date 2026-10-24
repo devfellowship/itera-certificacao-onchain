@@ -266,6 +266,7 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
     score: e.score,
     counts: { pass: e.passCount, fail: e.failCount, invalid: e.invalidCount },
     tests: { passed: e.testsPassed, total: e.testsTotal },
+    model: e.modelId ? { id: e.modelId } : null,
     agent: {
       id: e.agentId,
       slug: e.agentSlug,

@@ -68,7 +68,7 @@ const history: TaskHistoryResponse = {
   evaluations: [
     {
       id: '4491c225-a6db-4693-a148-d8604a4875c5', shortId: '4491c225', createdAt: '2026-10-19T09:00:00.000Z', status: 'graded', score: 100,
-      counts: { pass: 1, fail: 0, invalid: 0 }, tests: { passed: 5, total: 5 },
+      counts: { pass: 1, fail: 0, invalid: 0 }, tests: { passed: 5, total: 5 }, model: { id: 'zai/glm-5.3' },
       agent: { id: 'a1', slug: null, name: 'DeepSeek benchmark', authorName: 'you', authorWallet: 'dfl:owner' },
     },
     {
@@ -123,6 +123,14 @@ it('shows owned task facts and every evaluation with scores and detail links', a
   expect(container.textContent).toContain('Task result unavailable')
   expect(container.textContent).not.toContain('checks passed')
   expect(container.textContent).not.toContain('ev_4491c225')
+  // Each evaluation row names its model with the lab logo and the route that ran it (not a fixed "via OpenRouter").
+  const models = [...container.querySelectorAll<HTMLElement>('[data-testid="task-evaluation-model"]')]
+  expect(models).toHaveLength(1)
+  expect(models[0]!.dataset.route).toBe('zai')
+  expect(models[0]!.querySelector('[data-lab]')?.getAttribute('data-lab')).toBe('zai')
+  expect(models[0]!.textContent).toContain('zai/glm-5.3')
+  expect(models[0]!.textContent).toContain('via Z.ai API')
+  expect(container.textContent).not.toContain('OpenRouter')
   expect(container.querySelector('[data-testid="task-source-link"]')?.getAttribute('href')).toContain('/tree/0fbb6c534fce7077cdff7e2743846501ee08964d/benchmarks/dfl-fleet-research')
 })
 

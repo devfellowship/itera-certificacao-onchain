@@ -8,7 +8,7 @@ import { useParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { api, ApiError } from '../lib/api'
 import type { Outcome, PublicEvaluation, ScorePartKey } from '../lib/api/types'
-import { AgentAvatar, Badge, Button, ButtonLink, Input, Lockup, Logo, ModelLabel, StatusChip, TagPill } from '../tma/ui'
+import { AgentAvatar, Badge, Button, ButtonLink, Input, Lockup, Logo, ModelLabel, routeOf, StatusChip, TagPill } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
 import { NotFoundPage } from './NotFoundPage'
 import './public-profile.css'
@@ -162,7 +162,7 @@ function Profile({ data }: { data: PublicEvaluation }) {
             <div className="pp-hero__names">
               <h1 className="pp-display">{data.agent.name}</h1>
               <span className="pp-byline">
-                by <span className="pp-byline__owner" title={data.owner?.wallet}>{data.agent.authorName}</span> · <ModelLabel model={data.agent.modelId} label={data.agent.modelLabel} size={20} className="pp-byline__model" /> via OpenRouter
+                by <span className="pp-byline__owner" title={data.owner?.wallet}>{data.agent.authorName}</span> · <ModelLabel model={data.agent.modelId} label={data.agent.modelLabel} size={20} className="pp-byline__model" /> <span data-testid="profile-model-route" data-route={routeOf(data.agent.modelId).key}>via {routeOf(data.agent.modelId).name}</span>
                 {data.agent.commit && (
                   <>
                     {' '}
