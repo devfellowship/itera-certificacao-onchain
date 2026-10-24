@@ -1,28 +1,18 @@
-import anthropic from './model-logos/anthropic.svg'
-import openai from './model-logos/openai.svg'
-import google from './model-logos/google.svg'
-import qwen from './model-logos/qwen.svg'
-import deepseek from './model-logos/deepseek.svg'
-import zai from './model-logos/zai.svg'
-import kimi from './model-logos/kimi.svg'
-import xai from './model-logos/xai.svg'
-import meta from './model-logos/meta.svg'
-import mistral from './model-logos/mistral.svg'
-import generic from './model-logos/generic.svg'
+import { FALLBACK_LAB, labOf } from './model-provider'
 
-import { PROVIDER_NAME, providerOf, type ProviderKey } from './model-provider'
-
-const LOGO: Record<ProviderKey, string> = { anthropic, openai, google, qwen, deepseek, zai, kimi, xai, meta, mistral, generic }
+// Every vendored logo, by file name. A new lab needs only its model-labs.json entry and its SVG file.
+const LOGO_URLS = import.meta.glob<string>('./model-logos/*.svg', { eager: true, query: '?url', import: 'default' })
+const logoUrl = (file: string) => LOGO_URLS[`./model-logos/${file}`] ?? LOGO_URLS[`./model-logos/${FALLBACK_LAB.logo}`]
 
 type Props = { model?: string | null; provider?: string | null; label?: string | null; size?: 14 | 16 | 18 | 20 | 24 | 28 }
 
-/** Provider logo of a model in a small white rounded tile. Decorative: the model name is always printed next to it. */
+/** Lab logo of a model in a small white rounded tile. Decorative: the model name is always printed next to it. */
 export function ModelAvatar({ model, provider, label, size = 20 }: Props) {
-  const key = providerOf({ id: model, provider, label })
+  const lab = labOf({ id: model, provider, label })
   const mark = Math.round(size * 0.7)
   return (
-    <span className="tma-model-avatar" data-provider={key} title={PROVIDER_NAME[key]} aria-hidden="true" style={{ width: size, height: size, borderRadius: Math.max(4, Math.round(size / 4)) }}>
-      <img className="tma-model-avatar__mark" src={LOGO[key]} alt="" width={mark} height={mark} draggable={false} />
+    <span className="tma-model-avatar" data-provider={lab.key} data-lab={lab.key} title={lab.name} aria-hidden="true" style={{ width: size, height: size, borderRadius: Math.max(4, Math.round(size / 4)) }}>
+      <img className="tma-model-avatar__mark" src={logoUrl(lab.logo)} alt="" width={mark} height={mark} draggable={false} />
     </span>
   )
 }

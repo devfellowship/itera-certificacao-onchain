@@ -1,0 +1,34 @@
+{
+  "$comment": [
+    "Model -> lab mapping of apps/web2 (the web3 client apps/web has its own copy and does not read this file).",
+    "To add a lab: add one entry below and put its logo in model-logos/<logo>. No code change.",
+    "Match order: (1) the id prefix before '/' (a leading '~' is dropped) against 'openrouter';",
+    "(2) the regex 'patterns' on the id prefix, the provider name, the full id, then the label. The first lab that matches wins.",
+    "A route prefix in 'routePrefixes' (ollama/, opencode-go/, ...) is not a lab: it is skipped and the model name after it decides.",
+    "A local (ollama) model shows its original lab: gemma = Google, qwen = Alibaba, gpt-oss = OpenAI, ministral = Mistral, glm = Zhipu.",
+    "No match -> the 'fallback' lab (neutral sparkle).",
+    "'openrouter' = the author slugs of https://openrouter.ai/api/v1/models (read once on 2026-10-24 to build this list; the UI never calls OpenRouter)."
+  ],
+  "routePrefixes": ["ollama", "opencode-go", "opencode", "openrouter", "local", "lmstudio", "vllm"],
+  "fallback": { "key": "generic", "name": "Unknown lab", "logo": "generic.svg" },
+  "labs": [
+    { "key": "anthropic", "name": "Anthropic", "logo": "anthropic.svg", "openrouter": ["anthropic"], "patterns": ["anthropic", "claude", "fable", "\\bopus", "sonnet", "haiku"] },
+    { "key": "openai", "name": "OpenAI", "logo": "openai.svg", "openrouter": ["openai"], "patterns": ["openai", "\\bgpt", "chatgpt", "\\bo[134](-|\\b)", "codex"] },
+    { "key": "google", "name": "Google", "logo": "google.svg", "openrouter": ["google"], "patterns": ["google", "gemini", "gemma"] },
+    { "key": "qwen", "name": "Alibaba (Qwen)", "logo": "qwen.svg", "openrouter": ["qwen", "alibaba"], "patterns": ["qwen", "\\bqwq", "alibaba", "tongyi"] },
+    { "key": "deepseek", "name": "DeepSeek", "logo": "deepseek.svg", "openrouter": ["deepseek"], "patterns": ["deepseek"] },
+    { "key": "zai", "name": "Zhipu AI (Z.ai)", "logo": "zai.svg", "openrouter": ["z-ai", "thudm"], "patterns": ["z-ai", "z\\.ai", "\\bzai\\b", "zhipu", "\\bglm", "chatglm"] },
+    { "key": "kimi", "name": "Moonshot AI", "logo": "kimi.svg", "openrouter": ["moonshotai"], "patterns": ["moonshot", "kimi"] },
+    { "key": "xai", "name": "xAI", "logo": "xai.svg", "openrouter": ["x-ai"], "patterns": ["x-ai", "\\bxai\\b", "grok"] },
+    { "key": "nvidia", "name": "NVIDIA", "logo": "nvidia.svg", "openrouter": ["nvidia"], "patterns": ["nvidia", "nemotron"] },
+    { "key": "meta", "name": "Meta", "logo": "meta.svg", "openrouter": ["meta-llama", "meta"], "patterns": ["meta-llama", "\\bmeta\\b", "\\bllama"] },
+    { "key": "mistral", "name": "Mistral AI", "logo": "mistral.svg", "openrouter": ["mistralai"], "patterns": ["mistral", "ministral", "mixtral", "codestral", "devstral", "magistral", "pixtral", "voxtral"] },
+    { "key": "minimax", "name": "MiniMax", "logo": "minimax.svg", "openrouter": ["minimax"], "patterns": ["minimax"] },
+    { "key": "cohere", "name": "Cohere", "logo": "cohere.svg", "openrouter": ["cohere"], "patterns": ["cohere", "command-r", "command-a", "\\baya\\b"] },
+    { "key": "microsoft", "name": "Microsoft", "logo": "microsoft.svg", "openrouter": ["microsoft"], "patterns": ["microsoft", "\\bphi-?\\d", "wizardlm"] },
+    { "key": "amazon", "name": "Amazon", "logo": "amazon.svg", "openrouter": ["amazon"], "patterns": ["amazon", "\\bnova-(pro|lite|micro|premier)"] },
+    { "key": "tencent", "name": "Tencent", "logo": "tencent.svg", "openrouter": ["tencent"], "patterns": ["tencent", "hunyuan"] },
+    { "key": "bytedance", "name": "ByteDance Seed", "logo": "bytedance.svg", "openrouter": ["bytedance-seed", "bytedance"], "patterns": ["bytedance", "doubao", "seed-oss"] },
+    { "key": "xiaomi", "name": "Xiaomi", "logo": "xiaomi.svg", "openrouter": ["xiaomi"], "patterns": ["xiaomi", "\\bmimo"] }
+  ]
+}
