@@ -1,0 +1,123 @@
+name: web3 hermetic stack
+description: >
+  The hermetic stack of the web3 e2e guard, from the code of THIS commit: Node and npm ci, the
+  Agave CLI, fresh job keys, solana-test-validator with the SAS program and the TestMyAgent
+  Credential / Schema / schema mint at their real addresses, and Postgres with db/migrations/*.sql
+  plus the agent fixture. Every key is generated in the job. No repository secret is used.
+  It writes to GITHUB_ENV: HOT_SIGNER_ADDRESS, TREASURY_ADDRESS, E2E_WALLET_ADDRESS,
+  E2E_WALLET_SECRET_B58 (masked), ITERA_HOT_SIGNER_KEYPAIR_PATH, DOCKER_BRIDGE_IP and E2E_AGENT_ID.
+  The caller sets AGAVE_VERSION, E2E_DIR, DATABASE_URL_ADMIN and DATABASE_URL in the job env.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+    - name: Restore the npm cache
+      id: npm-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.npm
+        key: node-cache-${{ runner.os }}-${{ runner.arch }}-npm-${{ hashFiles('**/package-lock.json') }}
+    - run: npm ci
+      shell: bash
+    - name: Save the npm cache (main only)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.npm-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.npm
+        key: node-cache-${{ runner.os }}-${{ runner.arch }}-npm-${{ hashFiles('**/package-lock.json') }}
+
+    - name: Use a Docker Hub mirror
+      shell: bash
+      run: |
+        echo '{"registry-mirrors":["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+        sudo systemctl restart docker
+
+    - name: Cache the Agave (Solana) CLI
+      id: agave-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/agave/${{ env.AGAVE_VERSION }}
+        key: agave-${{ env.AGAVE_VERSION }}-x86_64-linux
+    - name: Install the Agave (Solana) CLI
+      if: steps.agave-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p ~/.cache/agave/$AGAVE_VERSION
+        curl -sSfL --retry 4 -o /tmp/agave.tar.bz2 \
+          "https://github.com/anza-xyz/agave/releases/download/$AGAVE_VERSION/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+        tar -xjf /tmp/agave.tar.bz2 -C ~/.cache/agave/$AGAVE_VERSION
+    - name: Save the Agave (Solana) CLI cache (main only)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.agave-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/agave/${{ env.AGAVE_VERSION }}
+        key: agave-${{ env.AGAVE_VERSION }}-x86_64-linux
+    - name: Put the Agave CLI on PATH
+      shell: bash
+      run: |
+        echo "$HOME/.cache/agave/$AGAVE_VERSION/solana-release/bin" >> "$GITHUB_PATH"
+        "$HOME/.cache/agave/$AGAVE_VERSION/solana-release/bin/solana-test-validator" --version
+
+    - name: Generate the job keys (hot signer, treasury, paying wallet)
+      shell: bash
+      run: |
+        set -euo pipefail
+        node scripts/e2e/hermetic/keys.mjs "$E2E_DIR"
+        secret=$(grep '^E2E_WALLET_SECRET_B58=' "$E2E_DIR/keys.env" | cut -d= -f2)
+        echo "::add-mask::$secret"
+        cat "$E2E_DIR/keys.env" >> "$GITHUB_ENV"
+        echo "ITERA_HOT_SIGNER_KEYPAIR_PATH=$E2E_DIR/hot-signer.json" >> "$GITHUB_ENV"
+        echo "DOCKER_BRIDGE_IP=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')" >> "$GITHUB_ENV"
+
+    - name: SAS accounts for the local validator (read from devnet, hot signer added)
+      shell: bash
+      run: node scripts/e2e/hermetic/setup-chain.mjs --hot-signer "$E2E_DIR/hot-signer.json" --out "$E2E_DIR/accounts"
+
+    - name: Start solana-test-validator (SAS program cloned from devnet)
+      shell: bash
+      run: |
+        set -euo pipefail
+        accounts=()
+        for f in "$E2E_DIR"/accounts/*.json; do
+          accounts+=(--account "$(node -p "require('$f').pubkey")" "$f")
+        done
+        nohup solana-test-validator --reset --quiet --ledger "$E2E_DIR/ledger" \
+          --url https://api.devnet.solana.com \
+          --clone-upgradeable-program 22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG \
+          "${accounts[@]}" > "$E2E_DIR/validator.log" 2>&1 &
+        for i in $(seq 1 90); do
+          if solana cluster-version --url http://127.0.0.1:8899 >/dev/null 2>&1; then break; fi
+          sleep 2
+        done
+        solana cluster-version --url http://127.0.0.1:8899
+        solana account 22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG --url http://127.0.0.1:8899 | head -4
+
+    - name: Fund the job keys on the local validator
+      shell: bash
+      run: |
+        set -euo pipefail
+        for a in "$HOT_SIGNER_ADDRESS" "$TREASURY_ADDRESS" "$E2E_WALLET_ADDRESS"; do
+          solana airdrop 10 "$a" --url http://127.0.0.1:8899 --commitment confirmed
+        done
+
+    # Not a `services:` container: the Docker Hub mirror step restarts dockerd, which kills it.
+    - name: Database (roles, migrations in order, fixtures)
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker run -d --name e2e-postgres -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16-alpine
+        for i in $(seq 1 60); do pg_isready -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1 && break; sleep 1; done
+        pg_isready -h 127.0.0.1 -p 5432 -U postgres
+        psql "$DATABASE_URL_ADMIN" -v ON_ERROR_STOP=1 -q -f scripts/e2e/hermetic/db-pre.sql
+        for f in db/migrations/*.sql; do
+          echo "apply $f"
+          psql "$DATABASE_URL_ADMIN" -v ON_ERROR_STOP=1 -q -f "$f" > /dev/null
+        done
+        out=$(psql "$DATABASE_URL_ADMIN" -v ON_ERROR_STOP=1 -tA -v wallet="$E2E_WALLET_ADDRESS" -v model=qwen/qwen3-coder -f scripts/e2e/hermetic/db-seed.sql)
+        agent=$(echo "$out" | grep '^AGENT_ID=' | cut -d= -f2)
+        test -n "$agent"
+        echo "E2E_AGENT_ID=$agent" >> "$GITHUB_ENV"

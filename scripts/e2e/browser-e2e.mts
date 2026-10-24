@@ -45,13 +45,13 @@
  * The MCP demo task (tsk_helpdesk_refunds) has a step that stays skipped until its images on GHCR are
  * public: it runs when an anonymous pull of ghcr.io/devfellowship/itera-mcp-helpdesk succeeds.
  */
-import { createPrivateKey, sign as edSign } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { getBase58Encoder } from "@solana/kit";
-import { Keypair, Transaction, VersionedTransaction } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import { chromium, type BrowserContext, type Page } from "playwright";
+import { createTestWallet } from "./lib/test-wallet.mts";
 
 // ------------------------------------------------------------------------------------------------
 // Options
@@ -109,86 +109,13 @@ if (!SAMPLE && !secretB58) {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Wallet (Node side). The page never sees the secret.
+// Wallet (Node side, scripts/e2e/lib/test-wallet.mts). The page never sees the secret.
 
-const ED25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
 // --sample: a fresh in-memory wallet; its secret is never printed or written.
 const secretBytes = SAMPLE ? Keypair.generate().secretKey : Uint8Array.from(getBase58Encoder().encode(secretB58!));
-const keypair = Keypair.fromSecretKey(secretBytes);
-const PUB = keypair.publicKey.toBase58();
-const edKey = createPrivateKey({ key: Buffer.concat([ED25519_PKCS8_PREFIX, Buffer.from(secretBytes.subarray(0, 32))]), format: "der", type: "pkcs8" });
-
-const signCalls = { message: 0, transaction: 0 };
-
-function signMessageB64(b64: string): string {
-  signCalls.message++;
-  return edSign(null, Buffer.from(b64, "base64"), edKey).toString("base64");
-}
-
-function signTransactionB64(b64: string): string {
-  signCalls.transaction++;
-  const bytes = Buffer.from(b64, "base64");
-  try {
-    const tx = Transaction.from(bytes);
-    tx.partialSign(keypair);
-    return tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
-  } catch {
-    const vtx = VersionedTransaction.deserialize(bytes);
-    vtx.sign([keypair]);
-    return Buffer.from(vtx.serialize()).toString("base64");
-  }
-}
-
-/**
- * Init script (plain JavaScript, kept as a string so the TypeScript loader cannot inject helpers into it).
- * It runs in the page before any app script and registers a Wallet Standard wallet that calls back
- * into Node (`window.__tmaSign`) to sign.
- */
-function walletInitScript(pub: string, name: string): string {
-  return `(() => {
-  const pub = ${JSON.stringify(pub)};
-  const name = ${JSON.stringify(name)};
-  const b64 = (u8) => { let s = ''; for (const b of u8) s += String.fromCharCode(b); return btoa(s); };
-  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-  const ALPH = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-  const b58dec = (s) => {
-    const bytes = [0];
-    for (const c of s) {
-      let carry = ALPH.indexOf(c);
-      for (let j = 0; j < bytes.length; j++) { carry += bytes[j] * 58; bytes[j] = carry & 0xff; carry >>= 8; }
-      while (carry) { bytes.push(carry & 0xff); carry >>= 8; }
-    }
-    for (const c of s) { if (c === '1') bytes.push(0); else break; }
-    return new Uint8Array(bytes.reverse());
-  };
-  const chains = ['solana:devnet', 'solana:mainnet', 'solana:testnet'];
-  const account = { address: pub, publicKey: b58dec(pub), chains, features: ['solana:signMessage', 'solana:signTransaction'], label: 'TMA test', icon: undefined };
-  const wallet = {
-    version: '1.0.0',
-    name,
-    icon: 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#3fd17f"/></svg>'),
-    chains,
-    get accounts() { return window.__tmaConnected ? [account] : []; },
-    features: {
-      'standard:connect': { version: '1.0.0', connect: async () => { window.__tmaConnected = true; return { accounts: [account] }; } },
-      'standard:disconnect': { version: '1.0.0', disconnect: async () => { window.__tmaConnected = false; } },
-      'standard:events': { version: '1.0.0', on: () => () => {} },
-      'solana:signMessage': {
-        version: '1.0.0',
-        signMessage: async (...inputs) => Promise.all(inputs.map(async (i) => ({ signedMessage: i.message, signature: unb64(await window.__tmaSign('message', b64(i.message))) }))),
-      },
-      'solana:signTransaction': {
-        version: '1.0.0',
-        supportedTransactionVersions: ['legacy', 0],
-        signTransaction: async (...inputs) => Promise.all(inputs.map(async (i) => ({ signedTransaction: unb64(await window.__tmaSign('tx', b64(i.transaction))) }))),
-      },
-    },
-  };
-  const register = ({ register }) => register(wallet);
-  window.addEventListener('wallet-standard:app-ready', (e) => register(e.detail));
-  try { window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', { detail: register })); } catch (e) {}
-})();`;
-}
+const wallet = createTestWallet(secretBytes);
+const PUB = wallet.pub;
+const signCalls = wallet.signCalls;
 
 // ------------------------------------------------------------------------------------------------
 // Step runner and the three page assertions
@@ -425,8 +352,8 @@ async function main(): Promise<void> {
   const chromePath = argv.chrome || (existsSync("/usr/bin/google-chrome") ? "/usr/bin/google-chrome" : undefined);
   const browser = await chromium.launch({ executablePath: chromePath, args: ["--no-sandbox"] });
   const context: BrowserContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await context.exposeFunction("__tmaSign", (kind: string, b64: string) => (kind === "message" ? signMessageB64(b64) : signTransactionB64(b64)));
-  await context.addInitScript({ content: walletInitScript(PUB, WALLET_NAME) });
+  await context.exposeFunction("__tmaSign", (kind: string, b64: string) => wallet.sign(kind, b64));
+  await context.addInitScript({ content: wallet.initScript(WALLET_NAME) });
   page = await context.newPage();
   // Armed before the first goto.
   page.on("pageerror", (e) => pageErrors.push({ at: Date.now(), step: currentStep, message: String(e) }));
