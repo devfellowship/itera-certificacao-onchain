@@ -153,7 +153,14 @@ async function step(name: string, fn: (c: StepCtx) => Promise<string>): Promise<
   const ctx: StepCtx = {
     async verify(name, root, control, min) {
       // 1. MOUNT: the SPA root has content and the page's root element is visible.
-      await page.locator(root).first().waitFor({ state: "visible", timeout: 45_000 });
+      await page
+        .locator(root)
+        .first()
+        .waitFor({ state: "visible", timeout: 45_000 })
+        .catch(() => {
+          const errs = pageErrors.slice(errorsBefore);
+          throw new Assertion(`MOUNT: ${root} is not visible after 45 s${errs.length ? `; ${errs.length} pageerror event(s): ${errs[0].message.slice(0, 300)}` : ""}`);
+        });
       const rootLen = await page.evaluate(() => document.querySelector("#root")?.innerHTML.length ?? 0);
       must(rootLen > 200, `#root is (nearly) empty: ${rootLen} bytes of HTML`);
       // 3. CONTROL: positive data (waits for the data to load).
