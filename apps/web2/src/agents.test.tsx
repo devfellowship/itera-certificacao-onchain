@@ -127,6 +127,20 @@ describe('agents pages (web2 copy, no web3 parts)', () => {
     expect(c.querySelector('[data-testid="open-evaluation-profile"]')).not.toBeNull()
   })
 
+  it('AgentDetailPage names the real route of the model, not a fixed "via OpenRouter"', async () => {
+    const c = mountAt('/agents/agent-1', () => json(200, { ...profile, model: { id: 'ollama/gemma4:12b', label: 'gemma4:12b', release: null } }))
+    await waitFor(() => c.textContent!.includes('Profile Agent'), 'profile')
+    const route = c.querySelector<HTMLElement>('[data-testid="agent-model-route"]')
+    expect(route?.textContent).toBe('via local Ollama')
+    expect(route?.dataset.route).toBe('ollama')
+    act(() => root?.unmount())
+    root = undefined
+    document.body.innerHTML = ''
+    const d = mountAt('/agents/agent-1', () => json(200, profile))
+    await waitFor(() => d.textContent!.includes('Profile Agent'), 'profile')
+    expect(d.querySelector('[data-testid="agent-model-route"]')?.textContent).toBe('via OpenRouter')
+  })
+
   it('formats private history, shows owned task results and owner controls', async () => {
     saveSession({ token: 'owner-token', user: { id: 'dfl:1', email: 'owner@example.com' } })
     const owned = {

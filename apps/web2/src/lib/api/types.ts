@@ -141,6 +141,8 @@ export interface TaskHistoryEvaluation {
   score: number | null
   counts: OutcomeCounts
   tests: { passed: number; total: number }
+  /** The model of the evaluation (evaluations.model_id); the row shows its lab logo and route. */
+  model?: { id: string } | null
   agent: {
     id: string
     slug: string | null

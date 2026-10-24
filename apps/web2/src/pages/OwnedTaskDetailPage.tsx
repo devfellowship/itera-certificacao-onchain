@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { TaskHistoryEvaluation, TaskHistoryResponse } from '../lib/api'
-import { AgentAvatar, Badge, Breadcrumb, ButtonLink, StatusChip, TagPill } from '../tma/ui'
+import { AgentAvatar, Badge, Breadcrumb, ButtonLink, ModelLabel, routeOf, StatusChip, TagPill } from '../tma/ui'
 import { AppNav } from '../tma/nav/AppNav'
 import './owned-task-detail.css'
 
@@ -33,6 +33,11 @@ function EvaluationRow({ evaluation }: { evaluation: TaskHistoryEvaluation }) {
         <span className="tdp-evaluation__agent-copy">
           <strong>{evaluation.agent.name}</strong>
           <span>by {evaluation.agent.authorName}</span>
+          {evaluation.model?.id && (
+            <span className="tdp-evaluation__model" data-testid="task-evaluation-model" data-route={routeOf(evaluation.model.id).key}>
+              <ModelLabel model={evaluation.model.id} label={evaluation.model.id} size={16} /> <span className="tdp-muted">via {routeOf(evaluation.model.id).name}</span>
+            </span>
+          )}
         </span>
       </span>
       <span className="tdp-evaluation__date">

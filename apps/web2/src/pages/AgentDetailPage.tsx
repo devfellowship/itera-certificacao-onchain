@@ -10,7 +10,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { ApiError, api } from '../lib/api'
 import type { AgentEvidenceRow, AgentProfileResponse, MyResultRow } from '../lib/api'
-import { AgentAvatar, Badge, Breadcrumb, Button, ButtonLink, Card, Input, ModelLabel, TagPill, Table, TableEmpty, type Column } from '../tma/ui'
+import { AgentAvatar, Badge, Breadcrumb, Button, ButtonLink, Card, Input, ModelLabel, routeOf, TagPill, Table, TableEmpty, type Column } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
 import { AvatarCropper, renderCrop, type CropState } from './profile-settings/AvatarCropper'
 import './profile-settings/profile-settings.css'
@@ -190,7 +190,7 @@ function Ready({ profile, signedIn, onConnect, onChanged }: { profile: AgentProf
               </h1>
               <span className="tad-meta">
                 by <span className="tad-meta__strong">{agent.authorName}</span>
-                {agent.listedAt && <> · listed {longDate.format(new Date(agent.listedAt))}</>} · <ModelLabel model={model.id} label={model.label} size={20} className="tad-meta__model" /> via OpenRouter
+                {agent.listedAt && <> · listed {longDate.format(new Date(agent.listedAt))}</>} · <ModelLabel model={model.id} label={model.label} size={20} className="tad-meta__model" /> <span data-testid="agent-model-route" data-route={routeOf(model.id).key}>via {routeOf(model.id).name}</span>
                 {source.commitShort && (
                   <>
                     {' '}
