@@ -238,6 +238,21 @@ CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every PR and
 whose hidden tests try to escape), Docker builds of the images, and the MCP catalog conformance
 tests.
 
+The web3 e2e guard ([`.github/workflows/web3-e2e-guard.yml`](.github/workflows/web3-e2e-guard.yml))
+tests the web3 flow against the code of the PR, never the deployed app. It starts its own stack:
+Postgres with the migrations, `solana-test-validator` with the SAS program, the API, the runner
+worker, and stubs for the model, the price feed and IPFS. Every key is generated in the job. It has
+two jobs:
+
+- `web3-e2e` drives the API flow (SIWS, quote, payment, run, grade, attestation, verify).
+- `web3-browser-e2e` drives `apps/web` in Chrome with an injected throwaway test wallet: sign in,
+  quote, pay with one signature, the evaluation to `issued`, the score on `/e/:slug`, and Verify to
+  `VERIFIED`. Every step asserts that the root mounts, zero `pageerror` events, and a positive-data
+  control.
+
+A `changes` job applies the path filter. A PR outside the web3 paths gets both e2e jobs as
+`skipped`, so the checks always report.
+
 End-to-end checks against a deployed environment, with a real devnet wallet:
 
 - `npm run e2e:api -- --base <api-url>` drives SIWS, catalog, agent, quote, one signed payment,
