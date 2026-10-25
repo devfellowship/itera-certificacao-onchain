@@ -43,6 +43,10 @@ jobs:
       # host, a corpus marker, a chat id or a secret in the task folder (its check.mjs above also mutation-tests this scan).
       - name: Transcript-mining denylist
         run: node benchmarks/dfl-transcript-mining/fixtures/denylist.mjs
+      # dfl-session-decision-trajectory-extraction: the real session bundles and references are private. The same scan
+      # (pinned rubric files keep their contract enum values; its check.mjs above mutation-tests the scan and the pins).
+      - name: Session-trajectory denylist
+        run: node benchmarks/dfl-session-decision-trajectory-extraction/fixtures/denylist.mjs
       - run: npm run check
       - run: npm run test
       - run: npm run build

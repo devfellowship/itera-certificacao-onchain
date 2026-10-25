@@ -1,0 +1,39 @@
+{
+  "$schema": "../../packages/contracts/schemas/task.schema.json",
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/dfl-session-decision-trajectory-extraction",
+    "version": "1",
+    "description": "Judge ONE unit of agent work from its condensed view and layer-1 facts; return one strict layer-2 judgment: decisions with risk, corrections, a fixed-taxonomy class, summaries, task intent, intent labels. Extract and classify only. Offline: 5 rule gates, 4 reference metrics.",
+    "authors": [{ "name": "ITERA" }],
+    "keywords": ["extraction", "classification", "trajectories", "risk", "json-schema"]
+  },
+  "metadata": {
+    "title": "Session Decision Trajectory Extraction",
+    "tags": { "tools": [], "concepts": ["extraction", "classification", "citation", "abstention"] },
+    "variant": { "visibility": "open", "synthetic": true }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": ["npm", "ci", "--include=dev", "--no-audit", "--no-fund", "--ignore-scripts"],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048,
+    "tools": { "builtin": ["read", "write", "edit", "list", "todo"], "mcp": [] },
+    "run_egress": ["model-gateway"],
+    "secrets": [],
+    "resources": { "cpus": 2, "memory_mb": 2048, "pids": 512 }
+  },
+  "tests": { "public": "tests/public", "hidden": "tests/hidden" },
+  "solution": { "patch": "solution/solution.patch" },
+  "editable_paths": ["out/**"],
+  "protected_paths": ["tests/**", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.*", "item.txt", "layer1.json", "shapes.json", "rubric/**", "README.md"],
+  "verifier": {
+    "cmd": ["npx", "vitest", "run", "{tests}", "--reporter=json", "--outputFile={report}"],
+    "report": "vitest-json",
+    "timeout_sec": 120
+  },
+  "agent": { "timeout_sec": 600 },
+  "est_minutes": 5
+}

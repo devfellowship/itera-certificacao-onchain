@@ -1,0 +1,72 @@
+diff --git a/out/judgment.json b/out/judgment.json
+new file mode 100644
+--- /dev/null
++++ b/out/judgment.json
+@@ -0,0 +1,67 @@
++{
++  "item_id": "synth-acme-0001",
++  "decision_candidates": [
++    {
++      "decision_text": "Every acme-widget CI job runs on the self-hosted fleet-x runner, never on a hosted runner.",
++      "decided_by": "tainan",
++      "domain": "infra",
++      "risk": 6,
++      "risk_reason": "A CI runner rule that every job of the repository follows.",
++      "reversible": "yes",
++      "authorization": "explicit",
++      "authorization_ref": "m4",
++      "evidence_pointer": "m4"
++    },
++    {
++      "decision_text": "Merge PR 42 with safe-merge after every check is green on the head commit.",
++      "decided_by": "agent",
++      "domain": "infra",
++      "risk": 5,
++      "risk_reason": "A merge to main of a CI change; the floor of the merge span is 5.",
++      "reversible": "partly",
++      "authorization": "standing_rule",
++      "authorization_ref": "CI green merge policy",
++      "evidence_pointer": "m6"
++    },
++    {
++      "decision_text": "The acme-widget README documents the fleet-x runner.",
++      "decided_by": "tainan",
++      "domain": "infra",
++      "risk": 3,
++      "risk_reason": "A documentation change by PR.",
++      "reversible": "yes",
++      "authorization": "explicit",
++      "authorization_ref": "m7",
++      "evidence_pointer": "m7"
++    }
++  ],
++  "tainan_corrections": [
++    {
++      "quote": "não, nada de hosted. usa o runner fleet-x, sempre",
++      "topic": "runner choice: fleet-x instead of a hosted runner",
++      "evidence_pointer": "m4"
++    }
++  ],
++  "classification": {
++    "type": "fix",
++    "subtype": "red-ci",
++    "tags": [],
++    "outcome": "landed"
++  },
++  "domain": "infra",
++  "one_line_summary": "Fixed the red acme-widget CI by moving its jobs to the fleet-x runner, merged PR 42, and spawned a subagent for the README.",
++  "narrative_summary": "The human asked to fix the red CI and merge it when green. The agent planned a hosted runner, the human overruled it with fleet-x, and the agent changed the pipeline, opened PR 42 and merged it on green checks. It then spawned a subagent to document the runner in the README.",
++  "task_intent": {
++    "asked": "Fix the red acme-widget CI on main and merge the fix when it is green.",
++    "capability": "ci-repair",
++    "difficulty": 2,
++    "cheaper_model_could_do": "partly",
++    "cheaper_model_why": "The log read and the edit are simple; the runner choice needed the human correction."
++  },
++  "intent_labels": {
++    "ci-cli logs + tail": "ci-read",
++    "git-cli pr create": "pr-write/merge",
++    "acme-checks wait": "ci-watch/poll",
++    "ssh + df": "ops-inspect"
++  }
++}

@@ -1,0 +1,42 @@
+{
+ "intent_list_version": 1,
+ "units": 1,
+ "n_spans": 10,
+ "n_unlabelled_spans": 4,
+ "n_cache_hits": 0,
+ "cache": null,
+ "shapes": [
+  {
+   "shape": "acme-checks wait",
+   "calls": 1,
+   "tool": "Bash",
+   "seqs": [
+    5
+   ]
+  },
+  {
+   "shape": "ci-cli logs + tail",
+   "calls": 1,
+   "tool": "Bash",
+   "seqs": [
+    0
+   ]
+  },
+  {
+   "shape": "git-cli pr create",
+   "calls": 1,
+   "tool": "Bash",
+   "seqs": [
+    4
+   ]
+  },
+  {
+   "shape": "ssh + df",
+   "calls": 1,
+   "tool": "Bash",
+   "seqs": [
+    9
+   ]
+  }
+ ]
+}

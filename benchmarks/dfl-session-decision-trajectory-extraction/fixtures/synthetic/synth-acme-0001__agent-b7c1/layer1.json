@@ -1,0 +1,175 @@
+{
+  "kind": "run",
+  "synthetic": true,
+  "adapter": "jsonl",
+  "extractor_version": "synthetic",
+  "intent_list_version": 1,
+  "started_at": "2026-01-05T10:00:30.000Z",
+  "ended_at": "2026-01-05T10:03:36.000Z",
+  "n_tool_calls": 4,
+  "tool_counts": {
+    "Read": 1,
+    "Edit": 1,
+    "Bash": 2
+  },
+  "intent_counts": {
+    "file-read": 1,
+    "file-edit": 1,
+    "git-write": 1,
+    "needs-model": 1
+  },
+  "shape_counts": {
+    "Read": 1,
+    "Edit": 1,
+    "git commit + git push": 1,
+    "git-cli pr create": 1
+  },
+  "errors": {
+    "n": 0,
+    "by_tool": {}
+  },
+  "session_id": "synth-acme-0001",
+  "agent_id": "b7c1",
+  "parent_session_id": "synth-acme-0001",
+  "is_subagent": true,
+  "agent_type": "general-purpose",
+  "channel": "subagent-brief",
+  "repos_touched": [
+    {
+      "repo": "acme/acme-widget",
+      "calls": 2,
+      "resolved_via": [
+        "flag"
+      ],
+      "write": true
+    }
+  ],
+  "links": [
+    {
+      "kind": "pr",
+      "key": "acme/acme-widget#43",
+      "url": "https://git.example.test/acme/acme-widget/pull/43",
+      "repo": "acme/acme-widget",
+      "action_run": [
+        "write"
+      ],
+      "action_tree": [
+        "write"
+      ]
+    }
+  ],
+  "outcome_signals": {
+    "pr_created": 1
+  },
+  "risk_signals": [],
+  "milestones": [
+    {
+      "seq": 3,
+      "signals": [
+        "pr_created"
+      ]
+    }
+  ],
+  "det_tags": [],
+  "subtree": {
+    "n_runs": 1,
+    "agent_ids": [
+      "b7c1"
+    ],
+    "children": [],
+    "children_spawned": 0,
+    "children_joined": 0,
+    "outcome_signals": {
+      "pr_created": 1
+    },
+    "n_tool_calls": 4
+  },
+  "unit": {
+    "item_id": "synth-acme-0001__agent-b7c1",
+    "kind": "subagent",
+    "parent_session_id": "synth-acme-0001",
+    "window": null,
+    "outcome_signals": {
+      "pr_created": 1
+    },
+    "outcome_scope": "the run and every descendant run (subtree)"
+  },
+  "spans": [
+    {
+      "seq": 0,
+      "turn_seq": 0,
+      "ts": "2026-01-05T10:01:30.000Z",
+      "ts_end": "2026-01-05T10:01:36.000Z",
+      "dur_ms": 6000,
+      "tool": "Read",
+      "shape": "Read",
+      "intent": "file-read",
+      "intent_source": "parser",
+      "family": "builtin",
+      "target": "README.md",
+      "target_kind": "file",
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "README.md",
+      "bytes_out": 29
+    },
+    {
+      "seq": 1,
+      "turn_seq": 0,
+      "ts": "2026-01-05T10:02:00.000Z",
+      "ts_end": "2026-01-05T10:02:06.000Z",
+      "dur_ms": 6000,
+      "tool": "Edit",
+      "shape": "Edit",
+      "intent": "file-edit",
+      "intent_source": "parser",
+      "family": "builtin",
+      "target": "README.md",
+      "target_kind": "file",
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "README.md",
+      "bytes_out": 2
+    },
+    {
+      "seq": 2,
+      "turn_seq": 0,
+      "ts": "2026-01-05T10:02:30.000Z",
+      "ts_end": "2026-01-05T10:02:36.000Z",
+      "dur_ms": 6000,
+      "tool": "Bash",
+      "shape": "git commit + git push",
+      "intent": "git-write",
+      "intent_source": "parser",
+      "family": "git",
+      "target": null,
+      "target_kind": null,
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "git commit -am \"docs: fleet-x runner\" && git push origin docs/runner",
+      "bytes_out": 18
+    },
+    {
+      "seq": 3,
+      "turn_seq": 0,
+      "ts": "2026-01-05T10:03:00.000Z",
+      "ts_end": "2026-01-05T10:03:06.000Z",
+      "dur_ms": 6000,
+      "tool": "Bash",
+      "shape": "git-cli pr create",
+      "intent": null,
+      "intent_source": "needs-model",
+      "family": "git",
+      "target": null,
+      "target_kind": null,
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "git-cli pr create --repo acme/acme-widget --title \"docs: fleet-x runner\"",
+      "bytes_out": 49
+    }
+  ]
+}

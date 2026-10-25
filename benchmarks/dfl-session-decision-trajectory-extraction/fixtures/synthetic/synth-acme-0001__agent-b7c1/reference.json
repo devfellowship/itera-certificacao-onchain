@@ -1,0 +1,38 @@
+{
+  "item_id": "synth-acme-0001__agent-b7c1",
+  "decision_candidates": [
+    {
+      "decision_text": "The acme-widget README documents the fleet-x runner under the CI heading.",
+      "decided_by": "tainan",
+      "domain": "infra",
+      "risk": 3,
+      "risk_reason": "A documentation change by PR.",
+      "reversible": "yes",
+      "authorization": "explicit",
+      "authorization_ref": "m1",
+      "evidence_pointer": "m1"
+    }
+  ],
+  "tainan_corrections": [],
+  "classification": {
+    "type": "content",
+    "subtype": "doc-deck",
+    "tags": [
+      "handoff"
+    ],
+    "outcome": "partial"
+  },
+  "domain": "infra",
+  "one_line_summary": "Added the fleet-x runner line to the acme-widget README and opened PR 43; the parent merges it.",
+  "narrative_summary": "The brief asked for one README line about the fleet-x runner and one PR. The agent edited README.md, pushed a branch and opened PR 43. It left the merge to the parent, as the brief said.",
+  "task_intent": {
+    "asked": "Add one README line about the fleet-x runner and open one PR.",
+    "capability": "writing",
+    "difficulty": 1,
+    "cheaper_model_could_do": "yes",
+    "cheaper_model_why": "One known file, one line, one PR."
+  },
+  "intent_labels": {
+    "git-cli pr create": "pr-write/merge"
+  }
+}

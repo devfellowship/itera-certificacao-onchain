@@ -1,0 +1,346 @@
+{
+  "kind": "run",
+  "synthetic": true,
+  "adapter": "jsonl",
+  "extractor_version": "synthetic",
+  "intent_list_version": 1,
+  "started_at": "2026-01-05T10:00:30.000Z",
+  "ended_at": "2026-01-05T10:09:36.000Z",
+  "n_tool_calls": 10,
+  "tool_counts": {
+    "Bash": 6,
+    "Read": 1,
+    "Edit": 1,
+    "mcp__plugin_telegram_telegram__reply": 1,
+    "Agent": 1
+  },
+  "intent_counts": {
+    "needs-model": 4,
+    "file-read": 1,
+    "file-edit": 1,
+    "git-write": 1,
+    "pr-write/merge": 1,
+    "reply-human": 1,
+    "spawn-subagent": 1
+  },
+  "shape_counts": {
+    "ci-cli logs + tail": 1,
+    "Read": 1,
+    "Edit": 1,
+    "git commit + git push": 1,
+    "git-cli pr create": 1,
+    "acme-checks wait": 1,
+    "bash <skill:safe-merge>/run.sh": 1,
+    "mcp__plugin_telegram_telegram__reply": 1,
+    "Agent general-purpose": 1,
+    "ssh + df": 1
+  },
+  "errors": {
+    "n": 0,
+    "by_tool": {}
+  },
+  "session_id": "synth-acme-0001",
+  "agent_id": null,
+  "is_subagent": false,
+  "channel": "telegram",
+  "n_human_turns": 3,
+  "n_tg_turns": 3,
+  "repos_touched": [
+    {
+      "repo": "acme/acme-widget",
+      "calls": 5,
+      "resolved_via": [
+        "flag"
+      ],
+      "write": true
+    }
+  ],
+  "links": [
+    {
+      "kind": "pr",
+      "key": "acme/acme-widget#42",
+      "url": "https://git.example.test/acme/acme-widget/pull/42",
+      "repo": "acme/acme-widget",
+      "action_run": [
+        "write"
+      ],
+      "action_tree": [
+        "write"
+      ]
+    },
+    {
+      "kind": "pr",
+      "key": "acme/acme-widget#43",
+      "url": "https://git.example.test/acme/acme-widget/pull/43",
+      "repo": "acme/acme-widget",
+      "action_run": [
+        "mention (text only)"
+      ],
+      "action_tree": [
+        "write"
+      ]
+    }
+  ],
+  "outcome_signals": {
+    "merge_call": 1,
+    "merge_token": 1,
+    "pr_created": 1,
+    "tg_reply_sent": 1
+  },
+  "risk_signals": [
+    {
+      "signal": "merge of a PR (may deploy on merge)",
+      "floor": 5,
+      "span_seq": 6
+    }
+  ],
+  "milestones": [
+    {
+      "seq": 4,
+      "signals": [
+        "pr_created"
+      ]
+    },
+    {
+      "seq": 6,
+      "signals": [
+        "merge_call",
+        "merge_token"
+      ]
+    },
+    {
+      "seq": 8,
+      "signals": [
+        "spawn-subagent"
+      ]
+    }
+  ],
+  "det_tags": [
+    "telegram",
+    "ci",
+    "fanout"
+  ],
+  "subtree": {
+    "n_runs": 2,
+    "agent_ids": [
+      "b7c1"
+    ],
+    "children": [
+      "b7c1"
+    ],
+    "children_spawned": 1,
+    "children_joined": 1,
+    "outcome_signals": {
+      "merge_call": 1,
+      "merge_token": 1,
+      "pr_created": 2,
+      "tg_reply_sent": 1
+    },
+    "n_tool_calls": 14
+  },
+  "unit": {
+    "item_id": "synth-acme-0001",
+    "kind": "main",
+    "parent_session_id": null,
+    "window": null,
+    "outcome_signals": {
+      "merge_call": 1,
+      "merge_token": 1,
+      "pr_created": 2,
+      "tg_reply_sent": 1
+    },
+    "outcome_scope": "the run and every descendant run (subtree)"
+  },
+  "spans": [
+    {
+      "seq": 0,
+      "turn_seq": 0,
+      "ts": "2026-01-05T10:01:30.000Z",
+      "ts_end": "2026-01-05T10:01:36.000Z",
+      "dur_ms": 6000,
+      "tool": "Bash",
+      "shape": "ci-cli logs + tail",
+      "intent": null,
+      "intent_source": "needs-model",
+      "family": "ci",
+      "target": null,
+      "target_kind": null,
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "ci-cli logs acme/acme-widget --last-failed | tail -n 40",
+      "bytes_out": 54
+    },
+    {
+      "seq": 1,
+      "turn_seq": 1,
+      "ts": "2026-01-05T10:03:30.000Z",
+      "ts_end": "2026-01-05T10:03:36.000Z",
+      "dur_ms": 6000,
+      "tool": "Read",
+      "shape": "Read",
+      "intent": "file-read",
+      "intent_source": "parser",
+      "family": "builtin",
+      "target": ".ci/pipeline.yml",
+      "target_kind": "file",
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": ".ci/pipeline.yml",
+      "bytes_out": 21
+    },
+    {
+      "seq": 2,
+      "turn_seq": 1,
+      "ts": "2026-01-05T10:04:00.000Z",
+      "ts_end": "2026-01-05T10:04:06.000Z",
+      "dur_ms": 6000,
+      "tool": "Edit",
+      "shape": "Edit",
+      "intent": "file-edit",
+      "intent_source": "parser",
+      "family": "builtin",
+      "target": ".ci/pipeline.yml",
+      "target_kind": "file",
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": ".ci/pipeline.yml",
+      "bytes_out": 2
+    },
+    {
+      "seq": 3,
+      "turn_seq": 1,
+      "ts": "2026-01-05T10:04:30.000Z",
+      "ts_end": "2026-01-05T10:04:36.000Z",
+      "dur_ms": 6000,
+      "tool": "Bash",
+      "shape": "git commit + git push",
+      "intent": "git-write",
+      "intent_source": "parser",
+      "family": "git",
+      "target": null,
+      "target_kind": null,
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "git commit -am \"ci: run on fleet-x\" && git push origin fix/runner",
+      "bytes_out": 17
+    },
+    {
+      "seq": 4,
+      "turn_seq": 1,
+      "ts": "2026-01-05T10:05:00.000Z",
+      "ts_end": "2026-01-05T10:05:06.000Z",
+      "dur_ms": 6000,
+      "tool": "Bash",
+      "shape": "git-cli pr create",
+      "intent": null,
+      "intent_source": "needs-model",
+      "family": "git",
+      "target": null,
+      "target_kind": null,
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "git-cli pr create --repo acme/acme-widget --title \"ci: run on fleet-x\"",
+      "bytes_out": 49
+    },
+    {
+      "seq": 5,
+      "turn_seq": 1,
+      "ts": "2026-01-05T10:05:30.000Z",
+      "ts_end": "2026-01-05T10:05:36.000Z",
+      "dur_ms": 6000,
+      "tool": "Bash",
+      "shape": "acme-checks wait",
+      "intent": null,
+      "intent_source": "needs-model",
+      "family": "ci",
+      "target": null,
+      "target_kind": null,
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "acme-checks wait acme/acme-widget 42",
+      "bytes_out": 29
+    },
+    {
+      "seq": 6,
+      "turn_seq": 1,
+      "ts": "2026-01-05T10:06:30.000Z",
+      "ts_end": "2026-01-05T10:06:36.000Z",
+      "dur_ms": 6000,
+      "tool": "Bash",
+      "shape": "bash <skill:safe-merge>/run.sh",
+      "intent": "pr-write/merge",
+      "intent_source": "parser",
+      "family": "skill-bash",
+      "target": "safe-merge",
+      "target_kind": "skill",
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "bash <skill:safe-merge>/run.sh 42 acme/acme-widget",
+      "bytes_out": 19
+    },
+    {
+      "seq": 7,
+      "turn_seq": 1,
+      "ts": "2026-01-05T10:07:00.000Z",
+      "ts_end": "2026-01-05T10:07:06.000Z",
+      "dur_ms": 6000,
+      "tool": "mcp__plugin_telegram_telegram__reply",
+      "shape": "mcp__plugin_telegram_telegram__reply",
+      "intent": "reply-human",
+      "intent_source": "parser",
+      "family": "mcp",
+      "target": null,
+      "target_kind": null,
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "PR 42 is merged. CI now runs on the fleet-x runner.",
+      "bytes_out": 4
+    },
+    {
+      "seq": 8,
+      "turn_seq": 2,
+      "ts": "2026-01-05T10:08:30.000Z",
+      "ts_end": "2026-01-05T10:08:36.000Z",
+      "dur_ms": 6000,
+      "tool": "Agent",
+      "shape": "Agent general-purpose",
+      "intent": "spawn-subagent",
+      "intent_source": "parser",
+      "family": "builtin",
+      "target": "b7c1",
+      "target_kind": "agent",
+      "ok": true,
+      "retry_of": null,
+      "child_run": "b7c1",
+      "preview": "Document the fleet-x runner in the README",
+      "bytes_out": 18
+    },
+    {
+      "seq": 9,
+      "turn_seq": 2,
+      "ts": "2026-01-05T10:09:00.000Z",
+      "ts_end": "2026-01-05T10:09:06.000Z",
+      "dur_ms": 6000,
+      "tool": "Bash",
+      "shape": "ssh + df",
+      "intent": null,
+      "intent_source": "needs-model",
+      "family": "ssh",
+      "target": null,
+      "target_kind": null,
+      "ok": true,
+      "retry_of": null,
+      "child_run": null,
+      "preview": "ssh build-host-1 df -h /",
+      "bytes_out": 18
+    }
+  ]
+}
