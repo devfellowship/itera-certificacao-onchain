@@ -1,0 +1,18 @@
+{
+ "intent_list_version": 1,
+ "units": 1,
+ "n_spans": 4,
+ "n_unlabelled_spans": 1,
+ "n_cache_hits": 0,
+ "cache": null,
+ "shapes": [
+  {
+   "shape": "git-cli pr create",
+   "calls": 1,
+   "tool": "Bash",
+   "seqs": [
+    3
+   ]
+  }
+ ]
+}

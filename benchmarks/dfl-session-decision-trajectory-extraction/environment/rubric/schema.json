@@ -1,0 +1,616 @@
+{
+ "$schema": "http://json-schema.org/draft-07/schema#",
+ "$id": "itera/dfl-session-decision-trajectory-extraction/layer2/v1",
+ "title": "Session trajectory layer 2 \u2014 slim judgment (one object per unit: a subagent run or a main-session chunk)",
+ "description": "Plan 20261025-session-trajectory-extraction v2, section 6. Judgment only: facts come from layer 1. Strict: every key required, no extra key, closed enums. Versions: schema_version 1, intent_list_version 1, taxonomy v2.",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "item_id",
+  "decision_candidates",
+  "tainan_corrections",
+  "classification",
+  "domain",
+  "one_line_summary",
+  "narrative_summary",
+  "task_intent",
+  "intent_labels"
+ ],
+ "properties": {
+  "item_id": {
+   "type": "string",
+   "minLength": 1,
+   "maxLength": 200,
+   "description": "The id after 'ITEM ' on the first line of item.txt (without the word ITEM)."
+  },
+  "decision_candidates": {
+   "type": "array",
+   "maxItems": 12,
+   "description": "Durable decisions: architecture, policy, scope, an irreversible or production action. Not routine steps. [] is valid.",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "decision_text",
+     "decided_by",
+     "domain",
+     "risk",
+     "risk_reason",
+     "reversible",
+     "authorization",
+     "authorization_ref",
+     "evidence_pointer"
+    ],
+    "properties": {
+     "decision_text": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 400
+     },
+     "decided_by": {
+      "enum": [
+       "tainan",
+       "agent",
+       "tainan+agent",
+       "other"
+      ]
+     },
+     "domain": {
+      "enum": [
+       "financing",
+       "itera",
+       "amb-hq",
+       "infra",
+       "book",
+       "dfl-app",
+       "harness",
+       "other"
+      ]
+     },
+     "risk": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "The model's anchored score (risk-anchors.md). The loader applies max(risk, floor)."
+     },
+     "risk_reason": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 300
+     },
+     "reversible": {
+      "enum": [
+       "yes",
+       "partly",
+       "no"
+      ]
+     },
+     "authorization": {
+      "enum": [
+       "explicit",
+       "standing_rule",
+       "none"
+      ]
+     },
+     "authorization_ref": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "maxLength": 160,
+      "description": "explicit: the m<N> of the Tainan message (or of the brief line that relays it). standing_rule: the rule name. none: null."
+     },
+     "evidence_pointer": {
+      "type": "string",
+      "pattern": "^[ms][0-9]{1,5}$",
+      "description": "An event id of item.txt: m<N> = message N, s<N> = span (tool call) N."
+     }
+    }
+   }
+  },
+  "tainan_corrections": {
+   "type": "array",
+   "maxItems": 20,
+   "description": "Main-session chunks only. A subagent run is always [].",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "quote",
+     "topic",
+     "evidence_pointer"
+    ],
+    "properties": {
+     "quote": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 400,
+      "description": "A literal substring of the HUMAN turn at evidence_pointer, in its original language."
+     },
+     "topic": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 120
+     },
+     "evidence_pointer": {
+      "type": "string",
+      "pattern": "^[ms][0-9]{1,5}$",
+      "description": "An event id of item.txt: m<N> = message N, s<N> = span (tool call) N."
+     }
+    }
+   }
+  },
+  "classification": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "type",
+    "subtype",
+    "tags",
+    "outcome"
+   ],
+   "properties": {
+    "type": {
+     "enum": [
+      "fix",
+      "build",
+      "ops",
+      "plan",
+      "research",
+      "verify",
+      "content",
+      "talk"
+     ]
+    },
+    "subtype": {
+     "enum": [
+      "adr",
+      "bakeoff-eval",
+      "batch-job",
+      "book",
+      "build",
+      "campaign",
+      "ci-check",
+      "codebase",
+      "config",
+      "conversation",
+      "credential",
+      "data-repair",
+      "deploy",
+      "dispatch",
+      "doc-deck",
+      "feature",
+      "lesson",
+      "mcp-tool",
+      "measure-audit",
+      "media",
+      "merge-pr",
+      "merge-round",
+      "pr-review",
+      "prod-bug",
+      "prod-investigation",
+      "prod-verify",
+      "questions",
+      "red-ci",
+      "refactor",
+      "report-html",
+      "revise-plan",
+      "schema-migration",
+      "service",
+      "skill",
+      "status-report",
+      "test",
+      "vps-config",
+      "watch-monitor",
+      "web",
+      "write-plan"
+     ]
+    },
+    "tags": {
+     "type": "array",
+     "uniqueItems": true,
+     "maxItems": 7,
+     "items": {
+      "enum": [
+       "rework",
+       "urgent",
+       "exploratory",
+       "handoff",
+       "multi-repo",
+       "user-facing",
+       "cost-sensitive"
+      ]
+     },
+     "description": "Judged tags only. Layer 1 adds the deterministic tags."
+    },
+    "outcome": {
+     "enum": [
+      "landed",
+      "partial",
+      "blocked",
+      "abandoned",
+      "talk_only"
+     ]
+    }
+   },
+   "anyOf": [
+    {
+     "properties": {
+      "type": {
+       "const": "fix"
+      },
+      "subtype": {
+       "enum": [
+        "red-ci",
+        "prod-bug",
+        "test",
+        "build",
+        "config"
+       ]
+      }
+     }
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "build"
+      },
+      "subtype": {
+       "enum": [
+        "feature",
+        "skill",
+        "mcp-tool",
+        "service",
+        "refactor",
+        "schema-migration"
+       ]
+      }
+     }
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "ops"
+      },
+      "subtype": {
+       "enum": [
+        "deploy",
+        "merge-pr",
+        "merge-round",
+        "credential",
+        "vps-config",
+        "watch-monitor",
+        "data-repair",
+        "batch-job"
+       ]
+      }
+     }
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "plan"
+      },
+      "subtype": {
+       "enum": [
+        "write-plan",
+        "revise-plan",
+        "questions",
+        "adr"
+       ]
+      }
+     }
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "research"
+      },
+      "subtype": {
+       "enum": [
+        "codebase",
+        "web",
+        "measure-audit",
+        "prod-investigation",
+        "bakeoff-eval"
+       ]
+      }
+     }
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "verify"
+      },
+      "subtype": {
+       "enum": [
+        "prod-verify",
+        "ci-check",
+        "pr-review"
+       ]
+      }
+     }
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "content"
+      },
+      "subtype": {
+       "enum": [
+        "report-html",
+        "doc-deck",
+        "media",
+        "lesson",
+        "campaign",
+        "book"
+       ]
+      }
+     }
+    },
+    {
+     "properties": {
+      "type": {
+       "const": "talk"
+      },
+      "subtype": {
+       "enum": [
+        "conversation",
+        "status-report",
+        "dispatch"
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "domain": {
+   "enum": [
+    "financing",
+    "itera",
+    "amb-hq",
+    "infra",
+    "book",
+    "dfl-app",
+    "harness",
+    "other"
+   ]
+  },
+  "one_line_summary": {
+   "type": "string",
+   "minLength": 10,
+   "maxLength": 240
+  },
+  "narrative_summary": {
+   "type": "string",
+   "minLength": 20,
+   "maxLength": 900,
+   "description": "At most 3 sentences."
+  },
+  "task_intent": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "asked",
+    "capability",
+    "difficulty",
+    "cheaper_model_could_do",
+    "cheaper_model_why"
+   ],
+   "properties": {
+    "asked": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 400
+    },
+    "capability": {
+     "enum": [
+      "code-fix",
+      "code-feature",
+      "ci-repair",
+      "planning",
+      "research",
+      "ops-deploy",
+      "data-repair",
+      "writing",
+      "review-verify",
+      "orchestration"
+     ]
+    },
+    "difficulty": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5
+    },
+    "cheaper_model_could_do": {
+     "enum": [
+      "yes",
+      "partly",
+      "no"
+     ]
+    },
+    "cheaper_model_why": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 300
+    }
+   }
+  },
+  "intent_labels": {
+   "type": "object",
+   "maxProperties": 400,
+   "propertyNames": {
+    "maxLength": 200
+   },
+   "additionalProperties": {
+    "enum": [
+     "pr-read",
+     "pr-write/merge",
+     "ci-read",
+     "ci-watch/poll",
+     "git-read",
+     "git-write",
+     "build/test",
+     "deploy",
+     "credential-fetch",
+     "plan-mcp",
+     "skill-run",
+     "mcp-read",
+     "mcp-write",
+     "file-read",
+     "file-edit",
+     "search",
+     "web-research",
+     "ops-inspect",
+     "ops-change",
+     "spawn-subagent",
+     "message-agent",
+     "reply-human",
+     "wait/sleep",
+     "other"
+    ]
+   },
+   "description": "Exactly the shapes of the SHAPES block (shapes.json): every key, no other key."
+  }
+ },
+ "x-dfl": {
+  "schema_version": 1,
+  "intent_list_version": 1,
+  "taxonomy_version": 2,
+  "intents": [
+   "pr-read",
+   "pr-write/merge",
+   "ci-read",
+   "ci-watch/poll",
+   "git-read",
+   "git-write",
+   "build/test",
+   "deploy",
+   "credential-fetch",
+   "plan-mcp",
+   "skill-run",
+   "mcp-read",
+   "mcp-write",
+   "file-read",
+   "file-edit",
+   "search",
+   "web-research",
+   "ops-inspect",
+   "ops-change",
+   "spawn-subagent",
+   "message-agent",
+   "reply-human",
+   "wait/sleep",
+   "other"
+  ],
+  "taxonomy": {
+   "fix": [
+    "red-ci",
+    "prod-bug",
+    "test",
+    "build",
+    "config"
+   ],
+   "build": [
+    "feature",
+    "skill",
+    "mcp-tool",
+    "service",
+    "refactor",
+    "schema-migration"
+   ],
+   "ops": [
+    "deploy",
+    "merge-pr",
+    "merge-round",
+    "credential",
+    "vps-config",
+    "watch-monitor",
+    "data-repair",
+    "batch-job"
+   ],
+   "plan": [
+    "write-plan",
+    "revise-plan",
+    "questions",
+    "adr"
+   ],
+   "research": [
+    "codebase",
+    "web",
+    "measure-audit",
+    "prod-investigation",
+    "bakeoff-eval"
+   ],
+   "verify": [
+    "prod-verify",
+    "ci-check",
+    "pr-review"
+   ],
+   "content": [
+    "report-html",
+    "doc-deck",
+    "media",
+    "lesson",
+    "campaign",
+    "book"
+   ],
+   "talk": [
+    "conversation",
+    "status-report",
+    "dispatch"
+   ]
+  },
+  "judged_tags": [
+   "rework",
+   "urgent",
+   "exploratory",
+   "handoff",
+   "multi-repo",
+   "user-facing",
+   "cost-sensitive"
+  ],
+  "deterministic_tags": [
+   "dfl-schema",
+   "protected-path",
+   "credential",
+   "prod-db",
+   "prod-deploy",
+   "telegram",
+   "fanout",
+   "workflow",
+   "codex",
+   "opencode",
+   "browser",
+   "migration",
+   "ci",
+   "vps",
+   "mcp-write"
+  ],
+  "capabilities": [
+   "code-fix",
+   "code-feature",
+   "ci-repair",
+   "planning",
+   "research",
+   "ops-deploy",
+   "data-repair",
+   "writing",
+   "review-verify",
+   "orchestration"
+  ],
+  "domains": [
+   "financing",
+   "itera",
+   "amb-hq",
+   "infra",
+   "book",
+   "dfl-app",
+   "harness",
+   "other"
+  ],
+  "tma_task": "itera/dfl-session-decision-trajectory-extraction",
+  "tma_task_title": "Session Decision Trajectory Extraction",
+  "schema_revision": "1.1 (2026-10-25: narrative 600->900, risk_reason/cheaper_model_why 300, decision_text/asked 400 after the T4 glm-5.3 run)"
+ }
+}
