@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/tiny-fixture",
+    "version": "3",
+    "description": "A tiny fixture task for the tma CLI tests.",
+    "authors": [
+      {
+        "name": "ITERA"
+      }
+    ],
+    "keywords": [
+      "fixture"
+    ]
+  },
+  "metadata": {
+    "title": "Tiny fixture task",
+    "tags": {
+      "tools": [],
+      "concepts": [
+        "fixture"
+      ]
+    }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": [
+      "true"
+    ],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048,
+    "tools": {
+      "builtin": [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "search",
+        "list",
+        "todo"
+      ],
+      "mcp": []
+    },
+    "run_egress": [
+      "model-gateway"
+    ],
+    "secrets": [],
+    "resources": {
+      "cpus": 2,
+      "memory_mb": 2048,
+      "pids": 512
+    }
+  },
+  "tests": {
+    "public": "tests/public",
+    "hidden": "tests/hidden"
+  },
+  "solution": {
+    "patch": "solution/solution.patch"
+  },
+  "editable_paths": [
+    "lib/**"
+  ],
+  "protected_paths": [
+    "tests/**"
+  ],
+  "verifier": {
+    "cmd": [
+      "npx",
+      "vitest",
+      "run",
+      "{tests}",
+      "--reporter=json",
+      "--outputFile={report}"
+    ],
+    "report": "vitest-json",
+    "timeout_sec": 120
+  },
+  "agent": {
+    "timeout_sec": 300
+  },
+  "est_minutes": 6
+}

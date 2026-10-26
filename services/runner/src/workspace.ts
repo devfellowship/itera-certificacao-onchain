@@ -92,15 +92,27 @@ export async function prepareWorkspace(opts: {
       if (install.code !== 0) throw new Error(`install (${installCmd.slice(0, 2).join(' ')}) failed: ${install.stderr.slice(0, 400)}`);
     }
 
-    await writeFile(join(dir, '.gitignore'), 'node_modules/\n', 'utf-8');
-    await git(['init', '-q'], dir);
-    await git(['add', '-A'], dir);
-    await git([...GIT_ID, 'commit', '-q', '-m', 'baseline'], dir);
+    await commitBaseline(dir);
     return { root, dir, agentFiles, cleanup };
   } catch (err) {
     await cleanup();
     throw err;
   }
+}
+
+/** The baseline `.gitignore` of a workspace: node_modules never enters the diff. */
+export const BASELINE_GITIGNORE = 'node_modules/\n';
+
+/**
+ * Write the baseline `.gitignore` and commit the tree as `baseline` in a NEW repository in `dir`.
+ * `diffAgainstBaseline(dir, tree)` then shows only what changed in `tree`. The local runner
+ * (src/cli) passes its own ignore text, so its `.tma/` metadata folder never enters a patch.
+ */
+export async function commitBaseline(dir: string, gitignore: string = BASELINE_GITIGNORE): Promise<void> {
+  await writeFile(join(dir, '.gitignore'), gitignore, 'utf-8');
+  await git(['init', '-q'], dir);
+  await git(['add', '-A'], dir);
+  await git([...GIT_ID, 'commit', '-q', '-m', 'baseline'], dir);
 }
 
 /**

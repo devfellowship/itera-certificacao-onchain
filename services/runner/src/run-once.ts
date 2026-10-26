@@ -1,65 +1,19 @@
-// Local CLI: run ONE agent on ONE scenario in the sandbox, then grade the patch.
+// Local CLI: run ONE agent on ONE scenario in the sandbox, then grade the patch. A thin alias for
+// `tma run` (src/cli/commands/run.ts); the old flag --scenario works as --task.
 //   tsx src/run-once.ts --scenario webhook-ledger --agent-dir <dir> --model <openrouter-model | opencode-go/<model>> [--out result.json]
-// Needs: docker, git, npm, the sandbox image (ITERA_SANDBOX_IMAGE, default itera-runner-sandbox:latest)
-// and OPENROUTER_API_KEY (or ITERA_RUNNER_OPENROUTER_KEY) in the environment; OPENCODE_GO_API_KEY for an opencode-go/<model>.
-import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { gradeInSandbox } from './grade.js';
-import { runAgent } from './agent-run.js';
-import { finalStatus } from './outcome.js';
-import { defaultSandboxConfig, modelRoute } from './sandbox.js';
+// Needs: docker, git, npm and a model key of YOUR own in the environment (OPENROUTER_API_KEY, or
+// OPENCODE_GO_API_KEY for an opencode-go/<model>). `--agent <id>` is optional here: without it the
+// result carries a placeholder agent id (all zeros), good for a local look but not for `tma upload`.
+// The result is the numbers-only tma-local-result/1; the actions and the patch go to ./tma-runs/.
+import { main } from './cli/tma.js';
 
-function parseArgs(argv: string[]): Record<string, string> {
-  const args: Record<string, string> = {};
-  for (let i = 0; i < argv.length; i += 2) {
-    const key = argv[i]?.replace(/^--/, '');
-    const value = argv[i + 1];
-    if (key && value !== undefined) args[key] = value;
-  }
-  return args;
+/** `--scenario <id>` → `--task <id>`; a placeholder agent id when `--agent` is absent. */
+export function runOnceArgs(argv: string[]): string[] {
+  const args = argv.map((a) => (a === '--scenario' ? '--task' : a.startsWith('--scenario=') ? `--task=${a.slice('--scenario='.length)}` : a));
+  const hasAgent = args.some((a) => a === '--agent' || a.startsWith('--agent='));
+  return ['run', ...args, ...(hasAgent ? [] : ['--agent', '00000000-0000-4000-8000-000000000000'])];
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  if (!args.scenario || !args['agent-dir'] || !args.model) {
-    throw new Error('Usage: run-once --scenario <id> --agent-dir <dir> --model <openrouter-model | opencode-go/<model>> [--out <file.json>]');
-  }
-  const route = modelRoute(args.model, defaultSandboxConfig()).route;
-  const modelKey = route === 'opencode-go' ? process.env.OPENCODE_GO_API_KEY : (process.env.ITERA_RUNNER_OPENROUTER_KEY ?? process.env.OPENROUTER_API_KEY);
-  if (!modelKey) throw new Error(route === 'opencode-go' ? 'set OPENCODE_GO_API_KEY' : 'set ITERA_RUNNER_OPENROUTER_KEY or OPENROUTER_API_KEY');
-
-  const repoRoot = resolve(import.meta.dirname, '..', '..', '..');
-  const runId = `local-${randomUUID().slice(0, 8)}`;
-  const config = defaultSandboxConfig();
-  console.error(`[run-once] run ${runId}: scenario=${args.scenario} model=${args.model} wall=${config.wallMs}ms`);
-
-  const agent = await runAgent({
-    runId,
-    repoRoot,
-    scenarioId: args.scenario,
-    agentDir: resolve(args['agent-dir']),
-    model: args.model,
-    modelKey,
-    config,
-  });
-  console.error(`[run-once] agent done in ${agent.durationMs} ms: ${agent.actions.length} tool calls, patch ${agent.patch.length} bytes`);
-
-  const manifest = await gradeInSandbox({ runId, repoRoot, scenarioId: args.scenario, patch: agent.patch, config });
-  const status = finalStatus(agent, manifest);
-  const result = { runId, status, ...agent, manifest };
-  const json = JSON.stringify(result, null, 2);
-  if (args.out) await writeFile(args.out, json, 'utf-8');
-  else console.log(json);
-
-  const s = manifest.score;
-  console.error(
-    `[run-once] status ${status}, score ${s.total}/100 (public ${s.public_behavior}, hidden ${s.hidden_behavior}, regression ${s.regression}, ` +
-      `scope ${s.patch_integrity_and_scope}, evidence ${s.reproducible_evidence}); errors: ${[...agent.agentErrors, ...manifest.errors].join('; ') || 'none'}`,
-  );
+if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('/run-once.ts')) {
+  main(runOnceArgs(process.argv.slice(2))).then((code) => process.exit(code));
 }
-
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
-  process.exitCode = 1;
-});
