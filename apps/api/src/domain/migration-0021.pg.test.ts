@@ -7,7 +7,9 @@
  * Proves: the file applies twice with no error; the relabel turns a bench-import row (and only it) into a
  * self-declared, payment-free, private row, and a second apply changes nothing; the CHECKs refuse the
  * forbidden shapes (a hosted 'none', a public self-declared row, a local agent with a repo, a local task
- * version without digests, a custom model with no provider, an approved device code with no principal).
+ * version without digests, a custom model with no provider, an approved device code with no principal, and
+ * the L5 device-login states: approved and denied together, a consumed code with no session id, a revoked
+ * pending code, a client name with a quote mark).
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -170,5 +172,20 @@ describe.skipIf(!URL_)("migration 0021 on Postgres", () => {
     await expect(noPrincipal.catch((e) => pgCode(e))).resolves.toBe("23514");
     const unapprovedUse = pool.query(`update public.cli_device_codes set consumed_at = now() where device_code_sha256 = $1`, [H("a")]);
     await expect(unapprovedUse.catch((e) => pgCode(e))).resolves.toBe("23514");
+  });
+
+  it("L5: a code is approved or denied, never both; a session id exists exactly when consumed; only an approved code is revoked", async () => {
+    const p = `dfl:${randomUUID()}`;
+    await pool.query(`insert into public.cli_device_codes (device_code_sha256, user_code, client_name, expires_at) values ($1, 'ZZBB-0001', 'tma on test', now() + interval '600 seconds')`, [H("b")]);
+    const both = pool.query(`update public.cli_device_codes set approved_at = now(), principal = $2, denied_at = now() where device_code_sha256 = $1`, [H("b"), p]);
+    await expect(both.catch((e) => pgCode(e))).resolves.toBe("23514");
+    const revokePending = pool.query(`update public.cli_device_codes set revoked_at = now() where device_code_sha256 = $1`, [H("b")]);
+    await expect(revokePending.catch((e) => pgCode(e))).resolves.toBe("23514");
+    await pool.query(`update public.cli_device_codes set approved_at = now(), principal = $2 where device_code_sha256 = $1`, [H("b"), p]);
+    const consumedNoSession = pool.query(`update public.cli_device_codes set consumed_at = now() where device_code_sha256 = $1`, [H("b")]);
+    await expect(consumedNoSession.catch((e) => pgCode(e))).resolves.toBe("23514");
+    await pool.query(`update public.cli_device_codes set consumed_at = now(), session_id = $2, revoked_at = now() where device_code_sha256 = $1`, [H("b"), randomUUID()]);
+    const quote = pool.query(`insert into public.cli_device_codes (device_code_sha256, user_code, client_name, expires_at) values ($1, 'ZZBB-0002', 'say "hi"', now())`, [H("c")]);
+    await expect(quote.catch((e) => pgCode(e))).resolves.toBe("23514");
   });
 });

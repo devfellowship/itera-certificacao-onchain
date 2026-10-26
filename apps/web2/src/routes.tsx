@@ -12,6 +12,7 @@ import { Lockup } from './tma/ui'
 import { AddAgentPage } from './pages/AddAgentPage'
 import { AgentDetailPage } from './pages/AgentDetailPage'
 import { AgentsPage } from './pages/AgentsPage'
+import { CliLoginPage } from './pages/CliLoginPage'
 import { DflCallbackPage } from './pages/DflCallbackPage'
 import { GithubCallbackPage } from './pages/GithubCallbackPage'
 import { LandingPage } from './pages/LandingPage'
@@ -85,6 +86,7 @@ export const routes: RouteObject[] = [
           { path: '/tasks/new', element: <TaskEditorPage /> },
           { path: '/tasks/:id/edit', element: <TaskEditorPage /> },
           { path: '/settings/profile', element: <ProfileSettingsPage /> },
+          { path: '/cli', element: <CliLoginPage /> },
         ],
       },
       {

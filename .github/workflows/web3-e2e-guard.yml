@@ -111,6 +111,13 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # L5: the CLI device login on the real table (one approval, one session, denied, expired, revoke).
+      - name: CLI device login store test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/cli-auth/store.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       - uses: ./.github/actions/web3-hermetic-services
 
       - name: 'API e2e: SIWS -> quote -> pay -> run -> attestation -> verify'

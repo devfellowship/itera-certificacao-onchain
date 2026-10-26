@@ -2,6 +2,7 @@ import { PgSelfDeclaredStore } from "./self-declared/store.pg.js";
 import { selfDeclaredPerDayFromEnv } from "./self-declared/router.js";
 import { PgRunOriginLookup } from "./self-declared/run-guard.js";
 import { PgLocalAgentsStore } from "./local-agents/store.pg.js";
+import { PgCliAuthStore } from "./cli-auth/store.pg.js";
 import { createApp } from "./app.js";
 import { PgProofStore } from "./chain/proof-store.pg.js";
 import { proofIssuerHook, runStartHook } from "./chain/runs-hooks.js";
@@ -122,6 +123,8 @@ createApp(repo, {
   runOrigins: new PgRunOriginLookup(getPool),
   // L4: local agents and custom models (writes need 0021; 503 schema_not_ready before it).
   localAgents: { store: new PgLocalAgentsStore(getPool) },
+  // L5: tma login (device code approved on web2 /cli) and CLI session revocation (needs 0021).
+  cliAuth: { store: new PgCliAuthStore(getPool), web2BaseUrl: process.env.TMA_WEB2_BASE_URL },
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });
