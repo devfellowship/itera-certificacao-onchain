@@ -3,7 +3,7 @@
 // The self-declared local result (tma-local-result/1): the ONE body that POST /self-declared-results
 // accepts (plan 20261026-tma-local-runner-and-self-declared-results, ADR-1). Numbers and identifiers
 // only. The closed schema is schemas/local-result.schema.json (a port of the retired operator import's
-// parser, services/runner/src/bench-import.ts). This file adds the checks a JSON Schema cannot say.
+// parser, services/runner/src/bench-import.ts, deleted in plan ADR-3; see git history). This file adds the checks a JSON Schema cannot say.
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isProviderKey, isRouteKey, PROVIDER_KEYS, ROUTE_KEYS } from './model-catalog.js';
