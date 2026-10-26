@@ -22,6 +22,7 @@ import { sanitizeActionTarget, sanitizeToolName } from "./run-actions.js";
 /**
  * Contract: "per-wallet limit 5 runs/day". ITERA pays the model tokens (Tainan TG 20967, plan
  * 20261012-itera-testmyagent-ui-refactor Q2 = B); BYOK (`modelApiKey`) stays optional.
+ * `siws` principals only: a `dfl` principal gets 410 (`LEGACY_RUNS_GONE_FOR_DFL`).
  */
 export const RUNS_PER_WALLET_PER_DAY = Number(process.env.ITERA_RUNS_PER_WALLET_PER_DAY ?? 5);
 
@@ -36,6 +37,19 @@ export const RUN_MAX_COST_USD = Number(process.env.ITERA_RUN_MAX_COST_USD ?? 0.5
 export const DEFAULT_RUN_TOKENS_IN = Number(process.env.ITERA_ESTIMATE_TOKENS_IN ?? 400_000);
 export const DEFAULT_RUN_TOKENS_OUT = Number(process.env.ITERA_ESTIMATE_TOKENS_OUT ?? 12_000);
 const LIST_LIMIT = 50;
+
+/**
+ * Body of the 410 that `POST /runs` answers to a `dfl` principal (T6, ADR-4 of plan
+ * 20261023-tma-tools-on-learn-mcp). The legacy route has only a per-wallet daily cap and an optional
+ * key: a run with no key spends ITERA's platform key. The free path (`POST /evaluations`) carries the
+ * controls (BYOK required unless TMA_PLATFORM_KEY_ENABLED, 10 runs per day, 3 queued, advisory lock).
+ */
+export const LEGACY_RUNS_GONE_FOR_DFL = {
+  error: "gone",
+  code: "legacy_runs_retired_for_dfl",
+  message: "POST /runs is retired for DFL sessions. Start a run with POST /evaluations/quote, then POST /evaluations.",
+  replacement: { quote: "POST /evaluations/quote", create: "POST /evaluations" },
+} as const;
 /** Page size of GET /runs/:id/actions. */
 export const ACTIONS_PAGE_LIMIT = 200;
 
@@ -249,6 +263,13 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
     "/runs",
     requireWallet,
     handle(async (req, res) => {
+      // T6 (plan 20261023-tma-tools-on-learn-mcp, ADR-4): a run with no key spends ITERA's platform key
+      // (services/runner/src/worker.ts), and this route has none of the free-path controls. A `dfl`
+      // principal starts runs only through POST /evaluations. Refused before any read or write.
+      if (req.principal?.kind === "dfl") {
+        res.status(410).json(LEGACY_RUNS_GONE_FOR_DFL);
+        return;
+      }
       const wallet = req.wallet!;
       const body = (req.body ?? {}) as { agentId?: unknown; benchmarkId?: unknown; benchmarkVersion?: unknown; modelApiKey?: unknown };
       if (!isNonEmptyString(body.agentId) || !UUID_RE.test(body.agentId)) {
