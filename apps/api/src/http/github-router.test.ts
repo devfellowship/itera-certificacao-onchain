@@ -11,6 +11,7 @@ import { AGENT_FILES_MAX_BYTES, findAgentCandidates, normalizeAgentPath, selectA
 import { GitHubApiError, GitHubConfigError, signAppJwt, type GitHubAppApi, type InstallationRepo, type TreeEntry } from "../github/app-client.js";
 import { signInstallState, verifyInstallState, verifyInstallStateFor } from "../github/state.js";
 import { isValidBranchName, slugify } from "./github-router.js";
+import { AGENT_MODELS } from "../github/models.js";
 import { formatBytes, summarizeAgentFiles } from "../github/agent-files.js";
 import { issueSessionToken, requireWallet } from "./auth.js";
 
@@ -572,6 +573,19 @@ describe("branches, commits, validate and the pinned POST /agents (U8)", () => {
     expect((await call("POST", "/agents", { wallet: ALICE, body: { repoFullName: "alice-org/agents", name: "y", requires: ["bad name"] } })).status).toBe(400);
     ghRepo.metaColumns = false;
     expect((await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: { requires: [] } })).status).toBe(503);
+  });
+
+  it("L4: PATCH /agents/:id takes model_id for a GitHub agent, checked against the allow-list", async () => {
+    await connectAlice();
+    const { body } = await call("POST", "/agents", { wallet: ALICE, body: { repoFullName: "alice-org/agents", name: "Model swap" } });
+    const id = body.agent.id;
+    const other = AGENT_MODELS.find((m) => m.id !== body.agent.model)!.id;
+    const p = await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: { model_id: other } });
+    expect(p.status).toBe(200);
+    expect(p.body.agent.model).toBe(other);
+    expect((await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: { model_id: "acme/not-allowed" } })).status).toBe(400);
+    expect((await call("PATCH", `/agents/${id}`, { wallet: ALICE, body: { model_id: 42 } })).status).toBe(400);
+    expect((await call("GET", `/agents/${id}`, { wallet: ALICE })).body.agent.model).toBe(other);
   });
 
   it("GET /agents/:id answers 404 (not 500) for a non-uuid id", async () => {

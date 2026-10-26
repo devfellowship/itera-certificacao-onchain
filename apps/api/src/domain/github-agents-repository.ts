@@ -41,6 +41,8 @@ export interface GithubAgent {
 
 /** Fields POST /agents may set beyond the 0002 columns (U8). */
 export interface AgentMetaInput {
+  /** L4: PATCH /agents/:id {model_id} (an allowed model, as POST /agents). Column of 0002. */
+  model?: string;
   description?: string | null;
   visibility?: "private" | "listed";
   branch?: string | null;
