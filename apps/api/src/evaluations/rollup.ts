@@ -150,7 +150,9 @@ export function rollup(input: RollupInput) {
   const confirmed = provable.filter((r) => proofByRun.get(r.id)?.status === "confirmed");
   const cancelled = Boolean(ev.cancelledAt);
   // ADR-6: a free (BYOK) evaluation has no payment and no proof. Its terminal state is `graded`.
-  const free = ev.paymentKind === "free_byok";
+  // 0021: a self-declared evaluation (payment_kind `none`) is the same: no payment, no proof, `graded`.
+  const selfDeclared = ev.resultOrigin === "self_declared" || ev.paymentKind === "none";
+  const free = ev.paymentKind === "free_byok" || selfDeclared;
 
   // A free retry still to come (the issuer job inserts it on the next tick) keeps the slot open.
   const historical = ev.tasks.some((t) => t.historicalRunId);
@@ -262,7 +264,9 @@ export function rollup(input: RollupInput) {
   const t0 = Date.parse(ev.createdAt);
   const runsLabel = `${ev.taskCount} run${ev.taskCount === 1 ? "" : "s"}`;
   const events: Array<{ tMs: number; tone: "ok" | "live" | "idle" | "bad"; label: string; detail: string }> = [
-    historical
+    selfDeclared
+      ? { tMs: 0, tone: "ok", label: "Self-declared result imported", detail: "run on the owner's machine · TestMyAgent did not run or verify it" }
+      : historical
       ? { tMs: 0, tone: "ok", label: "Historical evaluation imported", detail: `${runsLabel} · original result · no new run` }
       : free
       ? { tMs: 0, tone: "ok", label: "Evaluation queued", detail: `${runsLabel} · free · your model key` }
@@ -313,7 +317,8 @@ export function rollup(input: RollupInput) {
       slug,
       status,
       uiState,
-      paymentKind: free ? "free_byok" : "solana_pay",
+      paymentKind: selfDeclared ? "none" : free ? "free_byok" : "solana_pay",
+      resultOrigin: selfDeclared ? "self_declared" : "hosted",
       elapsedMs: Math.max(0, (completedAt ? Date.parse(completedAt) : nowMs) - t0),
       createdAt: ev.createdAt,
       agent: { id: ev.agentId, name: agent.name, slug: agent.slug, repo: agent.repoFullName, commit: input.agentCommit, initials: initialsOf(agent.name), authorWallet: agent.ownerWallet ?? null },

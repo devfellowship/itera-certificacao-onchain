@@ -1,3 +1,4 @@
+import { hasSelfDeclaredSchema, hostedOnly } from "./schema-features.js";
 import type { Pool } from "pg";
 import type { ReputationStore, RunFeedback, RunProvenance, TaskInputs } from "./reputation-store.js";
 
@@ -74,6 +75,7 @@ export class PgReputationStore implements ReputationStore {
     const keys = [...new Set(taskKeys.filter(Boolean))].slice(0, 500);
     const out = new Map<string, TaskInputs>();
     if (keys.length === 0) return out;
+    const sd = await hasSelfDeclaredSchema(this.pool());
     const { rows } = await this.pool().query(
       `with t as (
          select id, slug, kind, owner_wallet from public.tasks where id::text = any($1) or slug = any($1)
@@ -82,11 +84,11 @@ export class PgReputationStore implements ReputationStore {
          select rt.id as task_id, r.owner_wallet
            from public.runs r
            ${RUN_TASK_VERSION_LATERAL}
-          where r.status in ${FINISHED} and rt.id in (select id from t)
+          where r.status in ${FINISHED} and rt.id in (select id from t)${hostedOnly(sd, "r")}
        ),
        fb as (
          select f.task_id, f.matched_reality, f.wallet from public.run_feedback f
-          where f.task_id in (select id::text from t)
+          where f.task_id in (select id::text from t)${sd ? " and not exists (select 1 from public.runs sr where sr.id = f.run_id and sr.result_origin = 'self_declared')" : ""}
        )
        select t.id::text as task_id, t.slug, t.kind, t.owner_wallet,
               (select count(distinct fin.owner_wallet) from fin

@@ -37,6 +37,8 @@ import type { AvatarStorage } from "./domain/avatar.js";
 import type { AgentAvatarStore } from "./domain/agent-avatar-store.js";
 import { createFaucetRouter, type FaucetRouterDeps } from "./http/faucet-router.js";
 import { createModelsAccessRouter, type ModelsAccessRouterDeps } from "./http/models-access-router.js";
+import { createSelfDeclaredRouter, type SelfDeclaredRouterDeps } from "./self-declared/router.js";
+import { createSelfDeclaredRunGuard, type RunOriginLookup } from "./self-declared/run-guard.js";
 
 export const SERVICE_NAME = "testmyagent-api";
 export const PRODUCT_NAME = "TestMyAgent";
@@ -52,6 +54,7 @@ const ROUTES = [
   "POST /auth/dfl/exchange",
   "GET /auth/me",
   "POST /runs",
+  "POST /self-declared-results?dry_run=1",
   "GET /runs?mine=1",
   "GET /runs/:id",
   "POST /runs/:id/publish",
@@ -183,6 +186,11 @@ export interface AppOptions {
   modelsAccess?: ModelsAccessRouterDeps;
   /** T12: DB ping + queue depth + runner heartbeat on GET /health. Absent → the minimal `{status:"ok"}`. */
   health?: HealthDeps;
+  /** L3 (plan 20261026-tma-local-runner-and-self-declared-results): POST /self-declared-results. Needs 0021
+   * (503 schema_not_ready before it). Mounted only when given. */
+  selfDeclared?: SelfDeclaredRouterDeps;
+  /** L3, Q4 = C: owner-only guard of the run routes for self-declared runs. Mounted only when given. */
+  runOrigins?: RunOriginLookup;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -212,6 +220,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createRateLimiters());
   // ADR-9 kill switch: `users.disabled` → 403 account_disabled on every write route of a dfl principal.
   if (options.dflAuth?.users) app.use(createAccountGuard({ users: options.dflAuth.users }));
+  // L3: BEFORE the global parser, so this one route has its own 1 MiB limit (the global one is 100 kB).
+  if (options.selfDeclared) app.use(createSelfDeclaredRouter(options.selfDeclared));
   app.use(express.json());
   // U36: owner/author profiles next to every wallet field of a JSON response.
   if (options.catalog) {
@@ -238,6 +248,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
 
   app.use(createAuthRouter({ dfl: options.dflAuth }));
   app.use(createModelsAccessRouter(options.modelsAccess));
+  // L3, Q4 = C: before every router that serves /runs/:id (runs, feedback, proofs).
+  if (options.runOrigins) app.use(createSelfDeclaredRunGuard(options.runOrigins));
   if (options.runs) app.use(createRunsRouter({ repo, ...options.runs }));
   // Before the 410 router: both answer POST /evaluations (the v2 one falls through on a legacy
   // body).

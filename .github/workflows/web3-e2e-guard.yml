@@ -99,6 +99,12 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      - name: Self-declared results store test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/self-declared/store.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       - uses: ./.github/actions/web3-hermetic-services
 
       - name: 'API e2e: SIWS -> quote -> pay -> run -> attestation -> verify'

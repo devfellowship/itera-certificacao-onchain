@@ -263,6 +263,8 @@ export function createCatalogRouter(store: CatalogStore, opts: CatalogRouterOpti
     shortId: e.shortId,
     createdAt: e.createdAt,
     status: e.status,
+    // 0021: `self_declared` = run on the owner's machine, not attested by TMA (owner-only rows).
+    resultOrigin: e.resultOrigin ?? "hosted",
     score: e.score,
     counts: { pass: e.passCount, fail: e.failCount, invalid: e.invalidCount },
     tests: { passed: e.testsPassed, total: e.testsTotal },

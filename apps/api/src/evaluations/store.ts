@@ -8,7 +8,10 @@ import type { AgentVersionRef } from "../domain/runs-store.js";
 export type EvaluationStatus = "pending" | "in_progress" | "review" | "issuing" | "issued" | "graded" | "cancelled" | "failed";
 
 /** evaluations.payment_kind (0019). Absent on a row read before 0019: `solana_pay`. */
-export type EvaluationPaymentKind = "solana_pay" | "free_byok";
+/** `none` (0021): a self-declared result, imported through POST /self-declared-results. No fee, no payment, no key. */
+export type EvaluationPaymentKind = "solana_pay" | "free_byok" | "none";
+/** evaluations.result_origin (0021). Absent (a row before 0021) means `hosted`. */
+export type ResultOrigin = "hosted" | "self_declared";
 
 /** One task of an evaluation, resolved at quote time. */
 export interface EvalTask {
@@ -45,6 +48,8 @@ export interface AgentForEval {
   modelRelease: string | null;
   visibility: "private" | "listed";
   pinnedCommit: string | null;
+  /** agents.connector: `local` (0021) has no repo and cannot start a hosted evaluation. */
+  connector?: "endpoint" | "github" | "local";
   /** U28 (0011_agent_requires): "mcp:<server>" | "tool:<builtin>". [] before 0011. */
   requires?: string[];
 }
@@ -90,6 +95,8 @@ export interface EvaluationRecord {
   status: EvaluationStatus;
   /** ADR-6. Absent (a row before 0019, or an older fixture) means `solana_pay`. */
   paymentKind?: EvaluationPaymentKind;
+  /** 0021. Absent means `hosted`. A self-declared row is visible only to its owner (plan Q4 = C). */
+  resultOrigin?: ResultOrigin;
   taskCount: number;
   priceUsdPerRun: number;
   feeUsd: number;

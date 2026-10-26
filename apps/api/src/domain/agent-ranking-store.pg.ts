@@ -1,3 +1,4 @@
+import { hasSelfDeclaredSchema, hostedOnly } from "./schema-features.js";
 import type { Pool } from "pg";
 import type { RankAgent, RankEvaluation, RankingData, RankingStore, RankResult } from "./agent-ranking.js";
 import { SchemaNotReadyError } from "./runs-store.js";
@@ -188,7 +189,7 @@ export class PgRankingStore implements RankingStore {
          left join public.proofs p on p.run_id = r.id
          ${joins}
         where r.status in ('pass', 'fail') and r.score_total is not null
-          and (${issuedExpr} or r.owner_wallet = $1)
+          and (${issuedExpr} or r.owner_wallet = $1)${hostedOnly(await hasSelfDeclaredSchema(this.pool()), "r")}
         limit 20000`,
       [callerWallet],
     );

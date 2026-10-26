@@ -187,6 +187,14 @@ describe('local-result validator — the rules a schema cannot say', () => {
     expect(validateLocalResult(both).ok).toBe(false);
     expect(validateLocalResult(tmaScore({ task: {} })).ok).toBe(false);
   });
+
+  it('refuses a local task with an empty name (tasks.name is 1..60 characters)', () => {
+    const r = mining() as any;
+    r.task.local.name = '';
+    const out = validateLocalResult(r) as any;
+    expect(out.ok).toBe(false);
+    expect(out.issues.map((i: any) => i.path)).toContain('/task/local/name');
+  });
   it('refuses a score above 100 and a negative cost', () => {
     expect(validateLocalResult(tmaScore({ summary: { score: 101, runs: 2, items: 1 } })).ok).toBe(false);
     const v = tmaScore();
