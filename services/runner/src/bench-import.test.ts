@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import { describe, expect, it, vi } from 'vitest';
-import { executorDigest, executorOutcome, executorRowId, importBench, parseImportFile, stableUuid } from './bench-import.js';
+import { evidenceOf, executorDigest, executorKey, executorOutcome, executorRowId, importBench, parseImportFile, stableUuid } from './bench-import.js';
 
 // Synthetic fixture: invented numbers and hashes only.
 const H = (c: string) => c.repeat(64);
@@ -158,3 +158,67 @@ describe('bench-import transaction', () => {
   });
 });
 
+
+// The session-decision-trajectory shape (format tma-bench-import/trajectory-1). Synthetic numbers only.
+const checks = (gatesOk: boolean) => ({
+  schema: gatesOk, intents_closed: gatesOk, risk_floor: gatesOk, speaker: gatesOk, outcome_consistent: gatesOk,
+  class_match: gatesOk, risk_match: false, intent_agreement: gatesOk, corrections: gatesOk,
+});
+const tRun = (repeat: number, score: number) => ({
+  item_sha256: H('a'), kind: 'subagent', repeat, present: true, checks: checks(score > 0),
+  metrics: score > 0 ? { class_match: 1, risk_match: null, intent_agreement: 0.5, corrections: null, corrections_recall: null, corrections_precision: null, class_type: true, class_subtype: null } : null,
+  score, wall_s: 8.1, cost_usd: null, tokens_in: 6500, tokens_out: 334, error_class: null,
+});
+const tSummary = (runs: number, over: Record<string, unknown> = {}) => ({
+  score: 50, runs, items: 1, gate_pass_rate: 0.5, check_pass_rate: 0.39, mean_score_when_gates_pass: 100,
+  gate_fail_schema: 1, gate_fail_intents_closed: 1, gate_fail_risk_floor: 1, gate_fail_speaker: 1, gate_fail_outcome_consistent: 1,
+  metric_class_match: 1, metric_risk_match: null, metric_intent_agreement: 0.5, metric_corrections: null,
+  time_per_task_s: 8.1, items_per_hour: 444, cost_per_task_usd: null, cost_total_usd: null, tokens_in_total: 13000, tokens_out_total: 668, errors: 0, ...over,
+});
+const tExecutor = (model_id: string, over: Record<string, unknown> = {}) => ({
+  ...executor(model_id, { lane: 'alien', route: 'ollama', route_name: 'Local Ollama (alien01)', cost_source: 'none', cost_basis: 'hardware owned' }),
+  summary: tSummary(2), runs: [tRun(1, 100), tRun(2, 0)], ...over,
+});
+const tFile = (executors: unknown[] = [tExecutor('ollama/gemma4:26b')]) => ({ ...file(), format: 'tma-bench-import/trajectory-1', executors });
+
+describe('bench-import trajectory shape', () => {
+  it('accepts the 9 checks, the metric numbers and a structured-output variant of the same model', () => {
+    const f = parseImportFile(tFile([tExecutor('ollama/gemma4:26b'), tExecutor('ollama/gemma4:26b', { variant: 'structured-output' })]));
+    expect(f.format).toBe('tma-bench-import/trajectory-1');
+    expect(f.executors.map(executorKey)).toEqual(['ollama/gemma4:26b', 'ollama/gemma4:26b#structured-output']);
+    expect(executorRowId('demo-task', 'ollama/gemma4:26b')).not.toBe(executorRowId('demo-task', executorKey(f.executors[1]!)));
+  });
+  it('refuses a mining run in a trajectory file, a gate error text and an unknown variant', () => {
+    expect(() => parseImportFile(tFile([tExecutor('ollama/a', { runs: [run(1, 50), run(2, 0)] })]))).toThrow(/unknown key|is required/);
+    expect(() => parseImportFile(tFile([tExecutor('ollama/a', { runs: [{ ...tRun(1, 0), gate_errors: { schema: ['x'] } }, tRun(2, 0)] })]))).toThrow(/gate_errors: unknown key/);
+    expect(() => parseImportFile(tFile([tExecutor('ollama/a', { runs: [{ ...tRun(1, 0), item_id: 'abc' }, tRun(2, 0)] })]))).toThrow(/item_id: unknown key/);
+    expect(() => parseImportFile(tFile([tExecutor('ollama/a', { variant: 'free text' })]))).toThrow(/variant/);
+    expect(() => parseImportFile(tFile([tExecutor('ollama/a'), tExecutor('ollama/a')]))).toThrow(/appears twice/);
+    expect(() => parseImportFile({ ...file(), format: 'tma-bench-import/9' })).toThrow(/format/);
+  });
+  it('a mining file still refuses the trajectory run shape', () => {
+    expect(() => parseImportFile(file([executor('zai/a', { runs: [tRun(1, 1), tRun(2, 0)] })]))).toThrow(/unknown key|is required/);
+  });
+  it('passes only when at least 95% of the runs pass all 5 rule gates', () => {
+    const f = parseImportFile(tFile([
+      tExecutor('ollama/a', { summary: tSummary(2, { gate_pass_rate: 0.95 }) }),
+      tExecutor('ollama/b', { summary: tSummary(2, { gate_pass_rate: 0.8 }) }),
+    ]));
+    expect(f.executors.map(executorOutcome)).toEqual(['pass', 'fail']);
+    expect(evidenceOf(f, f.executors[0]!)).toMatchObject({ kind: 'tma-bench-import/trajectory-1', outcome_rule: expect.stringContaining('gate_pass_rate') });
+  });
+  it('writes one evaluation row per (model, variant), named by the variant', async () => {
+    const db = fakeDb({});
+    const f = parseImportFile(tFile([tExecutor('ollama/gemma4:26b'), tExecutor('ollama/gemma4:26b', { variant: 'structured-output' })]));
+    const out = await importBench(db.pool, f, scope, false);
+    expect(out).toMatchObject({ inserted: 2, executors: 2 });
+    expect(new Set(out.rows.map((r) => r.id)).size).toBe(2);
+    expect(db.sqls.filter((s) => s.startsWith('insert into public.evaluations'))).toHaveLength(2);
+    expect(db.sqls.at(-1)).toBe('rollback');
+  });
+  it('a mining file keeps its v1 row ids and digests (no variant)', () => {
+    const f = parseImportFile(file());
+    expect(executorKey(f.executors[0]!)).toBe('zai/glm-5.3');
+    expect(evidenceOf(f, f.executors[0]!).kind).toBe('tma-bench-import/1');
+  });
+});
