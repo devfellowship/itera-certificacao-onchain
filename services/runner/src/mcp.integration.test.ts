@@ -1,5 +1,5 @@
 // U29 against real Docker: the MCP sidecar lifecycle, the mcp_state score and the validation-gate
-// `mcp` step on benchmarks/helpdesk-refunds, with the helpdesk image built from mcp/catalog.
+// `mcp` step on benchmarks/tsk_helpdesk_refunds, with the helpdesk image built from mcp/catalog.
 //   ITERA_DOCKER_TESTS=1 ITERA_MCP_HELPDESK_IMAGE=testmyagent-mcp-helpdesk:ci npx vitest run src/mcp.integration.test.ts
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -34,7 +34,7 @@ async function withNetwork<T>(fn: (net: string, key: string, cleanup: Array<() =
 }
 
 describe.runIf(enabled)('MCP sidecars against real Docker (U29)', () => {
-  const taskDir = scenarioDir(repoRoot, 'helpdesk-refunds');
+  const taskDir = scenarioDir(repoRoot, 'tsk_helpdesk_refunds');
 
   it('the validation gate mcp step passes on the demo task', async () => {
     const task = await loadTask(taskDir);

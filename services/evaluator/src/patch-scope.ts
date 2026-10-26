@@ -7,7 +7,7 @@ export interface ScopeRules {
   protected: readonly string[];
 }
 
-/** The rules every task had before task.json existed (webhook-ledger). Kept as the default. */
+/** The rules every task had before task.json existed (tsk_webhook_dup, then named webhook-ledger). Kept as the default. */
 export const DEFAULT_SCOPE: ScopeRules = {
   editable: ['src/**'],
   protected: ['tests/**', 'package.json', 'package-lock.json', 'tsconfig.json', 'vitest.config.*'],

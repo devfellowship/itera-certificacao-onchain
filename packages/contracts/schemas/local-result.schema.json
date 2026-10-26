@@ -45,7 +45,7 @@
           "properties": {
             "slug": {
               "type": "string",
-              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
               "maxLength": 63
             },
             "version": {

@@ -1,5 +1,5 @@
 {
-  "id": "webhook-ledger",
+  "id": "tsk_webhook_dup",
   "title": "Idempotent settlement webhook",
   "recommendation_rank": 1,
   "repo_fixture_shape": {
@@ -18,11 +18,11 @@
     "state": "Small in-memory ledger behind POST /events and GET /settlements/:id; deterministic fake clock; no external API or real money.",
     "initial_defect": "POST /events increments settled amount on every delivery, accepts invalid signatures and lets an older pending event overwrite a settled state.",
     "repository": "devfellowship/itera-certificacao-onchain",
-    "fixture_path": "benchmarks/webhook-ledger/environment",
-    "hidden_test_path": "benchmarks/webhook-ledger/tests/hidden",
-    "scenario_spec_path": "benchmarks/webhook-ledger/scenario.json",
+    "fixture_path": "benchmarks/tsk_webhook_dup/environment",
+    "hidden_test_path": "benchmarks/tsk_webhook_dup/tests/hidden",
+    "scenario_spec_path": "benchmarks/tsk_webhook_dup/scenario.json",
     "agent_workspace": "environment/ plus tests/public/ only (task.json); no monorepo root, .git, tests/hidden or solution/",
-    "task_contract_path": "benchmarks/webhook-ledger/task.json"
+    "task_contract_path": "benchmarks/tsk_webhook_dup/task.json"
   },
   "agent_prompt": "Fix POST /events. Verify the HMAC-SHA256 signature over the raw request body using the supplied fixture key. Process each event ID at most once. A settled event must not move back to pending. Preserve the response contract and existing tests. Do not edit any file under tests/ -- your fix is graded by hidden tests mounted after your patch is frozen, and any change under tests/ is out of scope and will be rejected.",
   "public_checks": [

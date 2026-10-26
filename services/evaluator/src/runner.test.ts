@@ -5,7 +5,7 @@ import { runEvaluation } from './runner.js';
 
 const repoRoot = resolve(import.meta.dirname, '..', '..', '..');
 
-// A real, hand-written correct fix for the webhook-ledger fixture: HMAC signature
+// A real, hand-written correct fix for the tsk_webhook_dup fixture (benchmarks/tsk_webhook_dup, task itera/webhook-ledger): HMAC signature
 // verification in app.ts, plus idempotency and a status-regression guard in ledger.ts.
 // Captured as an authentic `git diff` against the unfixed fixture (see T11 validation).
 const GOLDEN_PATCH = `--- a/src/ledger.ts
@@ -341,11 +341,11 @@ const NEW_FILE_SCOPE_PATCH = `--- /dev/null
 +});
 `;
 
-describe('runEvaluation (integration, real webhook-ledger fixture)', () => {
+describe('runEvaluation (integration, real tsk_webhook_dup fixture)', () => {
   it('scores a real, correct fix 100/100', async () => {
     const manifest = await runEvaluation({
       repoRoot,
-      scenarioId: 'webhook-ledger',
+      scenarioId: 'tsk_webhook_dup',
       patch: GOLDEN_PATCH,
     });
 
@@ -361,7 +361,7 @@ describe('runEvaluation (integration, real webhook-ledger fixture)', () => {
   }, 180_000);
 
   it('scores a no-op (empty patch) 0, although version 1 paid it the free parts', async () => {
-    const manifest = await runEvaluation({ repoRoot, scenarioId: 'webhook-ledger', patch: '' });
+    const manifest = await runEvaluation({ repoRoot, scenarioId: 'tsk_webhook_dup', patch: '' });
     expect(manifest.score.total).toBe(0);
     expect(manifest.score_rule!.gates.patch_nonempty).toBe(false);
     expect(manifest.score_rule!.legacy_total).toBeGreaterThan(0);
@@ -370,7 +370,7 @@ describe('runEvaluation (integration, real webhook-ledger fixture)', () => {
   it('rejects a patch that games the public test instead of fixing the bug', async () => {
     const manifest = await runEvaluation({
       repoRoot,
-      scenarioId: 'webhook-ledger',
+      scenarioId: 'tsk_webhook_dup',
       patch: GAMED_SCOPE_PATCH,
     });
 
@@ -387,7 +387,7 @@ describe('runEvaluation (integration, real webhook-ledger fixture)', () => {
   it('catches a patch that bypasses scope by adding a new file instead of editing a tracked one', async () => {
     const manifest = await runEvaluation({
       repoRoot,
-      scenarioId: 'webhook-ledger',
+      scenarioId: 'tsk_webhook_dup',
       patch: NEW_FILE_SCOPE_PATCH,
     });
 
@@ -397,9 +397,9 @@ describe('runEvaluation (integration, real webhook-ledger fixture)', () => {
   }, 180_000);
 
   it('matches the scenario spec on disk (sanity check for the fixtures above)', async () => {
-    const scenarioPath = resolve(repoRoot, 'benchmarks', 'webhook-ledger', 'scenario.json');
+    const scenarioPath = resolve(repoRoot, 'benchmarks', 'tsk_webhook_dup', 'scenario.json');
     const scenario = JSON.parse(await readFile(scenarioPath, 'utf-8'));
-    expect(scenario.id).toBe('webhook-ledger');
+    expect(scenario.id).toBe('tsk_webhook_dup');
     expect(scenario.agent_prompt).not.toContain('Add or update a test');
   });
 });

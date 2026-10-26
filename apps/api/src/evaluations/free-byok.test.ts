@@ -26,7 +26,7 @@ process.env.ITERA_SESSION_SECRET = "test-session-secret";
 const WALLET = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU";
 const SECRET = "k".repeat(48);
 const KEY = "sk-or-v1-" + "a".repeat(40);
-const LEDGER_CONTRACT = JSON.parse(readFileSync(new URL("../../../../benchmarks/webhook-ledger/task.json", import.meta.url), "utf-8"));
+const LEDGER_CONTRACT = JSON.parse(readFileSync(new URL("../../../../benchmarks/tsk_webhook_dup/task.json", import.meta.url), "utf-8"));
 const config: EvaluationsConfig = {
   baseFeeUsd: 0.1,
   fallbackPriceUsd: 0.2,

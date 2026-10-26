@@ -29,7 +29,7 @@ const PLATFORM_KEY = "sk-or-v1-PLATFORMKEYPLATFORMKEY0000";
 const CHEAP = "qwen/qwen3-coder";
 const PRICEY = "anthropic/claude-opus";
 const GO = "opencode-go/deepseek-v4.1-flash";
-const LEDGER_CONTRACT = JSON.parse(readFileSync(new URL("../../../../benchmarks/webhook-ledger/task.json", import.meta.url), "utf-8"));
+const LEDGER_CONTRACT = JSON.parse(readFileSync(new URL("../../../../benchmarks/tsk_webhook_dup/task.json", import.meta.url), "utf-8"));
 const config: EvaluationsConfig = {
   baseFeeUsd: 0.1,
   fallbackPriceUsd: 0.2,

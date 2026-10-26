@@ -1,7 +1,7 @@
 // Hermetic web3 e2e guard (T14): ONE local HTTP server that stands in for every paid or keyed
 // third party of the hackathon flow, so the guard needs no model key, no Pinata JWT and no price API.
 //
-//   node scripts/e2e/hermetic/stubs.mjs --port 18080 --patch benchmarks/webhook-ledger/solution/solution.patch
+//   node scripts/e2e/hermetic/stubs.mjs --port 18080 --patch benchmarks/tsk_webhook_dup/solution/solution.patch
 //
 // Routes:
 //   POST /api/v1/chat/completions      OpenRouter-compatible model (the run gateway's upstream,

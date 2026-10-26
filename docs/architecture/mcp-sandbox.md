@@ -1,6 +1,6 @@
 # MCP sandbox — catalog servers, seed, per-run token, state export
 
-Status: **implemented** for catalog servers (U29: `mcp/`, `services/runner/src/mcp-sidecar.ts`, `mcp-gate.ts`, `services/evaluator/src/mcp-state.ts`, migration `0013_mcp_catalog.sql`, demo task `benchmarks/helpdesk-refunds`). Custom servers from a task repo are refused until the review flow exists. Design: U33, plan `20261012-itera-testmyagent-ui-refactor`, ADR-11).
+Status: **implemented** for catalog servers (U29: `mcp/`, `services/runner/src/mcp-sidecar.ts`, `mcp-gate.ts`, `services/evaluator/src/mcp-state.ts`, migration `0013_mcp_catalog.sql`, demo task `benchmarks/tsk_helpdesk_refunds`). Custom servers from a task repo are refused until the review flow exists. Design: U33, plan `20261012-itera-testmyagent-ui-refactor`, ADR-11).
 Implementation: U28 (contract + compatibility check), U29 (runner sidecars + catalog), U31 (task editor Environment step).
 
 This document answers six questions (Tainan, TG 21019):

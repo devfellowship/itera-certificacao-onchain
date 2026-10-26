@@ -43,7 +43,7 @@ Third-party code keeps its own license: `mcp/catalog/memory/LICENSE.upstream` an
   of license, or a move of a directory to closed, affects only later versions.
 - **"Closed" is a license, not a secret.** The repository is public, so closed source is
   readable but not usable. The hidden tests in `benchmarks/` are kept apart by path, not by
-  secrecy (see `benchmarks/webhook-ledger/tests/hidden/README.md`). The license does not stop an
+  secrecy (see `benchmarks/tsk_webhook_dup/tests/hidden/README.md`). The license does not stop an
   agent from reading them.
 - **Package fields.** Open packages (`@itera/contracts`, `@itera/attestation`) say
   `"license": "Apache-2.0"`. Closed packages say `"license": "UNLICENSED"`. Every workspace

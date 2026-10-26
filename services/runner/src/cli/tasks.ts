@@ -1,22 +1,31 @@
 // Which task a local command uses, and how the result names it (plan §4 "Public task vs private folder").
 //
 // - A curated task (`--task <slug>`): a bundle under benchmarks/ (in the repo, and in the runner image).
-//   The result names it by the bundle folder (the catalog slug) and the integer version of its task.json.
+//   The bundle folder name IS the catalog slug (plan TMA, Q 5eff17c7). For a bundle that is in the
+//   catalog (catalog-slugs.ts CATALOG_BUNDLES) the result names it by the folder and the integer version
+//   of its task.json (`task.catalog`). A bundle that is NOT in the catalog (PRIVATE_BUNDLES) runs as a
+//   private task: the result carries `task.local` with the folder name as slug (the API would answer 404
+//   on a catalog reference). The old folder names (webhook-ledger, helpdesk-refunds) stay accepted as an
+//   alias; one line on stderr names the new slug, and the result always says the new slug.
 // - A private folder (`--task-dir <dir>`): any task bundle on the user's disk. It never leaves the
 //   machine. The result carries only its digests and a short name (`task.local`).
 import { createHash } from 'node:crypto';
 import { readdir, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import type { LocalResult } from '@itera/contracts';
+import { BUNDLE_FOLDER } from '../../../evaluator/src/pack-folders.js';
 import { loadTask, taskDigests, TaskError, type LoadedTask } from '../../../evaluator/src/task.js';
 import { flag, flagList, type ParsedArgs } from './args.js';
+import { isCatalogBundle, LEGACY_BUNDLE_NAMES } from './catalog-slugs.js';
 import { CliError } from './env.js';
 
 /** The repository root (in the runner image: /app). The CLI lives at services/runner/src/cli/. */
 export const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 export const BENCHMARKS_DIR = join(REPO_ROOT, 'benchmarks');
 
-const BUNDLE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** A bundle folder name = a catalog slug: lowercase, digits, `_` and `-` (pack-folders.ts). */
+const BUNDLE_NAME = BUNDLE_FOLDER;
+/** A private task slug (task.local.slug): lowercase, digits and dashes only. Not widened. */
 const LOCAL_SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const SAFE_TEXT = /[^A-Za-z0-9 .,:;/()+\-_%$=&'#]/g;
 
@@ -38,6 +47,8 @@ export interface LocalBundle {
   version: string;
   title: string;
   hasMcp: boolean;
+  /** The folder claims a task of the live catalog (its name is the catalog slug). Else it runs as a private task. */
+  catalog: boolean;
 }
 
 /** The task flags that every command with a task shares. */
@@ -57,6 +68,7 @@ export async function localBundles(dir = BENCHMARKS_DIR): Promise<LocalBundle[]>
       version: task.contract.task.version,
       title: task.contract.metadata?.title ?? task.contract.task.description ?? entry.name,
       hasMcp: hasMcp(task),
+      catalog: isCatalogBundle(entry.name),
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -67,7 +79,7 @@ export async function loadResolved(dir: string): Promise<ResolvedTask> {
   try {
     const task = await loadTask(dir);
     const digests = await taskDigests(task);
-    return { dir: task.dir, task, id: basename(task.dir).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 40) || 'task', itemSha256: digests.environment, digests };
+    return { dir: task.dir, task, id: basename(task.dir).toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 40) || 'task', itemSha256: digests.environment, digests };
   } catch (err) {
     if (err instanceof TaskError) throw new CliError(`task folder ${dir}: ${err.message}`);
     throw err;
@@ -114,18 +126,31 @@ export interface TaskSelection {
   ref: TaskRef;
 }
 
-/** Read `--task` / `--task-dir` / `--slug` of a command. Exactly one of `--task` and `--task-dir`. */
-export async function selectTasks(a: ParsedArgs, opts: { benchmarksDir?: string } = {}): Promise<TaskSelection> {
-  const name = flag(a, 'task');
+/** The bundle folder of a `--task` name: the new folder for an old name (one stderr line), the name otherwise. */
+export function bundleName(name: string, warn: (line: string) => void): string {
+  const renamed = LEGACY_BUNDLE_NAMES[name];
+  if (renamed === undefined) return name;
+  warn(`${name} is now ${renamed}`);
+  return renamed;
+}
+
+/**
+ * Read `--task` / `--task-dir` / `--slug` of a command. Exactly one of `--task` and `--task-dir`.
+ * `warn` receives the one line of a legacy `--task` name (stderr of the command).
+ */
+export async function selectTasks(a: ParsedArgs, opts: { benchmarksDir?: string; warn?: (line: string) => void } = {}): Promise<TaskSelection> {
+  const given = flag(a, 'task');
   const dirs = flagList(a, 'task-dir');
-  if ((name === undefined) === (dirs.length === 0)) throw new CliError('give the task: --task <slug> (a curated task, see "tma tasks") or --task-dir <folder> (a private task)');
-  if (name !== undefined) {
+  if ((given === undefined) === (dirs.length === 0)) throw new CliError('give the task: --task <slug> (a curated task, see "tma tasks") or --task-dir <folder> (a private task)');
+  if (given !== undefined) {
     if (flag(a, 'slug') !== undefined) throw new CliError('--slug is only for --task-dir');
     const benchmarks = opts.benchmarksDir ?? BENCHMARKS_DIR;
+    const name = bundleName(given, opts.warn ?? (() => undefined));
     if (!BUNDLE_NAME.test(name) || !(await stat(join(benchmarks, name, 'task.json')).catch(() => null))) {
-      throw new CliError(`no curated task "${name.slice(0, 60)}" in this runner: see "tma tasks". For a private folder use --task-dir <folder>.`);
+      throw new CliError(`no curated task "${given.slice(0, 60)}" in this runner: see "tma tasks". For a private folder use --task-dir <folder>.`);
     }
     const resolved = await loadResolved(join(benchmarks, name));
+    if (!isCatalogBundle(name)) return { items: [resolved], ref: localTaskRef([resolved], name) };
     return { items: [resolved], ref: { catalog: { slug: name, version: catalogVersion(resolved.task) } } };
   }
   const items: ResolvedTask[] = [];

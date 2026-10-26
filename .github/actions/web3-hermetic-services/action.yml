@@ -20,7 +20,7 @@ runs:
       run: |
         set -euo pipefail
         nohup node scripts/e2e/hermetic/stubs.mjs --port "$STUB_PORT" \
-          --patch benchmarks/webhook-ledger/solution/solution.patch > "$E2E_DIR/stubs.log" 2>&1 &
+          --patch benchmarks/tsk_webhook_dup/solution/solution.patch > "$E2E_DIR/stubs.log" 2>&1 &
         STUB="http://127.0.0.1:$STUB_PORT"
         common=(
           DATABASE_URL="$DATABASE_URL" ITERA_DB_SSL=disable
