@@ -73,3 +73,4 @@ npm run cli -w @itera/evaluator -- --validate --task ../../benchmarks/dfl-sessio
 | Task version | Grader | Why |
 |---|---|---|
 | 1 | 1.0.0 | First version (contract: schema_version 1, intent_list_version 1, taxonomy v2). |
+| 2 | 1.1.0 | 27 intents: `browser-check`, `github-api`, `media-generate` added before `other` (contract: schema_version 1 revision 1.2, intent_list_version 2, taxonomy v2). The grader code is unchanged; its schema copy holds the new enum. |

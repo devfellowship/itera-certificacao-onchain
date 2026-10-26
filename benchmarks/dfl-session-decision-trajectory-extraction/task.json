@@ -3,7 +3,7 @@
   "schema_version": "1.0",
   "task": {
     "name": "itera/dfl-session-decision-trajectory-extraction",
-    "version": "1",
+    "version": "2",
     "description": "Judge ONE unit of agent work from its condensed view and layer-1 facts; return one strict layer-2 judgment: decisions with risk, corrections, a fixed-taxonomy class, summaries, task intent, intent labels. Extract and classify only. Offline: 5 rule gates, 4 reference metrics.",
     "authors": [{ "name": "ITERA" }],
     "keywords": ["extraction", "classification", "trajectories", "risk", "json-schema"]
