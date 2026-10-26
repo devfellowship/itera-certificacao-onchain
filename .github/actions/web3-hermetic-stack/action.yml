@@ -94,7 +94,10 @@ runs:
           sleep 2
         done
         solana cluster-version --url http://127.0.0.1:8899
-        solana account 22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG --url http://127.0.0.1:8899 | head -4
+        # Write to a file first: `solana account | head -4` panics with a broken
+        # pipe (exit 101) under pipefail when head closes the pipe early.
+        solana account 22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG --url http://127.0.0.1:8899 > "$E2E_DIR/sas-program.txt"
+        head -4 "$E2E_DIR/sas-program.txt"
 
     - name: Fund the job keys on the local validator
       shell: bash
