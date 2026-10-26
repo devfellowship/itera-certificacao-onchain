@@ -90,6 +90,15 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # L2 (plan 20261026-tma-local-runner-and-self-declared-results): 0021 applies a second time with
+      # no error, the bench-import relabel is idempotent, and its CHECKs refuse the forbidden shapes.
+      # It deletes its own fixtures before the worker starts.
+      - name: Migration 0021 test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/domain/migration-0021.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       - uses: ./.github/actions/web3-hermetic-services
 
       - name: 'API e2e: SIWS -> quote -> pay -> run -> attestation -> verify'
