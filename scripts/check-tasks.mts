@@ -42,7 +42,7 @@ const budget = plan.shared_protocol.runtime_budget_seconds as Record<string, num
 const parts = Object.entries(budget).filter(([k]) => k !== 'total').reduce((a, [, v]) => a + v, 0);
 if (parts !== budget.total) problems.push('scenarios.json: runtime budget total differs from its parts');
 const ids = (plan.scenarios as Array<{ id: string }>).map((s) => s.id);
-if (new Set(ids).size !== ids.length || ids.some((id) => !/^[a-z0-9-]+$/.test(id))) problems.push('scenarios.json: duplicate or unsafe scenario id');
+if (new Set(ids).size !== ids.length || ids.some((id) => !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(id))) problems.push('scenarios.json: duplicate or unsafe scenario id');
 
 if (problems.length > 0) {
   console.error(problems.map((p) => `✗ ${p}`).join('\n'));

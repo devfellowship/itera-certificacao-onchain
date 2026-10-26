@@ -9,13 +9,13 @@ The runner executes ONE agent on ONE benchmark scenario, records each tool call,
 ```bash
 cd services/runner
 npx tsx src/cli/tma.ts tasks                          # the curated tasks of this runner, offline
-npx tsx src/cli/tma.ts workspace --task webhook-ledger --dest ./ws      # public workspace + INSTRUCTION.md, no Docker
+npx tsx src/cli/tma.ts workspace --task tsk_webhook_dup --dest ./ws      # public workspace + INSTRUCTION.md, no Docker
 # ... edit ./ws with your own harness, then:
-npx tsx src/cli/tma.ts grade --task webhook-ledger --workspace ./ws --agent <agent id> --model qwen/qwen3-coder --wall-s 120 --cost-usd 0.05 --out result.json
+npx tsx src/cli/tma.ts grade --task tsk_webhook_dup --workspace ./ws --agent <agent id> --model qwen/qwen3-coder --wall-s 120 --cost-usd 0.05 --out result.json
 # or let opencode do it in the sandbox:
 docker build -t itera-runner-sandbox:latest sandbox                      # once; or set ITERA_SANDBOX_IMAGE
 export OPENROUTER_API_KEY=...                                            # YOUR key (OPENCODE_GO_API_KEY for opencode-go/<model>)
-npx tsx src/cli/tma.ts run --task webhook-ledger --agent <agent id> --agent-dir examples/sample-agent --model qwen/qwen3-coder --repeat 3 --out result.json
+npx tsx src/cli/tma.ts run --task tsk_webhook_dup --agent <agent id> --agent-dir examples/sample-agent --model qwen/qwen3-coder --repeat 3 --out result.json
 ```
 
 `--task-dir <folder>` selects a private task folder on your disk instead (it never leaves the machine; only its digests go into the result). `grade` and `run` need Docker. MCP tasks run hosted only. The patch, the actions and the evidence manifest go to `./tma-runs/<run-id>/`, for you only. `src/run-once.ts` is an alias of `tma run` (`--scenario` works as `--task`).

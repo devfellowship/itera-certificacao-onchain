@@ -27,7 +27,7 @@ describe('computeScore', () => {
   });
 
   it('scores zero across every axis for the unfixed fixture baseline', () => {
-    // Matches benchmarks/webhook-ledger: 1/3 public and 4/5 hidden fail pre-fix.
+    // Matches benchmarks/tsk_webhook_dup: 1/3 public and 4/5 hidden fail pre-fix.
     const score = computeScore({
       publicAfterPatch: suite(3, 2),
       hidden: suite(5, 1),

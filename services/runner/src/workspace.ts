@@ -2,6 +2,7 @@ import { cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadTask, materializeWorkspace, scenarioDir } from '../../evaluator/src/task.js';
+import { BUNDLE_FOLDER } from '../../evaluator/src/pack-folders.js';
 import { exec } from './exec.js';
 import { loadRunProfile } from './run-profile.js';
 
@@ -53,7 +54,7 @@ export async function prepareWorkspace(opts: {
   /** The run profile's install_cmd (argv). Default: the built-in opencode profile. */
   installCmd?: string[];
 }): Promise<PreparedWorkspace> {
-  if (!opts.taskDir && !/^[a-z0-9-]+$/.test(opts.scenarioId)) throw new Error(`invalid scenario id: ${opts.scenarioId}`);
+  if (!opts.taskDir && !BUNDLE_FOLDER.test(opts.scenarioId)) throw new Error(`invalid scenario id: ${opts.scenarioId}`);
   const taskDir = opts.taskDir ?? scenarioDir(opts.repoRoot, opts.scenarioId);
   if (!(await exists(join(taskDir, 'task.json')))) throw new Error(`no task bundle for scenario ${opts.scenarioId}`);
   const task = await loadTask(taskDir);

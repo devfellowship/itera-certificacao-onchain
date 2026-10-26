@@ -122,17 +122,33 @@ describe('tma tasks', () => {
     const io = captureIo();
     expect(await tasksCommand.main([], io)).toBe(0);
     const lines = io.outText().split('\n');
-    const line = lines.find((l) => l.startsWith('webhook-ledger'));
-    expect(line).toMatch(/^webhook-ledger\s+v1\s+/);
+    const line = lines.find((l) => l.startsWith('tsk_webhook_dup'));
+    expect(line).toMatch(/^tsk_webhook_dup\s+v1\s+/);
+    expect(line).not.toContain('not in catalog');
     expect(lines.find((l) => l.startsWith('dfl-fleet-research'))).toContain('hosted only');
     expect(lines.every((l) => l.trim() !== '')).toBe(true);
+    // The folder name is the catalog slug: the old names are gone from the list.
+    expect(lines.some((l) => /^(webhook-ledger|helpdesk-refunds)\b/.test(l))).toBe(false);
   });
 
-  it('--json is a list of slug and version', async () => {
+  it('marks a bundle that is not in the catalog: it runs as a private task', async () => {
+    const io = captureIo();
+    await tasksCommand.main([], io);
+    const lines = io.outText().split('\n');
+    for (const slug of ['dfl-transcript-mining', 'dfl-fleet-research', 'loop-acquisition-search-terms']) {
+      expect(lines.find((l) => l.startsWith(slug))).toContain('not in catalog (runs as a private task)');
+    }
+    expect(lines.find((l) => l.startsWith('tsk_helpdesk_refunds'))).not.toContain('not in catalog');
+  });
+
+  it('--json is a list of slug, version and in_catalog', async () => {
     const io = captureIo();
     await tasksCommand.main(['--json'], io);
-    const list = JSON.parse(io.outText()) as Array<{ slug: string; version: string; hosted_only: boolean }>;
-    expect(list.find((t) => t.slug === 'webhook-ledger')).toMatchObject({ version: '1', hosted_only: false });
+    const list = JSON.parse(io.outText()) as Array<{ slug: string; version: string; hosted_only: boolean; in_catalog: boolean }>;
+    expect(list.find((t) => t.slug === 'tsk_webhook_dup')).toMatchObject({ version: '1', hosted_only: false, in_catalog: true });
+    expect(list.find((t) => t.slug === 'tsk_helpdesk_refunds')).toMatchObject({ version: '1', hosted_only: true, in_catalog: true });
+    expect(list.find((t) => t.slug === 'dfl-transcript-mining')).toMatchObject({ in_catalog: false });
+    expect(list.map((t) => t.slug)).not.toContain('webhook-ledger');
   });
 });
 
@@ -152,15 +168,23 @@ describe('tma workspace', () => {
 
   it('works for a curated task with --task, and refuses a folder that is not empty', async () => {
     const dest = join(tmp('ws'), 'w');
-    expect(await workspaceCommand.main(['--task', 'webhook-ledger', '--dest', dest], captureIo())).toBe(0);
+    expect(await workspaceCommand.main(['--task', 'tsk_webhook_dup', '--dest', dest], captureIo())).toBe(0);
     expect(files(dest)).toContain('tests/public/public.test.ts');
     expect(files(dest).some((f) => f.startsWith('tests/hidden') || f.startsWith('solution'))).toBe(false);
-    await expect(workspaceCommand.main(['--task', 'webhook-ledger', '--dest', dest], captureIo())).rejects.toThrow(/not empty/);
+    await expect(workspaceCommand.main(['--task', 'tsk_webhook_dup', '--dest', dest], captureIo())).rejects.toThrow(/not empty/);
+  });
+
+  it('accepts the old bundle name as an alias and says the new slug on stderr', async () => {
+    const dest = join(tmp('ws'), 'w');
+    const io = captureIo();
+    expect(await workspaceCommand.main(['--task', 'webhook-ledger', '--dest', dest], io)).toBe(0);
+    expect(io.errText()).toContain('webhook-ledger is now tsk_webhook_dup');
+    expect(files(dest)).toContain('tests/public/public.test.ts');
   });
 
   it('user errors are CliError: no task, both task flags, an unknown task, a folder without task.json', async () => {
     const dest = join(tmp('ws'), 'w');
-    for (const argv of [['--dest', dest], ['--task', 'webhook-ledger', '--task-dir', FIXTURE, '--dest', dest], ['--task', 'no-such-task', '--dest', dest], ['--task-dir', tmpdir(), '--dest', dest], ['--task', 'webhook-ledger']]) {
+    for (const argv of [['--dest', dest], ['--task', 'tsk_webhook_dup', '--task-dir', FIXTURE, '--dest', dest], ['--task', 'no-such-task', '--dest', dest], ['--task-dir', tmpdir(), '--dest', dest], ['--task', 'tsk_webhook_dup'], ['--task', 'Tsk_Webhook_Dup', '--dest', dest], ['--task', '../tsk_webhook_dup', '--dest', dest]]) {
       await expect(workspaceCommand.main(argv, captureIo())).rejects.toBeInstanceOf(CliError);
     }
   });
@@ -207,12 +231,40 @@ describe('tma run — a result that validates, with the Docker parts faked', () 
     expect(validateLocalResult({ ...result, patch: PATCH }).ok).toBe(false);
   });
 
-  it('--task names the task by its catalog slug and the integer version', async () => {
+  it('--task on a catalog bundle names the task by the folder name (the catalog slug) and the integer version, and the result validates', async () => {
+    const { argv, out } = runArgs();
+    const i = argv.indexOf('--task-dir');
+    argv.splice(i, 2, '--task', 'tsk_webhook_dup');
+    const io = captureIo();
+    expect(await makeRunCommand(fakes().deps).main(argv, io)).toBe(0);
+    const text = readFileSync(out, 'utf-8');
+    expect(JSON.parse(text).task).toEqual({ catalog: { slug: 'tsk_webhook_dup', version: 1 } });
+    const checked = parseLocalResultText(text);
+    expect(checked.ok ? [] : checked.errors).toEqual([]);
+    expect(io.errText()).not.toContain('is now');
+  });
+
+  it('--task on a bundle that is not in the catalog gives a private reference (task.local), never task.catalog', async () => {
+    const { argv, out } = runArgs();
+    const i = argv.indexOf('--task-dir');
+    argv.splice(i, 2, '--task', 'dfl-transcript-mining');
+    expect(await makeRunCommand(fakes().deps).main(argv, captureIo())).toBe(0);
+    const text = readFileSync(out, 'utf-8');
+    const task = JSON.parse(text).task;
+    expect(task.catalog).toBeUndefined();
+    expect(task.local).toMatchObject({ slug: 'dfl-transcript-mining', contract_sha256: expect.stringMatching(/^[0-9a-f]{64}$/), environment_sha256: expect.stringMatching(/^[0-9a-f]{64}$/), hidden_tests_sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    const checked = parseLocalResultText(text);
+    expect(checked.ok ? [] : checked.errors).toEqual([]);
+  });
+
+  it('--task with the old bundle name: one stderr line, and the result says the new slug', async () => {
     const { argv, out } = runArgs();
     const i = argv.indexOf('--task-dir');
     argv.splice(i, 2, '--task', 'webhook-ledger');
-    expect(await makeRunCommand(fakes().deps).main(argv, captureIo())).toBe(0);
-    expect(JSON.parse(readFileSync(out, 'utf-8')).task).toEqual({ catalog: { slug: 'webhook-ledger', version: 1 } });
+    const io = captureIo();
+    expect(await makeRunCommand(fakes().deps).main(argv, io)).toBe(0);
+    expect(io.errText().split('\n').filter((l) => l.includes('is now'))).toEqual(['webhook-ledger is now tsk_webhook_dup']);
+    expect(JSON.parse(readFileSync(out, 'utf-8')).task).toEqual({ catalog: { slug: 'tsk_webhook_dup', version: 1 } });
   });
 
   it('--repeat: 1 and 10 give that many rows; 0, 11, abc and 2.5 are refused before any run', async () => {
@@ -398,7 +450,7 @@ describe('tma grade — the patch comes from a fresh baseline of the task, never
 
 describe('run-once is an alias of tma run', () => {
   it('maps --scenario to --task and fills a placeholder agent id', () => {
-    expect(runOnceArgs(['--scenario', 'webhook-ledger', '--agent-dir', 'a', '--model', 'm/x'])).toEqual(['run', '--task', 'webhook-ledger', '--agent-dir', 'a', '--model', 'm/x', '--agent', '00000000-0000-4000-8000-000000000000']);
-    expect(runOnceArgs(['--scenario=webhook-ledger', '--agent', AGENT])).toEqual(['run', '--task=webhook-ledger', '--agent', AGENT]);
+    expect(runOnceArgs(['--scenario', 'tsk_webhook_dup', '--agent-dir', 'a', '--model', 'm/x'])).toEqual(['run', '--task', 'tsk_webhook_dup', '--agent-dir', 'a', '--model', 'm/x', '--agent', '00000000-0000-4000-8000-000000000000']);
+    expect(runOnceArgs(['--scenario=tsk_webhook_dup', '--agent', AGENT])).toEqual(['run', '--task=tsk_webhook_dup', '--agent', AGENT]);
   });
 });

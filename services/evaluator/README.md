@@ -66,6 +66,6 @@ read-only operator CLI that prints what version 2 would give to old runs.
 `validateTask({ taskDir, executor, repeats })` is the validation gate of ADR-8.
 
 ```bash
-npm run cli -w @itera/evaluator -- --scenario webhook-ledger --patch ../../benchmarks/webhook-ledger/solution/solution.patch
-npm run cli -w @itera/evaluator -- --validate --task ../../benchmarks/webhook-ledger
+npm run cli -w @itera/evaluator -- --scenario tsk_webhook_dup --patch ../../benchmarks/tsk_webhook_dup/solution/solution.patch
+npm run cli -w @itera/evaluator -- --validate --task ../../benchmarks/tsk_webhook_dup
 ```

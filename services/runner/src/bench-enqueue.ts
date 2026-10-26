@@ -1,5 +1,5 @@
 // Operator CLI: queue ONE benchmark run directly on the TestMyAgent DB, for the live worker to claim.
-//   tsx src/bench-enqueue.ts --task helpdesk-refunds --model opencode-go/deepseek-v4.1-flash \
+//   tsx src/bench-enqueue.ts --task tsk_helpdesk_refunds --model opencode-go/deepseek-v4.1-flash \
 //       [--agent-dir examples/bench-agent] [--wait] [--timeout-min 20]
 //
 // Why: the public flow (wallet login, quote, payment) is for users. A benchmark campaign (plan
@@ -29,6 +29,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { Pool } from 'pg';
+import { packIdOfFolder } from '../../evaluator/src/pack-folders.js';
 import { isAllowedAgentPath } from './agent-files.js';
 
 export const BENCH_VENDOR = 'ITERA benchmark campaign';
@@ -90,9 +91,11 @@ export async function enqueueBenchRun(pool: Pool, input: EnqueueInput): Promise<
   const client = await pool.connect();
   try {
     await client.query('begin');
+    // A renamed bundle is registered under its OLD pack id (curated-packs.ts): accept the folder name too.
+    const packId = packIdOfFolder(input.task);
     const pack = await client.query<{ version: string }>(
       `select version from public.task_packs where id = $1 order by version desc limit 1`,
-      [input.task],
+      [packId],
     );
     if (!pack.rows[0]) throw new Error(`task pack ${input.task} is not registered (the worker registers benchmarks/* at boot)`);
     const taskVersion = pack.rows[0].version;
@@ -124,7 +127,7 @@ export async function enqueueBenchRun(pool: Pool, input: EnqueueInput): Promise<
     const run = await client.query<{ id: string }>(
       `insert into public.runs (release_declaration_id, task_pack_id, task_pack_version, nonce, status, agent_version_id, campaign_id, model_requested)
        values ($1, $2, $3, $4, 'queued', $5, $6, $7) returning id`,
-      [release.rows[0]!.id, input.task, taskVersion, `bench-${randomUUID()}`, agentVersionId, input.campaign?.id ?? null, input.model],
+      [release.rows[0]!.id, packId, taskVersion, `bench-${randomUUID()}`, agentVersionId, input.campaign?.id ?? null, input.model],
     );
     await client.query('commit');
     return { runId: run.rows[0]!.id, agentId, agentVersionId, taskVersion, filesDigest: digest };

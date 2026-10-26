@@ -26,7 +26,7 @@ const payments: PaymentGateway = {
   buildTransferTx: async () => "AAAA",
   verify: async () => ({ ok: false, code: "not_found", message: "not found" }),
 };
-const LEDGER_CONTRACT = JSON.parse(readFileSync(new URL("../../../../benchmarks/webhook-ledger/task.json", import.meta.url), "utf-8"));
+const LEDGER_CONTRACT = JSON.parse(readFileSync(new URL("../../../../benchmarks/tsk_webhook_dup/task.json", import.meta.url), "utf-8"));
 const MCP_CONTRACT = {
   environment: {
     dir: "environment",

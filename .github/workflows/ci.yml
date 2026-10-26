@@ -61,7 +61,7 @@ jobs:
       - run: docker build --file apps/api/Dockerfile --tag itera-agent-credentials-api:ci .
       - run: docker build --file apps/web2/Dockerfile --tag itera-web2:ci .
       - run: docker build --tag itera-runner-sandbox:ci services/runner/sandbox
-      # ADR-9: the grader sandbox, against real Docker (escape probe 0/5, webhook-ledger 100, validation gate).
+      # ADR-9: the grader sandbox, against real Docker (escape probe 0/5, tsk_webhook_dup 100, validation gate).
       - name: Grader sandbox integration test
         working-directory: services/runner
         run: npx vitest run src/grade.integration.test.ts
@@ -124,7 +124,7 @@ jobs:
           path: ~/.npm
           key: node-cache-${{ runner.os }}-${{ runner.arch }}-npm-${{ hashFiles('**/package-lock.json') }}
       # U29: sidecar lifecycle, mcp_state score and the validation-gate mcp step on the demo task,
-      # against the image this job just built (benchmarks/helpdesk-refunds).
+      # against the image this job just built (benchmarks/tsk_helpdesk_refunds).
       - name: Runner MCP integration test
         working-directory: services/runner
         run: npx vitest run src/mcp.integration.test.ts

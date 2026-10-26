@@ -10,13 +10,13 @@ import { loadTask, TaskError } from './task.js';
 import { validateTask } from './validate.js';
 
 const repoRoot = resolve(import.meta.dirname, '..', '..', '..');
-const ledgerDir = join(repoRoot, 'benchmarks', 'webhook-ledger');
+const ledgerDir = join(repoRoot, 'benchmarks', 'tsk_webhook_dup');
 const tmpDirs: string[] = [];
 afterAll(async () => {
   await Promise.all(tmpDirs.map((d) => rm(d, { recursive: true, force: true })));
 });
 
-/** A copy of webhook-ledger whose task.json is changed by `edit`. */
+/** A copy of tsk_webhook_dup whose task.json is changed by `edit`. */
 async function ledgerCopy(edit: (task: Record<string, any>) => void = () => undefined): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'itera-task-test-'));
   tmpDirs.push(dir);
@@ -61,7 +61,7 @@ describe('patch scope from the contract', () => {
 });
 
 describe('loadTask (Ajv + bundle checks)', () => {
-  it('accepts the converted webhook-ledger', async () => {
+  it('accepts the converted tsk_webhook_dup (task.json still names itera/webhook-ledger: the contract digest did not change)', async () => {
     const task = await loadTask(ledgerDir);
     expect(task.contract.task.name).toBe('itera/webhook-ledger');
     expect(task.contractDigest).toMatch(/^[0-9a-f]{64}$/);
@@ -127,7 +127,7 @@ describe('interpretRun (report vs exit code)', () => {
   });
 });
 
-describe('generic verifier on the webhook-ledger contract (integration, local executor)', () => {
+describe('generic verifier on the tsk_webhook_dup contract (integration, local executor)', () => {
   it('scores the solution/ patch 100 with pinned-environment evidence and no temp path', async () => {
     const patch = await readFile(join(ledgerDir, 'solution', 'solution.patch'), 'utf-8');
     const m = await runEvaluation({ taskDir: ledgerDir, patch });

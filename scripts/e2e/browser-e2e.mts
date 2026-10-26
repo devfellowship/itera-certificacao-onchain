@@ -287,7 +287,7 @@ async function ghcrPublic(image: string): Promise<boolean> {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Pay + watch, reused by the webhook-ledger run and the MCP task run
+// Pay + watch, reused by the tsk_webhook_dup run and the MCP task run
 
 async function payAndWatch(c: StepCtx, taskSlug: string): Promise<void> {
   // quote step already ran for the webhook task; for another task the caller navigates first.

@@ -22,7 +22,7 @@ export const workspaceCommand: Command = {
   async main(argv, io) {
     const a = parseArgs(argv, { ...TASK_FLAGS, dest: {}, install: { boolean: true } });
     const dest = required(a, 'dest', USAGE);
-    const { items } = await selectTasks(a);
+    const { items } = await selectTasks(a, { warn: io.err });
     if (items.length !== 1) throw new CliError('tma workspace takes ONE task folder');
     const profile = loadRunProfile();
     const w = await materializeLocalWorkspace(items[0]!, dest, { install: has(a, 'install'), installCmd: profile.install_cmd, installTimeoutMs: profile.timeouts.install_sec * 1000 });

@@ -18,7 +18,7 @@ const AGENT = '0b6f3c2e-1d4a-4c8e-9f00-123456789abc';
 const base = (over: Record<string, unknown> = {}): Record<string, any> => ({
   format: 'tma-local-result/1',
   agent_id: AGENT,
-  task: { catalog: { slug: 'webhook-ledger', version: 1 } },
+  task: { catalog: { slug: 'tsk_webhook_dup', version: 1 } },
   grader_version: '1.1.0',
   runner: { version: '0.1.0', execution: 'tma-sandbox', profile: 'opencode', sandbox_image_id: `sha256:${H('d')}` },
   executor: { model_id: 'openrouter/deepseek/deepseek-v4.1-flash', provider: 'deepseek', route: 'openrouter', harness: 'opencode 1.18.31', variant: null, cost_source: 'metered' },
@@ -183,11 +183,24 @@ describe('local-result validator — the rules a schema cannot say', () => {
     expect(issues(tmaScore({ ran_from: '2026-10-26T13:00:00Z' }))).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/ran_from' }));
   });
   it('takes exactly one of task.catalog and task.local', () => {
-    const both = tmaScore({ task: { catalog: { slug: 'webhook-ledger', version: 1 }, local: (mining().task as any).local } });
+    const both = tmaScore({ task: { catalog: { slug: 'tsk_webhook_dup', version: 1 }, local: (mining().task as any).local } });
     expect(validateLocalResult(both).ok).toBe(false);
     expect(validateLocalResult(tmaScore({ task: {} })).ok).toBe(false);
   });
 
+  it('task.catalog.slug is the bundle folder name: tsk_webhook_dup is accepted; a capital, a leading _, a space and 64 characters are refused', () => {
+    for (const slug of ['tsk_webhook_dup', 'tsk_helpdesk_refunds', 'webhook-ledger', 'a', 'a'.repeat(63)]) {
+      expect(issues(tmaScore({ task: { catalog: { slug, version: 1 } } }))).toEqual([]);
+    }
+    for (const slug of ['Tsk_X', '_x', 'a b', 'a'.repeat(64), '']) {
+      expect(issues(tmaScore({ task: { catalog: { slug, version: 1 } } })).map((i) => i.path)).toContain('/task/catalog/slug');
+    }
+  });
+  it('task.local.slug is NOT widened: an underscore is still refused for a private task', () => {
+    const r = mining() as any;
+    r.task.local.slug = 'tsk_private';
+    expect(issues(r).map((i) => i.path)).toContain('/task/local/slug');
+  });
   it('refuses a local task with an empty name (tasks.name is 1..60 characters)', () => {
     const r = mining() as any;
     r.task.local.name = '';

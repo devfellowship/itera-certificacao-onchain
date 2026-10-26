@@ -25,7 +25,7 @@ export function makeGradeCommand(deps: LocalDeps = {}): Command {
     usage: USAGE,
     async main(argv, io) {
       const a = parseArgs(argv, { ...TASK_FLAGS, workspace: {}, agent: {}, model: {}, 'wall-s': {}, 'cost-usd': {}, harness: {}, out: {}, 'runs-dir': {} });
-      const { items, ref } = await selectTasks(a);
+      const { items, ref } = await selectTasks(a, { warn: io.err });
       if (items.length !== 1) throw new CliError('tma grade takes ONE task folder (one workspace)');
       const agentId = checkAgentId(required(a, 'agent', USAGE));
       const model = checkModelId(required(a, 'model', USAGE));

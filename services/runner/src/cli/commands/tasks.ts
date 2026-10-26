@@ -6,6 +6,8 @@ import { localBundles } from '../tasks.js';
 
 const USAGE = `usage: tma tasks [--json]
   Lists the curated tasks of this runner, one line each: slug, version, title.
+  The slug is the bundle folder name. A bundle marked "not in catalog" runs as a private task (the result
+  carries task.local, as with --task-dir).
   Run one with: tma run --task <slug> ...   Work offline on one with: tma workspace --task <slug> ...`;
 
 export interface TaskListing {
@@ -14,10 +16,14 @@ export interface TaskListing {
   title: string;
   /** An MCP task needs the TMA sidecars: it runs hosted only (v1). */
   hosted_only: boolean;
+  /** The slug is in the live catalog (the result names it as task.catalog). Else it runs as a private task (task.local). */
+  in_catalog: boolean;
 }
 
+export const NOT_IN_CATALOG = 'not in catalog (runs as a private task)';
+
 export async function listTasks(benchmarksDir?: string): Promise<TaskListing[]> {
-  return (await localBundles(benchmarksDir)).map((b) => ({ slug: b.name, version: b.version, title: b.title, hosted_only: b.hasMcp }));
+  return (await localBundles(benchmarksDir)).map((b) => ({ slug: b.name, version: b.version, title: b.title, hosted_only: b.hasMcp, in_catalog: b.catalog }));
 }
 
 export const tasksCommand: Command = {
@@ -33,7 +39,7 @@ export const tasksCommand: Command = {
     }
     const width = Math.max(4, ...tasks.map((t) => t.slug.length));
     for (const t of tasks) {
-      io.out(`${t.slug.padEnd(width)}  v${t.version.padEnd(4)}  ${t.title.slice(0, 70)}${t.hosted_only ? '  [MCP: hosted only]' : ''}`.trimEnd());
+      io.out(`${t.slug.padEnd(width)}  v${t.version.padEnd(4)}  ${t.title.slice(0, 70)}${t.hosted_only ? '  [MCP: hosted only]' : ''}${t.in_catalog ? '' : `  [${NOT_IN_CATALOG}]`}`.trimEnd());
     }
     return 0;
   },

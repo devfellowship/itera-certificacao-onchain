@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { validateTaskContract } from './index.js';
 import { opencodeAgentConfig } from './tool-environment.js';
 
-const ledger = JSON.parse(readFileSync(new URL('../../benchmarks/webhook-ledger/task.json', import.meta.url), 'utf-8'));
+const ledger = JSON.parse(readFileSync(new URL('../../benchmarks/tsk_webhook_dup/task.json', import.meta.url), 'utf-8'));
 const clone = () => structuredClone(ledger);
 
 describe('task.schema.json (Ajv, draft 2020-12)', () => {

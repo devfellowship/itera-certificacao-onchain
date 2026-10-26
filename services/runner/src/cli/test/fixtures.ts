@@ -30,7 +30,7 @@ export function tmaScoreResult(over: Record<string, unknown> = {}): Record<strin
   return {
     format: 'tma-local-result/1',
     agent_id: AGENT,
-    task: { catalog: { slug: 'webhook-ledger', version: 1 } },
+    task: { catalog: { slug: 'tsk_webhook_dup', version: 1 } },
     metrics_shape: 'tma-score/1',
     grader_version: '1.1.0',
     runner: { version: '0.1.0', execution: 'tma-sandbox', profile: 'opencode', sandbox_image_id: `sha256:${H('d')}` },

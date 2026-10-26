@@ -1,6 +1,6 @@
 // Local CLI: run ONE agent on ONE scenario in the sandbox, then grade the patch. A thin alias for
 // `tma run` (src/cli/commands/run.ts); the old flag --scenario works as --task.
-//   tsx src/run-once.ts --scenario webhook-ledger --agent-dir <dir> --model <openrouter-model | opencode-go/<model>> [--out result.json]
+//   tsx src/run-once.ts --scenario tsk_webhook_dup --agent-dir <dir> --model <openrouter-model | opencode-go/<model>> [--out result.json]
 // Needs: docker, git, npm and a model key of YOUR own in the environment (OPENROUTER_API_KEY, or
 // OPENCODE_GO_API_KEY for an opencode-go/<model>). `--agent <id>` is optional here: without it the
 // result carries a placeholder agent id (all zeros), good for a local look but not for `tma upload`.

@@ -25,17 +25,17 @@ describe.runIf(enabled)('grader sandbox (ADR-9, real Docker)', () => {
     expect(m).toHaveProperty('evaluator_commit');
   }, 300_000);
 
-  it('grades webhook-ledger with the golden solution at 100, as before', async () => {
-    const patch = await readFile(join(repoRoot, 'benchmarks', 'webhook-ledger', 'solution', 'solution.patch'), 'utf-8');
-    const m = await gradeInSandbox({ runId: 'ledger-golden', repoRoot, scenarioId: 'webhook-ledger', patch, config });
+  it('grades tsk_webhook_dup with the golden solution at 100, as before', async () => {
+    const patch = await readFile(join(repoRoot, 'benchmarks', 'tsk_webhook_dup', 'solution', 'solution.patch'), 'utf-8');
+    const m = await gradeInSandbox({ runId: 'ledger-golden', repoRoot, scenarioId: 'tsk_webhook_dup', patch, config });
     expect(m.errors).toEqual([]);
     expect(m.tests.hidden).toMatchObject({ total: 5, passed: 5 });
     expect(m.score.total).toBe(100);
     expect(JSON.stringify(m)).not.toMatch(/\/tmp\/|itera-eval-|\/workspace\/w/);
   }, 300_000);
 
-  it('runs the validation gate for webhook-ledger in the sandbox: ready', async () => {
-    const gate = await validateTaskInSandbox({ runId: 'ledger-gate', taskDir: join(repoRoot, 'benchmarks', 'webhook-ledger'), config, repeats: 3 });
+  it('runs the validation gate for tsk_webhook_dup in the sandbox: ready', async () => {
+    const gate = await validateTaskInSandbox({ runId: 'ledger-gate', taskDir: join(repoRoot, 'benchmarks', 'tsk_webhook_dup'), config, repeats: 3 });
     expect(gate.checks.baseline_hidden_fails.ok).toBe(true);
     expect(gate.checks.repeatable).toMatchObject({ ok: true, runs: 3 });
     expect(gate.status).toBe('ready');
