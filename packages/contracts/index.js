@@ -135,3 +135,25 @@ export {
   checkCompatibility,
   opencodeAgentConfig,
 } from './tool-environment.js';
+export {
+  LOCAL_RESULT_FORMAT,
+  LOCAL_RESULT_MAX_BYTES,
+  METRICS_SHAPES,
+  localResultSchema,
+  validateLocalResult,
+  parseLocalResultText,
+} from './local-result.js';
+export {
+  FALLBACK_LAB,
+  LABS,
+  PROVIDER_KEYS,
+  PROVIDER_NAME,
+  labOf,
+  providerOf,
+  DEFAULT_ROUTE,
+  ROUTES,
+  ROUTE_KEYS,
+  routeOf,
+  isProviderKey,
+  isRouteKey,
+} from './model-catalog.js';

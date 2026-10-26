@@ -164,3 +164,68 @@ export declare function opencodeAgentConfig(
   endpoint: (name: string) => { url: string; token: string },
 ): { mcp?: Record<string, unknown>; tools?: Record<string, boolean> };
 export declare function checkCompatibility(env: ToolEnvironment, requires: readonly string[]): Compatibility;
+
+// --- Self-declared local result (plan 20261026-tma-local-runner-and-self-declared-results, ADR-1).
+// Schema: schemas/local-result.schema.json (the source of truth); validator: local-result.js.
+
+export type MetricsShape = 'tma-score/1' | 'transcript-mining/1' | 'trajectory/1';
+export type LocalResultErrorClass = 'timeout' | 'empty_output' | 'rate_limited' | 'hang' | 'infra_error' | 'cost_capped';
+
+export interface LocalResult {
+  format: 'tma-local-result/1';
+  agent_id: string;
+  task:
+    | { catalog: { slug: string; version: number } }
+    | { local: { slug: string; name: string; description?: string; contract_sha256: string; environment_sha256: string; hidden_tests_sha256: string } };
+  metrics_shape: MetricsShape;
+  grader_version: string;
+  runner: { version: string; execution: 'tma-sandbox' | 'external'; profile: string | null; sandbox_image_id: string | null };
+  executor: {
+    model_id: string;
+    /** A lab key of model-catalog/labs.json, or null for a custom provider. */
+    provider: string | null;
+    /** A route key of model-catalog/routes.json. */
+    route: string;
+    harness: string;
+    variant: 'structured-output' | null;
+    cost_source: 'metered' | 'derived' | 'reported' | 'none';
+    model_effective?: string | null;
+  };
+  ran_from: string;
+  ran_to: string;
+  /** Closed per shape: see the $defs of the schema. Every shape has score (0-100), runs and items. */
+  summary: { score: number; runs: number; items: number; [key: string]: number | boolean | null };
+  /** Closed per shape: see the $defs of the schema. */
+  runs: Array<{ item_sha256: string; repeat: number; score: number; wall_s: number | null; cost_usd: number | null; tokens_in: number | null; tokens_out: number | null; error_class: LocalResultErrorClass | null; [key: string]: unknown }>;
+}
+
+export interface LocalResultIssue {
+  code: 'unknown_key' | 'invalid' | 'too_large' | 'not_json' | 'unknown_provider' | 'unknown_route' | 'inconsistent';
+  /** JSON pointer of the offending value, e.g. "/runs/0/actions". */
+  path: string;
+  message: string;
+}
+export type LocalResultValidation = { ok: true; value: LocalResult } | { ok: false; issues: LocalResultIssue[]; errors: string[] };
+
+export declare const LOCAL_RESULT_FORMAT: 'tma-local-result/1';
+export declare const LOCAL_RESULT_MAX_BYTES: number;
+export declare const METRICS_SHAPES: readonly MetricsShape[];
+export declare const localResultSchema: Record<string, unknown>;
+export declare function validateLocalResult(value: unknown): LocalResultValidation;
+export declare function parseLocalResultText(text: string): LocalResultValidation;
+
+export {
+  FALLBACK_LAB,
+  LABS,
+  PROVIDER_KEYS,
+  PROVIDER_NAME,
+  labOf,
+  providerOf,
+  DEFAULT_ROUTE,
+  ROUTES,
+  ROUTE_KEYS,
+  routeOf,
+  isProviderKey,
+  isRouteKey,
+} from './model-catalog.js';
+export type { Lab, ModelRoute, ProviderKey } from './model-catalog.js';

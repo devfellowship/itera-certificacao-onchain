@@ -1,0 +1,1492 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.devfellowship.com/schemas/local-result.schema.json",
+  "title": "TestMyAgent self-declared local result (tma-local-result/1)",
+  "description": "The ONE body that POST /self-declared-results accepts (plan 20261026-tma-local-runner-and-self-declared-results, ADR-1). Numbers and identifiers only: every object is closed, every string has a pattern and a length limit, every number has a range. There is no key for actions, events, a patch, stdout, stderr, messages, a prompt, a model answer or a key. A body above 1 MiB is refused. The validator in local-result.js adds the checks a schema cannot say: provider and route against model-catalog/, summary.runs = the length of runs, ran_from <= ran_to.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "agent_id",
+    "task",
+    "metrics_shape",
+    "grader_version",
+    "runner",
+    "executor",
+    "ran_from",
+    "ran_to",
+    "summary",
+    "runs"
+  ],
+  "properties": {
+    "format": {
+      "const": "tma-local-result/1"
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "maxLength": 36,
+      "description": "An agent of the caller (any connector)."
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "description": "Exactly one of catalog (a TMA task and version) or local (a private task folder on the user's disk: only its digests leave the machine).",
+      "properties": {
+        "catalog": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "slug",
+            "version"
+          ],
+          "properties": {
+            "slug": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "maxLength": 63
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 999999
+            }
+          }
+        },
+        "local": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "slug",
+            "name",
+            "contract_sha256",
+            "environment_sha256",
+            "hidden_tests_sha256"
+          ],
+          "properties": {
+            "slug": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "maxLength": 63
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9 .,:;/()+\\-_%$=&'#]*$",
+              "maxLength": 60
+            },
+            "description": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9 .,:;/()+\\-_%$=&'#]*$",
+              "maxLength": 120
+            },
+            "contract_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "maxLength": 64
+            },
+            "environment_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "maxLength": 64
+            },
+            "hidden_tests_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "maxLength": 64
+            }
+          }
+        }
+      }
+    },
+    "metrics_shape": {
+      "enum": [
+        "tma-score/1",
+        "transcript-mining/1",
+        "trajectory/1"
+      ],
+      "description": "tma-score/1: the evaluator score parts of a TMA task. transcript-mining/1 and trajectory/1: the two result shapes of the retired operator import (tma-bench-import/1 and tma-bench-import/trajectory-1), unchanged."
+    },
+    "grader_version": {
+      "type": "string",
+      "pattern": "^\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}$",
+      "maxLength": 16
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "execution",
+        "profile",
+        "sandbox_image_id"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}$",
+          "maxLength": 16
+        },
+        "execution": {
+          "enum": [
+            "tma-sandbox",
+            "external"
+          ]
+        },
+        "profile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "maxLength": 63
+        },
+        "sandbox_image_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "maxLength": 71
+        }
+      }
+    },
+    "executor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_id",
+        "provider",
+        "route",
+        "harness",
+        "variant",
+        "cost_source"
+      ],
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]{0,31}(/[a-z0-9][a-z0-9.-]{0,31})?/[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+          "maxLength": 128
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "maxLength": 32,
+          "description": "A lab key of model-catalog/labs.json, or null for a custom provider."
+        },
+        "route": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "maxLength": 32,
+          "description": "A route key of model-catalog/routes.json."
+        },
+        "harness": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9 .,:;/()+\\-_%$=&'#]*$",
+          "maxLength": 120
+        },
+        "variant": {
+          "enum": [
+            "structured-output",
+            null
+          ]
+        },
+        "cost_source": {
+          "enum": [
+            "metered",
+            "derived",
+            "reported",
+            "none"
+          ]
+        },
+        "model_effective": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+          "maxLength": 128
+        }
+      }
+    },
+    "ran_from": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z$",
+      "maxLength": 24
+    },
+    "ran_to": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z$",
+      "maxLength": 24
+    },
+    "summary": {
+      "type": "object"
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2000
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "metrics_shape"
+        ],
+        "properties": {
+          "metrics_shape": {
+            "const": "tma-score/1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "$ref": "#/$defs/tmaScoreSummary"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/$defs/tmaScoreRun"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "metrics_shape"
+        ],
+        "properties": {
+          "metrics_shape": {
+            "const": "transcript-mining/1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "$ref": "#/$defs/miningSummary"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/$defs/miningRun"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "metrics_shape"
+        ],
+        "properties": {
+          "metrics_shape": {
+            "const": "trajectory/1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "$ref": "#/$defs/trajectorySummary"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/$defs/trajectoryRun"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "tmaScoreSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "score",
+        "runs",
+        "items"
+      ],
+      "properties": {
+        "pass_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "time_per_task_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "cost_per_task_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "cost_total_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "tokens_in_total": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "tokens_out_total": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "errors": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "runs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "items": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        }
+      }
+    },
+    "tmaScoreRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_sha256",
+        "repeat",
+        "status",
+        "score",
+        "wall_s",
+        "cost_usd",
+        "tokens_in",
+        "tokens_out",
+        "error_class",
+        "parts"
+      ],
+      "properties": {
+        "item_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "maxLength": 64
+        },
+        "repeat": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "invalid",
+            "timeout",
+            "infra_error"
+          ]
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "wall_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "tokens_in": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "tokens_out": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "error_class": {
+          "enum": [
+            "timeout",
+            "empty_output",
+            "rate_limited",
+            "hang",
+            "infra_error",
+            "cost_capped",
+            null
+          ]
+        },
+        "parts": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "public_behavior",
+            "hidden_behavior",
+            "regression",
+            "patch_integrity_and_scope",
+            "reproducible_evidence"
+          ],
+          "properties": {
+            "public_behavior": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "hidden_behavior": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "regression": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "patch_integrity_and_scope": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "reproducible_evidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "mcp_state": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "description": "The evaluator score parts (services/evaluator/src/score.ts SCORE_WEIGHTS), or null when the run was not graded."
+        },
+        "tests": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "public_baseline",
+            "public_after_patch",
+            "hidden"
+          ],
+          "properties": {
+            "public_baseline": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "total",
+                "passed",
+                "failed"
+              ],
+              "properties": {
+                "total": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                "passed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                "failed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                }
+              }
+            },
+            "public_after_patch": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "total",
+                "passed",
+                "failed"
+              ],
+              "properties": {
+                "total": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                "passed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                "failed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                }
+              }
+            },
+            "hidden": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "total",
+                "passed",
+                "failed"
+              ],
+              "properties": {
+                "total": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                "passed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                "failed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                }
+              }
+            }
+          },
+          "description": "Test counts only (no test names, no output)."
+        }
+      }
+    },
+    "miningSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "score",
+        "runs",
+        "items",
+        "schema_valid_rate",
+        "quote_literalness_wilson_lb",
+        "quotes_total",
+        "invented_quote_rate",
+        "redaction_rebuilds",
+        "correction_recall",
+        "correction_precision",
+        "subagent_false_corrections",
+        "meta_domain",
+        "meta_type",
+        "meta_outcome",
+        "diag_decision_recall",
+        "diag_decision_precision",
+        "time_per_task_s",
+        "cost_per_task_usd",
+        "cost_total_usd",
+        "tokens_in_total",
+        "tokens_out_total",
+        "errors",
+        "gate_schema_q4a",
+        "gate_quotes_q4a"
+      ],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "runs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "items": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "schema_valid_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "quote_literalness_wilson_lb": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "quotes_total": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "invented_quote_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "redaction_rebuilds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "correction_recall": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "correction_precision": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "subagent_false_corrections": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "meta_domain": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "meta_type": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "meta_outcome": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "diag_decision_recall": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "diag_decision_precision": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "time_per_task_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "cost_per_task_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "cost_total_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "tokens_in_total": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "tokens_out_total": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "errors": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "gate_schema_q4a": {
+          "type": "boolean"
+        },
+        "gate_quotes_q4a": {
+          "type": "boolean"
+        }
+      }
+    },
+    "miningRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_sha256",
+        "kind",
+        "stratum",
+        "repeat",
+        "present",
+        "gates",
+        "schema_error_count",
+        "counts",
+        "metrics",
+        "score",
+        "wall_s",
+        "cost_usd",
+        "tokens_in",
+        "tokens_out",
+        "error_class"
+      ],
+      "properties": {
+        "item_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "maxLength": 64
+        },
+        "kind": {
+          "enum": [
+            "main",
+            "subagent"
+          ]
+        },
+        "stratum": {
+          "enum": [
+            "main-small",
+            "main-large",
+            "subagent-small",
+            "subagent-large",
+            null
+          ]
+        },
+        "repeat": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "gates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema",
+            "redaction"
+          ],
+          "properties": {
+            "schema": {
+              "type": "boolean"
+            },
+            "redaction": {
+              "type": "boolean"
+            }
+          }
+        },
+        "schema_error_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "counts": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "quotes",
+            "quotes_literal",
+            "quotes_artefact",
+            "quotes_trivial",
+            "quotes_all_keys",
+            "quotes_all_keys_literal",
+            "corrections_pred",
+            "corrections_gold",
+            "corrections_gold_core",
+            "corrections_matched",
+            "corrections_core_found",
+            "decisions_pred",
+            "decisions_gold",
+            "decisions_gold_core",
+            "decisions_matched",
+            "decisions_core_found",
+            "subagent_false_corrections"
+          ],
+          "properties": {
+            "quotes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "quotes_literal": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "quotes_artefact": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "quotes_trivial": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "quotes_all_keys": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "quotes_all_keys_literal": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "corrections_pred": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "corrections_gold": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "corrections_gold_core": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "corrections_matched": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "corrections_core_found": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "decisions_pred": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "decisions_gold": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "decisions_gold_core": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "decisions_matched": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "decisions_core_found": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "subagent_false_corrections": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
+          }
+        },
+        "metrics": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "meta_domain",
+            "meta_type",
+            "meta_outcome",
+            "links_f1"
+          ],
+          "properties": {
+            "meta_domain": {
+              "type": "boolean"
+            },
+            "meta_type": {
+              "type": "boolean"
+            },
+            "meta_outcome": {
+              "type": "boolean"
+            },
+            "links_f1": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "wall_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "tokens_in": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "tokens_out": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "error_class": {
+          "enum": [
+            "timeout",
+            "empty_output",
+            "rate_limited",
+            "hang",
+            "infra_error",
+            "cost_capped",
+            null
+          ]
+        }
+      }
+    },
+    "trajectorySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "score",
+        "runs",
+        "items",
+        "gate_pass_rate",
+        "check_pass_rate",
+        "mean_score_when_gates_pass",
+        "gate_fail_schema",
+        "gate_fail_intents_closed",
+        "gate_fail_risk_floor",
+        "gate_fail_speaker",
+        "gate_fail_outcome_consistent",
+        "metric_class_match",
+        "metric_risk_match",
+        "metric_intent_agreement",
+        "metric_corrections",
+        "time_per_task_s",
+        "items_per_hour",
+        "cost_per_task_usd",
+        "cost_total_usd",
+        "tokens_in_total",
+        "tokens_out_total",
+        "errors"
+      ],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "runs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "items": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "gate_pass_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "check_pass_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "mean_score_when_gates_pass": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "gate_fail_schema": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "gate_fail_intents_closed": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "gate_fail_risk_floor": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "gate_fail_speaker": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "gate_fail_outcome_consistent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "metric_class_match": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "metric_risk_match": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "metric_intent_agreement": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "metric_corrections": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "time_per_task_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "items_per_hour": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "cost_per_task_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "cost_total_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "tokens_in_total": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "tokens_out_total": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        },
+        "errors": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000000.0
+        }
+      }
+    },
+    "trajectoryRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_sha256",
+        "kind",
+        "repeat",
+        "present",
+        "checks",
+        "metrics",
+        "score",
+        "wall_s",
+        "cost_usd",
+        "tokens_in",
+        "tokens_out",
+        "error_class"
+      ],
+      "properties": {
+        "item_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "maxLength": 64
+        },
+        "kind": {
+          "enum": [
+            "main",
+            "subagent"
+          ]
+        },
+        "repeat": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema",
+            "intents_closed",
+            "risk_floor",
+            "speaker",
+            "outcome_consistent",
+            "class_match",
+            "risk_match",
+            "intent_agreement",
+            "corrections"
+          ],
+          "properties": {
+            "schema": {
+              "type": "boolean"
+            },
+            "intents_closed": {
+              "type": "boolean"
+            },
+            "risk_floor": {
+              "type": "boolean"
+            },
+            "speaker": {
+              "type": "boolean"
+            },
+            "outcome_consistent": {
+              "type": "boolean"
+            },
+            "class_match": {
+              "type": "boolean"
+            },
+            "risk_match": {
+              "type": "boolean"
+            },
+            "intent_agreement": {
+              "type": "boolean"
+            },
+            "corrections": {
+              "type": "boolean"
+            }
+          }
+        },
+        "metrics": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "class_match",
+            "risk_match",
+            "intent_agreement",
+            "corrections",
+            "corrections_recall",
+            "corrections_precision",
+            "class_type",
+            "class_subtype"
+          ],
+          "properties": {
+            "class_match": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "risk_match": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "intent_agreement": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "corrections": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "corrections_recall": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "corrections_precision": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "class_type": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "class_subtype": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "wall_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "tokens_in": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "tokens_out": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "error_class": {
+          "enum": [
+            "timeout",
+            "empty_output",
+            "rate_limited",
+            "hang",
+            "infra_error",
+            "cost_capped",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

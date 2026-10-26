@@ -1,6 +1,6 @@
 import { FALLBACK_LAB, labOf } from './model-provider'
 
-// Every vendored logo, by file name. A new lab needs only its model-labs.json entry and its SVG file.
+// Every vendored logo, by file name. A new lab needs only its labs.json entry (packages/contracts/model-catalog/) and its SVG file.
 const LOGO_URLS = import.meta.glob<string>('./model-logos/*.svg', { eager: true, query: '?url', import: 'default' })
 const logoUrl = (file: string) => LOGO_URLS[`./model-logos/${file}`] ?? LOGO_URLS[`./model-logos/${FALLBACK_LAB.logo}`]
 

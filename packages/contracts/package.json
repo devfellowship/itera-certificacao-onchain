@@ -4,12 +4,23 @@
   "license": "Apache-2.0",
   "version": "0.1.0",
   "type": "module",
-  "description": "JSON Schemas (2020-12) of testmyagent contracts and their Ajv validators.",
+  "description": "JSON Schemas (2020-12) of testmyagent contracts, their Ajv validators, and the model catalog (labs and routes).",
   "main": "./index.js",
   "types": "./index.d.ts",
   "exports": {
-    ".": { "types": "./index.d.ts", "default": "./index.js" },
-    "./tool-environment": { "types": "./index.d.ts", "default": "./tool-environment.js" },
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./tool-environment": {
+      "types": "./index.d.ts",
+      "default": "./tool-environment.js"
+    },
+    "./model-catalog": {
+      "types": "./model-catalog.d.ts",
+      "default": "./model-catalog.js"
+    },
+    "./model-catalog/*": "./model-catalog/*",
     "./schemas/*": "./schemas/*"
   },
   "scripts": {
