@@ -22,6 +22,7 @@ const BOB = "11111111111111111111111111111111";
 const SHA1 = "a".repeat(40);
 const SHA2 = "b".repeat(40);
 const SHA3 = "9".repeat(40);
+const SHA4 = "8".repeat(40);
 const VALID_TASK = {
   schema_version: "1.0",
   task: { name: "devfellowship/split-evenly", version: "1", description: "Money split." },
@@ -49,6 +50,10 @@ class FakeGitHub implements GitHubAppApi {
     ["blob-skill", Buffer.from("skill body")],
     ["blob-readme", Buffer.from("not an agent file")],
     ["blob-sub-agents", Buffer.from("# sub agent")],
+    ["blob-loop-agents", Buffer.from("# loop-acquisition")],
+    ["blob-loop-policy", Buffer.from("tools: search-terms.read\n")],
+    ["blob-root-policy", Buffer.from("root policy, not the package's")],
+    ["blob-loop-skill", Buffer.from("loop skill")],
     ["task-ok", Buffer.from(JSON.stringify(VALID_TASK))],
     ["task-bad", Buffer.from(JSON.stringify({ schema_version: "1.0", task: { name: "x/bad", version: "1" } }))],
     ["task-garbage", Buffer.from("{nope")],
@@ -67,6 +72,18 @@ class FakeGitHub implements GitHubAppApi {
       ],
     ],
     [SHA2, [{ path: "AGENTS.md", type: "blob", mode: "100644", sha: "blob-sub-agents", size: 11 }]],
+    [
+      SHA4,
+      [
+        { path: "POLICY.md", type: "blob", mode: "100644", sha: "blob-root-policy", size: 29 },
+        { path: "agents/loop-acquisition/AGENTS.md", type: "blob", mode: "100644", sha: "blob-loop-agents", size: 18 },
+        { path: "agents/loop-acquisition/POLICY.md", type: "blob", mode: "100644", sha: "blob-loop-policy", size: 25 },
+        { path: "agents/loop-acquisition/skills/terms/SKILL.md", type: "blob", mode: "100644", sha: "blob-loop-skill", size: 10 },
+        { path: "agents/loop-acquisition/POLICY.md.bak", type: "blob", mode: "100644", sha: "blob-loop-policy", size: 25 },
+        { path: "agents/loop-acquisition/nested/POLICY.md", type: "blob", mode: "100644", sha: "blob-loop-policy", size: 25 },
+        { path: "agents/plain/AGENTS.md", type: "blob", mode: "100644", sha: "blob-sub-agents", size: 11 },
+      ],
+    ],
     [
       SHA3,
       [
@@ -97,7 +114,7 @@ class FakeGitHub implements GitHubAppApi {
     if (!ref || ref === "main") return this.head;
     if (ref === "dev") return SHA2;
     if (ref === "tasks") return SHA3;
-    const hit = [SHA1, SHA2, SHA3].find((sha) => /^[0-9a-f]{7,40}$/.test(ref) && sha.startsWith(ref));
+    const hit = [SHA1, SHA2, SHA3, SHA4].find((sha) => /^[0-9a-f]{7,40}$/.test(ref) && sha.startsWith(ref));
     if (hit) return hit;
     throw new GitHubApiError(`no commit ${ref}`, 404);
   }
@@ -300,6 +317,37 @@ describe("repos and agents", () => {
     expect(status).toBe(201);
     expect(body.agent).toMatchObject({ name: "alice-org/agents/agents/reviewer", agentPath: "agents/reviewer" });
     expect(body.version.files.map((f: { path: string }) => f.path)).toEqual(["AGENTS.md"]);
+  });
+
+  it("registers a sub-path package pinned to a commit, with its own POLICY.md and no other POLICY.md", async () => {
+    await connectAlice();
+    const { status, body } = await call("POST", "/agents", {
+      wallet: ALICE,
+      body: { repoFullName: "alice-org/agents", agentPath: "agents/loop-acquisition", commit: SHA4, model: "anthropic/claude-haiku-4.5" },
+    });
+    expect(status).toBe(201);
+    expect(body.agent).toMatchObject({ agentPath: "agents/loop-acquisition" });
+    expect(body.version).toMatchObject({ commitSha: SHA4 });
+    expect(gh.head).toBe(SHA1);
+    expect(body.version.files.map((f: { path: string }) => f.path)).toEqual(["AGENTS.md", "POLICY.md", "skills/terms/SKILL.md"]);
+    expect(ghRepo.versions[0]!.files.find((f) => f.path === "POLICY.md")).toMatchObject({ encoding: "utf-8", content: "tools: search-terms.read\n" });
+  });
+
+  it("a sub-path package without POLICY.md registers unchanged", async () => {
+    await connectAlice();
+    const { status, body } = await call("POST", "/agents", {
+      wallet: ALICE,
+      body: { repoFullName: "alice-org/agents", agentPath: "agents/plain", commit: SHA4, model: "anthropic/claude-haiku-4.5" },
+    });
+    expect(status).toBe(201);
+    expect(body.version.files.map((f: { path: string }) => f.path)).toEqual(["AGENTS.md"]);
+  });
+
+  it("validate lists POLICY.md and counts it in the summary", async () => {
+    await connectAlice();
+    const ok = await call("POST", "/agents/validate", { wallet: ALICE, body: { repoFullName: "alice-org/agents", agentPath: "agents/loop-acquisition", commit: SHA4 } });
+    expect(ok.body).toMatchObject({ ok: true, commit: SHA4, agentPath: "agents/loop-acquisition", summary: "AGENTS.md + POLICY.md + 1 skill · 53 B" });
+    expect(ok.body.files.map((f: { path: string }) => f.path)).toEqual(["AGENTS.md", "POLICY.md", "skills/terms/SKILL.md"]);
   });
 
   it("rejects a model outside the allow-list, a path traversal, a dir without agent files, and an unconnected repo", async () => {

@@ -9,7 +9,7 @@ export function isAllowedAgentPath(path: string): boolean {
   if (path.startsWith('/') || path.includes('\\') || path.includes('\0')) return false;
   const clean = normalize(path);
   if (clean !== path || clean.startsWith('..') || clean.split('/').includes('..')) return false;
-  return clean === 'AGENTS.md' || clean === 'CLAUDE.md' || (clean.startsWith('skills/') && clean.length > 'skills/'.length);
+  return clean === 'AGENTS.md' || clean === 'CLAUDE.md' || clean === 'POLICY.md' || (clean.startsWith('skills/') && clean.length > 'skills/'.length);
 }
 
 /**

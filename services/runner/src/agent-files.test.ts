@@ -5,10 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { isAllowedAgentPath, materializeAgentFiles } from './agent-files.js';
 
 describe('isAllowedAgentPath', () => {
-  it.each(['AGENTS.md', 'CLAUDE.md', 'skills/loop/SKILL.md', 'skills/a/b/c.md'])('allows %s', (p) => {
+  it.each(['AGENTS.md', 'CLAUDE.md', 'POLICY.md', 'skills/loop/SKILL.md', 'skills/a/b/c.md'])('allows %s', (p) => {
     expect(isAllowedAgentPath(p)).toBe(true);
   });
-  it.each(['/etc/passwd', '../AGENTS.md', 'skills/../../x', 'src/app.ts', 'skills/', '.env', 'skills\\x', './AGENTS.md', 'skills//x'])(
+  it.each(['/etc/passwd', '../AGENTS.md', 'skills/../../x', 'src/app.ts', 'skills/', '.env', 'skills\\x', './AGENTS.md', 'skills//x', 'nested/POLICY.md', 'policy.md', 'POLICY.md.bak'])(
     'refuses %s',
     (p) => {
       expect(isAllowedAgentPath(p)).toBe(false);
