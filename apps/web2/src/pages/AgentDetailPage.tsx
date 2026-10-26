@@ -9,8 +9,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { ApiError, api } from '../lib/api'
-import type { AgentEvidenceRow, AgentProfileResponse, MyResultRow } from '../lib/api'
-import { AgentAvatar, Badge, Breadcrumb, Button, ButtonLink, Card, Input, ModelLabel, routeOf, TagPill, Table, TableEmpty, type Column } from '../tma/ui'
+import type { Agent, AgentEvidenceRow, AgentProfileResponse, MyResultRow } from '../lib/api'
+import { AgentAvatar, Badge, Breadcrumb, Button, ButtonLink, Card, Input, ModelLabel, routeOf, TagPill, Table, TableEmpty, isLocalAgent, type Column } from '../tma/ui'
+import { LocalAgentView } from './agent-detail/LocalAgentView'
 import { TaskName } from '../tma/task-filter'
 import { AvatarCropper, renderCrop, type CropState } from './profile-settings/AvatarCropper'
 import './profile-settings/profile-settings.css'
@@ -50,7 +51,7 @@ function Skeleton({ width, height = 14 }: { width: number | string; height?: num
   return <span className="tad-skel" style={{ width, height }} />
 }
 
-type Load = { state: 'loading' } | { state: 'notfound' } | { state: 'error'; message: string } | { state: 'ready'; profile: AgentProfileResponse }
+type Load = { state: 'loading' } | { state: 'notfound' } | { state: 'error'; message: string } | { state: 'ready'; profile: AgentProfileResponse } | { state: 'local'; agent: Agent }
 
 const EVIDENCE_COLUMNS: Column<AgentEvidenceRow>[] = [
   {
@@ -101,8 +102,14 @@ export function AgentDetailPage() {
       .then((profile) => !cancelled && setLoad({ state: 'ready', profile }))
       .catch((err: unknown) => {
         if (cancelled) return
-        if (err instanceof ApiError && err.status === 404) setLoad({ state: 'notfound' })
-        else setLoad({ state: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+        if (err instanceof ApiError && err.status === 404) {
+          // L11: a local agent has no profile (404). Its owner reads it from GET /agents/:id; anyone else sees not-found.
+          if (!signedIn) return setLoad({ state: 'notfound' })
+          api
+            .agent(aid)
+            .then((r) => !cancelled && setLoad(isLocalAgent(r.agent) ? { state: 'local', agent: r.agent } : { state: 'notfound' }))
+            .catch(() => !cancelled && setLoad({ state: 'notfound' }))
+        } else setLoad({ state: 'error', message: err instanceof Error ? err.message : 'Request failed' })
       })
     return () => {
       cancelled = true
@@ -110,6 +117,7 @@ export function AgentDetailPage() {
     // The session status changes the answer for the owner of a draft agent: refetch on sign-in.
   }, [aid, attempt, signedIn])
 
+  if (load.state === 'local') return <LocalAgentView agent={load.agent} />
   if (load.state === 'notfound') {
     return (
       <main className="tma-page tad" data-testid="agent-detail-notfound">

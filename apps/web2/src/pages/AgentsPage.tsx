@@ -8,9 +8,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
 import type { RankingResponse, RankingRow } from '../lib/api'
-import { AgentAvatar, Badge, Button, ButtonLink, ModelLabel, RemovableChip, SearchInput, SectionLabel, StatusChip, Table, TableEmpty, Tabs, type Column } from '../tma/ui'
+import { AgentAvatar, Badge, Button, ButtonLink, ModelLabel, RemovableChip, SearchInput, SectionLabel, StatusChip, Table, TableEmpty, Tabs, isLocalAgent, isSelfDeclared, type Column } from '../tma/ui'
 import { findTask, TaskFilter, TaskName, useTaskCatalog } from '../tma/task-filter'
 import { relativeTime } from './agents/format'
+import { LocalAgentsSection } from './agents/LocalAgentsSection'
 import './agents/agents.css'
 
 type Tab = 'all' | 'mine'
@@ -98,7 +99,8 @@ export function AgentsPage() {
 
   const all = state.status === 'ready' ? state.data.rows : []
   const needle = q.trim().toLowerCase()
-  const rows = useMemo(() => all.filter((a) => (tab === 'all' || a.isMine) && matches(a, needle)), [all, tab, needle])
+  // Q4 = C: the ranking is hosted-only. A local agent or a self-declared row never ranks, whatever the API sends.
+  const rows = useMemo(() => all.filter((a) => !isLocalAgent(a) && !isSelfDeclared(a) && (tab === 'all' || a.isMine) && matches(a, needle)), [all, tab, needle])
   const ranks = useMemo(() => {
     let r = 0
     return new Map(rows.map((a) => [a.id, a.score != null ? ++r : null]))
@@ -321,6 +323,7 @@ export function AgentsPage() {
         )}
       </div>
       <span className="agents-note">{note}</span>
+      <LocalAgentsSection />
 
       {filterOpen && <TaskFilter variant="modal" mode="rank" selected={selIds} onApply={(ids) => update({ tasks: ids })} onClose={() => setFilterOpen(false)} />}
     </main>

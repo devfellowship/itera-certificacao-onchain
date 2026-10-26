@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Breadcrumb, Button, Card, Field, Input, KeyValue, RadioCard, Stepper } from '../tma/ui'
 import { AgentFilesPanel } from './add-agent/AgentFilesPanel'
 import { describeError } from './add-agent/errors'
 import { GithubSourceCard, SampleRepoNotice } from './add-agent/GithubSourceCard'
+import { LocalAgentPage } from './add-agent/LocalAgentForm'
+import { SourceChoice, type AgentSource } from './add-agent/SourceChoice'
 import { ModelCard } from './add-agent/ModelCard'
 import { cleanAgentPath, useGithubSource } from './add-agent/useGithubSource'
 import { useLoad } from './add-agent/useLoad'
@@ -24,8 +26,29 @@ function nameFromRepo(fullName: string | undefined): string {
     .join(' ')
 }
 
-/** Screen 02 Add agent (U10): register an agent from a GitHub repo, pinned to a commit. */
+/**
+ * Screen 02 Add agent. The source picker (L11) chooses between the GitHub flow (U10, the default) and a local
+ * agent that runs on the owner's machine. `/agents/new?source=local` opens the local form directly.
+ */
 export function AddAgentPage() {
+  const [params, setParams] = useSearchParams()
+  const source: AgentSource = params.get('source') === 'local' ? 'local' : 'github'
+  const setSource = (next: AgentSource) =>
+    setParams(
+      (prev) => {
+        const n = new URLSearchParams(prev)
+        next === 'local' ? n.set('source', 'local') : n.delete('source')
+        return n
+      },
+      { replace: true },
+    )
+  const picker = <SourceChoice value={source} onChange={setSource} />
+  if (source === 'local') return <LocalAgentPage picker={picker} />
+  return <GithubAgentPage picker={picker} />
+}
+
+/** Screen 02 Add agent (U10): register an agent from a GitHub repo, pinned to a commit. */
+function GithubAgentPage({ picker }: { picker: ReactNode }) {
   const navigate = useNavigate()
   const gh = useGithubSource()
   const models = useLoad(() => api.models(), [])
@@ -116,6 +139,7 @@ export function AddAgentPage() {
           <h1 className="tma-h1">Add agent</h1>
           <Stepper steps={STEPS} current={0} />
         </div>
+        {picker}
       </div>
 
       <div className="ta-grid">

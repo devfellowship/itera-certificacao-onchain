@@ -1,5 +1,5 @@
 import type { TaskHistoryEvaluation, TaskHistoryResponse } from '../lib/api'
-import { AgentAvatar, Badge, Breadcrumb, ButtonLink, ModelLabel, routeOf, StatusChip, TagPill } from '../tma/ui'
+import { AgentAvatar, Badge, Breadcrumb, ButtonLink, ModelLabel, routeOf, SelfDeclaredBadge, StatusChip, TagPill, isSelfDeclared } from '../tma/ui'
 import { RunAgentCell, RunsTable, type RunRow } from '../tma/detail'
 import { AppNav } from '../tma/nav/AppNav'
 import './owned-task-detail.css'
@@ -36,6 +36,7 @@ function ownedRunRows(evaluations: TaskHistoryEvaluation[]): RunRow[] {
           owner={
             <>
               by {evaluation.agent.authorName} · {dateFmt.format(new Date(evaluation.createdAt))} · <StatusChip status={evaluation.status} />
+              {isSelfDeclared(evaluation) && <> · <SelfDeclaredBadge testId="task-evaluation-self-declared" /></>}
             </>
           }
           avatar={
@@ -54,7 +55,8 @@ function ownedRunRows(evaluations: TaskHistoryEvaluation[]): RunRow[] {
           <ModelLabel model={evaluation.model.id} label={evaluation.model.id} size={16} /> <span className="tdp-muted">via {routeOf(evaluation.model.id).name}</span>
         </span>
       ) : null,
-      source: 'run here',
+      // L11: a self-declared result was run on the owner's machine and uploaded (Q4 = C: owner-only).
+      source: isSelfDeclared(evaluation) ? 'imported' : 'run here',
       score: evaluation.score,
       checks: evaluation.tests.total > 0 ? evaluation.tests : null,
       outcome: outcomeOf(evaluation),
