@@ -8,6 +8,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "run-once": "tsx src/run-once.ts",
+    "tma": "tsx src/cli/tma.ts",
     "worker": "tsx src/worker.ts",
     "start": "tsx src/worker.ts"
   },
