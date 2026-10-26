@@ -152,6 +152,50 @@ a.tp-text-btn {
   gap: 6px;
 }
 
+/* Hero head (L14a): title + chip + mono subtitle on the left, the Run button on the right. */
+.tp-hero__head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tp-hero__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.tp-hero__chip {
+  vertical-align: middle;
+  margin-left: 6px;
+  letter-spacing: 0.08em;
+}
+.tp-hero__sub {
+  color: var(--tma-text-muted);
+}
+.tp-hero__cta {
+  flex: none;
+}
+.tp-hero__cta .tma-btn {
+  width: auto;
+}
+.tp-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.tp-tab > * {
+  min-width: 0;
+}
+@media (min-width: 640px) {
+  .tp-hero__head {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+  }
+}
+
 /* Section chips (mobile only) */
 .tp-chips {
   display: flex;

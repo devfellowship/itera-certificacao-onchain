@@ -3,7 +3,7 @@
  * signed-in user's agents (U28: GET /tasks/:idOrSlug/compatibility?agentId=).
  */
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useSession } from '../../auth/session'
 import { api } from '../../lib/api'
 import type { Agent, TaskCompatibility, TaskProfile } from '../../lib/api/types'
@@ -138,6 +138,19 @@ function CompatResult({ result }: { result: TaskCompatibility }) {
 
 export function RailCard({ task }: { task: TaskProfile }) {
   const session = useSession()
+  const [, setSearch] = useSearchParams()
+  // L14a: the scoring section lives in the Rubric tab. Open the tab, then scroll to it.
+  const howScored = () => {
+    setSearch(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('tab', 'rubric')
+        return next
+      },
+      { replace: true },
+    )
+    window.setTimeout(() => scrollToSection('scoring'), 0)
+  }
   return (
     <aside className="tp-rail" data-testid="rail-card">
       <div className="tma-card tp-rail__card">
@@ -154,7 +167,7 @@ export function RailCard({ task }: { task: TaskProfile }) {
         </div>
         <RunButton task={task} testId="cta-run" />
         {session.status === 'signed-in' && <CompatibilityCheck task={task} />}
-        <button type="button" className="tp-text-btn tp-rail__link" onClick={() => scrollToSection('scoring')}>
+        <button type="button" className="tp-text-btn tp-rail__link" onClick={howScored} data-testid="rail-how-scored">
           How it is scored ↓
         </button>
       </div>

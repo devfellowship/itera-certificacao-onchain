@@ -6,6 +6,9 @@
  * results), GET /tasks/:slug/reputation is folded into it, GET /tasks/:id/compatibility in the rail.
  * Link previews come from the web server (apps/web/server.mjs), which injects OG/Twitter meta for /tasks/*.
  * The page never shows a value that exists only per run: no endpoint, token, secret value or seed content.
+ * L14a: five tabs (Overview · Input · Expected output · Rubric · Runs), `?tab=` in the URL. The overview
+ * shows the input as a chat (instruction + the tool calls of the top public run from GET /public/evaluations
+ * and GET /runs/:id/actions), the expected output as a field table, and the runs table with 90% CI bars.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
@@ -13,10 +16,11 @@ import { useSession } from '../auth/session'
 import { api, ApiError } from '../lib/api'
 import type { TaskHistoryResponse, TaskProfile } from '../lib/api/types'
 import { Badge, Breadcrumb, Button, ButtonLink, Lockup, TagPill, middle } from '../tma/ui'
+import { DetailTabs, useTabParam } from '../tma/detail'
 import { NotFoundPage } from './NotFoundPage'
 import { RailCard, RunButton } from './task-profile/RailCard'
 import { GoalSection, InjectSection, IoSection, LimitsSection, McpSection, ResultsSection, ScoringSection, TestsPill, ToolsSection, VersionSection } from './task-profile/sections'
-import { SECTIONS, scrollToSection } from './task-profile/helpers'
+import { ExpectedOutputCard, InputCard, RunsPanel, inputPartsCount } from './task-profile/overview'
 import './task-profile/task-profile.css'
 import { OwnedTaskDetailPage } from './OwnedTaskDetailPage'
 
@@ -123,6 +127,16 @@ function Profile({ task }: { task: TaskProfile }) {
   const toolsAllowed = task.tools.filter((t) => t.allowed).length
   const nMcp = task.mcp.servers.length
   const kicker = `TASK · CATALOG · v${task.version.number}`
+  const [tab, setTab] = useTabParam(TAB_IDS, 'overview')
+  const subtitle = [
+    `${task.slug}@v${task.version.number}`,
+    task.tests.hiddenCount != null ? `${task.tests.hiddenCount} hidden checks` : null,
+    task.scoring.version != null ? `score v${task.scoring.version}` : null,
+    'pass = all hidden checks',
+    `${task.resultsAll.runs} run${task.resultsAll.runs === 1 ? '' : 's'}`,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <main className="tp-page" data-testid="task-profile">
@@ -132,15 +146,25 @@ function Profile({ task }: { task: TaskProfile }) {
           <Link to={`/tasks/${task.slug}`}>Open v{task.version.latest}</Link>
         </div>
       )}
-      <Breadcrumb items={[{ label: 'Catalog', to: '/#tasks' }, { label: task.slug }]} />
+      <Breadcrumb items={[{ label: 'Tasks', to: '/#tasks' }, { label: task.name }]} />
 
       <div className="tp-layout">
         <div className="tp-main">
           <section className="tp-hero" data-testid="task-hero">
             <span className="tma-label tp-kicker">{kicker}</span>
-            <h1 className="tp-display" data-testid="task-title">
-              {task.name}
-            </h1>
+            <div className="tp-hero__head">
+              <div className="tp-hero__copy">
+                <h1 className="tp-display" data-testid="task-title">
+                  {task.name} <span className="tp-badge-mono tp-hero__chip" data-testid="task-visibility-chip">CATALOG</span>
+                </h1>
+                <span className="tp-mono13 tp-hero__sub" data-testid="task-subtitle">
+                  {subtitle}
+                </span>
+              </div>
+              <div className="tp-hero__cta">
+                <RunButton task={task} testId="hero-run" />
+              </div>
+            </div>
             <p className="tp-desc">{task.description}</p>
             {task.tags.length > 0 && (
               <div className="tp-tags">
@@ -174,28 +198,67 @@ function Profile({ task }: { task: TaskProfile }) {
             </div>
           </section>
 
-          <div className="tp-chips" role="navigation" aria-label="Sections">
-            {SECTIONS.map((s) => (
-              <button key={s.id} type="button" className="tma-chip" onClick={() => scrollToSection(s.id)}>
-                {s.label}
-              </button>
-            ))}
-          </div>
+          <DetailTabs
+            items={[
+              { id: 'overview', label: 'Overview' },
+              { id: 'input', label: 'Input', count: inputPartsCount(task) },
+              { id: 'expected', label: 'Expected output' },
+              { id: 'rubric', label: 'Rubric' },
+              { id: 'runs', label: 'Runs', count: task.resultsAll.runs },
+            ]}
+            value={tab}
+            onChange={setTab}
+            testId="task-tabs"
+          />
 
           {/* The rail card, in a single column, follows the hero. */}
           <div className="tp-rail-slot" ref={railRef}>
             <RailCard task={task} />
           </div>
 
-          <GoalSection task={task} />
-          <IoSection task={task} />
-          <ToolsSection task={task} />
-          <McpSection task={task} />
-          <LimitsSection task={task} />
-          <ScoringSection task={task} />
-          <VersionSection task={task} />
-          <ResultsSection task={task} />
-          <InjectSection task={task} />
+          {tab === 'overview' && (
+            <div className="tp-tab" data-testid="tab-overview">
+              <div className="dt-cards">
+                <InputCard task={task} />
+                <ExpectedOutputCard task={task} />
+              </div>
+              <RunsPanel task={task} limit={10} onAll={() => setTab('runs')} />
+              <GoalSection task={task} />
+              <InjectSection task={task} />
+            </div>
+          )}
+          {tab === 'input' && (
+            <div className="tp-tab" data-testid="tab-input">
+              <IoSection task={task} />
+              <ToolsSection task={task} />
+              <McpSection task={task} />
+              <LimitsSection task={task} />
+            </div>
+          )}
+          {tab === 'expected' && (
+            <div className="tp-tab" data-testid="tab-expected">
+              <ExpectedOutputCard task={task} full />
+            </div>
+          )}
+          {tab === 'rubric' && (
+            <div className="tp-tab" data-testid="tab-rubric">
+              <div className="tma-card tp-section" data-testid="pass-rule">
+                <span className="tma-label">Pass rule</span>
+                <p className="tma-body-sm">
+                  A run is PASS only when every hidden check passes, and every final-state assertion of a scored MCP server holds (ADR-5). The score is the share of the hidden checks that pass × 100
+                  {task.scoring.version != null ? ` (score v${task.scoring.version})` : ''}. The pass line is at 100.
+                </p>
+              </div>
+              <ScoringSection task={task} />
+              <VersionSection task={task} />
+            </div>
+          )}
+          {tab === 'runs' && (
+            <div className="tp-tab" data-testid="tab-runs">
+              <RunsPanel task={task} />
+              <ResultsSection task={task} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -208,3 +271,7 @@ function Profile({ task }: { task: TaskProfile }) {
     </main>
   )
 }
+
+/** The tab ids of `?tab=`. An unknown value shows Overview. */
+export const TAB_IDS = ['overview', 'input', 'expected', 'rubric', 'runs'] as const
+export type TabId = (typeof TAB_IDS)[number]
