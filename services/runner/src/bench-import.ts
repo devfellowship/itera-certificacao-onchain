@@ -22,6 +22,14 @@
  * → ONE `free_byok` evaluation in status `graded`. The run and the evaluation share a deterministic
  * UUID derived from (task slug, model id), so a re-run updates the same rows and never duplicates
  * them. A later file with more runs for an executor replaces that executor's numbers.
+ *
+ * Two closed result shapes (`format`):
+ *   - `tma-bench-import/1`: the transcript-mining grader (gates schema + redaction, quote and correction counts).
+ *   - `tma-bench-import/trajectory-1`: the session-decision-trajectory grader (plan
+ *     20261025-session-trajectory-extraction, T7): 5 rule gates + 4 reference metrics per run, as 9 check
+ *     booleans and the metric numbers. Same rows, same transaction; only the input schema and the pass rule differ.
+ * An executor may carry `variant` (`structured-output`): the same model run with another harness setting. The
+ * variant is part of the row id and the agent name, so it shows as its own evaluation row.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -31,6 +39,10 @@ import type { Pool } from 'pg';
 import { BENCH_VENDOR } from './bench-enqueue.js';
 
 export const IMPORT_FORMAT = 'tma-bench-import/1';
+export const TRAJECTORY_FORMAT = 'tma-bench-import/trajectory-1';
+const FORMATS = [IMPORT_FORMAT, TRAJECTORY_FORMAT] as const;
+type Format = (typeof FORMATS)[number];
+const VARIANTS = ['structured-output'] as const;
 
 // ---------------------------------------------------------------------------------------------
 // Input schema (closed). Every string field has a pattern; every object has an allowlist of keys.
@@ -59,6 +71,30 @@ const SUMMARY_NUM_KEYS = [
   'tokens_in_total', 'tokens_out_total', 'errors',
 ] as const;
 
+// The session-decision-trajectory grader (benchmarks/dfl-session-decision-trajectory-extraction, grader 1.x).
+const TRAJ_GATES = ['schema', 'intents_closed', 'risk_floor', 'speaker', 'outcome_consistent'] as const;
+const TRAJ_CHECKS = [...TRAJ_GATES, 'class_match', 'risk_match', 'intent_agreement', 'corrections'] as const;
+const TRAJ_METRIC_NUMS = ['class_match', 'risk_match', 'intent_agreement', 'corrections', 'corrections_recall', 'corrections_precision'] as const;
+const TRAJ_METRIC_BOOLS = ['class_type', 'class_subtype'] as const;
+const TRAJ_SUMMARY_NUM_KEYS = [
+  'score', 'runs', 'items', 'gate_pass_rate', 'check_pass_rate', 'mean_score_when_gates_pass',
+  ...TRAJ_GATES.map((g) => `gate_fail_${g}` as const),
+  'metric_class_match', 'metric_risk_match', 'metric_intent_agreement', 'metric_corrections',
+  'time_per_task_s', 'items_per_hour', 'cost_per_task_usd', 'cost_total_usd', 'tokens_in_total', 'tokens_out_total', 'errors',
+] as const;
+/** Pass rule of the trajectory shape: at least 95% of the runs pass all 5 rule gates (the analogue of Q4-A schema-valid >= 0.95). */
+export const TRAJECTORY_GATE_PASS_MIN = 0.95;
+
+export interface TrajectoryRun {
+  item_sha256: string; kind: (typeof KINDS)[number]; repeat: number; present: boolean;
+  checks: Record<(typeof TRAJ_CHECKS)[number], boolean>;
+  metrics: (Record<(typeof TRAJ_METRIC_NUMS)[number], number | null> & Record<(typeof TRAJ_METRIC_BOOLS)[number], boolean | null>) | null;
+  score: number; wall_s: number | null; cost_usd: number | null; tokens_in: number | null; tokens_out: number | null;
+  error_class: (typeof ERROR_CLASSES)[number] | null;
+}
+export type TrajectorySummary = Record<(typeof TRAJ_SUMMARY_NUM_KEYS)[number], number | null>;
+type MiningSummary = Record<(typeof SUMMARY_NUM_KEYS)[number], number | null> & { gate_schema_q4a: boolean; gate_quotes_q4a: boolean };
+
 export interface ImportRun {
   item_sha256: string; kind: (typeof KINDS)[number]; stratum: (typeof STRATA)[number] | null; repeat: number;
   present: boolean; gates: { schema: boolean; redaction: boolean }; schema_error_count: number;
@@ -70,12 +106,12 @@ export interface ImportRun {
 export interface ImportExecutor {
   model_id: string; label: string; lane: (typeof LANES)[number]; route: (typeof ROUTES)[number]; route_name: string; harness: string;
   cost_source: (typeof COST_SOURCES)[number]; cost_basis: string; model_requested: string; model_effective: string;
-  think?: boolean | string | null; effort?: string | null; ran_from: string; ran_to: string;
-  summary: Record<(typeof SUMMARY_NUM_KEYS)[number], number | null> & { gate_schema_q4a: boolean; gate_quotes_q4a: boolean };
-  runs: ImportRun[];
+  think?: boolean | string | null; effort?: string | null; variant?: (typeof VARIANTS)[number] | null; ran_from: string; ran_to: string;
+  summary: MiningSummary | TrajectorySummary;
+  runs: Array<ImportRun | TrajectoryRun>;
 }
 export interface ImportFile {
-  format: typeof IMPORT_FORMAT; generated_at: string;
+  format: Format; generated_at: string;
   task: { slug: string; pack_id: string; pack_version: string; name: string; description: string };
   grader_version: string; score_version: string; golden_items: number; golden_manifest_sha256: string; prompt_sha256: string | null;
   labels_status: string; plan: string; executors: ImportExecutor[];
@@ -142,15 +178,50 @@ function parseRun(v: unknown, path: string): ImportRun {
   };
 }
 
-function parseExecutor(v: unknown, path: string): ImportExecutor {
-  const o = keys(v, path, ['model_id', 'label', 'lane', 'route', 'route_name', 'harness', 'cost_source', 'cost_basis', 'model_requested', 'model_effective', 'ran_from', 'ran_to', 'summary', 'runs'], ['think', 'effort']);
-  const s = keys(o.summary, `${path}.summary`, [...SUMMARY_NUM_KEYS, 'gate_schema_q4a', 'gate_quotes_q4a']);
-  const summary = Object.fromEntries(SUMMARY_NUM_KEYS.map((k) => [k, num(s[k], `${path}.summary.${k}`, { max: 1e12, nullable: true })])) as unknown as ImportExecutor['summary'];
-  summary.gate_schema_q4a = bool(s.gate_schema_q4a, `${path}.summary.gate_schema_q4a`);
-  summary.gate_quotes_q4a = bool(s.gate_quotes_q4a, `${path}.summary.gate_quotes_q4a`);
+function parseTrajectoryRun(v: unknown, path: string): TrajectoryRun {
+  const o = keys(v, path, ['item_sha256', 'kind', 'repeat', 'present', 'checks', 'metrics', 'score', 'wall_s', 'cost_usd', 'tokens_in', 'tokens_out', 'error_class']);
+  const c = keys(o.checks, `${path}.checks`, TRAJ_CHECKS);
+  let metrics: TrajectoryRun['metrics'] = null;
+  if (o.metrics !== null) {
+    const m = keys(o.metrics, `${path}.metrics`, [...TRAJ_METRIC_NUMS, ...TRAJ_METRIC_BOOLS]);
+    metrics = Object.fromEntries([
+      ...TRAJ_METRIC_NUMS.map((k) => [k, num(m[k], `${path}.metrics.${k}`, { max: 1, nullable: true })]),
+      ...TRAJ_METRIC_BOOLS.map((k) => [k, m[k] === null ? null : bool(m[k], `${path}.metrics.${k}`)]),
+    ]) as TrajectoryRun['metrics'];
+  }
+  return {
+    item_sha256: str(o.item_sha256, `${path}.item_sha256`, SHA256, 64),
+    kind: oneOf(o.kind, `${path}.kind`, KINDS)!,
+    repeat: num(o.repeat, `${path}.repeat`, { min: 1, max: 100, int: true })!,
+    present: bool(o.present, `${path}.present`),
+    checks: Object.fromEntries(TRAJ_CHECKS.map((k) => [k, bool(c[k], `${path}.checks.${k}`)])) as TrajectoryRun['checks'],
+    metrics,
+    score: num(o.score, `${path}.score`, { max: 100 })!,
+    wall_s: num(o.wall_s, `${path}.wall_s`, { max: 86_400, nullable: true }),
+    cost_usd: num(o.cost_usd, `${path}.cost_usd`, { max: 1_000, nullable: true }),
+    tokens_in: num(o.tokens_in, `${path}.tokens_in`, { int: true, max: 100_000_000, nullable: true }),
+    tokens_out: num(o.tokens_out, `${path}.tokens_out`, { int: true, max: 100_000_000, nullable: true }),
+    error_class: oneOf(o.error_class, `${path}.error_class`, ERROR_CLASSES, true),
+  };
+}
+
+function parseExecutor(v: unknown, path: string, format: Format): ImportExecutor {
+  const o = keys(v, path, ['model_id', 'label', 'lane', 'route', 'route_name', 'harness', 'cost_source', 'cost_basis', 'model_requested', 'model_effective', 'ran_from', 'ran_to', 'summary', 'runs'], ['think', 'effort', 'variant']);
+  let summary: ImportExecutor['summary'];
+  if (format === TRAJECTORY_FORMAT) {
+    const s = keys(o.summary, `${path}.summary`, TRAJ_SUMMARY_NUM_KEYS);
+    summary = Object.fromEntries(TRAJ_SUMMARY_NUM_KEYS.map((k) => [k, num(s[k], `${path}.summary.${k}`, { max: 1e12, nullable: true })])) as TrajectorySummary;
+    if (summary.gate_pass_rate === null || summary.gate_pass_rate > 1) fail(`${path}.summary.gate_pass_rate`, 'must be a number in [0, 1]');
+  } else {
+    const s = keys(o.summary, `${path}.summary`, [...SUMMARY_NUM_KEYS, 'gate_schema_q4a', 'gate_quotes_q4a']);
+    const m = Object.fromEntries(SUMMARY_NUM_KEYS.map((k) => [k, num(s[k], `${path}.summary.${k}`, { max: 1e12, nullable: true })])) as unknown as MiningSummary;
+    m.gate_schema_q4a = bool(s.gate_schema_q4a, `${path}.summary.gate_schema_q4a`);
+    m.gate_quotes_q4a = bool(s.gate_quotes_q4a, `${path}.summary.gate_quotes_q4a`);
+    summary = m;
+  }
   if (summary.score === null || summary.score > 100) fail(`${path}.summary.score`, 'must be a number in [0, 100]');
   if (!Array.isArray(o.runs) || o.runs.length === 0 || o.runs.length > 2_000) fail(`${path}.runs`, 'must be a list of 1 to 2000 runs');
-  const runs = (o.runs as unknown[]).map((r, i) => parseRun(r, `${path}.runs[${i}]`));
+  const runs = (o.runs as unknown[]).map((r, i) => (format === TRAJECTORY_FORMAT ? parseTrajectoryRun : parseRun)(r, `${path}.runs[${i}]`));
   if (summary.runs !== runs.length) fail(`${path}.summary.runs`, `says ${summary.runs}, the list has ${runs.length}`);
   let think: ImportExecutor['think'];
   if ('think' in o) think = o.think === null || typeof o.think === 'boolean' ? (o.think as boolean | null) : str(o.think, `${path}.think`, SAFE_TEXT, 24);
@@ -171,6 +242,7 @@ function parseExecutor(v: unknown, path: string): ImportExecutor {
   };
   if (think !== undefined) out.think = think;
   if ('effort' in o) out.effort = o.effort === null ? null : str(o.effort, `${path}.effort`, /^[a-z]{1,16}$/, 16);
+  if ('variant' in o) out.variant = oneOf(o.variant, `${path}.variant`, VARIANTS, true);
   if (Date.parse(out.ran_from) > Date.parse(out.ran_to)) fail(`${path}.ran_from`, 'is after ran_to');
   return out;
 }
@@ -178,17 +250,18 @@ function parseExecutor(v: unknown, path: string): ImportExecutor {
 /** Validates an import file. Throws on any key or string outside the closed schema. */
 export function parseImportFile(raw: unknown): ImportFile {
   const o = keys(raw, '$', ['format', 'generated_at', 'task', 'grader_version', 'score_version', 'golden_items', 'golden_manifest_sha256', 'prompt_sha256', 'labels_status', 'plan', 'executors']);
-  if (o.format !== IMPORT_FORMAT) fail('$.format', `must be ${IMPORT_FORMAT}`);
+  const format = oneOf(o.format, '$.format', FORMATS)!;
   const t = keys(o.task, '$.task', ['slug', 'pack_id', 'pack_version', 'name', 'description']);
   if (!Array.isArray(o.executors) || o.executors.length === 0 || o.executors.length > 100) fail('$.executors', 'must be a list of 1 to 100 executors');
-  const executors = (o.executors as unknown[]).map((e, i) => parseExecutor(e, `$.executors[${i}]`));
+  const executors = (o.executors as unknown[]).map((e, i) => parseExecutor(e, `$.executors[${i}]`, format));
   const ids = new Set<string>();
   for (const [i, e] of executors.entries()) {
-    if (ids.has(e.model_id)) fail(`$.executors[${i}].model_id`, `${e.model_id} appears twice`);
-    ids.add(e.model_id);
+    const key = executorKey(e);
+    if (ids.has(key)) fail(`$.executors[${i}].model_id`, `${key} appears twice`);
+    ids.add(key);
   }
   return {
-    format: IMPORT_FORMAT,
+    format,
     generated_at: str(o.generated_at, '$.generated_at', ISO, 24),
     task: {
       slug: str(t.slug, '$.task.slug', SLUG, 63),
@@ -221,15 +294,30 @@ export function stableUuid(name: string): string {
   return `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20, 32)}`;
 }
 
-/** The one id of an executor's run AND evaluation on a task. */
-export function executorRowId(taskSlug: string, modelId: string): string {
-  return stableUuid(`bench-import:${taskSlug}:${modelId}`);
+/** The executor identity on a task: the model id, plus the variant when there is one. */
+export function executorKey(e: Pick<ImportExecutor, 'model_id' | 'variant'>): string {
+  return e.variant ? `${e.model_id}#${e.variant}` : e.model_id;
 }
 
-/** Pass = the plan's Q4-A gates: schema-valid ≥ 95% and quote-literalness Wilson LB ≥ 0.90 (no rebuilds). */
-export function executorOutcome(e: ImportExecutor): 'pass' | 'fail' {
-  return e.summary.gate_schema_q4a && e.summary.gate_quotes_q4a ? 'pass' : 'fail';
+/** The one id of an executor's run AND evaluation on a task (`key` = executorKey; a plain model id keeps the v1 ids). */
+export function executorRowId(taskSlug: string, key: string): string {
+  return stableUuid(`bench-import:${taskSlug}:${key}`);
 }
+
+/**
+ * Mining shape: pass = the plan's Q4-A gates, schema-valid ≥ 95% and quote-literalness Wilson LB ≥ 0.90 (no rebuilds).
+ * Trajectory shape: pass = at least 95% of the runs pass all 5 rule gates.
+ */
+export function executorOutcome(e: ImportExecutor): 'pass' | 'fail' {
+  const s = e.summary;
+  if ('gate_schema_q4a' in s) return s.gate_schema_q4a && s.gate_quotes_q4a ? 'pass' : 'fail';
+  return (s.gate_pass_rate ?? 0) >= TRAJECTORY_GATE_PASS_MIN ? 'pass' : 'fail';
+}
+
+const OUTCOME_RULE: Record<Format, string> = {
+  [IMPORT_FORMAT]: 'pass = schema_valid_rate >= 0.95 AND quote_literalness_wilson_lb >= 0.90 with 0 redaction rebuilds (plan Q4-A gates)',
+  [TRAJECTORY_FORMAT]: `pass = gate_pass_rate >= ${TRAJECTORY_GATE_PASS_MIN} (share of runs that pass all 5 rule gates)`,
+};
 
 /** Digest of what the import writes for one executor; equal digest = nothing to update. */
 export function executorDigest(file: ImportFile, e: ImportExecutor): string {
@@ -239,7 +327,7 @@ export function executorDigest(file: ImportFile, e: ImportExecutor): string {
 
 export function evidenceOf(file: ImportFile, e: ImportExecutor) {
   return {
-    kind: IMPORT_FORMAT,
+    kind: file.format,
     import_digest: executorDigest(file, e),
     imported_from: { generated_at: file.generated_at, plan: file.plan },
     grader_version: file.grader_version,
@@ -251,9 +339,10 @@ export function evidenceOf(file: ImportFile, e: ImportExecutor) {
     executor: {
       model_id: e.model_id, label: e.label, lane: e.lane, route: e.route, route_name: e.route_name, harness: e.harness,
       cost_source: e.cost_source, cost_basis: e.cost_basis, think: e.think ?? null, effort: e.effort ?? null,
+      ...(e.variant ? { variant: e.variant } : {}),
       ran_from: e.ran_from, ran_to: e.ran_to,
     },
-    outcome_rule: 'pass = schema_valid_rate >= 0.95 AND quote_literalness_wilson_lb >= 0.90 with 0 redaction rebuilds (plan Q4-A gates)',
+    outcome_rule: OUTCOME_RULE[file.format],
     summary: e.summary,
     items: e.runs,
   };
@@ -320,8 +409,8 @@ export async function importBench(pool: Pick<Pool, 'connect'>, file: ImportFile,
     if (!vendor) vendor = (await c.query('insert into public.vendors (display_name) values ($1) returning id', [BENCH_VENDOR])).rows[0];
 
     for (const e of file.executors) {
-      const id = executorRowId(file.task.slug, e.model_id);
-      const name = `bench ${e.model_id}`.slice(0, 120);
+      const id = executorRowId(file.task.slug, executorKey(e));
+      const name = `bench ${e.model_id}${e.variant ? ` ${e.variant}` : ''}`.slice(0, 120);
       const outcome = executorOutcome(e);
       const evidence = evidenceOf(file, e);
 
@@ -358,12 +447,12 @@ export async function importBench(pool: Pick<Pool, 'connect'>, file: ImportFile,
       if (prev && (prev.owner_wallet !== scope.owner || prev.evaluation_id !== id || prev.task_id !== task.id || prev.eval_owner !== scope.owner)) throw new Error(`conflicting run ${id} for ${e.model_id}: owner, task or evaluation link differs`);
       const action: 'inserted' | 'updated' | 'unchanged' = !prev ? 'inserted' : prev.digest === evidence.import_digest ? 'unchanged' : 'updated';
       summary[action]++;
-      summary.rows.push({ model: e.model_id, id, action, score: e.summary.score, runs: e.runs.length, outcome });
+      summary.rows.push({ model: executorKey(e), id, action, score: e.summary.score, runs: e.runs.length, outcome });
       if (action === 'unchanged') continue;
 
       const valid = e.runs.filter((r) => r.score > 0).length;
       const taskEntry = { taskId: task.id, taskVersionId: tv.id, slug: task.slug, name: task.name, packId: file.task.pack_id, packVersion: file.task.pack_version, isPublic: false, historicalRunId: id, source: 'bench-import' };
-      const provenance = { source: 'bench-import', route: e.route, route_name: e.route_name, harness: e.harness, lane: e.lane, cost_basis: e.cost_basis, cost_source: e.cost_source, think: e.think ?? null, effort: e.effort ?? null, runs: e.runs.length, items: e.summary.items, grader_version: file.grader_version, prompt_sha256: file.prompt_sha256 };
+      const provenance = { source: 'bench-import', route: e.route, route_name: e.route_name, harness: e.harness, lane: e.lane, cost_basis: e.cost_basis, cost_source: e.cost_source, think: e.think ?? null, effort: e.effort ?? null, ...(e.variant ? { variant: e.variant } : {}), runs: e.runs.length, items: e.summary.items, grader_version: file.grader_version, prompt_sha256: file.prompt_sha256 };
       const runValues = [
         id, release.id, file.task.pack_id, file.task.pack_version, `bench-import-${id}`, outcome, e.ran_from, e.ran_to,
         JSON.stringify(evidence), intOrNull(e.summary.score), version.id, scope.owner, task.id, tv.id,
