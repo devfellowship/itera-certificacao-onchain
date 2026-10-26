@@ -96,6 +96,7 @@ export class FakeGithubAgentsRepository implements GithubAgentsRepository {
     if (!this.metaColumns) return { stored: [], missing: keys, slug: null };
     const a = this.agents.find((x) => x.id === agentId) as (Omit<GithubAgent, "latestVersion"> & Record<string, unknown>) | undefined;
     if (!a) throw new Error("agent not found");
+    if (input.model !== undefined) a.model = input.model;
     for (const k of ["description", "visibility", "branch", "pinnedCommit", "modelRelease"] as const) {
       if (input[k] !== undefined) a[k] = input[k];
     }

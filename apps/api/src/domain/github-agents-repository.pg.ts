@@ -119,6 +119,7 @@ class PgGithubAgentsQueries implements GithubAgentsRepository {
     const sets: string[] = [];
     const values: unknown[] = [agentId];
     const fields: [keyof AgentMetaInput, string][] = [
+      ["model", "model"],
       ["description", "description"],
       ["visibility", "visibility"],
       ["branch", "branch"],

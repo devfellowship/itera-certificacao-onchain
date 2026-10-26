@@ -40,7 +40,8 @@ import { requireWallet as defaultRequireWallet } from "./auth.js";
  *   POST /agents {repoFullName, agentPath, model, name, branch?, commit?, modelRelease?, description?, visibility?}
  *                                                      wallet — snapshot at the pinned commit (default: branch HEAD)
  *   GET  /agents                                       wallet — my agents
- *   PATCH /agents/:id {requires}                       owner  — U28 agent requires (chip field, screen 02)
+ *   PATCH /agents/:id {requires?, model_id?}           owner  — U28 agent requires; L4 model (allow-list)
+ *                                                      (a local agent: local-agents/router.ts, mounted first)
  *   GET  /agents/:id                                   owner  — agent + latest version file list
  *   POST /agents/:id/refresh                           owner  — new version at the new HEAD
  */
@@ -55,6 +56,8 @@ export interface GithubRouterDeps {
   isModelAllowed?: (modelId: string) => Promise<boolean>;
   /** U37: sample repos any wallet may read through the TestMyAgent installation. Absent → env defaults. */
   samples?: SampleRepos;
+  /** L4: the caller's local agents, appended by GET /agents?include=local (local-agents/router.ts). */
+  localAgents?: (wallet: string) => Promise<unknown[]>;
 }
 
 export function defaultGithubRouterDeps(): GithubRouterDeps {
@@ -553,7 +556,12 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     "/agents",
     requireWallet,
     wrap(async (req, res) => {
-      res.json({ agents: (await repo.listGithubAgents(wallet(req))).map(withSource) });
+      const agents: unknown[] = (await repo.listGithubAgents(wallet(req))).map(withSource);
+      // L4: local agents (connector 'local', no repo) only on request, so a client that reads
+      // repoFullName of every row keeps working.
+      const include = String(req.query.include ?? "").split(",");
+      if (include.includes("local") && deps.localAgents) agents.push(...(await deps.localAgents(wallet(req))));
+      res.json({ agents });
     }),
   );
 
@@ -579,10 +587,19 @@ export function createGithubRouter(deps: GithubRouterDeps): Router {
     requireWallet,
     wrap(async (req, res) => {
       const agent = await ownAgent(req);
-      const body = (req.body ?? {}) as { requires?: unknown };
-      if (body.requires === undefined) throw new HttpError(400, "nothing to update: send requires (array)");
-      const requires = requiresOf(body.requires);
-      const meta = await repo.updateAgentMeta(agent.id, { requires });
+      const body = (req.body ?? {}) as { requires?: unknown; model_id?: unknown };
+      if (body.requires === undefined && body.model_id === undefined) throw new HttpError(400, "nothing to update: send requires (array) or model_id");
+      const requires = body.requires === undefined ? undefined : requiresOf(body.requires);
+      // L4: the model of a GitHub agent, checked as POST /agents checks it (a hosted run spends TMA credits).
+      let model: string | undefined;
+      if (body.model_id !== undefined) {
+        const allowed = deps.isModelAllowed
+          ? typeof body.model_id === "string" && (await deps.isModelAllowed(body.model_id))
+          : isAllowedModel(body.model_id);
+        if (!allowed || typeof body.model_id !== "string") throw new HttpError(400, "model_id is not in the allow-list (GET /models)");
+        model = body.model_id;
+      }
+      const meta = await repo.updateAgentMeta(agent.id, { ...(requires !== undefined ? { requires } : {}), ...(model !== undefined ? { model } : {}) });
       if (meta.missing.includes("requires")) throw new HttpError(503, "requires is not stored until migration 0011_agent_requires is applied");
       const saved = await repo.getGithubAgent(agent.id);
       res.json({ agent: saved && withSource(saved) });

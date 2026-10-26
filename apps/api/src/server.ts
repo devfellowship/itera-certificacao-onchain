@@ -1,6 +1,7 @@
 import { PgSelfDeclaredStore } from "./self-declared/store.pg.js";
 import { selfDeclaredPerDayFromEnv } from "./self-declared/router.js";
 import { PgRunOriginLookup } from "./self-declared/run-guard.js";
+import { PgLocalAgentsStore } from "./local-agents/store.pg.js";
 import { createApp } from "./app.js";
 import { PgProofStore } from "./chain/proof-store.pg.js";
 import { proofIssuerHook, runStartHook } from "./chain/runs-hooks.js";
@@ -119,6 +120,8 @@ createApp(repo, {
   },
   // L3, Q4 = C: a self-declared run is visible only to its owner (no-op before 0021).
   runOrigins: new PgRunOriginLookup(getPool),
+  // L4: local agents and custom models (writes need 0021; 503 schema_not_ready before it).
+  localAgents: { store: new PgLocalAgentsStore(getPool) },
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });

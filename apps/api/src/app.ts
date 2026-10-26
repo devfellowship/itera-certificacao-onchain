@@ -37,6 +37,7 @@ import type { AvatarStorage } from "./domain/avatar.js";
 import type { AgentAvatarStore } from "./domain/agent-avatar-store.js";
 import { createFaucetRouter, type FaucetRouterDeps } from "./http/faucet-router.js";
 import { createModelsAccessRouter, type ModelsAccessRouterDeps } from "./http/models-access-router.js";
+import { createLocalAgentsRouter, localAgentJson, type LocalAgentsRouterDeps } from "./local-agents/router.js";
 import { createSelfDeclaredRouter, type SelfDeclaredRouterDeps } from "./self-declared/router.js";
 import { createSelfDeclaredRunGuard, type RunOriginLookup } from "./self-declared/run-guard.js";
 
@@ -55,6 +56,10 @@ const ROUTES = [
   "GET /auth/me",
   "POST /runs",
   "POST /self-declared-results?dry_run=1",
+  "GET /model-options",
+  "POST /me/models",
+  "DELETE /me/models/:id",
+  "POST /agents/local",
   "GET /runs?mine=1",
   "GET /runs/:id",
   "POST /runs/:id/publish",
@@ -191,6 +196,9 @@ export interface AppOptions {
   selfDeclared?: SelfDeclaredRouterDeps;
   /** L3, Q4 = C: owner-only guard of the run routes for self-declared runs. Mounted only when given. */
   runOrigins?: RunOriginLookup;
+  /** L4: GET /model-options, /me/models, POST /agents/local, GET|PATCH /agents/:id of a local agent. Needs 0021
+   * for the writes (503 schema_not_ready before it). Mounted only when given, before the GitHub router. */
+  localAgents?: LocalAgentsRouterDeps;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -270,6 +278,12 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   const githubDeps = options.github ?? defaultGithubRouterDeps();
   // U21: POST /agents checks the model against models.enabled (DB) when the catalog is wired.
   if (options.catalog && !githubDeps.isModelAllowed) githubDeps.isModelAllowed = modelAccessCheck(options.catalog);
+  // L4: before the GitHub router, so GET and PATCH /agents/:id answer for a local agent.
+  if (options.localAgents) {
+    const local = options.localAgents.store;
+    app.use(createLocalAgentsRouter(options.localAgents));
+    if (!githubDeps.localAgents) githubDeps.localAgents = async (w) => (await local.listLocalAgents(w)).map(localAgentJson);
+  }
   // Before the GitHub router: its GET /agents/:id would take "ranking" as an id.
   app.use(createAgentsRankingRouter(options.ranking ?? defaultAgentsRankingRouterDeps()));
   app.use(createAgentProfileRouter(options.profile ?? defaultAgentProfileRouterDeps()));
