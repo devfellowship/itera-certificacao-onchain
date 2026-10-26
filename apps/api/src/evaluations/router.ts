@@ -176,6 +176,9 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
           counts: { pass: e.passCount, fail: e.failCount, invalid: e.invalidCount },
           score: e.score,
           status: e.status,
+          // 0021: `self_declared` = run on the owner's machine, not attested by TMA (owner-only rows).
+          resultOrigin: e.resultOrigin ?? "hosted",
+          paymentKind: e.paymentKind ?? "solana_pay",
           share: shareOf(e, config.webBaseUrl),
         })),
         totals: {

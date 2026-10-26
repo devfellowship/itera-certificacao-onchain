@@ -1,3 +1,4 @@
+import { hasSelfDeclaredSchema, hostedOnly } from "./schema-features.js";
 import type { Pool, PoolClient } from "pg";
 import {
   SchemaNotReadyError,
@@ -162,7 +163,7 @@ export class PgRunsStore implements RunsStore {
       await client.query(`select pg_advisory_xact_lock(hashtext('itera-runs:' || $1))`, [input.ownerWallet]);
       const count = await client.query<{ n: string }>(
         `select count(*) as n from public.runs
-         where owner_wallet = $1 and started_at > now() - interval '24 hours'`,
+         where owner_wallet = $1 and started_at > now() - interval '24 hours'${hostedOnly(await hasSelfDeclaredSchema(client), "runs")}`,
         [input.ownerWallet],
       );
       if (Number(count.rows[0]!.n) >= input.dailyLimit) {
@@ -307,7 +308,7 @@ export class PgRunsStore implements RunsStore {
           where task_pack_id = $1 and task_pack_version = $2
             and model_cost_usd is not null
             and completed_at is not null
-            and evidence_manifest -> 'runner' ->> 'model' = $3`,
+            and evidence_manifest -> 'runner' ->> 'model' = $3${hostedOnly(await hasSelfDeclaredSchema(this.pool), "runs")}`,
         [taskPackId, taskPackVersion, model],
       );
       const row = result.rows[0]!;

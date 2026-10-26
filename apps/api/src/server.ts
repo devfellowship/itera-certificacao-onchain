@@ -1,3 +1,6 @@
+import { PgSelfDeclaredStore } from "./self-declared/store.pg.js";
+import { selfDeclaredPerDayFromEnv } from "./self-declared/router.js";
+import { PgRunOriginLookup } from "./self-declared/run-guard.js";
 import { createApp } from "./app.js";
 import { PgProofStore } from "./chain/proof-store.pg.js";
 import { proofIssuerHook, runStartHook } from "./chain/runs-hooks.js";
@@ -108,6 +111,14 @@ createApp(repo, {
   dflAuth: { users },
   // T12: /health pings the DB; TMA_HEALTH_REQUIRE_RUNNER=true also fails it on a runner heartbeat older than 5 min (0020).
   health: { db: getPool, requireRunner: healthRequiresRunner() },
+  // L3: POST /self-declared-results (needs 0021; 503 schema_not_ready before it). TMA_SELF_DECLARED_PER_DAY (default 50).
+  selfDeclared: {
+    store: new PgSelfDeclaredStore(getPool()),
+    perDay: selfDeclaredPerDayFromEnv(),
+    web2BaseUrl: process.env.TMA_WEB2_BASE_URL,
+  },
+  // L3, Q4 = C: a self-declared run is visible only to its owner (no-op before 0021).
+  runOrigins: new PgRunOriginLookup(getPool),
 }).listen(port, () => {
   console.log(`testmyagent-api listening on port ${port}`);
 });

@@ -1,3 +1,4 @@
+import { hasSelfDeclaredSchema, hostedOnly } from "../domain/schema-features.js";
 import type { Pool, PoolClient } from "pg";
 import { SchemaNotReadyError, type AgentVersionRef } from "../domain/runs-store.js";
 import {
@@ -98,7 +99,9 @@ function toEvaluation(r: Row): EvaluationListRow {
     tasks: (r.tasks ?? []) as EvalTask[],
     status: r.status,
     // 0019. A row read before it has no column: solana_pay.
-    paymentKind: r.payment_kind === "free_byok" ? "free_byok" : "solana_pay",
+    paymentKind: r.payment_kind === "free_byok" || r.payment_kind === "none" ? r.payment_kind : "solana_pay",
+    // 0021 (`e.*`). A row read before it has no column: hosted.
+    resultOrigin: r.result_origin === "self_declared" ? "self_declared" : "hosted",
     taskCount: num(r.task_count),
     priceUsdPerRun: num(r.price_usd_per_run),
     feeUsd: num(r.fee_usd),
@@ -157,7 +160,7 @@ export class PgEvaluationsStore implements EvaluationsStore {
   async getAgent(agentId: string): Promise<AgentForEval | null> {
     try {
       const { rows } = await this.pool.query(
-        `select a.id, a.owner_wallet, a.name, a.slug, a.repo_full_name, a.agent_path, a.model, a.model_release, a.visibility, a.pinned_commit,
+        `select a.id, a.owner_wallet, a.name, a.slug, a.repo_full_name, a.agent_path, a.model, a.model_release, a.visibility, a.pinned_commit, a.connector,
                 to_jsonb(a) -> 'requires' as requires
            from public.agents a where a.id = $1`,
         [agentId],
@@ -175,6 +178,7 @@ export class PgEvaluationsStore implements EvaluationsStore {
         modelRelease: r.model_release,
         visibility: r.visibility,
         pinnedCommit: r.pinned_commit,
+        connector: r.connector === "local" || r.connector === "github" ? r.connector : "endpoint",
         // to_jsonb: the column exists only after 0011_agent_requires.
         requires: Array.isArray(r.requires) ? r.requires.filter((x: unknown): x is string => typeof x === "string") : [],
       };
@@ -243,7 +247,8 @@ export class PgEvaluationsStore implements EvaluationsStore {
 
   async countRecentRuns(wallet: string): Promise<number> {
     const { rows } = await this.pool.query(
-      `select count(*) as n from public.runs where owner_wallet = $1 and started_at > now() - interval '24 hours'`,
+      // 0021: a self-declared import is not a hosted run; it never spends the hosted daily limit.
+      `select count(*) as n from public.runs where owner_wallet = $1 and started_at > now() - interval '24 hours'${hostedOnly(await hasSelfDeclaredSchema(this.pool), "runs")}`,
       [wallet],
     );
     return num(rows[0]?.n);
@@ -372,7 +377,7 @@ export class PgEvaluationsStore implements EvaluationsStore {
       if (input.dailyRunLimit !== undefined) {
         const now = input.now ?? new Date();
         const recent = await client.query<{ started_at: Date }>(
-          `select started_at from public.runs where owner_wallet = $1 and started_at > $2::timestamptz - interval '24 hours' order by started_at asc`,
+          `select started_at from public.runs where owner_wallet = $1 and started_at > $2::timestamptz - interval '24 hours'${hostedOnly(await hasSelfDeclaredSchema(client), "runs")} order by started_at asc`,
           [input.ownerWallet, now],
         );
         const over = checkDailyQuota(recent.rows.map((r) => r.started_at), input.tasks.length, input.dailyRunLimit, now);
@@ -524,7 +529,7 @@ export class PgEvaluationsStore implements EvaluationsStore {
     try {
       const { rows } = await this.pool.query(
         `select id from public.evaluations
-          where issued_at is null and status not in ('failed', 'graded') and created_at > now() - interval '3 days'
+          where issued_at is null and status not in ('failed', 'graded') and created_at > now() - interval '3 days'${hostedOnly(await hasSelfDeclaredSchema(this.pool), "evaluations")}
           order by created_at limit $1`,
         [limit],
       );

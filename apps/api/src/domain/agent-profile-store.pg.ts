@@ -1,3 +1,4 @@
+import { hasSelfDeclaredSchema, hostedOnly } from "./schema-features.js";
 import type { Pool } from "pg";
 import type { BadgeEvaluation, OwnTaskResult, ProfileAgent, ProfileData, ProfileEvaluation, ProfileResult, ProfileStore, ProfileTag } from "./agent-profile.js";
 import { SchemaNotReadyError } from "./runs-store.js";
@@ -84,6 +85,8 @@ export class PgProfileStore implements ProfileStore {
   load(agentId: string): Promise<ProfileData> {
     return this.guard(async () => {
       const pool = this.pool();
+      // 0021: a self-declared run never enters the public results of a profile (plan Q4 = C).
+      const hosted = hostedOnly(await hasSelfDeclaredSchema(pool), "r");
       const [results, evaluations, tags] = await Promise.all([
         pool.query(
           `select r.id::text as run_id, r.status, r.score_total::float8 as score,
@@ -99,7 +102,7 @@ export class PgProfileStore implements ProfileStore {
              from (select r.*, ${RUN_TASK_UUID} as task_uuid
                      from public.runs r
                      join public.agent_versions av on av.id = r.agent_version_id
-                    where av.agent_id = $1::uuid and r.status in ('pass', 'fail') and r.score_total is not null) r
+                    where av.agent_id = $1::uuid and r.status in ('pass', 'fail') and r.score_total is not null${hosted}) r
              left join public.tasks t on t.id = r.task_uuid
              left join public.proofs p on p.run_id = r.id
              left join public.evaluations e on e.id::text = r.evaluation_id::text
@@ -162,6 +165,8 @@ export class PgProfileStore implements ProfileStore {
 
   loadOwnTaskResults(wallet: string): Promise<OwnTaskResult[]> {
     return this.guard(async () => {
+      // 0021: another principal's self-declared run never reaches the task owner (plan Q4 = C).
+      const sd = await hasSelfDeclaredSchema(this.pool());
       const r = await this.pool().query(
         `select a.id::text as agent_id, a.name as agent_name, a.owner_wallet as agent_owner,
                 t.id::text as task_id, t.name as task_name, r.score_total::float8 as score, r.status,
@@ -169,7 +174,8 @@ export class PgProfileStore implements ProfileStore {
                 coalesce(r.completed_at, r.started_at) as at
            from (select r.*, ${RUN_TASK_UUID} as task_uuid
                    from public.runs r
-                  where r.status in ('pass', 'fail') and r.score_total is not null) r
+                  where r.status in ('pass', 'fail') and r.score_total is not null
+                    ${sd ? "and (r.result_origin = 'hosted' or r.owner_wallet = $1)" : ""}) r
            join public.tasks t on t.id = r.task_uuid and t.owner_wallet = $1
            join public.agent_versions av on av.id = r.agent_version_id
            join public.agents a on a.id = av.agent_id

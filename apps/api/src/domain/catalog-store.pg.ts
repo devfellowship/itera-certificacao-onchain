@@ -1,3 +1,4 @@
+import { hasSelfDeclaredSchema, hostedOnly } from "./schema-features.js";
 import type { Pool } from "pg";
 import {
   CATALOG_MIGRATION,
@@ -28,9 +29,10 @@ const num = (v: string | number | null): number | null => (v === null ? null : N
 /**
  * One row per visible task: tags and the latest version as JSON, plus the number of distinct agents
  * that ran on the task. Runs reference the legacy pack (task_pack_id/version) until 0008 adds
- * runs.task_id, so the count joins on the curated version's pack.
+ * runs.task_id, so the count joins on the curated version's pack. Hosted runs only (0021: a
+ * self-declared run never counts in a public number).
  */
-const TASKS_SQL = `
+const tasksSql = (sd: boolean) => `
   select t.id, t.slug, t.kind, t.owner_wallet, t.name, t.description, t.visibility, t.status,
          t.est_minutes, t.created_at, t.updated_at,
          coalesce((select json_agg(json_build_object('id', g.id, 'name', g.name, 'kind', g.kind, 'sort', g.sort)
@@ -46,7 +48,7 @@ const TASKS_SQL = `
             from public.task_versions tv
             join public.runs r on r.task_pack_id = tv.pack_id and r.task_pack_version = tv.pack_version
             join public.release_declarations rd on rd.id = r.release_declaration_id
-           where tv.task_id = t.id and tv.pack_id is not null)::int as agents_run_count
+           where tv.task_id = t.id and tv.pack_id is not null${hostedOnly(sd, "r")})::int as agents_run_count
     from public.tasks t
    where (t.visibility = 'public' or (t.owner_wallet is not null and t.owner_wallet = $1))
      and t.deleted_at is null`; // 0009_user_tasks: DELETE /tasks/:id is a soft delete
@@ -151,7 +153,7 @@ export class PgCatalogStore implements CatalogStore {
 
   async listVisibleTasks(wallet: string | null): Promise<CatalogTask[]> {
     try {
-      const { rows } = await this.pool.query<TaskRow>(`${TASKS_SQL} order by t.kind, t.created_at, t.slug`, [wallet]);
+      const { rows } = await this.pool.query<TaskRow>(`${tasksSql(await hasSelfDeclaredSchema(this.pool))} order by t.kind, t.created_at, t.slug`, [wallet]);
       return rows.map(toTask);
     } catch (e) {
       rethrow(e);
@@ -162,7 +164,7 @@ export class PgCatalogStore implements CatalogStore {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
     try {
       const { rows } = await this.pool.query<TaskRow>(
-        `${TASKS_SQL} and ${isUuid ? "t.id = $2::uuid" : "t.slug = $2"}`,
+        `${tasksSql(await hasSelfDeclaredSchema(this.pool))} and ${isUuid ? "t.id = $2::uuid" : "t.slug = $2"}`,
         [wallet, idOrSlug],
       );
       return rows[0] ? toTask(rows[0]) : null;

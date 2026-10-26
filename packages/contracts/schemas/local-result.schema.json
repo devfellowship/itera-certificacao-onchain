@@ -74,7 +74,8 @@
             "name": {
               "type": "string",
               "pattern": "^[A-Za-z0-9 .,:;/()+\\-_%$=&'#]*$",
-              "maxLength": 60
+              "maxLength": 60,
+              "minLength": 1
             },
             "description": {
               "type": "string",

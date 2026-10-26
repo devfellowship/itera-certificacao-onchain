@@ -43,6 +43,11 @@ export async function resolveEvaluationRequest(
 ): Promise<Checked<{ agent: AgentForEval; version: AgentVersionRef; tasks: EvalTask[] }>> {
   const agent = await store.getAgent(req.agentId);
   if (!agent || (agent.ownerWallet !== principalId && agent.visibility !== "listed")) return refuse(404, { error: "agent not found" });
+  // ADR-5 (plan 20261026-tma-local-runner-and-self-declared-results): a local agent has no files on TMA.
+  // It runs on its owner's machine; a hosted start would spend hosted credits on nothing.
+  if (agent.connector === "local") {
+    return refuse(409, { error: "agent_is_local", code: "agent_is_local", message: "a local agent runs on your machine: upload its results with POST /self-declared-results" });
+  }
   const version = await store.agentVersionFor(agent.id, agent.pinnedCommit);
   if (!version) return refuse(409, { error: "agent has no synced version yet — connect its repository first" });
   const tasks: EvalTask[] = [];
