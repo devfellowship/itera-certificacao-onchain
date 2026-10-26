@@ -16,6 +16,12 @@
 // stop is recorded on bench_campaigns (stopped_at, stop_reason) and the tool exits 4. opencode go
 // runs spend subscription credit: they are tagged but do not count against the OpenRouter cap.
 //
+// RULE (plan 20261026-tma-local-runner-and-self-declared-results, ADR-3): this tool writes NO result.
+// It only queues a hosted run (status 'queued'); the worker produces and grades the result, so the
+// result is a hosted TMA result. A result that the worker did not produce enters ONLY through the API,
+// POST /self-declared-results. services/runner/src/result-writes.guard.test.ts fails if this file
+// starts to write evaluations or a result column of runs.
+//
 // Needs DATABASE_URL (+ the pooler CA, like the worker). Run it inside the runner container.
 // It prints no secret. With --wait it polls the run to a terminal status and prints a summary.
 import { createHash, randomUUID } from 'node:crypto';
