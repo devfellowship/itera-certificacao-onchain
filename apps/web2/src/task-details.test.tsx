@@ -118,9 +118,11 @@ it('shows owned task facts and every evaluation with scores and detail links', a
   const links = [...container.querySelectorAll<HTMLAnchorElement>('[data-testid="task-evaluation-link"]')]
   expect(links).toHaveLength(2)
   expect(links.map((link) => link.getAttribute('href'))).toEqual(history.evaluations.map((e) => `/evaluations/${e.id}`))
-  expect([...container.querySelectorAll('[data-testid="task-evaluation-score"]')].map((node) => node.textContent)).toEqual(['100.0', 'No score'])
-  expect(container.textContent).toContain('1 task passed')
-  expect(container.textContent).toContain('Task result unavailable')
+  // L14a: the shared runs table. Score `100 ±17.5` (90% Wilson CI of 5/5 = 64.9–100), `—` without a score.
+  expect([...container.querySelectorAll('[data-testid="run-score"]')].map((node) => node.textContent)).toEqual(['100 ±17.5', '—'])
+  expect([...container.querySelectorAll('[data-testid="result-dot"]')].map((node) => node.getAttribute('data-result'))).toEqual(['pass', ''])
+  expect([...container.querySelectorAll('[data-testid="run-checks"]')].map((node) => node.textContent)).toEqual(['5/5', '—'])
+  expect(container.querySelectorAll('[data-testid="run-source"]')).toHaveLength(2)
   expect(container.textContent).not.toContain('checks passed')
   expect(container.textContent).not.toContain('ev_4491c225')
   // Each evaluation row names its model with the lab logo and the route that ran it (not a fixed "via OpenRouter").

@@ -69,13 +69,16 @@ export function GoalSection({ task }: { task: TaskProfile }) {
 }
 
 /* ---------- 2. Input and output ---------- */
+const INSTRUCTION_FOLD = 40
 export function IoSection({ task }: { task: TaskProfile }) {
   const [full, setFull] = useState(false)
   const text = task.input.instruction.text
   const lines = text ? text.split('\n') : []
-  const shown = full ? lines : lines.slice(0, 6)
+  // L14a: the full instruction stays inline; it collapses after 40 lines with "Show all".
+  const shown = full ? lines : lines.slice(0, INSTRUCTION_FOLD)
   const repo = task.input.repository
   const repoText = repo.repo ? `${repo.repo}${repo.commit ? `@${repo.commit}` : ''}` : null
+  const repoUrl = repo.repo ? `https://github.com/${repo.repo}/tree/${repo.commit || 'main'}/${repo.path ?? ''}`.replace(/\/$/, '') : null
   return (
     <Section id="io" title="Input and output">
       <div className="tp-io">
@@ -87,9 +90,9 @@ export function IoSection({ task }: { task: TaskProfile }) {
                 <pre className="tp-instruction" data-testid="instruction">
                   {shown.join('\n')}
                 </pre>
-                {lines.length > 6 && (
-                  <button type="button" className="tp-text-btn" onClick={() => setFull((f) => !f)}>
-                    {full ? 'Show less' : 'Show full instruction'}
+                {lines.length > INSTRUCTION_FOLD && (
+                  <button type="button" className="tp-text-btn" onClick={() => setFull((f) => !f)} data-testid="instruction-toggle">
+                    {full ? 'Show less' : `Show all (${lines.length} lines)`}
                   </button>
                 )}
               </>
@@ -99,10 +102,17 @@ export function IoSection({ task }: { task: TaskProfile }) {
           </Row>
           {repoText && (
             <Row k="Repository">
-              <span className="tp-mono13">
-                {repoText}
-                {repo.path ? ` · ${repo.path}` : ''}
-              </span>
+              {repoUrl ? (
+                <a className="tp-mono13" href={repoUrl} target="_blank" rel="noreferrer" data-testid="repository-link">
+                  {repoText}
+                  {repo.path ? ` · ${repo.path}` : ''} ↗
+                </a>
+              ) : (
+                <span className="tp-mono13">
+                  {repoText}
+                  {repo.path ? ` · ${repo.path}` : ''}
+                </span>
+              )}
             </Row>
           )}
           <Row k="The agent can edit">{task.input.editablePaths.length ? <Mono items={task.input.editablePaths} /> : <span className="tma-muted">—</span>}</Row>
