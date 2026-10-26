@@ -2,19 +2,23 @@
 
 The runner executes ONE agent on ONE benchmark scenario, records each tool call, takes the patch, and grades the patch with `services/evaluator`.
 
-## Step 1: local CLI
+## Step 1: the local CLI (`tma`)
+
+`tma` runs the same sandbox, gateway and grader as the hosted worker on your machine, with YOUR model key. Only numbers leave the machine: `result.json` is `tma-local-result/1` (no actions, no patch, no stdout, no key). Send it with `tma upload`.
 
 ```bash
-docker build -t itera-runner-sandbox:latest services/runner/sandbox
-export OPENROUTER_API_KEY=...                                          # or ITERA_RUNNER_OPENROUTER_KEY
-npx tsx services/runner/src/run-once.ts \
-  --scenario webhook-ledger \
-  --agent-dir services/runner/examples/sample-agent \
-  --model qwen/qwen3-coder \
-  --out result.json
+cd services/runner
+npx tsx src/cli/tma.ts tasks                          # the curated tasks of this runner, offline
+npx tsx src/cli/tma.ts workspace --task webhook-ledger --dest ./ws      # public workspace + INSTRUCTION.md, no Docker
+# ... edit ./ws with your own harness, then:
+npx tsx src/cli/tma.ts grade --task webhook-ledger --workspace ./ws --agent <agent id> --model qwen/qwen3-coder --wall-s 120 --cost-usd 0.05 --out result.json
+# or let opencode do it in the sandbox:
+docker build -t itera-runner-sandbox:latest sandbox                      # once; or set ITERA_SANDBOX_IMAGE
+export OPENROUTER_API_KEY=...                                            # YOUR key (OPENCODE_GO_API_KEY for opencode-go/<model>)
+npx tsx src/cli/tma.ts run --task webhook-ledger --agent <agent id> --agent-dir examples/sample-agent --model qwen/qwen3-coder --repeat 3 --out result.json
 ```
 
-`result.json` holds `actions` (the future `run_actions` rows), `usage` (tokens and cost), `patch` (unified diff) and `manifest` (the evaluator evidence manifest with the score).
+`--task-dir <folder>` selects a private task folder on your disk instead (it never leaves the machine; only its digests go into the result). `grade` and `run` need Docker. MCP tasks run hosted only. The patch, the actions and the evidence manifest go to `./tma-runs/<run-id>/`, for you only. `src/run-once.ts` is an alias of `tma run` (`--scenario` works as `--task`).
 
 ## What one run does
 
@@ -156,7 +160,7 @@ temp dir on the trusted side, and deletes it when the job ends (Gate Q5: no copy
 |---|---|---|
 | `DATABASE_URL` | — | Worker: same value as the API app. TLS with the pinned pooler CA (`apps/api/certs`). |
 | `ITERA_RUN_KEY_SECRET` | — | Worker and API: opens / seals the BYOK key. At least 32 characters. Optional when only platform-key runs are used. |
-| `ITERA_RUNNER_OPENROUTER_KEY` | — | ITERA's platform OpenRouter key (worker, and `run-once.ts`). Used for every run without a BYOK key. Kept in the secret store of the deployment. |
+| `ITERA_RUNNER_OPENROUTER_KEY` | — | ITERA's platform OpenRouter key (worker only). Used for every run without a BYOK key. Kept in the secret store of the deployment. The `tma` CLI never reads it. |
 | `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` | — | User tasks (U19): read the task folder through the GitHub App. Same values as the API. Without them a user-task validation ends `error` and a user-task run `infra_error`. |
 | `ITERA_USER_TASKS` | on | `off` disables the validation queue on this worker. |
 | `ITERA_RUN_MAX_COST_USD` | `0.50` | Hard model-cost cap of one run, enforced by the gateway. |

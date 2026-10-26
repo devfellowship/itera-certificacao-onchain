@@ -1,0 +1,1 @@
+HIDDEN-CANARY: add(5, 5) is 10

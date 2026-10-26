@@ -4,12 +4,16 @@
 import type { Command } from './command.js';
 import { stdio } from './command.js';
 import { agentCommand } from './commands/agent.js';
+import { gradeCommand } from './commands/grade.js';
 import { loginCommand, logoutCommand } from './commands/login.js';
+import { runCommand } from './commands/run.js';
+import { tasksCommand } from './commands/tasks.js';
 import { uploadCommand } from './commands/upload.js';
+import { workspaceCommand } from './commands/workspace.js';
 import { CliError } from './env.js';
 import { CLI_VERSION } from './version.js';
 
-export const COMMANDS: Command[] = [loginCommand, logoutCommand, agentCommand, uploadCommand];
+export const COMMANDS: Command[] = [loginCommand, logoutCommand, agentCommand, uploadCommand, tasksCommand, workspaceCommand, gradeCommand, runCommand];
 
 export function helpText(): string {
   const width = Math.max(...COMMANDS.map((c) => c.name.length));
