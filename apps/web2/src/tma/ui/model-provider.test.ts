@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import data from './model-labs.json'
+import data from '@itera/contracts/model-catalog/labs.json'
 import { FALLBACK_LAB, LABS, PROVIDER_NAME, labOf, providerOf } from './model-provider'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -89,7 +89,7 @@ describe('providerOf', () => {
   })
 })
 
-describe('model-labs.json', () => {
+describe('model-catalog/labs.json', () => {
   it('has unique keys, a name, valid regex patterns and an OpenRouter author slug for every lab', () => {
     const keys = data.labs.map((l) => l.key)
     expect(new Set(keys).size).toBe(keys.length)

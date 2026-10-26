@@ -1,7 +1,8 @@
 {
   "$comment": [
-    "Model -> lab mapping of apps/web2 (the web3 client apps/web has its own copy and does not read this file).",
-    "To add a lab: add one entry below and put its logo in model-logos/<logo>. No code change.",
+    "Model -> lab mapping (the provider enum of TestMyAgent). Read by apps/web2 (logos), apps/api (agent and model setup) and the local-result validator, through packages/contracts/model-catalog.js.",
+    "The web3 client apps/web has its own copy and does not read this file.",
+    "To add a lab: add one entry below and put its logo in apps/web2/src/tma/ui/model-logos/<logo>. No code change.",
     "Match order: (1) the id prefix before '/' (a leading '~' is dropped) against 'openrouter';",
     "(2) the regex 'patterns' on the id prefix, the provider name, the full id, then the label. The first lab that matches wins.",
     "A route prefix in 'routePrefixes' (ollama/, opencode-go/, ...) is not a lab: it is skipped and the model name after it decides.",

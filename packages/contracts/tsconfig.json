@@ -10,5 +10,14 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["index.js", "run-profile.js", "tool-environment.js", "index.d.ts", "*.test.ts"]
+  "include": [
+    "index.js",
+    "run-profile.js",
+    "tool-environment.js",
+    "model-catalog.js",
+    "local-result.js",
+    "index.d.ts",
+    "model-catalog.d.ts",
+    "*.test.ts"
+  ]
 }

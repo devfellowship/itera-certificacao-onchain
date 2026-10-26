@@ -1,9 +1,9 @@
 {
   "$comment": [
-    "Model id -> the route that ran the model (apps/web2 only; the web3 client apps/web does not read this file).",
+    "Model id -> the route that ran the model (the route enum of TestMyAgent). Read by apps/web2, apps/api and the local-result validator, through packages/contracts/model-catalog.js. The web3 client apps/web does not read this file.",
     "The id prefix before the first '/' decides. It mirrors services/runner/src/model-route.ts: 'opencode-go/' runs on opencode go;",
     "every other TestMyAgent run goes to OpenRouter (an OpenRouter id starts with its author slug: 'anthropic/', 'z-ai/', 'qwen/').",
-    "The other prefixes name executors whose results come in through services/runner/src/bench-import.ts (they never run on the TMA runner).",
+    "The other prefixes name executors whose results come in as self-declared local results (they never run on the TMA runner).",
     "No listed prefix -> 'default' (OpenRouter)."
   ],
   "default": { "key": "openrouter", "name": "OpenRouter" },
