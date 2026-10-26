@@ -2,7 +2,7 @@
  "$schema": "http://json-schema.org/draft-07/schema#",
  "$id": "itera/dfl-session-decision-trajectory-extraction/layer2/v1",
  "title": "Session trajectory layer 2 \u2014 slim judgment (one object per unit: a subagent run or a main-session chunk)",
- "description": "Plan 20261025-session-trajectory-extraction v2, section 6. Judgment only: facts come from layer 1. Strict: every key required, no extra key, closed enums. Versions: schema_version 1, intent_list_version 1, taxonomy v2.",
+ "description": "Plan 20261025-session-trajectory-extraction v2, section 6. Judgment only: facts come from layer 1. Strict: every key required, no extra key, closed enums. Versions: schema_version 1 (revision 1.2), intent_list_version 2, taxonomy v2.",
  "type": "object",
  "additionalProperties": false,
  "required": [
@@ -467,6 +467,9 @@
      "message-agent",
      "reply-human",
      "wait/sleep",
+     "browser-check",
+     "github-api",
+     "media-generate",
      "other"
     ]
    },
@@ -475,7 +478,7 @@
  },
  "x-dfl": {
   "schema_version": 1,
-  "intent_list_version": 1,
+  "intent_list_version": 2,
   "taxonomy_version": 2,
   "intents": [
    "pr-read",
@@ -501,6 +504,9 @@
    "message-agent",
    "reply-human",
    "wait/sleep",
+   "browser-check",
+   "github-api",
+   "media-generate",
    "other"
   ],
   "taxonomy": {
@@ -611,6 +617,6 @@
   ],
   "tma_task": "itera/dfl-session-decision-trajectory-extraction",
   "tma_task_title": "Session Decision Trajectory Extraction",
-  "schema_revision": "1.1 (2026-10-25: narrative 600->900, risk_reason/cheaper_model_why 300, decision_text/asked 400 after the T4 glm-5.3 run)"
+  "schema_revision": "1.2 (2026-10-26, plan T16: intent_list_version 2, 27 intents: + browser-check, github-api, media-generate). 1.1 (2026-10-25: narrative 600->900, risk_reason/cheaper_model_why 300, decision_text/asked 400 after the T4 glm-5.3 run)"
  }
 }

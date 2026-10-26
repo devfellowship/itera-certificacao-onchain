@@ -1,4 +1,4 @@
-# Intents (intent_list_version 1) — label each SHAPES entry with exactly one
+# Intents (intent_list_version 2) — label each SHAPES entry with exactly one
 
 A shape is a Bash command reduced to program + subcommand (arguments stripped, up to 3 parts joined by " + "), or a non-Bash tool name. Label the MAIN purpose of the whole shape. When parts disagree, the write wins over the read (git-write over git-read, pr-write/merge over pr-read).
 
@@ -27,6 +27,14 @@ A shape is a Bash command reduced to program + subcommand (arguments stripped, u
 | message-agent | SendMessage to another agent |
 | reply-human | a reply to a human channel (Telegram reply, react, edit_message) |
 | wait/sleep | sleep |
+| browser-check | drive or check a real browser page: agent-browser, Playwright (npx playwright test/screenshot, a Playwright script), prod-loop-verify verify-render.mjs, a browser MCP tool |
+| github-api | a GitHub API or admin call that is not about a PR, a CI run, git content or a search: gh api on orgs/users/teams/installations/rate_limit/secrets/variables/rulesets/settings/packages/labels or the repo metadata, gh secret/variable/label/ruleset, curl api.github.com |
+| media-generate | make or convert media: text to speech (speak.sh), speech to text (transcribe-voice.sh, groq-transcribe), an image, thumbnail, video or render (ffmpeg, ImageMagick convert, remotion, thumbify, branded-render) |
 | other | none of the above fits (last resort; graded as a miss) |
 
 Shell decoration (cd, echo, export, a variable assignment) never decides the label. If a shape is only decoration, use other.
+
+Boundaries of the three version-2 intents:
+- browser-check: npx playwright install is build/test (it installs a browser and checks no page). A repo unit test runner (vitest/jest/pytest) is build/test. A curl of a page is web-research or ops-inspect.
+- github-api: gh api on pulls/issues/commits/check-runs is pr-read or pr-write/merge; on actions runs/jobs/workflows it is ci-read; on contents/git/branches it is git-read or git-write; on search it is search.
+- media-generate: a read of a media file (ffprobe, identify, file) is file-read. An upload of the file to the media store (supabase-upload) is skill-run. A browser screenshot of a page is browser-check.

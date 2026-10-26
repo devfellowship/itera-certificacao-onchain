@@ -1,8 +1,8 @@
 {
-  "source": "the layer-2 contract of plan 20261025-session-trajectory-extraction (task T4, MANIFEST.json schema_version 1, intent_list_version 1, taxonomy_version 2)",
+  "source": "the layer-2 contract of plan 20261025-session-trajectory-extraction (task T4, revised in task T16; MANIFEST.json schema_version 1, intent_list_version 2, taxonomy_version 2)",
   "identical": {
-    "schema.json": "fa3c01b537808e678b037bb38199ece9a50002c4f086e506aab337478c8377ee",
-    "intents.md": "c5a48d42528f160ac22ae61876979d134b83959f755fabe7f3b68f2323d0b200",
+    "schema.json": "3747996d25f202a0c3d2cbd78a94391cc6ff188a59a16487707e1970b9633008",
+    "intents.md": "db45e60927b9995b676f937ab624093c743a06233b6967ab1bed9a2e2efa3969",
     "taxonomy.md": "f9d4cd68096c950d01e86f356632d25c8d729f4fa0b77fa9919c379be79966e6"
   },
   "open_variant_stand_in": {
