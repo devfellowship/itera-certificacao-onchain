@@ -11,7 +11,7 @@ import { FakeRunsStore } from "../domain/runs-store.fake.js";
 import type { ProofIssuer } from "../domain/runs-store.js";
 import { issueSessionToken } from "./auth.js";
 import { validateApiResponse } from "@itera/contracts";
-import { publicSuiteView, redactText } from "./runs-router.js";
+import { LEGACY_RUNS_GONE_FOR_DFL, publicSuiteView, redactText } from "./runs-router.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
 
@@ -162,6 +162,29 @@ describe("POST /runs", () => {
     expect(bad.status).toBe(404);
     store.versions = [];
     expect((await createRun()).status).toBe(409);
+  });
+
+  it("T6: refuses a dfl principal with 410 and writes no runs row, with or without a model key", async () => {
+    // The agent belongs to the dfl principal, so only the principal kind decides the refusal.
+    const dflId = `dfl:${randomUUID()}`;
+    store.agents[0]!.ownerWallet = dflId;
+    const dflAuth = { Authorization: `Bearer ${issueSessionToken(dflId, Date.now(), "dfl").token}`, "Content-Type": "application/json" };
+    for (const extra of [{}, { modelApiKey: USER_KEY }]) {
+      const res = await fetch(`${baseUrl}/runs`, {
+        method: "POST",
+        headers: dflAuth,
+        body: JSON.stringify({ agentId, benchmarkId: "webhook-ledger", benchmarkVersion: "1", ...extra }),
+      });
+      expect(res.status).toBe(410);
+      const body = await res.json();
+      expect(body).toEqual(LEGACY_RUNS_GONE_FOR_DFL);
+      expect(body.replacement.create).toBe("POST /evaluations");
+    }
+    // An empty or invalid body gets the same 410: the refusal comes before validation.
+    const empty = await fetch(`${baseUrl}/runs`, { method: "POST", headers: dflAuth, body: "{}" });
+    expect(empty.status).toBe(410);
+    expect(store.runs).toHaveLength(0);
+    expect(store.modelKeys.size).toBe(0);
   });
 
   it("enforces 5 runs per wallet per day", async () => {
