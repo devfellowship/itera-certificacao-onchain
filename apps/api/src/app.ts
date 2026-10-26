@@ -40,6 +40,8 @@ import { createModelsAccessRouter, type ModelsAccessRouterDeps } from "./http/mo
 import { createLocalAgentsRouter, localAgentJson, type LocalAgentsRouterDeps } from "./local-agents/router.js";
 import { createSelfDeclaredRouter, type SelfDeclaredRouterDeps } from "./self-declared/router.js";
 import { createSelfDeclaredRunGuard, type RunOriginLookup } from "./self-declared/run-guard.js";
+import { createCliAuthRouter, type CliAuthRouterDeps } from "./cli-auth/router.js";
+import { createCliSessionGuard } from "./cli-auth/guard.js";
 
 export const SERVICE_NAME = "testmyagent-api";
 export const PRODUCT_NAME = "TestMyAgent";
@@ -54,6 +56,13 @@ const ROUTES = [
   "POST /auth/verify",
   "POST /auth/dfl/exchange",
   "GET /auth/me",
+  "POST /auth/cli/start",
+  "GET /auth/cli/requests/:userCode",
+  "POST /auth/cli/approve",
+  "POST /auth/cli/deny",
+  "POST /auth/cli/token",
+  "GET /me/cli-sessions",
+  "DELETE /me/cli-sessions/:id",
   "POST /runs",
   "POST /self-declared-results?dry_run=1",
   "GET /model-options",
@@ -199,6 +208,9 @@ export interface AppOptions {
   /** L4: GET /model-options, /me/models, POST /agents/local, GET|PATCH /agents/:id of a local agent. Needs 0021
    * for the writes (503 schema_not_ready before it). Mounted only when given, before the GitHub router. */
   localAgents?: LocalAgentsRouterDeps;
+  /** L5: the CLI device login (POST /auth/cli/*, /me/cli-sessions) and the CLI session guard (a revoked
+   * `sid` → 401 cli_session_revoked on every route). Needs 0021 (503 schema_not_ready before it). */
+  cliAuth?: Omit<CliAuthRouterDeps, "guard">;
 }
 
 export function createApp(repo: Repository, options: AppOptions = {}): Express {
@@ -228,6 +240,9 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createRateLimiters());
   // ADR-9 kill switch: `users.disabled` → 403 account_disabled on every write route of a dfl principal.
   if (options.dflAuth?.users) app.use(createAccountGuard({ users: options.dflAuth.users }));
+  // L5: a revoked CLI session (a token with a `sid`) is refused before any router, the 1 MiB one included.
+  const cliGuard = options.cliAuth ? createCliSessionGuard({ store: options.cliAuth.store, now: options.cliAuth.now }) : null;
+  if (cliGuard) app.use(cliGuard);
   // L3: BEFORE the global parser, so this one route has its own 1 MiB limit (the global one is 100 kB).
   if (options.selfDeclared) app.use(createSelfDeclaredRouter(options.selfDeclared));
   app.use(express.json());
@@ -255,6 +270,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   });
 
   app.use(createAuthRouter({ dfl: options.dflAuth }));
+  if (options.cliAuth) app.use(createCliAuthRouter({ ...options.cliAuth, guard: cliGuard ?? undefined }));
   app.use(createModelsAccessRouter(options.modelsAccess));
   // L3, Q4 = C: before every router that serves /runs/:id (runs, feedback, proofs).
   if (options.runOrigins) app.use(createSelfDeclaredRunGuard(options.runOrigins));

@@ -113,6 +113,16 @@ const postJson = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 })
 
+/** What the /cli approve page shows about a device login (L5). Never the device code, never a token. */
+export type CliCodeState = 'pending' | 'approved' | 'denied' | 'consumed' | 'revoked' | 'expired'
+export interface CliLoginRequest {
+  user_code: string
+  client_name: string | null
+  state: CliCodeState
+  created_at?: string
+  expires_at?: string
+}
+
 export const api = {
   sampleRepos: (f: ApiFetch) => call<{ agents: string[] }>(f, '/github/sample-repos'),
   myAgents: (f: ApiFetch) => call<{ agents: Agent[] }>(f, '/agents'),
@@ -128,5 +138,9 @@ export const api = {
   startEvaluation: (f: ApiFetch, input: StartEvaluationInput) => call<StartEvaluationResponse>(f, '/evaluations', postJson(input)),
   evaluation: (f: ApiFetch, id: string) => call<EvaluationDetail>(f, `/evaluations/${encodeURIComponent(id)}`),
   cancelEvaluation: (f: ApiFetch, id: string) => call<{ status: string }>(f, `/evaluations/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  /** L5 device login: the request behind a user code, then one Allow or Deny. */
+  cliRequest: (f: ApiFetch, userCode: string) => call<CliLoginRequest>(f, `/auth/cli/requests/${encodeURIComponent(userCode)}`),
+  cliApprove: (f: ApiFetch, userCode: string) => call<CliLoginRequest>(f, '/auth/cli/approve', postJson({ user_code: userCode })),
+  cliDeny: (f: ApiFetch, userCode: string) => call<CliLoginRequest>(f, '/auth/cli/deny', postJson({ user_code: userCode })),
   myEvaluations: (f: ApiFetch) => call<{ evaluations: EvaluationListItem[] }>(f, '/evaluations?scope=all'),
 }

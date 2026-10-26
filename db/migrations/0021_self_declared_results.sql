@@ -23,7 +23,11 @@
 --   user_models         custom models of ONE principal (the tenant). Never read by GET /models, the
 --                       model sync or the public ranking. At most 50 per owner (the API enforces it).
 --   cli_device_codes    the device login of the local CLI (tma login). The device code is stored only
---                       as its sha256. One code works once; it expires after 600 s.
+--                       as its sha256. One code works once; it expires after 600 s. Task L5 adds the
+--                       states that the API needs: denied_at (the user clicked Deny), polled_at (the
+--                       poll interval), client_name (shown on the approve page), session_id (the `sid`
+--                       claim of the CLI session, set when the CLI takes its token) and revoked_at
+--                       (the owner revoked that CLI session under GET /me/cli-sessions).
 --
 -- DATA CHANGE (the only one): the rows that services/runner/src/bench-import.ts wrote (the bake-off of
 -- 2026-10-24/25) become self-declared, because TMA did not run them. The rule is deterministic and
@@ -184,6 +188,39 @@ create table if not exists public.cli_device_codes (
   constraint cli_device_codes_consumed_check check (consumed_at is null or approved_at is not null)
 );
 create index if not exists cli_device_codes_expires_idx on public.cli_device_codes (expires_at);
+
+-- L5: the states of the device login (apps/api/src/cli-auth/). As ALTERs, so the file stays idempotent.
+alter table public.cli_device_codes add column if not exists client_name text;
+alter table public.cli_device_codes add column if not exists polled_at   timestamptz;
+alter table public.cli_device_codes add column if not exists denied_at   timestamptz;
+alter table public.cli_device_codes add column if not exists session_id  uuid;
+alter table public.cli_device_codes add column if not exists revoked_at  timestamptz;
+create unique index if not exists cli_device_codes_session_id_key on public.cli_device_codes (session_id);
+create index if not exists cli_device_codes_principal_idx on public.cli_device_codes (principal) where principal is not null;
+
+do $$
+begin
+  -- Short free text with no newline and no quote mark (the SAFE pattern of tma-local-result/1).
+  if not exists (select 1 from pg_constraint where conname = 'cli_device_codes_client_name_check') then
+    alter table public.cli_device_codes add constraint cli_device_codes_client_name_check
+      check (client_name is null or (length(client_name) between 1 and 60 and client_name ~ '^[A-Za-z0-9 .,:;/()+_%$=&#-]+$'));
+  end if;
+  -- A code is approved or denied, never both.
+  if not exists (select 1 from pg_constraint where conname = 'cli_device_codes_decision_check') then
+    alter table public.cli_device_codes add constraint cli_device_codes_decision_check
+      check (denied_at is null or approved_at is null);
+  end if;
+  -- The CLI session exists exactly when the code is consumed.
+  if not exists (select 1 from pg_constraint where conname = 'cli_device_codes_session_check') then
+    alter table public.cli_device_codes add constraint cli_device_codes_session_check
+      check ((session_id is null) = (consumed_at is null));
+  end if;
+  -- Only an approved code can be revoked.
+  if not exists (select 1 from pg_constraint where conname = 'cli_device_codes_revoked_check') then
+    alter table public.cli_device_codes add constraint cli_device_codes_revoked_check
+      check (revoked_at is null or approved_at is not null);
+  end if;
+end $$;
 comment on table public.cli_device_codes is
   'Device login of the tma CLI (plan ADR-7). The device code is stored only as sha256; one use; expires_at = created_at + 600 s.';
 
