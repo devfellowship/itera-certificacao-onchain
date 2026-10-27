@@ -230,7 +230,12 @@ export function RunningEvaluationPage({ pollMs = POLL_MS, runTimeoutMs = RUN_TIM
             message: e instanceof Error ? e.message : String(e),
             timedOut: Boolean((e as { timedOut?: boolean } | null)?.timedOut),
           }
-          setRunErrors((m) => ({ ...m, [runId]: error }))
+          // The same error again (an active run is re-read on every poll) keeps the state object: no re-render.
+          setRunErrors((m) => {
+            const prev = m[runId]
+            if (prev && prev.status === error.status && prev.message === error.message && prev.timedOut === error.timedOut) return m
+            return { ...m, [runId]: error }
+          })
         })
         .finally(() => clearTimeout(timer))
     },

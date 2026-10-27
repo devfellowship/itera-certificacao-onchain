@@ -221,7 +221,9 @@ describe('web2 evaluation flow', () => {
       await new Promise((r) => setTimeout(r, 60))
     })
     expect(polls()).toBe(n)
-  })
+    // Two waitFor calls of up to 5 s each: the 5 s default test limit cut this test on a slow CI runner
+    // (main @ 39adfaf: 5056 ms; earlier runs 0.3 to 2.8 s).
+  }, 15_000)
 
   it('cancel posts to the cancel route for the owner and returns to My evaluations', async () => {
     let cancelled = false
