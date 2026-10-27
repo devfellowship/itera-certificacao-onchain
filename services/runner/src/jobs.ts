@@ -1,3 +1,4 @@
+import type { RunArtifact } from '@itera/contracts/run-artifacts';
 import type { RunProvenance } from './provenance.js';
 import type { ModelUsage } from './model-usage.js';
 import type { RunAction } from './types.js';
@@ -45,6 +46,12 @@ export interface RunOutcome {
   cost?: RunCost | null;
   /** K11: result provenance (0017_run_provenance.sql). Null when the run never reached the agent. */
   provenance?: RunProvenance | null;
+  /**
+   * L17a: the stored outputs of the run, `result.json` first, then the agent's (run-artifacts.ts). One
+   * `observations` row each (`output_artifact_ref = 'artifact:' + path`), in the finish transaction.
+   * Absent or empty when the run failed before the agent started.
+   */
+  artifacts?: RunArtifact[];
 }
 
 export interface JobStore {

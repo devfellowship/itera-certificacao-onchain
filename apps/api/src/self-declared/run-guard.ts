@@ -6,6 +6,10 @@
  *   GET  /runs/:id, GET /runs/:id/actions   a self-declared run answers 404 to anyone but its owner
  *                                           (the same answer as an unknown run: its existence does
  *                                           not leak). GET /runs/:id gets `resultOrigin` in its body.
+ *   GET  /runs/:id/artifacts                L17a, owner-only routes: the same 404 for a non-owner. An
+ *   GET  /runs/:id/artifacts/file           anonymous call passes through, so the router answers its
+ *                                           own 401 (a 404 here would tell a self-declared id apart).
+ *                                           No `resultOrigin` injection: the router sets it itself.
  *   POST /runs/:id/publish                  409 self_declared_run: TMA does not attest a run that it
  *   POST /runs/:id/start-signature          did not run (no proof, no on-chain memo), and its owner's
  *   POST /runs/:id/feedback                 feedback must not move the public task reputation.
@@ -41,9 +45,10 @@ export class PgRunOriginLookup implements RunOriginLookup {
 export function createSelfDeclaredRunGuard(lookup: RunOriginLookup): Router {
   const router = Router();
 
-  const read = (addOrigin: boolean) => async (req: Request, res: Response, next: NextFunction) => {
+  const read = (addOrigin: boolean, anonymousPasses = false) => async (req: Request, res: Response, next: NextFunction) => {
     const id = String(req.params.id);
     if (!UUID_RE.test(id)) return next();
+    if (anonymousPasses && !req.wallet) return next();
     try {
       const o = await lookup.originOf(id);
       if (o?.resultOrigin === "self_declared" && (!req.wallet || req.wallet !== o.ownerWallet)) {
@@ -79,6 +84,7 @@ export function createSelfDeclaredRunGuard(lookup: RunOriginLookup): Router {
 
   router.get("/runs/:id", optionalPrincipal, read(true));
   router.get("/runs/:id/actions", optionalPrincipal, read(false));
+  router.get(["/runs/:id/artifacts", "/runs/:id/artifacts/file"], optionalPrincipal, read(false, true));
   router.post(["/runs/:id/publish", "/runs/:id/start-signature", "/runs/:id/feedback"], write);
   return router;
 }

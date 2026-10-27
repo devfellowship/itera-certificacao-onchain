@@ -16,6 +16,7 @@
     "tool-environment.js",
     "model-catalog.js",
     "local-result.js",
+    "run-artifacts.js",
     "index.d.ts",
     "model-catalog.d.ts",
     "*.test.ts"

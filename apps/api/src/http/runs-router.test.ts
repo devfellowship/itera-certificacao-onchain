@@ -11,7 +11,9 @@ import { FakeRunsStore } from "../domain/runs-store.fake.js";
 import type { ProofIssuer } from "../domain/runs-store.js";
 import { issueSessionToken } from "./auth.js";
 import { validateApiResponse } from "@itera/contracts";
+import type { RunOrigin, RunOriginLookup } from "../self-declared/run-guard.js";
 import { LEGACY_RUNS_GONE_FOR_DFL, publicSuiteView, redactText } from "./runs-router.js";
+import { createHash } from "node:crypto";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
 
@@ -38,10 +40,18 @@ const manifest: EvidenceManifest = {
 const RUN_KEY_SECRET = "k".repeat(48);
 const USER_KEY = "sk-or-v1-0123456789abcdef0123456789abcdef";
 
+class FakeLookup implements RunOriginLookup {
+  runs = new Map<string, RunOrigin>();
+  async originOf(id: string) {
+    return this.runs.get(id) ?? null;
+  }
+}
+
 let server: Server;
 let baseUrl: string;
 let repo: FakeRepository;
 let store: FakeRunsStore;
+let lookup: FakeLookup;
 let issuer: ProofIssuer & { issueProof: ReturnType<typeof vi.fn> };
 let agentId: string;
 
@@ -50,7 +60,7 @@ function auth(wallet: string) {
 }
 
 async function start(withIssuer = true) {
-  server = createApp(repo, { runs: { store, runKeySecret: RUN_KEY_SECRET, ...(withIssuer ? { proofIssuer: issuer } : {}) } }).listen(0);
+  server = createApp(repo, { runs: { store, runKeySecret: RUN_KEY_SECRET, ...(withIssuer ? { proofIssuer: issuer } : {}) }, runOrigins: lookup }).listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -58,6 +68,7 @@ async function start(withIssuer = true) {
 beforeEach(async () => {
   repo = new FakeRepository();
   store = new FakeRunsStore();
+  lookup = new FakeLookup();
   agentId = randomUUID();
   store.agents.push({ id: agentId, ownerWallet: OWNER, repoFullName: "acme/agent", agentPath: ".", model: "m" });
   store.versions.push({ id: randomUUID(), agentId, commitSha: "abc123", createdAt: 1 });
@@ -514,5 +525,156 @@ describe("GET /runs/:id/actions (screen 04 event log)", () => {
     for (const bad of ["cat /workspace/src/a.ts", "ls ~/x/y", "curl -H 'Authorization: Bearer abcdef123456'", "export K=sk-or-v1-abcdef0123456789abcd", "x".repeat(201), "two\nlines"]) {
       expect(validateApiResponse("runActions", page(bad)).ok).toBe(false);
     }
+  });
+});
+
+describe("GET /runs/:id/artifacts and /artifacts/file (L17a, owner only)", () => {
+  const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+  const PATCH = "diff --git a/src/ledger.ts b/src/ledger.ts\n";
+  const RESULT = '{"format":"tma-run-result/1","status":"pass"}\n';
+  const HTML = "<!doctype html><h1>report</h1>\n";
+  const LIMITS = { maxFileBytes: 524288, maxRunBytes: 2097152, maxCount: 25 };
+
+  async function finishedRun() {
+    const { runId } = await (await createRun()).json();
+    finish(runId);
+    store.addArtifact(runId, "files/out/chart.png", PNG);
+    store.addArtifact(runId, "result.json", RESULT);
+    store.addArtifact(runId, "agent/trace.jsonl", '{"type":"step"}\n');
+    store.addArtifact(runId, "files/out/report.html", HTML);
+    // rows that the list must leave out: a path outside the rules, and a not-allowlisted extension
+    store.addObservation(runId, "artifact:../escape.json", "{}", sha("{}"));
+    store.addObservation(runId, "artifact:files/run.sh", "echo", sha("echo"));
+    return runId as string;
+  }
+  const list = (runId: string, headers: Record<string, string> = auth(OWNER)) => fetch(`${baseUrl}/runs/${runId}/artifacts`, { headers });
+  const file = (runId: string, path: string | null, headers: Record<string, string> = auth(OWNER)) =>
+    fetch(`${baseUrl}/runs/${runId}/artifacts/file${path === null ? "" : `?path=${encodeURIComponent(path)}`}`, { headers });
+
+  it("401 without a session; 404 for not a uuid, unknown, legacy (no owner) and another wallet — on both routes", async () => {
+    const runId = await finishedRun();
+    const legacy = randomUUID();
+    store.runs.push({ ...store.runs[0]!, id: legacy, ownerWallet: null });
+    for (const call of [list, (id: string, h?: Record<string, string>) => file(id, "patch.diff", h)]) {
+      expect((await call(runId, {})).status).toBe(401);
+      expect((await call("not-a-uuid")).status).toBe(404);
+      expect((await call(randomUUID())).status).toBe(404);
+      expect((await call(legacy)).status).toBe(404);
+      const other = await call(runId, auth(OTHER));
+      expect(other.status).toBe(404);
+      expect(await other.json()).toEqual({ error: "run not found" });
+    }
+  });
+
+  it("the owner lists the patch first, then result.json, then the stored rows in path order, each with an href", async () => {
+    const runId = await finishedRun();
+    const res = await list(runId);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      runId,
+      resultOrigin: "hosted",
+      limits: LIMITS,
+      reason: null,
+      artifacts: [
+        { path: "patch.diff", contentType: "text/x-diff", kind: "diff", encoding: "utf-8", bytes: Buffer.byteLength(PATCH), sha256: sha(PATCH), href: `/runs/${runId}/artifacts/file?path=patch.diff` },
+        { path: "result.json", contentType: "application/json", kind: "json", encoding: "utf-8", bytes: Buffer.byteLength(RESULT), sha256: sha(RESULT), href: `/runs/${runId}/artifacts/file?path=result.json` },
+        { path: "agent/trace.jsonl", contentType: "application/x-ndjson", kind: "text", encoding: "utf-8", bytes: 16, sha256: sha('{"type":"step"}\n'), href: `/runs/${runId}/artifacts/file?path=agent%2Ftrace.jsonl` },
+        { path: "files/out/chart.png", contentType: "image/png", kind: "image", encoding: "base64", bytes: PNG.length, sha256: sha(PNG), href: `/runs/${runId}/artifacts/file?path=files%2Fout%2Fchart.png` },
+        { path: "files/out/report.html", contentType: "text/html", kind: "html", encoding: "utf-8", bytes: Buffer.byteLength(HTML), sha256: sha(HTML), href: `/runs/${runId}/artifacts/file?path=files%2Fout%2Freport.html` },
+      ],
+    });
+    expect(JSON.stringify(body)).not.toContain("escape");
+    expect(JSON.stringify(body)).not.toContain("run.sh");
+  });
+
+  it("a hosted run with no patch and no stored row lists nothing with reason none_stored", async () => {
+    const { runId } = await (await createRun()).json();
+    expect(await (await list(runId)).json()).toEqual({ runId, resultOrigin: "hosted", limits: LIMITS, reason: "none_stored", artifacts: [] });
+  });
+
+  it("a self-declared run of the owner lists nothing with reason self_declared; a non-owner gets 404; no session gets 401", async () => {
+    const runId = await finishedRun();
+    lookup.runs.set(runId, { ownerWallet: OWNER, resultOrigin: "self_declared" });
+    expect(await (await list(runId)).json()).toEqual({ runId, resultOrigin: "self_declared", limits: LIMITS, reason: "self_declared", artifacts: [] });
+    expect((await file(runId, "result.json")).status).toBe(404);
+    expect((await list(runId, auth(OTHER))).status).toBe(404);
+    expect((await file(runId, "result.json", auth(OTHER))).status).toBe(404);
+    expect((await list(runId, {})).status).toBe(401);
+    expect((await file(runId, "result.json", {})).status).toBe(401);
+  });
+
+  it("the file route answers the bytes as an attachment with the hardening headers", async () => {
+    const runId = await finishedRun();
+    const res = await file(runId, "files/out/report.html");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="report.html"');
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("content-length")).toBe(String(Buffer.byteLength(HTML)));
+    expect(await res.text()).toBe(HTML);
+  });
+
+  it("a base64 row comes back as the raw bytes, with the image content type and no charset", async () => {
+    const runId = await finishedRun();
+    const res = await file(runId, "files/out/chart.png");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="chart.png"');
+    expect(res.headers.get("content-length")).toBe(String(PNG.length));
+    const bytes = Buffer.from(await res.arrayBuffer());
+    expect(bytes.equals(PNG)).toBe(true);
+    expect(sha(bytes)).toBe(sha(PNG));
+  });
+
+  it("path=patch.diff returns the patch as text/x-diff", async () => {
+    const runId = await finishedRun();
+    const res = await file(runId, "patch.diff");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/x-diff; charset=utf-8");
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="patch.diff"');
+    expect(await res.text()).toBe(PATCH);
+    // a run without a patch: not found
+    const { runId: fresh } = await (await createRun()).json();
+    expect((await file(fresh, "patch.diff")).status).toBe(404);
+  });
+
+  it("400 for a missing or unsafe path; 404 for a path that is not stored or not allowlisted", async () => {
+    const runId = await finishedRun();
+    for (const bad of [null, "", "../x", "/abs", "a//b", ".env", "files/.git/config", "node_modules/x.json", "files/run.sh?x=1", "a".repeat(201)]) {
+      const res = await file(runId, bad);
+      expect(res.status, String(bad)).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid path" });
+    }
+    expect((await fetch(`${baseUrl}/runs/${runId}/artifacts/file?path=a.txt&path=b.txt`, { headers: auth(OWNER) })).status).toBe(400);
+    for (const missing of ["files/out/missing.html", "files/run.sh", "artifact:result.json", "files/out/chart.PNG"]) {
+      const res = await file(runId, missing);
+      expect(res.status, missing).toBe(404);
+      expect(await res.json()).toEqual({ error: "artifact not found" });
+    }
+  });
+
+  it("getPatch ignores an artifact row, so the run detail keeps showing the patch", async () => {
+    const runId = await finishedRun();
+    // the artifact rows were added AFTER the patch row (the runner writes them in the same transaction)
+    expect(await store.getPatch(runId)).toBe(PATCH);
+    const detail = await (await fetch(`${baseUrl}/runs/${runId}`, { headers: auth(OWNER) })).json();
+    expect(detail.patch).toBe(PATCH);
+    // a run with ONLY artifact rows has no patch
+    const { runId: fresh } = await (await createRun()).json();
+    store.addArtifact(fresh, "result.json", RESULT);
+    expect(await store.getPatch(fresh)).toBeNull();
+    const body = await (await list(fresh)).json();
+    expect(body.artifacts.map((a: { path: string }) => a.path)).toEqual(["result.json"]);
+    expect(body.reason).toBeNull();
+  });
+
+  it("the route list on GET / names both routes", async () => {
+    const body = await (await fetch(`${baseUrl}/`)).json();
+    expect(body.routes).toContain("GET /runs/:id/artifacts");
+    expect(body.routes).toContain("GET /runs/:id/artifacts/file?path=");
   });
 });

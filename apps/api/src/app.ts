@@ -73,6 +73,9 @@ const ROUTES = [
   "POST /agents/local",
   "GET /runs?mine=1",
   "GET /runs/:id",
+  "GET /runs/:id/actions",
+  "GET /runs/:id/artifacts",
+  "GET /runs/:id/artifacts/file?path=",
   "POST /runs/:id/publish",
   "POST /evaluations/quote",
   "POST /evaluations/quote/:reference/transaction",
@@ -279,7 +282,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createModelsAccessRouter(options.modelsAccess));
   // L3, Q4 = C: before every router that serves /runs/:id (runs, feedback, proofs).
   if (options.runOrigins) app.use(createSelfDeclaredRunGuard(options.runOrigins));
-  if (options.runs) app.use(createRunsRouter({ repo, ...options.runs }));
+  // L17a: the runs router reads the origin itself on GET /runs/:id/artifacts (a self-declared run lists nothing).
+  if (options.runs) app.use(createRunsRouter({ repo, runOrigins: options.runOrigins, ...options.runs }));
   // Before the 410 router: both answer POST /evaluations (the v2 one falls through on a legacy
   // body).
   if (options.evaluations) app.use(createEvaluationsV2Router(options.evaluations));

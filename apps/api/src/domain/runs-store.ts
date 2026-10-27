@@ -79,6 +79,26 @@ export interface ProofRecord {
   error: string | null;
 }
 
+/**
+ * L17a: one stored output of a hosted run, without its content (GET /runs/:id/artifacts). The storage
+ * encoding is documented in @itera/contracts/run-artifacts (one observations row per artifact,
+ * output_artifact_ref = 'artifact:' + path). `bytes` = raw bytes (the decoded length for base64).
+ */
+export interface StoredArtifactRef {
+  path: string;
+  bytes: number;
+  /** sha256 hex of the raw bytes (observations.response_digest). */
+  sha256: string;
+}
+
+/** L17a: one stored output with its content, as stored (utf-8 text, or base64 text). */
+export interface StoredArtifact {
+  path: string;
+  content: string;
+  encoding: "utf-8" | "base64";
+  sha256: string;
+}
+
 /** One row of run_actions: a tool call of the agent. `target` is RAW here; the router sanitizes it. */
 export interface RunActionRow {
   seq: number;
@@ -113,8 +133,12 @@ export interface RunsStore {
   }): Promise<AsyncRun | null>;
   getRun(id: string): Promise<AsyncRun | null>;
   listRunsByOwner(wallet: string, limit: number): Promise<AsyncRun[]>;
-  /** The latest observed patch for the run, or null. */
+  /** The latest observed patch for the run, or null. Never an `artifact:` row (L17a). */
   getPatch(runId: string): Promise<string | null>;
+  /** L17a: the stored outputs of the run (no content), one per path, in path order. Empty when none. */
+  listArtifacts(runId: string): Promise<StoredArtifactRef[]>;
+  /** L17a: one stored output by its exact path (`output_artifact_ref = 'artifact:' + path`), or null. */
+  getArtifact(runId: string, path: string): Promise<StoredArtifact | null>;
   /** Number of recorded agent tool calls, or null when run_actions does not exist yet. */
   countActions(runId: string): Promise<number | null>;
   /**

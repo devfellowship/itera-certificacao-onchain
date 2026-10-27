@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { artifactPathOfRef, artifactRef, artifactType } from "@itera/contracts/run-artifacts";
 import {
   SchemaNotReadyError,
   type AgentVersionRef,
@@ -8,7 +9,21 @@ import {
   type ProofRecord,
   type RunActionRow,
   type RunsStore,
+  type StoredArtifact,
+  type StoredArtifactRef,
 } from "./runs-store.js";
+
+/** One public.observations row, as the fake keeps it (the patch row and the L17a artifact rows share the table). */
+export interface FakeObservation {
+  runId: string;
+  /** 'patch.diff', 'artifact:<path>', or null (an old row). */
+  ref: string | null;
+  content: string;
+  /** sha256 hex of the raw bytes, as the runner writes it; null for a patch row. */
+  digest: string | null;
+  /** Insertion order stands in for occurred_at. */
+  seq: number;
+}
 
 /** In-memory RunsStore for tests. `schemaReady = false` simulates the unapplied 0001 migration. */
 export class FakeRunsStore implements RunsStore {
@@ -18,7 +33,22 @@ export class FakeRunsStore implements RunsStore {
   runs: AsyncRun[] = [];
   /** runs.model_api_key_enc by run id (BYOK). */
   modelKeys = new Map<string, string>();
-  patches = new Map<string, string>();
+  /** public.observations: patch rows and artifact rows together, like the real table. */
+  observations: FakeObservation[] = [];
+  /** The patch row of a run (a Map-like view over `observations`, kept for the older tests). */
+  patches = {
+    set: (runId: string, patch: string) => {
+      this.addObservation(runId, "patch.diff", patch, null);
+      return this.patches;
+    },
+    get: (runId: string) => this.latest(runId, (o) => o.ref === null || !o.ref.startsWith("artifact:"))?.content,
+    has: (runId: string) => this.latest(runId, (o) => o.ref === null || !o.ref.startsWith("artifact:")) !== undefined,
+    delete: (runId: string) => {
+      const before = this.observations.length;
+      this.observations = this.observations.filter((o) => !(o.runId === runId && (o.ref === null || !o.ref.startsWith("artifact:"))));
+      return this.observations.length !== before;
+    },
+  };
   actions = new Map<string, number>();
   /** run_actions rows by run id (raw, as the runner wrote them). A run with rows also counts them. */
   actionRows = new Map<string, RunActionRow[]>();
@@ -94,8 +124,49 @@ export class FakeRunsStore implements RunsStore {
       .slice(0, limit);
   }
 
+  /** Append one observations row. Returns the row. */
+  addObservation(runId: string, ref: string | null, content: string, digest: string | null): FakeObservation {
+    const row = { runId, ref, content, digest, seq: this.observations.length + 1 };
+    this.observations.push(row);
+    return row;
+  }
+
+  /** L17a: store one artifact the way the runner does (ref 'artifact:' + path, digest of the raw bytes). */
+  addArtifact(runId: string, path: string, raw: Buffer | string): FakeObservation {
+    const bytes = typeof raw === "string" ? Buffer.from(raw, "utf8") : raw;
+    const encoding = artifactType(path)?.encoding ?? "utf-8";
+    const content = encoding === "base64" ? bytes.toString("base64") : bytes.toString("utf8");
+    return this.addObservation(runId, artifactRef(path), content, createHash("sha256").update(bytes).digest("hex"));
+  }
+
+  private latest(runId: string, where: (o: FakeObservation) => boolean): FakeObservation | undefined {
+    return this.observations.filter((o) => o.runId === runId && where(o)).sort((a, b) => b.seq - a.seq)[0];
+  }
+
   async getPatch(runId: string): Promise<string | null> {
-    return this.patches.get(runId) ?? null;
+    // Same rule as the pg store: never an `artifact:` row.
+    return this.latest(runId, (o) => o.ref === null || !o.ref.startsWith("artifact:"))?.content ?? null;
+  }
+
+  async listArtifacts(runId: string): Promise<StoredArtifactRef[]> {
+    const byPath = new Map<string, FakeObservation>();
+    for (const o of this.observations.filter((x) => x.runId === runId).sort((a, b) => b.seq - a.seq)) {
+      const path = artifactPathOfRef(o.ref);
+      if (path !== null && !byPath.has(path)) byPath.set(path, o);
+    }
+    return [...byPath.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([path, o]) => ({
+        path,
+        bytes: artifactType(path)?.encoding === "base64" ? Buffer.from(o.content, "base64").length : Buffer.byteLength(o.content, "utf8"),
+        sha256: o.digest ?? "",
+      }));
+  }
+
+  async getArtifact(runId: string, path: string): Promise<StoredArtifact | null> {
+    const o = this.latest(runId, (x) => x.ref === artifactRef(path));
+    if (!o) return null;
+    return { path, content: o.content, encoding: artifactType(path)?.encoding ?? "utf-8", sha256: o.digest ?? "" };
   }
 
   async countActions(runId: string): Promise<number | null> {

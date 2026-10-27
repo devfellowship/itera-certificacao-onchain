@@ -128,3 +128,30 @@ export async function diffAgainstBaseline(baselineDir: string, agentTree: string
   await git([...base, '-c', `core.excludesFile=${join(baselineDir, '.gitignore')}`, 'add', '-A'], baselineDir);
   return git([...base, 'diff', '--cached', '--no-color', '--no-ext-diff', '--binary', '--', '.', ':(exclude)node_modules'], baselineDir);
 }
+
+export interface ChangedFile {
+  /** A = added, M = modified (a deletion is not a stored output). */
+  status: 'A' | 'M';
+  /** Relative to the fixture root. */
+  path: string;
+}
+
+/**
+ * The files the agent ADDED or MODIFIED, against the same baseline index that `diffAgainstBaseline`
+ * uses (L17a: the stored `files/<path>` artifacts). Same git flags and the same node_modules exclusion;
+ * no rename detection, so a moved file is an A. Paths come back NUL-separated, never quoted.
+ */
+export async function changedAgainstBaseline(baselineDir: string, agentTree: string): Promise<ChangedFile[]> {
+  const gitDir = join(baselineDir, '.git');
+  const base = [`--git-dir=${gitDir}`, `--work-tree=${agentTree}`];
+  await git([...base, '-c', `core.excludesFile=${join(baselineDir, '.gitignore')}`, 'add', '-A'], baselineDir);
+  const out = await git([...base, 'diff', '--cached', '--name-status', '--no-renames', '--diff-filter=AM', '-z', '--', '.', ':(exclude)node_modules'], baselineDir);
+  const parts = out.split('\0');
+  const files: ChangedFile[] = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const status = parts[i]!;
+    const path = parts[i + 1]!;
+    if ((status === 'A' || status === 'M') && path.length > 0) files.push({ status, path });
+  }
+  return files;
+}
