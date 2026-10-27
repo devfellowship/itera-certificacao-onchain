@@ -88,6 +88,7 @@
      "authorization": {
       "enum": [
        "explicit",
+       "delegated",
        "standing_rule",
        "none"
       ]
@@ -98,7 +99,7 @@
        "null"
       ],
       "maxLength": 160,
-      "description": "explicit: the m<N> of the Tainan message (or of the brief line that relays it). standing_rule: the rule name. none: null."
+      "description": "explicit: the m<N> of the Tainan message, or of the subagent BRIEF when the brief cites a Tainan message (TG id or answer letter). delegated: the m<N> of the BRIEF, when the brief asks for the action and cites no Tainan message. standing_rule: the rule name. none: null."
      },
      "evidence_pointer": {
       "type": "string",

@@ -92,6 +92,13 @@ t('a correction with < 50% overlap does not match', (p) => {
 });
 t('the full correction quote matches', (p) => g(ref(), p).counts.corrections_matched === 1);
 t('a missing correction fails corrections recall', (p) => { const o = ref(); o.tainan_corrections = []; const r = g(o, p); return r.metrics.corrections_recall === 0 && r.score < 100; });
+t('task v3: authorization delegated (ref = the BRIEF) passes the schema gate on the subagent fixture', (p) => {
+  const o = clone(SUB.reference); o.decision_candidates[0].authorization = 'delegated'; o.decision_candidates[0].authorization_ref = 'm1';
+  const r = g(o, p, SUB); return r.gates.schema && okAll(r);
+});
+t('an authorization outside the enum still fails the schema gate', (p) => {
+  const o = clone(SUB.reference); o.decision_candidates[0].authorization = 'implied'; const r = g(o, p, SUB); return !r.gates.schema && r.score === 0;
+});
 t('decisions recall and precision are diagnostics, not in the score', (p) => { const o = ref(); o.decision_candidates = []; const r = g(o, p); return r.diagnostics.decisions_recall === 0 && r.metrics.risk_match === null && r.score === 100; });
 
 function runAll(params) {
