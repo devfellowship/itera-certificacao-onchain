@@ -644,13 +644,13 @@ describe("GET /runs/:id/artifacts and /artifacts/file (L17a, owner only)", () =>
 
   it("400 for a missing or unsafe path; 404 for a path that is not stored or not allowlisted", async () => {
     const runId = await finishedRun();
-    for (const bad of [null, "", "../x", "/abs", "a//b", ".env", "files/.git/config", "node_modules/x.json", "files/run.sh?x=1", "a".repeat(201)]) {
+    for (const bad of [null, "", "../x", "/abs", "a//b", ".env", "files/.git/config", "node_modules/x.json", "files/run.sh?x=1", "artifact:result.json", "a".repeat(201)]) {
       const res = await file(runId, bad);
       expect(res.status, String(bad)).toBe(400);
       expect(await res.json()).toEqual({ error: "invalid path" });
     }
     expect((await fetch(`${baseUrl}/runs/${runId}/artifacts/file?path=a.txt&path=b.txt`, { headers: auth(OWNER) })).status).toBe(400);
-    for (const missing of ["files/out/missing.html", "files/run.sh", "artifact:result.json", "files/out/chart.PNG"]) {
+    for (const missing of ["files/out/missing.html", "files/run.sh", "files/out/chart.PNG"]) {
       const res = await file(runId, missing);
       expect(res.status, missing).toBe(404);
       expect(await res.json()).toEqual({ error: "artifact not found" });
