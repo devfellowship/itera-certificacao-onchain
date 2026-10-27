@@ -152,7 +152,12 @@ function LocationProbe() {
   probe.search = useLocation().search
   return null
 }
-function mountAt(path: string) {
+/**
+ * pollMs is 10 ms so a terminal evaluation renders at once. A non-terminal one never stops polling, so its test passes
+ * a long interval: a 10 ms poll loop (each tick also reads every active run) starved the act() flushes on CI runners
+ * and timed the test out at 5 s (main 23edb42, 2026-10-27).
+ */
+function mountAt(path: string, pollMs = 10) {
   saveSession(SESSION)
   const c = document.createElement('div')
   document.body.appendChild(c)
@@ -163,7 +168,7 @@ function mountAt(path: string) {
         <LocationProbe />
         <Routes>
           <Route element={<SessionProvider><Outlet /></SessionProvider>}>
-            <Route path="/evaluations/:eid" element={<RunningEvaluationPage pollMs={10} />} />
+            <Route path="/evaluations/:eid" element={<RunningEvaluationPage pollMs={pollMs} />} />
           </Route>
         </Routes>
       </MemoryRouter>,
@@ -454,7 +459,7 @@ describe('evaluation review layout', () => {
 
   it('a non-terminal evaluation keeps the live layout and no review layout', async () => {
     stubApi({ [`GET /evaluations/${EVAL_ID}`]: () => json(200, evaluationView({ status: 'in_progress' })) })
-    const c = mountAt(`/evaluations/${EVAL_ID}`)
+    const c = mountAt(`/evaluations/${EVAL_ID}`, 60_000)
     await waitFor(() => q(c, 'evaluation-status') !== null, 'status')
     expect(q(c, 'evaluation-status')!.dataset.status).toBe('in_progress')
     expect(q(c, 'evaluation-review')).toBeNull()
