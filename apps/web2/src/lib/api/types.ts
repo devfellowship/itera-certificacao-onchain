@@ -646,8 +646,6 @@ export interface EvaluationDetail {
   isPublic: boolean
   freeRetriesUsed?: number
   shareUrl: string | null
-  /** v2 roll-up: `self_declared` when the owner posted the numbers (no hosted run). */
-  resultOrigin?: 'hosted' | 'self_declared'
 }
 
 // ---------- Runs [EXISTING] ----------
@@ -689,8 +687,6 @@ export interface Run {
   result?: { state?: string; verdict?: string; scored?: boolean } | null
   score?: { parts: Record<string, number> | null; version?: number; rule?: ScoreRule | null } | null
   modelTokens?: { in: number; out: number } | null
-  /** Added by the self-declared run guard: `self_declared` when TestMyAgent did not run it (numbers only). */
-  resultOrigin?: 'hosted' | 'self_declared'
   proof: { status: string; nftMint: string | null; txSig: string | null; proofHash: string | null } | null
   [extra: string]: unknown
 }

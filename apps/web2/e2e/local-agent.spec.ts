@@ -17,10 +17,11 @@ test('New local agent form: mounted, filled from /model-options, never submitted
   await expect(page.getByTestId('add-agent-page')).toHaveAttribute('data-source', 'local')
 
   // 3. CONTROL: the selects are filled from the live API. The first provider/model option is the placeholder.
+  // The selects render only after GET /model-options answers (a loading state comes first). Poll the count:
+  // `not.toHaveCount(1)` passed at once on 0 options, before the select existed.
   const providerOptions = page.getByTestId('local-provider-select').locator('option')
-  await expect(providerOptions).not.toHaveCount(1, { timeout: 30_000 })
-  const providerCount = await providerOptions.count()
-  expect(providerCount - 1, 'providers in GET /model-options').toBeGreaterThanOrEqual(5)
+  await expect(page.getByTestId('local-provider-select')).toBeVisible({ timeout: 30_000 })
+  await expect.poll(() => providerOptions.count(), { message: 'providers in GET /model-options', timeout: 30_000 }).toBeGreaterThanOrEqual(6)
 
   const modelOptions = page.getByTestId('local-model-select').locator('option')
   expect((await modelOptions.count()) - 1, 'models in GET /model-options').toBeGreaterThanOrEqual(1)
