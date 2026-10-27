@@ -53,6 +53,21 @@ describe('landing page (web2)', () => {
     }
   })
 
+  it('lean design (Tainan TG 24364): the removed blocks stay out, the plan facts stay in', () => {
+    const c = mountLanding()
+    const text = c.textContent ?? ''
+    // Removed or shortened by the design export.
+    expect(c.querySelectorAll('.v2-hero-lines p')).toHaveLength(1)
+    expect(c.querySelectorAll('.v2-chip')).toHaveLength(2)
+    for (const gone of [/keeps the grades/, /new runtime/, /Read the CLI guide/, /how well they did/, /through our MCP tools/]) {
+      expect(text).not.toMatch(gone)
+    }
+    expect(c.querySelector('#run .lv3-rank__list')?.children).toHaveLength(3)
+    // Facts where the design and the plan disagree: the plan wins.
+    expect(text).not.toMatch(/Or let us run them|\[X\]|vs Opus|Claude Opus/)
+    expect(text).toContain('12 / 13 checks')
+  })
+
   it('logged in: shows the email in nav-user-email', () => {
     saveSession({ token: 'tok', user: { id: 'u1', email: 'ana@example.com' } })
     const c = mountLanding()

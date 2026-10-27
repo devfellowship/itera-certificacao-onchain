@@ -751,9 +751,6 @@ html.lv3-root {
   font-size: 18px;
   text-wrap: pretty !important;
 }
-.v2-hero-lines p + p {
-  font-size: 16px;
-}
 .v2-hero-actions {
   display: flex;
   flex-direction: column;
@@ -939,11 +936,6 @@ html.lv3-root {
 .v2-grid3 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: 16px;
-}
-.v2-grid4 {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
   gap: 16px;
 }
 .v2-qcard,
@@ -1141,6 +1133,20 @@ html.lv3-root {
   background: transparent;
   border: 1px dashed var(--tma-line-strong);
 }
+.v2-runcard--lg {
+  padding: 32px;
+  gap: 16px;
+}
+.v2-runcard--lg .v2-runcard__h {
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+.v2-runcard--lg .v2-runcard__p {
+  font-size: 15px;
+}
+.lv3 .v2-runcard--lg .v2-btn-secondary {
+  margin-top: 8px;
+}
 .v2-runcard--hosted .v2-icon {
   color: var(--tma-warning-text);
 }
@@ -1165,32 +1171,6 @@ html.lv3-root {
 .lv3 .v2-btn-secondary:hover {
   border-color: var(--tma-text-muted);
   color: var(--tma-text);
-}
-.v2-closing {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  border-top: 1px solid var(--tma-line);
-  padding-top: 24px;
-}
-.v2-closing__text {
-  font-size: 17px;
-  font-weight: 500;
-}
-.lv3 .v2-link {
-  color: var(--tma-primary);
-  font-size: 14px;
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.lv3 .v2-link:hover {
-  color: var(--tma-primary-hover);
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 /* phone (V2Phone, 390 px) */
@@ -1224,10 +1204,7 @@ html.lv3-root {
   .v2-hero-lines p {
     font-size: 16px;
   }
-  .v2-hero-lines p + p {
-    font-size: 15px;
-  }
-  .v2-hero-ctas {
+    .v2-hero-ctas {
     flex-direction: column;
     align-items: stretch;
   }
