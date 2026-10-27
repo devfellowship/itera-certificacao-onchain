@@ -30,7 +30,7 @@ function fakeDocker(state: { containers: string[]; networks: string[]; liveHosts
 function storeWith(runs: Array<{ id: string; status: string; workerId: string | null; error?: string | null }>) {
   const store = new FakeJobStore();
   for (const r of runs) {
-    store.enqueue({ runId: r.id, scenarioId: 'webhook-ledger', scenarioVersion: '1', agentVersionId: 'av' }, null);
+    store.enqueue({ runId: r.id, scenarioId: 'tsk_webhook_dup', scenarioVersion: '1', agentVersionId: 'av' }, null);
     Object.assign(store.runs.get(r.id)!, { status: r.status, workerId: r.workerId, error: r.error ?? null });
   }
   return store;
@@ -111,15 +111,15 @@ describe('workerLoop drain', () => {
 
   it('stops claiming on abort and returns after drainMs when a run is still in flight', async () => {
     const store = new FakeJobStore();
-    store.enqueue({ runId: A, scenarioId: 'webhook-ledger', scenarioVersion: '1', agentVersionId: 'av' }, {
-      runId: A, scenarioId: 'webhook-ledger', scenarioVersion: '1', agentVersionId: 'av',
+    store.enqueue({ runId: A, scenarioId: 'tsk_webhook_dup', scenarioVersion: '1', agentVersionId: 'av' }, {
+      runId: A, scenarioId: 'tsk_webhook_dup', scenarioVersion: '1', agentVersionId: 'av',
       model: 'm', modelApiKeyEnc: null, files: [{ path: 'AGENTS.md', content: '# a' }],
     });
     const controller = new AbortController();
     const started = Date.now();
     const loop = workerLoop(deps(store, 5_000), { concurrency: 1, pollMs: 5, staleMs: 60_000, drainMs: 100, signal: controller.signal });
     await new Promise((r) => setTimeout(r, 50));
-    store.enqueue({ runId: B, scenarioId: 'webhook-ledger', scenarioVersion: '1', agentVersionId: 'av' }, null);
+    store.enqueue({ runId: B, scenarioId: 'tsk_webhook_dup', scenarioVersion: '1', agentVersionId: 'av' }, null);
     controller.abort();
     await loop;
     expect(Date.now() - started).toBeLessThan(2_000);

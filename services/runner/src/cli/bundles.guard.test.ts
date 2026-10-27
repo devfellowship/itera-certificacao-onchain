@@ -5,10 +5,10 @@
 //   3. a folder is in neither CATALOG_BUNDLES nor PRIVATE_BUNDLES (a new bundle must be classified);
 //   4. a name is in both lists, or a listed name has no folder.
 // Mutation proof: rename benchmarks/tsk_webhook_dup to webhook-ledger → red (4 and 3); add an empty
-// benchmarks/new-thing/ → red (3). The legacy alias names must not be folders any more.
+// benchmarks/new-thing/ → red (3). The old pack ids (renamed, Q e9dc0ef2 = A) must not be folders.
 import { readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { BUNDLE_FOLDER, LEGACY_PACK_FOLDERS } from '../../../evaluator/src/pack-folders.js';
+import { BUNDLE_FOLDER } from '../../../evaluator/src/pack-folders.js';
 import { CATALOG_BUNDLES, CATALOG_SLUGS, PRIVATE_BUNDLES } from './catalog-slugs.js';
 import { BENCHMARKS_DIR } from './tasks.js';
 
@@ -34,12 +34,9 @@ describe('benchmarks/ bundle folders are classified (catalog or private) and nam
     expect([...CATALOG_BUNDLES, ...PRIVATE_BUNDLES].filter((b) => !present.has(b))).toEqual([]);
   });
 
-  it('the legacy alias names are not folders, and each maps to a catalog bundle', () => {
+  it('the old pack ids (webhook-ledger, helpdesk-refunds) are not folders', () => {
     const present = new Set(folders());
-    for (const [legacy, folder] of Object.entries(LEGACY_PACK_FOLDERS)) {
-      expect(present.has(legacy)).toBe(false);
-      expect(CATALOG_BUNDLES).toContain(folder);
-    }
+    for (const old of ['webhook-ledger', 'helpdesk-refunds']) expect(present.has(old)).toBe(false);
   });
 
   it('the slug pattern is the one of task.catalog.slug in local-result.schema.json', () => {

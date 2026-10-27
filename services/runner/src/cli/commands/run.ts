@@ -44,7 +44,7 @@ export function makeRunCommand(deps: LocalDeps = {}): Command {
     usage: USAGE,
     async main(argv, io) {
       const a = parseArgs(argv, { ...TASK_FLAGS, agent: {}, 'agent-dir': {}, model: {}, profile: {}, repeat: {}, out: {}, 'runs-dir': {} });
-      const { items, ref } = await selectTasks(a, { warn: io.err });
+      const { items, ref } = await selectTasks(a);
       const agentId = checkAgentId(required(a, 'agent', USAGE));
       const agentDir = await checkAgentDir(required(a, 'agent-dir', USAGE));
       const model = checkModelId(required(a, 'model', USAGE));

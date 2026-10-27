@@ -9,7 +9,6 @@
 //   on a catalog reference.
 // bundles.guard.test.ts checks that every folder under benchmarks/ is in exactly one list, that every
 // listed name has a folder, and that every catalog bundle is a catalog slug.
-import { LEGACY_PACK_FOLDERS } from '../../../evaluator/src/pack-folders.js';
 
 export const CATALOG_SLUGS = [
   'tsk_webhook_dup',
@@ -34,9 +33,6 @@ export const PRIVATE_BUNDLES = [
   'dfl-ui-design-audit',
   'loop-acquisition-search-terms',
 ] as const;
-
-/** The old folder names, still accepted by `--task` as an alias (one line on stderr names the new slug). */
-export const LEGACY_BUNDLE_NAMES: Readonly<Record<string, string>> = LEGACY_PACK_FOLDERS;
 
 export const isCatalogSlug = (s: string): boolean => (CATALOG_SLUGS as readonly string[]).includes(s);
 export const isCatalogBundle = (folder: string): boolean => (CATALOG_BUNDLES as readonly string[]).includes(folder);

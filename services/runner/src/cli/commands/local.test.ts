@@ -174,12 +174,10 @@ describe('tma workspace', () => {
     await expect(workspaceCommand.main(['--task', 'tsk_webhook_dup', '--dest', dest], captureIo())).rejects.toThrow(/not empty/);
   });
 
-  it('accepts the old bundle name as an alias and says the new slug on stderr', async () => {
-    const dest = join(tmp('ws'), 'w');
-    const io = captureIo();
-    expect(await workspaceCommand.main(['--task', 'webhook-ledger', '--dest', dest], io)).toBe(0);
-    expect(io.errText()).toContain('webhook-ledger is now tsk_webhook_dup');
-    expect(files(dest)).toContain('tests/public/public.test.ts');
+  it('refuses the old bundle names: the pack ids were renamed (Q e9dc0ef2 = A), there is no alias', async () => {
+    for (const old of ['webhook-ledger', 'helpdesk-refunds']) {
+      await expect(workspaceCommand.main(['--task', old, '--dest', join(tmp('ws'), 'w')], captureIo())).rejects.toThrow(/no curated task/);
+    }
   });
 
   it('user errors are CliError: no task, both task flags, an unknown task, a folder without task.json', async () => {
@@ -257,14 +255,12 @@ describe('tma run — a result that validates, with the Docker parts faked', () 
     expect(checked.ok ? [] : checked.errors).toEqual([]);
   });
 
-  it('--task with the old bundle name: one stderr line, and the result says the new slug', async () => {
-    const { argv, out } = runArgs();
+  it('--task with an old bundle name is refused before any run (no alias since Q e9dc0ef2 = A)', async () => {
+    const { argv } = runArgs();
     const i = argv.indexOf('--task-dir');
     argv.splice(i, 2, '--task', 'webhook-ledger');
-    const io = captureIo();
-    expect(await makeRunCommand(fakes().deps).main(argv, io)).toBe(0);
-    expect(io.errText().split('\n').filter((l) => l.includes('is now'))).toEqual(['webhook-ledger is now tsk_webhook_dup']);
-    expect(JSON.parse(readFileSync(out, 'utf-8')).task).toEqual({ catalog: { slug: 'tsk_webhook_dup', version: 1 } });
+    const f = fakes();
+    await expect(makeRunCommand(f.deps).main(argv, captureIo())).rejects.toBeInstanceOf(CliError);
   });
 
   it('--repeat: 1 and 10 give that many rows; 0, 11, abc and 2.5 are refused before any run', async () => {

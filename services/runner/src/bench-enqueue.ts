@@ -29,7 +29,6 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { Pool } from 'pg';
-import { packIdOfFolder } from '../../evaluator/src/pack-folders.js';
 import { isAllowedAgentPath } from './agent-files.js';
 
 export const BENCH_VENDOR = 'ITERA benchmark campaign';
@@ -91,8 +90,8 @@ export async function enqueueBenchRun(pool: Pool, input: EnqueueInput): Promise<
   const client = await pool.connect();
   try {
     await client.query('begin');
-    // A renamed bundle is registered under its OLD pack id (curated-packs.ts): accept the folder name too.
-    const packId = packIdOfFolder(input.task);
+    // The pack id is the bundle folder name (curated-packs.ts registers every bundle under it).
+    const packId = input.task;
     const pack = await client.query<{ version: string }>(
       `select version from public.task_packs where id = $1 order by version desc limit 1`,
       [packId],
