@@ -550,3 +550,25 @@
     height: 320px;
   }
 }
+
+/* The app shell keeps a 1024px floor for the desktop screens (tma/ui/ui.css). The run artifacts page
+   has phone rules (≤ 720px), so it lifts the floor, as the public task page does (.tma-app.tp). */
+.tma-app:has(.ra-page) {
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .tma-app:has(.ra-page) .tma-nav {
+    height: auto;
+    padding: 10px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .tma-app:has(.ra-page) .tma-nav__left {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+  .tma-app:has(.ra-page) .tma-page {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
