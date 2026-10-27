@@ -5,13 +5,25 @@
  * Log count is a number. Control (assertion 3 of "verified in prod"): the tabs row holds exactly
  * five tabs and the Log count parses as a number. Skips when the user has no graded evaluation.
  */
+import type { Response } from '@playwright/test'
 import { expect, expectMounted, loginWithDfl, test } from './helpers'
+
+/**
+ * An API call (fetch/XHR), never the page document. The SPA route /evaluations/:id has the same
+ * path as the API route, so a URL-only match also catches the HTML navigation (fixed 2026-10-27).
+ */
+function isApiGet(r: Response, path: RegExp): boolean {
+  const type = r.request().resourceType()
+  if (type !== 'fetch' && type !== 'xhr') return false
+  if (r.request().method() !== 'GET') return false
+  return path.test(new URL(r.url()).pathname)
+}
 
 test('run artifacts page: five tabs, Log count is a number', async ({ page }) => {
   await loginWithDfl(page)
 
   // The evaluation list: pick the first graded evaluation from the API body of GET /evaluations.
-  const listResponse = page.waitForResponse((r) => /\/evaluations(\?.*)?$/.test(r.url()) && r.request().method() === 'GET')
+  const listResponse = page.waitForResponse((r) => isApiGet(r, /\/evaluations\/?$/))
   await page.goto('/evaluations')
   await expectMounted(page)
   const list = (await (await listResponse).json()) as { evaluations: Array<{ id: string; status: string }> }
@@ -20,7 +32,7 @@ test('run artifacts page: five tabs, Log count is a number', async ({ page }) =>
   const eid = graded!.id
 
   // The evaluation page: the runId comes from the API body of GET /evaluations/:id.
-  const detailResponse = page.waitForResponse((r) => r.url().endsWith(`/evaluations/${eid}`) && r.request().method() === 'GET')
+  const detailResponse = page.waitForResponse((r) => isApiGet(r, new RegExp(`/evaluations/${eid}/?$`)))
   await page.goto(`/evaluations/${eid}`)
   await expectMounted(page)
   const detail = (await (await detailResponse).json()) as { tasks: Array<{ runId: string; stage: string }> }
