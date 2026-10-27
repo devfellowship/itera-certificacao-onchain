@@ -646,9 +646,24 @@ export interface EvaluationDetail {
   isPublic: boolean
   freeRetriesUsed?: number
   shareUrl: string | null
+  /** v2 roll-up: `self_declared` when the owner posted the numbers (no hosted run). */
+  resultOrigin?: 'hosted' | 'self_declared'
 }
 
 // ---------- Runs [EXISTING] ----------
+/** A public test suite of a run: counts, plus per-case results without worker paths (apps/api `publicSuiteView`). */
+export interface PublicSuite {
+  passed: number
+  total: number
+  failed?: number
+  cases?: Array<{ name: string; file: string; passed: boolean }>
+}
+/** Score version 2 rule of a graded run (apps/api `scoreRuleView`): the formula, the hidden ratio as text, and the gates. */
+export interface ScoreRule {
+  formula: string | null
+  hidden: string | null
+  gates: Record<string, boolean | null>
+}
 export type RunStatus = 'queued' | 'running' | 'pass' | 'fail' | 'invalid' | 'timeout' | 'infra_error'
 export type RunPhase = 'preparing' | 'agent_running' | 'grading' | 'done'
 export interface Run {
@@ -663,14 +678,19 @@ export interface Run {
   modelCostUsd?: number | null
   actionsCount?: number | null
   completedAt?: string | null
-  tests?: { public?: { passed: number; total: number; failed?: number }; publicBaseline?: { passed: number; total: number; failed?: number }; hidden?: { passed: number; total: number; failed?: number; results?: boolean[] } } | null
+  /** L14c: `benchmark` is the task pack id and version of the run. */
+  benchmark?: { id: string; version: string | number | null } | null
+  /** L14c: the public suites carry per-case results (`publicSuiteView`); the hidden suite carries counts only. */
+  tests?: { public?: PublicSuite; publicBaseline?: PublicSuite; hidden?: { passed: number; total: number; failed?: number; results?: boolean[] } } | null
   patch?: string | null
   patchScope?: { changedFiles: string[]; allowed: boolean } | null
   errors?: string[]
   evidence?: { executorProfile: string | null; environmentDigest: string | null; contractDigest: string | null; limitations: string[] } | null
   result?: { state?: string; verdict?: string; scored?: boolean } | null
-  score?: { parts: Record<string, number> | null; version?: number; rule?: unknown } | null
+  score?: { parts: Record<string, number> | null; version?: number; rule?: ScoreRule | null } | null
   modelTokens?: { in: number; out: number } | null
+  /** Added by the self-declared run guard: `self_declared` when TestMyAgent did not run it (numbers only). */
+  resultOrigin?: 'hosted' | 'self_declared'
   proof: { status: string; nftMint: string | null; txSig: string | null; proofHash: string | null } | null
   [extra: string]: unknown
 }

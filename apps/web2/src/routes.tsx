@@ -22,6 +22,7 @@ import { NewEvaluationPage } from './pages/NewEvaluationPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ProfileSettingsPage } from './pages/ProfileSettingsPage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
+import { RunArtifactsPage } from './pages/RunArtifactsPage'
 import { RunningEvaluationPage } from './pages/RunningEvaluationPage'
 import { SelectTasksPage } from './pages/SelectTasksPage'
 import { TaskEditorPage } from './pages/TaskEditorPage'
@@ -82,6 +83,7 @@ export const routes: RouteObject[] = [
           { path: '/agents/:aid/evaluate', element: <SelectTasksPage /> },
           { path: '/evaluations', element: <MyEvaluationsPage /> },
           { path: '/evaluations/:eid', element: <RunningEvaluationPage /> },
+          { path: '/evaluations/:eid/runs/:runId', element: <RunArtifactsPage /> },
           { path: '/tasks', element: <TasksPage /> },
           { path: '/tasks/new', element: <TaskEditorPage /> },
           { path: '/tasks/:id/edit', element: <TaskEditorPage /> },
