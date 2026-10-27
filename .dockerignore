@@ -1,4 +1,6 @@
-.git
+# .git stays in the context ON PURPOSE: the `gitsha` stage of apps/api and apps/web2 reads the deployed
+# commit from it (GET /version, task L16). No Dockerfile copies the whole context (`COPY . .`), so it never
+# reaches an image. Do not add `COPY . .` to a Dockerfile without ignoring .git again.
 .github
 node_modules
 **/node_modules

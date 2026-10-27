@@ -60,6 +60,19 @@ jobs:
       - run: docker build --tag itera-agent-credentials:ci .
       - run: docker build --file apps/api/Dockerfile --tag itera-agent-credentials-api:ci .
       - run: docker build --file apps/web2/Dockerfile --tag itera-web2:ci .
+      # Task L16: the images carry the deployed commit (the `gitsha` stage reads .git). web2 serves it at /version,
+      # the API reads the same file. Both must equal this checkout's HEAD, or the e2e deploy wait cannot work.
+      - name: Image commit (GET /version)
+        run: |
+          head="$(git rev-parse HEAD)"
+          api="$(docker run --rm --entrypoint cat itera-agent-credentials-api:ci GIT_COMMIT)"
+          [ "$api" = "$head" ] || { echo "API image commit '$api' != HEAD $head"; exit 1; }
+          cid="$(docker run -d -p 127.0.0.1:18080:80 itera-web2:ci)"
+          trap 'docker rm -f "$cid" >/dev/null' EXIT
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:18080/health >/dev/null 2>&1 && break; sleep 1; done
+          body="$(curl -fsS http://127.0.0.1:18080/version)"
+          echo "$body"
+          [ "$(printf '%s' "$body" | jq -r .commit)" = "$head" ] || { echo "web2 /version != HEAD $head"; exit 1; }
       - run: docker build --tag itera-runner-sandbox:ci services/runner/sandbox
       # ADR-9: the grader sandbox, against real Docker (escape probe 0/5, tsk_webhook_dup 100, validation gate).
       - name: Grader sandbox integration test

@@ -2,6 +2,7 @@ import cors from "cors";
 import express, { type Express } from "express";
 import { CORS_ALLOWED_ORIGINS, TRUST_PROXY_HOPS } from "./config.js";
 import { createHealthHandler, type HealthDeps } from "./http/health.js";
+import { createVersionHandler } from "./http/version.js";
 import { createRateLimiters } from "./http/rate-limit.js";
 import { createAuthRouter } from "./http/auth.js";
 import { createAccountGuard } from "./auth/account-guard.js";
@@ -51,6 +52,7 @@ export const API_VERSION = "0.4.0";
 const ROUTES = [
   "/",
   "/health",
+  "/version",
   "/hello-world",
   "POST /auth/nonce",
   "POST /auth/verify",
@@ -230,6 +232,9 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.get("/health", options.health ? createHealthHandler(options.health) : (_req, res) => {
     res.json({ status: "ok" });
   });
+  // Task L16: the deployed git commit (the Dockerfile `gitsha` stage). `web2-e2e.yml` polls the web2 twin of
+  // this route to wait for a deploy. Public, cheap, uncached; like /health it sits before CORS and rate limits.
+  app.get("/version", createVersionHandler());
 
   app.use(
     cors({
