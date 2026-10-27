@@ -1,0 +1,317 @@
+/* L14b — the evaluation review layout. Tokens only; no hex value in this file. */
+.ev {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.ev-mono {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ev-dim {
+  color: var(--tma-text-muted);
+}
+.ev-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.ev-text-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--tma-primary);
+  cursor: pointer;
+  text-decoration: none;
+  text-align: left;
+  white-space: nowrap;
+}
+.ev-text-btn:hover {
+  color: var(--tma-primary-text);
+}
+
+/* ---------- Score header ---------- */
+.ev-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 32px;
+  padding: 20px 24px;
+}
+.ev-head__score {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ev-score {
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--tma-text);
+}
+.ev-head__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.ev-verdict {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 2px;
+  font-size: 14px;
+  color: var(--tma-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ev-verdict .dt-result {
+  font-family: var(--tma-font-sans);
+  font-size: 14px;
+  text-transform: capitalize;
+}
+.ev-verdict code {
+  font-size: 13px;
+  color: var(--tma-text);
+}
+.ev-head__items {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 260px;
+}
+.ev-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: 100%;
+}
+.ev-nav__sq {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--tma-neutral-dot);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.ev-nav__sq--pass {
+  background: var(--tma-success-dot);
+}
+.ev-nav__sq--fail {
+  background: var(--tma-danger-dot);
+}
+.ev-nav__sq--current {
+  outline: 2px solid var(--tma-text);
+  outline-offset: 1px;
+}
+.ev-nav__sq:focus-visible {
+  box-shadow: var(--tma-focus-ring);
+}
+
+/* ---------- Cards ---------- */
+.ev-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ev-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--tma-line);
+}
+.ev-card__title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.ev-card__title strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ev-card__tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ev-pager {
+  display: inline-flex;
+  gap: 4px;
+}
+.ev-pager__btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--tma-line-strong);
+  border-radius: var(--tma-radius-sm);
+  background: var(--tma-surface);
+  color: var(--tma-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ev-pager__btn:hover:not(:disabled) {
+  border-color: var(--tma-text-muted);
+}
+.ev-pager__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.ev-card__body {
+  padding: 14px 16px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ev-input {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--tma-line);
+  background: var(--tma-surface-raised);
+  font-size: 13px;
+}
+.ev-input__text {
+  flex: 1 1 320px;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--tma-text);
+}
+
+/* ---------- Expected vs agent table ---------- */
+.ev-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+.ev-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ev-table th {
+  padding: 6px 8px;
+  text-align: left;
+  font-family: var(--tma-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tma-text-muted);
+  border-bottom: 1px solid var(--tma-line);
+}
+.ev-table td {
+  padding: 8px;
+  vertical-align: top;
+  border-top: 1px solid var(--tma-line);
+  overflow-wrap: anywhere;
+}
+.ev-table tbody tr:first-child td {
+  border-top: 0;
+}
+.ev-table__f {
+  font-family: var(--tma-font-mono);
+  color: var(--tma-text);
+  white-space: nowrap;
+}
+.ev-table__v {
+  color: var(--tma-text);
+}
+.ev-table__verdict {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--tma-text);
+}
+.ev-table__verdict-h {
+  width: 90px;
+}
+.ev-verdict__mark {
+  display: inline-block;
+  width: 10px;
+  text-align: center;
+}
+.ev-verdict--correct {
+  color: var(--tma-success-text);
+}
+.ev-verdict--wrong .ev-verdict__mark {
+  color: var(--tma-danger-dot);
+}
+.ev-verdict--close {
+  color: var(--tma-text);
+}
+.ev-verdict--missing {
+  color: var(--tma-text-subtle);
+}
+.ev-table__pts {
+  text-align: right;
+  font-family: var(--tma-font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- Artifacts ---------- */
+.ev-files {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ev-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px;
+  border: 1px dashed var(--tma-line-strong);
+  border-radius: var(--tma-radius-md);
+  font-size: 13px;
+  color: var(--tma-text);
+}
+
+/* ---------- Phone (≤ 720px): the header stacks, the navigator is a strip, the table scrolls in its box ---------- */
+@media (max-width: 720px) {
+  .ev-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .ev-head__items {
+    align-items: flex-start;
+    max-width: 100%;
+  }
+  .ev-nav {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .ev-verdict {
+    white-space: normal;
+  }
+}

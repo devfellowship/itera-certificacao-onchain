@@ -11,16 +11,22 @@
  * (GET /runs/:id/actions, polled with after_seq), and one live line per active run phase.
  * The runner writes a run's tool calls when its agent phase ends, so the call lines of a run
  * arrive in one batch at that point; the cursor keeps every later poll to the new rows only.
+ * L14b (TG 23999 + 24004): at a terminal state the page shows the review layout first (score with its
+ * 90% CI, verdict, item navigator, Expected-vs-agent table, Artifacts card; `?item={seq}`), then the
+ * Tasks card, then the stage tracker and the event log in a collapsed "Event log". Before the end,
+ * the live layout is unchanged.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
-import type { EvaluationDetail as ApiEvaluationDetail, EvaluationStatus, EvaluationUiState, Run, Task } from '../lib/api'
+import type { EvaluationDetail as ApiEvaluationDetail, EvaluationStatus, EvaluationUiState, Run, Task, TaskProfile } from '../lib/api'
 import { TaskName, useTaskCatalog } from '../tma/task-filter'
 import { AgentAvatar, Breadcrumb, ButtonLink, ModelLabel, SelfDeclaredBadge, SelfDeclaredNote, isSelfDeclared, middle } from '../tma/ui'
 import { useSession } from '../auth/session'
 import { appendPage, callEvents, EMPTY_FEED, mergeByTime } from './running-evaluation/call-events'
 import type { ActionFeed } from './running-evaluation/call-events'
+import { EvaluationReview } from './running-evaluation/EvaluationReview'
+import { sourceOf, subtitleOf } from './running-evaluation/review'
 import './running-evaluation/running-evaluation.css'
 
 const POLL_MS = 3000
@@ -34,7 +40,7 @@ const runEnded = (t: { status?: string; stage: string }) => RUN_TERMINAL.has(t.s
 
 type Tone = 'ok' | 'live' | 'idle' | 'bad'
 /** lib/api types predate the web2 end state: a free evaluation ends at `graded`. */
-type Detail = Omit<ApiEvaluationDetail, 'status' | 'uiState'> & { status: EvaluationStatus | 'graded'; uiState: EvaluationUiState | 'graded' }
+type Detail = Omit<ApiEvaluationDetail, 'status' | 'uiState'> & { status: EvaluationStatus | 'graded'; uiState: EvaluationUiState | 'graded'; paymentKind?: string; resultOrigin?: string }
 type DetailTask = Detail['tasks'][number]
 
 function mmss(ms: number | null | undefined): string {
@@ -205,6 +211,25 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
     }
   }, [detail])
 
+  // L14b: the task rules (limits, editable paths, instruction) of each task, once, at the end. A private
+  // task answers 404: the rows that need it are omitted.
+  const [profiles, setProfiles] = useState<Record<string, TaskProfile | null>>({})
+  const profilesRef = useRef(profiles)
+  profilesRef.current = profiles
+  const loadingProfiles = useRef(new Set<string>())
+  useEffect(() => {
+    if (!detail || !TERMINAL.has(detail.status)) return
+    for (const t of detail.tasks) {
+      if (t.slug in profilesRef.current || loadingProfiles.current.has(t.slug)) continue
+      loadingProfiles.current.add(t.slug)
+      api
+        .publicTask(t.slug)
+        .then((p) => setProfiles((m) => ({ ...m, [t.slug]: p })))
+        .catch(() => setProfiles((m) => ({ ...m, [t.slug]: null })))
+        .finally(() => loadingProfiles.current.delete(t.slug))
+    }
+  }, [detail])
+
   // Tool calls per run: GET /runs/:id/actions?after_seq=<cursor> on every poll. A finished run is read
   // until its last page, then never again.
   const [feeds, setFeeds] = useState<Record<string, ActionFeed>>({})
@@ -335,6 +360,112 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
   }
 
   const totalCost = Object.values(runs).reduce((a, r) => a + (r.modelCostUsd ?? 0), 0)
+  // L14b: at the end the title is the agent, the subtitle names the tasks, the source and the score version.
+  const source = sourceOf(d)
+  const firstRun = d.tasks[0] ? runs[d.tasks[0].runId] : undefined
+  const rerunHref = terminal && source === 'run here' && d.agent.id ? `/agents/${encodeURIComponent(d.agent.id)}/evaluate` : null
+
+  // The live layout pieces, placed by both layouts (L14b).
+  const stageTracker = (
+    <div className="re-card re-stages" data-testid="stage-tracker">
+      {shownStages.map((s, i) => (
+        <div key={s.key} className={`re-stage re-stage--${s.state}`} data-testid={`stage-${s.key}`} data-state={s.state}>
+          <div className="re-stage__top">
+            <span className="re-stage__circle">{s.state === 'done' ? '✓' : s.state === 'active' ? '•' : s.state === 'error' ? '!' : ''}</span>
+            <span className="re-stage__line" style={i === shownStages.length - 1 ? { background: 'transparent' } : undefined} />
+          </div>
+          <div className="re-stage__text">
+            <span className="re-stage__name">{STAGE_NAMES[s.key] ?? s.key}</span>
+            <span className="re-mono re-muted">{stageDetail(s.key, s.state, s.detail, d)}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+  const tasksCard = (
+    <div className="re-card">
+      <div className="re-card__head">
+        <span className="re-card__title">Tasks</span>
+        <span className="re-mono re-muted">
+          {graded} of {d.taskCount} graded
+        </span>
+      </div>
+      <div className="re-row re-row--head">
+        <span>Task</span>
+        <span>Stage</span>
+        <span className="re-r">Tests</span>
+        <span className="re-r">Time</span>
+        <span className="re-r">Result</span>
+      </div>
+      {d.tasks.map((t) => {
+        const st = taskStage(t)
+        const total = t.testsTotal ?? taskBy.get(t.taskId)?.hiddenTestsCount ?? null
+        const cost = runs[t.runId]?.modelCostUsd
+        return (
+          <div key={t.runId} className="re-row" data-testid="run-row" data-run-id={t.runId} data-stage={t.stage}>
+            <div className="re-row__task">
+              <TaskName className="re-row__name" name={t.name} taskId={t.taskId} slug={t.slug} />
+              <span className="re-mono re-subtle">
+                {t.slug}
+                {cost != null && <span data-testid="run-cost"> · model ${cost.toFixed(3)}</span>}
+                {(t.attempts ?? 1) > 1 && ' · retry'}
+              </span>
+            </div>
+            <span className={`re-stage-cell re-tone--${st.tone}`}>
+              <span className="re-dot" />
+              {st.label}
+            </span>
+            <span className="re-r re-mono re-num">
+              {t.testsPassed ?? '—'} / {total ?? '—'}
+            </span>
+            <span className="re-r re-mono re-muted re-num">{mmss(t.durationMs)}</span>
+            <span className="re-result">
+              {resultBadge(t.outcome)}
+              <span className="re-mono re-num" data-testid="run-score">
+                {t.score != null ? t.score : '—'}
+              </span>
+            </span>
+          </div>
+        )
+      })}
+      {totalCost > 0 && (
+        <div className="re-cost" data-testid="total-model-cost">
+          <span className="tma-label">Model cost</span>
+          <span className="re-mono">
+            ${totalCost.toFixed(3)} · paid with your OpenRouter key · <ModelLabel model={modelText(d.model)} label={modelText(d.model)} size={16} />
+          </span>
+        </div>
+      )}
+    </div>
+  )
+  // L11: a self-declared result has no actions, so no event log card (Q4 = C).
+  const logCard = selfDeclared ? null : (
+    <div className="re-card re-card--log">
+      <div className="re-card__head re-card__head--log">
+        <span className="tma-label">Event log</span>
+        <span className="re-mono re-subtle">UTC</span>
+      </div>
+      <div
+        className="re-events"
+        ref={logRef}
+        data-testid="event-log"
+        onScroll={(ev) => {
+          const el = ev.currentTarget
+          stickToEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+        }}
+      >
+        {events.map((e, i) => (
+          <div key={i} className="re-event" data-testid="event-row">
+            <span className="re-subtle re-num">{mmss(e.tMs)}</span>
+            <span className={`re-dot re-dot--${e.tone}`} />
+            <span className="re-event__text">
+              <span>{e.label}</span> <span className="re-muted">{e.detail}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 
   return (
     <main className="tma-page tma-page--flow re-page" data-testid="running-evaluation-page" data-ui-state={ui} data-origin={d.resultOrigin ?? 'hosted'}>
@@ -343,7 +474,7 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
         <div className="re-head__row">
           <div className="re-head__titles">
             <div className="re-head__title">
-              <h1 className="tma-h1">Evaluation</h1>
+              <h1 className="tma-h1" data-testid="evaluation-title">{terminal ? d.agent.name : 'Evaluation'}</h1>
               <span className={`tma-badge tma-badge--${badge.tone} re-badge--${ui}`} data-testid="evaluation-status" data-status={d.status}>
                 <span className="tma-badge__dot" />
                 {badge.label}
@@ -351,7 +482,7 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
               {selfDeclared && <SelfDeclaredBadge testId="evaluation-self-declared" />}
             </div>
             <span className="re-mono re-muted" data-testid="evaluation-meta">
-              {d.shortId.startsWith('ev_') ? d.shortId : `ev_${d.shortId}`} · {d.agent.name} {commit} · {d.taskCount} task{d.taskCount === 1 ? '' : 's'}
+              {terminal ? subtitleOf(d, firstRun) : <>{d.shortId.startsWith('ev_') ? d.shortId : `ev_${d.shortId}`} · {d.agent.name} {commit} · {d.taskCount} task{d.taskCount === 1 ? '' : 's'}</>}
             </span>
           </div>
           <div className="re-head__right">
@@ -362,9 +493,19 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
               </span>
             </div>
             {terminal ? (
-              <ButtonLink variant="secondary" href="/evaluations">
-                My evaluations
-              </ButtonLink>
+              <div className="re-head__links">
+                <Link to={agentLink} className="re-head__link" data-testid="view-agent">
+                  View agent
+                </Link>
+                <Link to="/evaluations" className="re-head__link">
+                  My evaluations
+                </Link>
+                {rerunHref && (
+                  <ButtonLink variant="primary" href={rerunHref} data-testid="rerun">
+                    Re-run
+                  </ButtonLink>
+                )}
+              </div>
             ) : (
               <button type="button" className="re-btn" onClick={onCancel} disabled={cancelling} data-testid="cancel-evaluation">
                 {cancelling ? 'Cancelling…' : 'Cancel evaluation'}
@@ -449,103 +590,26 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
         </div>
       )}
 
-      <div className="re-card re-stages" data-testid="stage-tracker">
-        {shownStages.map((s, i) => (
-          <div key={s.key} className={`re-stage re-stage--${s.state}`} data-testid={`stage-${s.key}`} data-state={s.state}>
-            <div className="re-stage__top">
-              <span className="re-stage__circle">{s.state === 'done' ? '✓' : s.state === 'active' ? '•' : s.state === 'error' ? '!' : ''}</span>
-              <span className="re-stage__line" style={i === shownStages.length - 1 ? { background: 'transparent' } : undefined} />
-            </div>
-            <div className="re-stage__text">
-              <span className="re-stage__name">{STAGE_NAMES[s.key] ?? s.key}</span>
-              <span className="re-mono re-muted">{stageDetail(s.key, s.state, s.detail, d)}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+      {terminal && <EvaluationReview detail={d} runs={runs} profiles={profiles} />}
 
-      <div className="re-grid">
-        <div className="re-card">
-          <div className="re-card__head">
-            <span className="re-card__title">Tasks</span>
-            <span className="re-mono re-muted">
-              {graded} of {d.taskCount} graded
-            </span>
+      {terminal && tasksCard}
+      {terminal ? (
+        <details className="re-card re-live" data-testid="live-details">
+          <summary className="re-live__summary">Event log</summary>
+          <div className="re-live__body">
+            {stageTracker}
+            {logCard}
           </div>
-          <div className="re-row re-row--head">
-            <span>Task</span>
-            <span>Stage</span>
-            <span className="re-r">Tests</span>
-            <span className="re-r">Time</span>
-            <span className="re-r">Result</span>
+        </details>
+      ) : (
+        <>
+          {stageTracker}
+          <div className="re-grid">
+            {tasksCard}
+            {logCard}
           </div>
-          {d.tasks.map((t) => {
-            const st = taskStage(t)
-            const total = t.testsTotal ?? taskBy.get(t.taskId)?.hiddenTestsCount ?? null
-            const cost = runs[t.runId]?.modelCostUsd
-            return (
-              <div key={t.runId} className="re-row" data-testid="run-row" data-run-id={t.runId} data-stage={t.stage}>
-                <div className="re-row__task">
-                  <TaskName className="re-row__name" name={t.name} taskId={t.taskId} slug={t.slug} />
-                  <span className="re-mono re-subtle">
-                    {t.slug}
-                    {cost != null && <span data-testid="run-cost"> · model ${cost.toFixed(3)}</span>}
-                    {(t.attempts ?? 1) > 1 && ' · retry'}
-                  </span>
-                </div>
-                <span className={`re-stage-cell re-tone--${st.tone}`}>
-                  <span className="re-dot" />
-                  {st.label}
-                </span>
-                <span className="re-r re-mono re-num">
-                  {t.testsPassed ?? '—'} / {total ?? '—'}
-                </span>
-                <span className="re-r re-mono re-muted re-num">{mmss(t.durationMs)}</span>
-                <span className="re-result">
-                  {resultBadge(t.outcome)}
-                  <span className="re-mono re-num" data-testid="run-score">
-                    {t.score != null ? t.score : '—'}
-                  </span>
-                </span>
-              </div>
-            )
-          })}
-          {totalCost > 0 && (
-            <div className="re-cost" data-testid="total-model-cost">
-              <span className="tma-label">Model cost</span>
-              <span className="re-mono">
-                ${totalCost.toFixed(3)} · paid with your OpenRouter key · <ModelLabel model={modelText(d.model)} label={modelText(d.model)} size={16} />
-              </span>
-            </div>
-          )}
-        </div>
-
-        {!selfDeclared && <div className="re-card re-card--log">
-          <div className="re-card__head re-card__head--log">
-            <span className="tma-label">Event log</span>
-            <span className="re-mono re-subtle">UTC</span>
-          </div>
-          <div
-            className="re-events"
-            ref={logRef}
-            data-testid="event-log"
-            onScroll={(ev) => {
-              const el = ev.currentTarget
-              stickToEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
-            }}
-          >
-            {events.map((e, i) => (
-              <div key={i} className="re-event" data-testid="event-row">
-                <span className="re-subtle re-num">{mmss(e.tMs)}</span>
-                <span className={`re-dot re-dot--${e.tone}`} />
-                <span className="re-event__text">
-                  <span>{e.label}</span> <span className="re-muted">{e.detail}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>}
-      </div>
+        </>
+      )}
 
       {terminal && !selfDeclared && (
         <section className="re-artifacts" data-testid="artifacts-results">
