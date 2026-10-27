@@ -2,6 +2,8 @@
 /**
  * L14c: the run artifacts page, mounted on its route with a mocked API (no network).
  * Mount + mocked fetch follow src/evaluation.test.tsx.
+ * L17: the stored outputs (GET /runs/:id/artifacts + the file hrefs) are mocked in the second block;
+ * the L14c block stays as it was: the stub answers 404 on /artifacts, the L14c behaviour.
  */
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -360,5 +362,206 @@ describe('run artifacts page', () => {
     const c = mountAt(PAGE)
     await waitFor(() => q(c, 'run-error') !== null, 'run error')
     expect(q(c, 'run-error')!.textContent).toContain('Run not found')
+  })
+})
+
+/* ---------- L17: stored outputs ---------- */
+
+/** The stored report differs from the patch's: the page must show the STORED bytes, not the rebuilt text. */
+const STORED_HTML = '<!doctype html>\n<html>\n<head><title>Report</title></head>\n<body><h1>Report</h1><p>KPI 1284</p><p>stored-marker-7f3a</p></body>\n</html>\n'
+const RESULT_JSON = '{"verdict":"pass","filename":"report.html","totals":{"runs":1284},"stored":true}'
+const TRACE_TEXT = '{"type":"tool.call","part":{"tool":"bash"}}\n{"type":"message.part","part":{"text":"done"}}\n{"truncated":true,"reason":"maxFileBytes"}\n'
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const fileHref = (path: string) => `/runs/${RUN_ID}/artifacts/file?path=${encodeURIComponent(path)}`
+type StoredEntry = { path: string; contentType: string; kind: 'json' | 'markdown' | 'html' | 'text' | 'image' | 'diff'; encoding: 'utf-8' | 'base64'; bytes: number; sha256: string; href: string }
+const entry = (path: string, contentType: string, kind: StoredEntry['kind'], bytes: number, encoding: StoredEntry['encoding'] = 'utf-8'): StoredEntry => ({ path, contentType, kind, encoding, bytes, sha256: 'ab'.repeat(32), href: fileHref(path) })
+const STORED_LIST = [entry('patch.diff', 'text/x-diff', 'diff', PATCH.length), entry('result.json', 'application/json', 'json', RESULT_JSON.length), entry('agent/trace.jsonl', 'application/x-ndjson', 'text', TRACE_TEXT.length), entry('files/out/report.html', 'text/html', 'html', STORED_HTML.length), entry('files/out/chart.png', 'image/png', 'image', PNG.length, 'base64')]
+const FILES: Record<string, { body: string | Uint8Array; type: string }> = {
+  'patch.diff': { body: PATCH, type: 'text/x-diff' },
+  'result.json': { body: RESULT_JSON, type: 'application/json' },
+  'agent/trace.jsonl': { body: TRACE_TEXT, type: 'application/x-ndjson' },
+  'files/out/report.html': { body: STORED_HTML, type: 'text/html' },
+  'files/out/chart.png': { body: PNG, type: 'image/png' },
+}
+function storedView(artifacts: StoredEntry[] = STORED_LIST, reason: null | 'self_declared' | 'none_stored' = null) {
+  return { runId: RUN_ID, resultOrigin: 'hosted', limits: { maxFileBytes: 524288, maxRunBytes: 2097152, maxCount: 25 }, reason, artifacts }
+}
+/** The file endpoint: 401 without the bearer, 404 for an unknown path, else the raw bytes as an attachment. */
+const fileRoute =
+  (fail: Record<string, number> = {}): Handler =>
+  (url, init) => {
+    const auth = (init.headers as Record<string, string> | undefined)?.Authorization
+    if (auth !== `Bearer ${SESSION.token}`) return json(401, { error: 'unauthorized' })
+    const path = url.searchParams.get('path') ?? ''
+    if (fail[path]) return json(fail[path]!, { error: 'boom' })
+    const f = FILES[path]
+    if (!f) return json(404, { error: 'run not found' })
+    return new Response(f.body as BodyInit, { status: 200, headers: { 'Content-Type': f.type, 'Content-Disposition': `attachment; filename="${path.split('/').pop()}"` } })
+  }
+function stubStored(list = STORED_LIST, reason: null | 'self_declared' | 'none_stored' = null, fail: Record<string, number> = {}) {
+  return stubApi({ [`GET /runs/${RUN_ID}/artifacts`]: () => json(200, storedView(list, reason)), [`GET /runs/${RUN_ID}/artifacts/file`]: fileRoute(fail) })
+}
+/** jsdom has no object URLs. Adds the two methods to the real URL (never replaces the constructor: the fetch mock calls `new URL`). */
+function stubObjectUrl(value: string) {
+  const u = URL as unknown as Record<string, unknown>
+  u.createObjectURL = vi.fn((_b: Blob) => value)
+  u.revokeObjectURL = vi.fn()
+}
+afterEach(() => {
+  const u = URL as unknown as Record<string, unknown>
+  delete u.createObjectURL
+  delete u.revokeObjectURL
+})
+const cardsOf = (c: HTMLElement) => Array.from(c.querySelectorAll<HTMLElement>('[data-testid="tab-artifacts"] .ra-card'))
+const loadOf = (el: HTMLElement) => el.getAttribute('data-load')
+
+describe('run artifacts page: stored outputs (L17)', () => {
+  it('merges the stored outputs: count 8, the stored HTML preview and the result.json tree render from the fetched bytes with the bearer header', async () => {
+    const fetchMock = stubStored()
+    const c = mountAt(PAGE)
+    await waitFor(() => q(c, 'run-tabs') !== null, 'tabs')
+    // Merged: result.json, files/out/report.html, files/out/chart.png, patch.diff, agent/trace.jsonl (stored) + run.json, added:out/result.json, modified:src/a.ts.
+    expect(tabText(c)).toEqual(['Summary', 'Artifacts8', 'Tests23', 'Log19', 'Patch'])
+    expect(q(c, 'run-tabs')!.getAttribute('data-tab')).toBe('artifacts')
+    expect(q(c, 'tab-artifacts')!.getAttribute('data-stored-count')).toBe('5')
+    expect(q(c, 'artifacts-none-stored')).toBeNull()
+    expect(q(c, 'artifacts-empty')).toBeNull()
+
+    const wide = q(c, 'artifact-wide')!
+    expect(wide.getAttribute('data-source')).toBe('stored')
+    expect(wide.getAttribute('data-kind')).toBe('html')
+    expect(q(wide, 'artifact-title')!.textContent).toBe(`out/report.html · ${(STORED_HTML.length / 1024).toFixed(1)} KB`)
+    await waitFor(() => loadOf(wide) === 'ok', 'stored html loaded')
+    const frame = wide.querySelector('iframe')!
+    expect(frame.getAttribute('sandbox')).toBe('')
+    expect(frame.getAttribute('srcdoc')).toContain('Content-Security-Policy')
+    expect(frame.getAttribute('srcdoc')).toContain('stored-marker-7f3a')
+    expect(frame.getAttribute('src')).toBeNull()
+    // The Diff view of the replaced patch file stays reachable on the stored card.
+    expect(Array.from(wide.querySelectorAll('.tma-segmented__btn')).map((b) => b.textContent)).toEqual(['Preview', 'Source', 'Diff'])
+
+    const narrow = q(c, 'artifact-narrow')!
+    expect(narrow.getAttribute('data-source')).toBe('stored')
+    expect(narrow.getAttribute('data-path')).toBe('result.json')
+    await waitFor(() => loadOf(narrow) === 'ok', 'stored result.json loaded')
+    expect(narrow.querySelector('[data-testid="json-tree"]')).not.toBeNull()
+    expect(narrow.textContent).toContain('object · 4 keys')
+    expect(narrow.textContent).toContain('"pass"')
+    expect(q(narrow, 'artifact-download')!.getAttribute('data-filename')).toBe('result.json')
+    expect(q(narrow, 'artifact-download')!.hasAttribute('disabled')).toBe(false)
+
+    const rest = qa(q(c, 'artifact-list')!, 'artifact-card')
+    expect(rest.map((r) => r.getAttribute('data-path'))).toEqual(['out/chart.png', 'patch.diff', 'agent/trace.jsonl', 'run.json', 'out/result.json', 'src/a.ts'])
+    expect(rest.map((r) => r.getAttribute('data-source'))).toEqual(['stored', 'stored', 'stored', 'run', 'added', 'modified'])
+    // A collapsed stored card has not loaded yet: only the two open cards fetched their bytes. The stored patch.diff needs no load (its diff is at hand).
+    expect(rest.filter((r) => r.getAttribute('data-source') === 'stored').map(loadOf)).toEqual(['idle', 'ok', 'idle'])
+    const fileCalls = fetchMock.mock.calls.filter((x) => String(x[0]).includes('/artifacts/file'))
+    expect(fileCalls.map((x) => new URL(String(x[0])).searchParams.get('path')).sort()).toEqual(['files/out/report.html', 'result.json'])
+    for (const call of fileCalls) expect((call[1] as RequestInit).headers).toMatchObject({ Authorization: `Bearer ${SESSION.token}` })
+    expect(fetchMock.mock.calls.some((x) => String(x[0]).endsWith(`/runs/${RUN_ID}/artifacts`))).toBe(true)
+  })
+
+  it('the PNG card shows an <img> with a blob: src when opened, and the trace card shows the list view', async () => {
+    stubObjectUrl('blob:http://localhost/chart-1')
+    const fetchMock = stubStored()
+    const c = mountAt(PAGE)
+    await waitFor(() => q(c, 'run-tabs') !== null, 'tabs')
+    const png = cardsOf(c).find((x) => x.getAttribute('data-path') === 'out/chart.png')!
+    expect(loadOf(png)).toBe('idle')
+    click(q(png, 'artifact-toggle'))
+    await waitFor(() => loadOf(png) === 'ok', 'png loaded')
+    const img = png.querySelector('[data-testid="image-view"] img')!
+    expect(img).not.toBeNull()
+    expect(img.getAttribute('src')).toBe('blob:http://localhost/chart-1')
+    expect(img.getAttribute('alt')).toBe('out/chart.png')
+    expect(q(png, 'artifact-title')!.textContent).toBe('out/chart.png · 0.0 KB')
+    expect(png.querySelectorAll('a[href^="blob:"]')).toHaveLength(0)
+    const trace = cardsOf(c).find((x) => x.getAttribute('data-path') === 'agent/trace.jsonl')!
+    expect(trace.getAttribute('data-kind')).toBe('ndjson')
+    click(q(trace, 'artifact-toggle'))
+    await waitFor(() => loadOf(trace) === 'ok', 'trace loaded')
+    const rows = qa(trace, 'trace-row')
+    expect(rows.map((r) => r.getAttribute('data-state'))).toEqual(['ok', 'ok', 'truncated'])
+    expect(rows[0]!.textContent).toContain('tool.call · bash')
+    // The stored patch.diff renders its diff without a fetch (the derived text is reused), and its Download is enabled.
+    const patch = cardsOf(c).find((x) => x.getAttribute('data-path') === 'patch.diff')!
+    click(q(patch, 'artifact-toggle'))
+    expect(loadOf(patch)).toBe('ok')
+    expect(qa(patch, 'diff-file').map((f) => f.getAttribute('data-path'))).toEqual(['out/report.html', 'out/result.json', 'src/a.ts'])
+    expect(q(patch, 'artifact-download')!.hasAttribute('disabled')).toBe(false)
+    expect(q(patch, 'artifact-download')!.getAttribute('data-filename')).toBe('patch.diff')
+    expect((fetchMock.mock.calls as unknown[][]).some((x) => String(x[0]).includes('path=patch.diff'))).toBe(false)
+  })
+
+  it('a 404 on /runs/:id/artifacts keeps the L14c list: count 5, the derived HTML preview, no stored card', async () => {
+    const fetchMock = stubApi({ [`GET /runs/${RUN_ID}/artifacts`]: () => json(404, { error: 'run not found' }) })
+    const c = mountAt(PAGE)
+    await waitFor(() => q(c, 'run-tabs') !== null, 'tabs')
+    expect(tabText(c)).toEqual(['Summary', 'Artifacts5', 'Tests23', 'Log19', 'Patch'])
+    expect(q(c, 'tab-artifacts')!.getAttribute('data-stored-count')).toBe('0')
+    expect(q(c, 'artifact-wide')!.getAttribute('data-source')).toBe('added')
+    expect(q(c, 'artifact-wide')!.querySelector('iframe')!.getAttribute('srcdoc')).not.toContain('stored-marker')
+    expect(cardsOf(c).every((x) => x.getAttribute('data-source') !== 'stored')).toBe(true)
+    expect(q(c, 'artifacts-none-stored')).toBeNull()
+    expect(fetchMock.mock.calls.some((x) => String(x[0]).includes('/artifacts/file'))).toBe(false)
+  })
+
+  it('reason none_stored shows the note and keeps the derived patch files under it', async () => {
+    stubStored([], 'none_stored')
+    const c = mountAt(PAGE)
+    await waitFor(() => q(c, 'run-tabs') !== null, 'tabs')
+    expect(tabText(c)[1]).toBe('Artifacts5')
+    expect(q(c, 'artifacts-none-stored')!.textContent).toBe('No output files stored for this run. Runs before 2026-10-27 have only the patch.')
+    expect(q(c, 'artifacts-empty')).toBeNull()
+    expect(q(c, 'artifact-wide')!.getAttribute('data-path')).toBe('out/report.html')
+  })
+
+  it('reason self_declared with an empty list keeps the self-declared note', async () => {
+    stubApi({
+      [`GET /evaluations/${EVAL_ID}`]: () => json(200, evaluationView({ resultOrigin: 'self_declared', paymentKind: 'none' })),
+      [`GET /runs/${RUN_ID}`]: () => json(200, runView({ patch: null, tests: null, resultOrigin: 'self_declared', actionsCount: 0, evidence: null, patchScope: null })),
+      [`GET /runs/${RUN_ID}/actions`]: () => json(200, { runId: RUN_ID, afterSeq: 0, actions: [], hasMore: false, nextAfterSeq: 0 }),
+      [`GET /runs/${RUN_ID}/artifacts`]: () => json(200, { ...storedView([], 'self_declared'), resultOrigin: 'self_declared' }),
+    })
+    const c = mountAt(PAGE)
+    await waitFor(() => q(c, 'run-tabs') !== null, 'tabs')
+    expect(tabText(c)[1]).toBe('Artifacts1')
+    expect(q(c, 'run-tabs')!.getAttribute('data-tab')).toBe('summary')
+    click(tabs(c)[1])
+    expect(q(c, 'artifacts-empty')!.textContent).toContain('self-declared run stores numbers only')
+    expect(q(c, 'artifacts-none-stored')).toBeNull()
+  })
+
+  it('a file href that answers 500 shows the error in that card; the page and the other cards stay', async () => {
+    stubStored(STORED_LIST, null, { 'files/out/report.html': 500 })
+    const c = mountAt(PAGE)
+    await waitFor(() => q(c, 'run-tabs') !== null, 'tabs')
+    const wide = q(c, 'artifact-wide')!
+    await waitFor(() => loadOf(wide) === 'error', 'wide card error')
+    const err = q(wide, 'artifact-error')!
+    expect(err.getAttribute('role')).toBe('alert')
+    expect(err.textContent).toContain('HTTP 500')
+    expect(err.textContent).toContain('boom')
+    expect(wide.querySelector('iframe')).toBeNull()
+    expect(q(wide, 'artifact-download')!.hasAttribute('disabled')).toBe(true)
+    const narrow = q(c, 'artifact-narrow')!
+    await waitFor(() => loadOf(narrow) === 'ok', 'narrow ok')
+    expect(narrow.querySelector('[data-testid="json-tree"]')).not.toBeNull()
+    expect(q(c, 'run-artifacts-page')).not.toBeNull()
+    expect(tabText(c)[1]).toBe('Artifacts8')
+    expect(q(c, 'run-error')).toBeNull()
+  })
+
+  it('a 401 on a file href signs the session out (the same handler as request)', async () => {
+    stubApi({
+      [`GET /runs/${RUN_ID}/artifacts`]: () => json(200, storedView([entry('result.json', 'application/json', 'json', 10)])),
+      [`GET /runs/${RUN_ID}/artifacts/file`]: () => json(401, { error: 'unauthorized' }),
+    })
+    const c = mountAt(PAGE)
+    await waitFor(() => q(c, 'run-tabs') !== null, 'tabs')
+    const narrow = q(c, 'artifact-narrow')!
+    expect(narrow.getAttribute('data-path')).toBe('result.json')
+    await waitFor(() => localStorage.getItem('tma2.session') === null, 'signed out')
+    expect(localStorage.getItem('tma2.session')).toBeNull()
   })
 })

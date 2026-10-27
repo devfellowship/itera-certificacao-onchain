@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Artifact } from './artifacts'
 import { safeHref } from './markdown'
-import { ArtifactCard, CSP_META, DiffView, HtmlPreviewFrame, ImageView, JsonView, MarkdownView, TextView, injectCsp } from './renderers'
+import { ArtifactCard, CSP_META, DiffView, HtmlPreviewFrame, ImageView, JsonView, MarkdownView, TextView, TraceView, injectCsp, parseTrace, traceSummary, viewsOf } from './renderers'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -162,5 +162,207 @@ describe('Image, text, diff', () => {
     expect(c.querySelector('.ra-card__body')).toBeNull()
     click(c.querySelector('[data-testid="artifact-toggle"]'))
     expect(c.querySelector('.ra-card__body h1')!.textContent).toBe('hi')
+  })
+})
+
+/* ---------- L17: stored outputs ---------- */
+
+/** A Blob with `.text()` and `.arrayBuffer()` (jsdom's own Blob has neither; a Response gives Node's). */
+const blobOf = (data: string | Uint8Array, type: string) => new Response(data as BodyInit, { headers: { 'Content-Type': type } }).blob()
+const tick = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0))
+  })
+async function settle(c: HTMLElement, timeoutMs = 2000) {
+  const end = Date.now() + timeoutMs
+  while (!['ok', 'error'].includes(c.querySelector('[data-testid="artifact-card"], [data-testid="card"]')?.getAttribute('data-load') ?? '')) {
+    if (Date.now() > end) throw new Error('timed out waiting for the card to load')
+    await tick()
+  }
+}
+const stored = (over: Partial<Artifact>): Artifact => ({ id: 'stored:files/out/x', path: 'out/x', kind: 'text', bytes: 10, source: 'stored', storedPath: 'files/out/x', href: '/runs/r1/artifacts/file?path=files%2Fout%2Fx', contentType: 'text/plain', encoding: 'utf-8', sha256: 'ab', ...over })
+
+const TRACE = [
+  '{"type":"tool.call","part":{"tool":"bash","args":{"cmd":"ls"}},"ts":1}',
+  '{"type":"message.part","part":{"text":"I will now build the report from the CSV, then write the totals."},"ts":2}',
+  '{"type":"broken", this is not json',
+  '{"truncated":true,"reason":"maxFileBytes"}',
+].join('\n') + '\n'
+
+describe('Trace (agent/trace.jsonl)', () => {
+  it('parseTrace: one row per line, a tool event, a text event, a broken line and the truncation marker', () => {
+    const rows = parseTrace(TRACE)
+    expect(rows.map((r) => [r.n, r.state])).toEqual([
+      [1, 'ok'],
+      [2, 'ok'],
+      [3, 'broken'],
+      [4, 'truncated'],
+    ])
+    expect(rows[0]!.summary).toBe('tool.call · bash')
+    expect(rows[1]!.summary).toBe('message.part · I will now build the report from the CSV, then write the totals.')
+    expect(rows[2]!.summary).toContain('this is not json')
+    expect(rows[3]!.summary).toContain('truncated')
+    expect(rows[3]!.summary).toContain('maxFileBytes')
+    // The summary is cut at 160 chars; `message` is the third choice.
+    expect(traceSummary({ type: 'x', message: 'm'.repeat(300) })).toHaveLength(160)
+    expect(traceSummary({ type: 'x', message: 'm'.repeat(300) }).endsWith('…')).toBe(true)
+    expect(traceSummary({ type: 'session.end' })).toBe('session.end')
+    expect(traceSummary({ part: { text: 'no type' } })).toBe('(no type) · no type')
+    expect(traceSummary([1, 2])).toBe('[1,2]')
+    expect(parseTrace('')).toEqual([])
+  })
+  it('the list view shows the summaries, the raw fallback, the warning row, and a row expands to its JSON tree', () => {
+    const c = mount(<TraceView text={TRACE} view="list" />)
+    const rows = Array.from(c.querySelectorAll('[data-testid="trace-row"]'))
+    expect(rows).toHaveLength(4)
+    expect(rows.map((r) => r.getAttribute('data-state'))).toEqual(['ok', 'ok', 'broken', 'truncated'])
+    expect(rows[0]!.textContent).toContain('tool.call · bash')
+    expect(rows[2]!.textContent).toContain('{"type":"broken", this is not json')
+    expect(rows[3]!.getAttribute('role')).toBe('status')
+    expect(rows[3]!.querySelector('.ra-warn')!.textContent).toContain('truncated')
+    expect(c.querySelector('[data-testid="trace-detail"]')).toBeNull()
+    click(rows[0]!.querySelector('[data-testid="trace-toggle"]'))
+    const detail = rows[0]!.querySelector('[data-testid="trace-detail"]')!
+    expect(detail).not.toBeNull()
+    expect(detail.querySelector('[data-testid="json-tree"]')).not.toBeNull()
+    expect(detail.textContent).toContain('object · 3 keys')
+    // Raw = the text with line numbers.
+    const raw = mount(<TraceView text={TRACE} view="raw" />)
+    expect(raw.querySelectorAll('.ra-code__line')).toHaveLength(4)
+    expect(raw.querySelector('.ra-code__n')!.textContent).toBe('1')
+  })
+  it('viewsOf: ndjson = List + Raw; a stored raster image = Image only; a stored SVG = Image + Source', () => {
+    expect(viewsOf(stored({ kind: 'ndjson' })).map((v) => v.id)).toEqual(['list', 'raw'])
+    expect(viewsOf(stored({ kind: 'image', contentType: 'image/png', encoding: 'base64' })).map((v) => v.id)).toEqual(['image'])
+    expect(viewsOf(stored({ kind: 'image', contentType: 'image/svg+xml' })).map((v) => v.id)).toEqual(['image', 'source'])
+    expect(viewsOf(stored({ kind: 'image', contentType: 'image/png', encoding: 'base64', diff: 'x' })).map((v) => v.id)).toEqual(['image', 'diff'])
+  })
+})
+
+/** jsdom has no object URLs. Adds the two methods to the real URL (never replaces the constructor). */
+function stubObjectUrl(value: string) {
+  const create = vi.fn((_b: Blob) => value)
+  const revoke = vi.fn()
+  const u = URL as unknown as Record<string, unknown>
+  u.createObjectURL = create
+  u.revokeObjectURL = revoke
+  return { create, revoke }
+}
+
+describe('Stored artifact card (L17)', () => {
+  afterEach(() => {
+    const u = URL as unknown as Record<string, unknown>
+    delete u.createObjectURL
+    delete u.revokeObjectURL
+    vi.restoreAllMocks()
+  })
+  it('a raster image renders an <img> with a blob: src from the loaded Blob, and revokes it on unmount', async () => {
+    const { create, revoke } = stubObjectUrl('blob:http://localhost/img-1')
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    const loader = vi.fn(async () => blobOf(png, 'image/png'))
+    const a = stored({ id: 'stored:files/out/chart.png', path: 'out/chart.png', storedPath: 'files/out/chart.png', kind: 'image', contentType: 'image/png', encoding: 'base64', bytes: 9876 })
+    const c = mount(<ArtifactCard artifact={a} loader={loader} />)
+    expect(c.querySelector('[data-testid="artifact-title"]')!.textContent).toBe('out/chart.png · 9.6 KB')
+    await settle(c)
+    expect(loader).toHaveBeenCalledTimes(1)
+    expect(loader).toHaveBeenCalledWith(a)
+    const img = c.querySelector('[data-testid="image-view"] img')!
+    expect(img).not.toBeNull()
+    expect(img.getAttribute('src')).toBe('blob:http://localhost/img-1')
+    expect(img.getAttribute('alt')).toBe('out/chart.png')
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(create.mock.calls[0]![0]).toMatchObject({ size: 4, type: 'image/png' })
+    // The image is an <img> only: no <a href="blob:">, no iframe.
+    expect(c.querySelectorAll('a[href^="blob:"]')).toHaveLength(0)
+    expect(c.querySelector('iframe')).toBeNull()
+    expect(revoke).not.toHaveBeenCalled()
+    act(() => root!.unmount())
+    expect(revoke).toHaveBeenCalledWith('blob:http://localhost/img-1')
+  })
+  it('an HTML card whose text comes from a stored Blob keeps sandbox="" and the CSP meta, and the loaded text decodes as UTF-8', async () => {
+    const html = '<!doctype html><html><head><title>R</title></head><body><h1>Relatório ☕</h1></body></html>'
+    const loader = vi.fn(async () => blobOf(new TextEncoder().encode(html), 'text/html'))
+    const a = stored({ id: 'stored:files/out/report.html', path: 'out/report.html', storedPath: 'files/out/report.html', kind: 'html', contentType: 'text/html', bytes: 14537 })
+    const c = mount(<ArtifactCard artifact={a} loader={loader} />)
+    expect(c.querySelector('[data-testid="artifact-loading"]')).not.toBeNull()
+    expect(c.querySelector('iframe')).toBeNull()
+    await settle(c)
+    const frame = c.querySelector('iframe[data-testid="html-preview-iframe"]')!
+    expect(frame).not.toBeNull()
+    expect(frame.getAttribute('sandbox')).toBe('')
+    expect(frame.getAttribute('src')).toBeNull()
+    const doc = frame.getAttribute('srcdoc')!
+    expect(doc.startsWith('<!doctype html><html><head>' + CSP_META)).toBe(true)
+    expect(doc).toContain('Relatório ☕')
+    expect(c.querySelector('[data-testid="artifact-open"]')).not.toBeNull()
+    expect(document.querySelectorAll('a[href^="blob:"], a[href^="data:text/html"]')).toHaveLength(0)
+    expect(c.querySelector('[data-testid="artifact-stored-tag"]')).not.toBeNull()
+  })
+  it('the Download link saves the loaded Blob under the basename with an <a download>, then revokes the URL', async () => {
+    const { revoke } = stubObjectUrl('blob:http://localhost/dl-1')
+    vi.useFakeTimers()
+    const clicked: Array<{ download: string; href: string; inDom: boolean }> = []
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push({ download: this.download, href: this.href, inDom: this.isConnected })
+    })
+    const loader = vi.fn(async () => blobOf('{"ok":true}', 'application/json'))
+    const a = stored({ id: 'stored:result.json', path: 'result.json', storedPath: 'result.json', kind: 'json', contentType: 'application/json', bytes: 11 })
+    const c = mount(<ArtifactCard artifact={a} loader={loader} />)
+    const dl = c.querySelector<HTMLButtonElement>('[data-testid="artifact-download"]')!
+    expect(dl.disabled).toBe(true)
+    expect(dl.getAttribute('data-filename')).toBe('result.json')
+    const end = Date.now() + 2000
+    while (c.querySelector('[data-testid="artifact-card"]')!.getAttribute('data-load') !== 'ok') {
+      if (Date.now() > end) throw new Error('load')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+      })
+    }
+    expect(c.querySelector('[data-testid="json-tree"]')).not.toBeNull()
+    expect(dl.disabled).toBe(false)
+    click(dl)
+    expect(clicked).toEqual([{ download: 'result.json', href: 'blob:http://localhost/dl-1', inDom: true }])
+    expect(document.querySelector('a[download]')).toBeNull()
+    expect(revoke).not.toHaveBeenCalled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100)
+    })
+    expect(revoke).toHaveBeenCalledWith('blob:http://localhost/dl-1')
+    clickSpy.mockRestore()
+    vi.useRealTimers()
+  })
+  it('a loader error shows the status text in the card, and a collapsed card loads only when it opens', async () => {
+    const { ApiError } = await import('../../lib/api/client')
+    const loader = vi.fn(async () => {
+      throw new ApiError(500, 'Internal Server Error')
+    })
+    const a = stored({ kind: 'text', path: 'agent/stderr.txt', storedPath: 'agent/stderr.txt', id: 'stored:agent/stderr.txt' })
+    const c = mount(<ArtifactCard artifact={a} loader={loader} collapsible defaultOpen={false} />)
+    await tick()
+    expect(loader).not.toHaveBeenCalled()
+    expect(c.querySelector('[data-testid="artifact-card"]')!.getAttribute('data-load')).toBe('idle')
+    click(c.querySelector('[data-testid="artifact-toggle"]'))
+    await settle(c)
+    expect(loader).toHaveBeenCalledTimes(1)
+    const err = c.querySelector('[data-testid="artifact-error"]')!
+    expect(err.getAttribute('role')).toBe('alert')
+    expect(err.textContent).toContain('HTTP 500')
+    expect(err.textContent).toContain('Internal Server Error')
+    expect(c.querySelector('[data-testid="text-view"]')).toBeNull()
+    // Close and open again: no second request.
+    click(c.querySelector('[data-testid="artifact-toggle"]'))
+    click(c.querySelector('[data-testid="artifact-toggle"]'))
+    await tick()
+    expect(loader).toHaveBeenCalledTimes(1)
+  })
+  it('a stored text over 200 KB is collapsed with Show, and an NDJSON card opens on the list view', async () => {
+    const big = 'x'.repeat(201 * 1024)
+    const c = mount(<ArtifactCard artifact={stored({ kind: 'text', bytes: big.length })} loader={async () => blobOf(big, 'text/plain')} />)
+    await settle(c)
+    expect(c.querySelector('[data-testid="text-show"]')).not.toBeNull()
+    const t = mount(<ArtifactCard artifact={stored({ id: 'stored:agent/trace.jsonl', path: 'agent/trace.jsonl', storedPath: 'agent/trace.jsonl', kind: 'ndjson', contentType: 'application/x-ndjson' })} loader={async () => blobOf(TRACE, 'application/x-ndjson')} />)
+    await settle(t)
+    expect(t.querySelector('[data-testid="trace-view"]')!.getAttribute('data-view')).toBe('list')
+    expect(t.querySelectorAll('[data-testid="trace-row"]')).toHaveLength(4)
   })
 })

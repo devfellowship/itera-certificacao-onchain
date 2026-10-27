@@ -708,6 +708,33 @@ export interface RunActionsResponse {
   nextAfterSeq: number
 }
 
+// ---------- Stored run outputs (plan TMA L17) ----------
+/** The type of a stored output file, decided by the API from the content type and the path. */
+export type RunArtifactKind = 'json' | 'markdown' | 'html' | 'text' | 'image' | 'diff'
+/** One stored output file of a hosted run (GET /runs/:id/artifacts). `href` is relative to the API base; it is a download endpoint. */
+export interface RunArtifactEntry {
+  /** `patch.diff`, `result.json`, `agent/stderr.txt`, `agent/trace.jsonl`, or `files/<path in the workspace>`. */
+  path: string
+  contentType: string
+  kind: RunArtifactKind
+  encoding: 'utf-8' | 'base64'
+  /** Raw byte length of the file. */
+  bytes: number
+  sha256: string
+  /** `/runs/<id>/artifacts/file?path=<path>` — raw bytes, bearer session, `Content-Disposition: attachment`. */
+  href: string
+}
+/** Why the list is empty: a self-declared run stores numbers only; `none_stored` is a hosted run from before the change. */
+export type RunArtifactsReason = 'self_declared' | 'none_stored'
+/** GET /runs/:id/artifacts (owner only; 404 for anyone else, for an unknown run, and on an API without the route). */
+export interface RunArtifactsResponse {
+  runId: string
+  resultOrigin: ResultOrigin
+  limits: { maxFileBytes: number; maxRunBytes: number; maxCount: number }
+  reason: RunArtifactsReason | null
+  artifacts: RunArtifactEntry[]
+}
+
 // ---------- Public surface ----------
 /** The five score parts of a run (services/evaluator): public 20, hidden 50, regression 15, scope 10, evidence 5. */
 export type ScorePartKey = 'public_behavior' | 'hidden_behavior' | 'regression' | 'patch_integrity_and_scope' | 'reproducible_evidence'
