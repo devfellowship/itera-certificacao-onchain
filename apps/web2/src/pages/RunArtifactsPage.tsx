@@ -9,17 +9,21 @@
  *   GET /evaluations/:eid        owner only: the breadcrumb, the title, the task name and the duration.
  *                                404/403 → the run still renders, with a generic title.
  *   GET /public/tasks/:slug      the raw input (instruction, repository). 404 → only the link.
+ *   GET /runs/:runId/artifacts   L17: the STORED outputs of a hosted run (owner only). 404 (not the owner,
+ *                                legacy run, old API) or any error → the derived list alone, as in L14c.
  * Tabs: Summary · Artifacts (n) · Tests (n) · Log (n) · Patch, `?tab=` in the URL. The artifact list is
- * derived in ./run-artifacts/artifacts.ts (the run record, the patch, the files the patch adds).
+ * derived in ./run-artifacts/artifacts.ts (the run record, the patch, the files the patch adds), then
+ * merged with the stored outputs (`mergeStoredArtifacts`): the stored entries come first, and a stored
+ * file replaces the one rebuilt from the patch.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
-import type { EvaluationDetail, Run, RunAction, TaskProfile } from '../lib/api/types'
+import type { EvaluationDetail, Run, RunAction, RunArtifactsResponse, TaskProfile } from '../lib/api/types'
 import { DetailTabs, FieldTable, PASS_LINE, ResultDot, ScoreBar, fmtScore, useTabParam, wilson90, type FieldRow } from '../tma/detail'
 import { AgentAvatar, Badge, Breadcrumb, Button, ModelLabel, middle } from '../tma/ui'
 import { appendPage, EMPTY_FEED, type ActionFeed } from './running-evaluation/call-events'
-import { artifactsOf, defaultTab, formatBytes, mmss, shortRunId, splitArtifacts, type Artifact } from './run-artifacts/artifacts'
+import { artifactsOf, defaultTab, formatBytes, mergeStoredArtifacts, mmss, shortRunId, splitArtifacts, type Artifact } from './run-artifacts/artifacts'
 import { ArtifactCard, DiffView } from './run-artifacts/renderers'
 import './run-artifacts/run-artifacts.css'
 
@@ -56,6 +60,8 @@ export function RunArtifactsPage() {
   const [taskState, setTaskState] = useState<TaskState>({ kind: 'idle' })
   const [feed, setFeed] = useState<Feed>(EMPTY)
   const [feedBusy, setFeedBusy] = useState(false)
+  /** L17: `undefined` = not answered yet; `null` = no stored list (404, 401, network, old API). */
+  const [stored, setStored] = useState<RunArtifactsResponse | null | undefined>(undefined)
 
   useEffect(() => {
     let live = true
@@ -65,6 +71,18 @@ export function RunArtifactsPage() {
       .run(runId)
       .then((r) => live && setRun(r))
       .catch((e) => live && setRunError({ status: e instanceof ApiError ? e.status : 0, message: e instanceof Error ? e.message : String(e) }))
+    return () => {
+      live = false
+    }
+  }, [runId])
+
+  useEffect(() => {
+    let live = true
+    setStored(undefined)
+    api
+      .runArtifacts(runId)
+      .then((r) => live && setStored(r && Array.isArray(r.artifacts) ? r : null))
+      .catch(() => live && setStored(null))
     return () => {
       live = false
     }
@@ -122,7 +140,7 @@ export function RunArtifactsPage() {
     void pull(EMPTY, MAX_PAGES)
   }, [pull])
 
-  const artifacts = useMemo<Artifact[]>(() => (run ? artifactsOf(run) : []), [run])
+  const artifacts = useMemo<Artifact[]>(() => (run ? mergeStoredArtifacts(artifactsOf(run), stored ?? null) : []), [run, stored])
   const [tab, setTab] = useTabParam(TAB_IDS, defaultTab(artifacts))
 
   const crumbs = [{ label: 'Evaluations', to: '/evaluations' }, { label: ev.kind === 'ok' ? ev.detail.shortId : eid.slice(0, 8), to: `/evaluations/${encodeURIComponent(eid)}` }, { label: 'Artifacts' }]
@@ -139,7 +157,8 @@ export function RunArtifactsPage() {
       </main>
     )
   }
-  if (!run) {
+  // The stored list decides the Artifacts count and the default tab: the page waits for both answers.
+  if (!run || stored === undefined) {
     return (
       <main className="tma-page tma-page--flow ra-page" data-testid="run-artifacts-page" aria-busy="true">
         <Breadcrumb items={crumbs} />
@@ -169,7 +188,9 @@ export function RunArtifactsPage() {
   const t0 = run.createdAt ? Date.parse(String(run.createdAt)) : NaN
   const { wide, narrow, rest } = splitArtifacts(artifacts)
   const fromPatch = artifacts.filter((a) => a.id !== 'run.json')
-  const emptyReason = selfDeclared ? 'A self-declared run stores numbers only. TestMyAgent did not run it.' : !owner ? 'The patch is visible to the run owner only.' : 'No patch was stored for this run.'
+  const storedCount = artifacts.filter((a) => a.source === 'stored').length
+  const noneStored = stored?.reason === 'none_stored' && storedCount === 0
+  const emptyReason = selfDeclared || stored?.reason === 'self_declared' ? 'A self-declared run stores numbers only. TestMyAgent did not run it.' : !owner ? 'The patch is visible to the run owner only.' : 'No patch was stored for this run.'
 
   return (
     <main className="tma-page tma-page--flow ra-page" data-testid="run-artifacts-page" data-run-id={runId} data-owner={String(owner)}>
@@ -229,7 +250,12 @@ export function RunArtifactsPage() {
       {tab === 'summary' && <SummaryTab run={run} score={score} ci={ci} durationMs={durationMs} selfDeclared={selfDeclared} owner={owner} taskState={taskState} slug={slug} />}
 
       {tab === 'artifacts' && (
-        <div className="ra-tab" data-testid="tab-artifacts">
+        <div className="ra-tab" data-testid="tab-artifacts" data-stored-count={storedCount}>
+          {noneStored && (
+            <div className="ra-note-box" data-testid="artifacts-none-stored">
+              No output files stored for this run. Runs before 2026-10-27 have only the patch.
+            </div>
+          )}
           {fromPatch.length === 0 && (
             <div className="ra-empty" data-testid="artifacts-empty">
               <strong>No files stored</strong>

@@ -9,9 +9,15 @@
  *      `+` lines. The type follows the extension. A binary diff holds no bytes.
  *   4. every MODIFIED (or deleted, or renamed) file: listed as a diff; only its hunks exist.
  * `Artifacts (n)` is the length of this list.
+ *
+ * Plan TMA L17: the API now STORES the outputs of a hosted run (GET /runs/:id/artifacts) and serves
+ * their bytes to the owner. `mergeStoredArtifacts` puts those entries first and lets a stored file
+ * replace the entry rebuilt from the patch. A stored entry carries no `text` until its card loads it.
  */
+import type { RunArtifactEntry, RunArtifactsResponse } from '../../lib/api/types'
 
-export type ArtifactKind = 'json' | 'markdown' | 'html' | 'image' | 'binary' | 'text' | 'diff'
+/** `ndjson` is `agent/trace.jsonl` (one JSON event per line): a list view, not a text view. */
+export type ArtifactKind = 'json' | 'markdown' | 'html' | 'image' | 'binary' | 'text' | 'diff' | 'ndjson'
 
 export interface Artifact {
   /** Stable id for React keys and test ids (`run.json`, `patch.diff`, `added:out/report.html`, ...). */
@@ -24,10 +30,20 @@ export interface Artifact {
   text?: string
   /** The diff block of this file (every file that comes from the patch has one). */
   diff?: string
-  /** Where the entry came from. */
-  source: 'run' | 'patch' | 'added' | 'modified' | 'deleted' | 'renamed'
+  /** Where the entry came from. `stored` = a file the API stored for the run (L17); its bytes load on demand. */
+  source: 'run' | 'patch' | 'added' | 'modified' | 'deleted' | 'renamed' | 'stored'
   /** For `image` of a raster extension or a binary diff: the API stores no bytes. */
   note?: string
+  /** L17, stored only: the path as the API lists it (`files/out/report.html`); `path` is the workspace path. */
+  storedPath?: string
+  /** L17, stored only: the download endpoint, relative to the API base. Never navigated to. */
+  href?: string
+  /** L17, stored only: the content type the API stored. */
+  contentType?: string
+  /** L17, stored only: `utf-8` for text, `base64` for a raster image. */
+  encoding?: 'utf-8' | 'base64'
+  /** L17, stored only. */
+  sha256?: string
 }
 
 export interface PatchFile {
@@ -237,6 +253,95 @@ export function artifactsOf(run: { patch?: string | null } & Record<string, unkn
   return out
 }
 
+/* ---------- Stored outputs (L17) ---------- */
+
+/** The prefix of a stored file of the agent's workspace. `files/out/report.html` is the file `out/report.html` of the patch. */
+export const STORED_FILES_PREFIX = 'files/'
+
+/** The kind of a stored entry: the API's kind, except that an NDJSON file (`agent/trace.jsonl`) gets the trace list view. */
+export function kindOfStored(e: RunArtifactEntry): ArtifactKind {
+  if (e.contentType === 'application/x-ndjson' || /\.(jsonl|ndjson)$/i.test(e.path)) return 'ndjson'
+  return e.kind
+}
+
+/** True for a stored raster image (`image/png|jpeg|gif|webp`): its bytes go to an object URL, never to text. */
+export function isRasterContentType(contentType: string | undefined): boolean {
+  return /^image\/(png|jpeg|jpg|gif|webp)$/i.test(contentType ?? '')
+}
+
+/** The basename of a path: `files/out/report.html` → `report.html`. */
+export function basenameOf(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i < 0 ? path : path.slice(i + 1)
+}
+
+/** An Artifact of a stored entry (no text yet). The id is `stored:<stored path>`; the path shown is the workspace path. */
+export function storedArtifact(e: RunArtifactEntry): Artifact {
+  const workspace = e.path.startsWith(STORED_FILES_PREFIX) ? e.path.slice(STORED_FILES_PREFIX.length) : e.path
+  return {
+    id: `stored:${e.path}`,
+    path: workspace,
+    kind: kindOfStored(e),
+    bytes: Number.isFinite(e.bytes) ? Math.max(0, e.bytes) : 0,
+    source: 'stored',
+    storedPath: e.path,
+    href: e.href,
+    contentType: e.contentType,
+    encoding: e.encoding,
+    sha256: e.sha256,
+  }
+}
+
+/** The stored entries a human looks at first: an HTML page, a markdown article, a JSON file, an image. */
+function isRichStored(a: Artifact): boolean {
+  return a.kind === 'html' || a.kind === 'markdown' || a.kind === 'json' || a.kind === 'image'
+}
+
+/**
+ * Merges the stored outputs of a run into the derived list (section 2 of the L17b brief).
+ * Order: `result.json`, then the rich `files/*` (html, markdown, json, image), then the other stored
+ * entries (`patch.diff`, `agent/*`, plain `files/*`), then the derived entries that survive.
+ * A stored `files/<p>` REPLACES the derived `added:<p>` (the stored bytes are the truth); the diff of
+ * that file stays on the stored entry, so the card keeps a Diff view and the Patch tab is unchanged.
+ * A stored `patch.diff` drops the derived duplicate and takes its diff text. `run.json` and the
+ * `modified:` entries stay. `stored === null` (404, 401, a network error, an old API) → `derived` as is.
+ */
+export function mergeStoredArtifacts(derived: Artifact[], stored: RunArtifactsResponse | null): Artifact[] {
+  if (!stored || !Array.isArray(stored.artifacts) || stored.artifacts.length === 0) return derived
+  const seen = new Set<string>()
+  const entries: Artifact[] = []
+  for (const e of stored.artifacts) {
+    if (!e || typeof e.path !== 'string' || !e.path || seen.has(e.path)) continue
+    seen.add(e.path)
+    entries.push(storedArtifact(e))
+  }
+  const byWorkspacePath = new Map<string, Artifact>()
+  for (const a of entries) if (a.storedPath!.startsWith(STORED_FILES_PREFIX)) byWorkspacePath.set(a.path, a)
+  const storedPatch = entries.find((a) => a.storedPath === 'patch.diff') ?? null
+
+  const rest: Artifact[] = []
+  for (const d of derived) {
+    if (d.source === 'patch' && storedPatch) {
+      // The stored patch.diff is the same file; keep its diff text so the card renders without a load.
+      if (d.diff != null && storedPatch.diff == null) storedPatch.diff = d.diff
+      continue
+    }
+    if (d.source === 'added') {
+      const s = byWorkspacePath.get(d.path)
+      if (s) {
+        if (d.diff != null) s.diff = d.diff
+        continue
+      }
+    }
+    rest.push(d)
+  }
+
+  const first = entries.filter((a) => a.storedPath === 'result.json')
+  const rich = entries.filter((a) => a.storedPath !== 'result.json' && a.storedPath!.startsWith(STORED_FILES_PREFIX) && isRichStored(a))
+  const others = entries.filter((a) => !first.includes(a) && !rich.includes(a))
+  return [...first, ...rich, ...others, ...rest]
+}
+
 /** True for an artifact a human looks at: an HTML page, a markdown article, or a JSON file other than the run record. */
 export function isRich(a: Artifact): boolean {
   return a.kind === 'html' || a.kind === 'markdown' || (a.kind === 'json' && a.id !== 'run.json')
@@ -247,10 +352,14 @@ export function defaultTab(list: Artifact[]): 'artifacts' | 'summary' {
   return list.some(isRich) ? 'artifacts' : 'summary'
 }
 
-/** The layout of the Artifacts tab: the wide card, the narrow card, and the rest in order. */
+/**
+ * The layout of the Artifacts tab: the wide card, the narrow card, and the rest in order.
+ * Wide = the first HTML or markdown (a stored one comes first in a merged list). Narrow = the stored
+ * `result.json` when present, else the first JSON other than `run.json`, else `run.json`.
+ */
 export function splitArtifacts(list: Artifact[]): { wide: Artifact | null; narrow: Artifact | null; rest: Artifact[] } {
   const wide = list.find((a) => a.kind === 'html' || a.kind === 'markdown') ?? null
-  const narrow = list.find((a) => a.kind === 'json' && a.id !== 'run.json') ?? list.find((a) => a.id === 'run.json') ?? null
+  const narrow = list.find((a) => a.id === 'stored:result.json') ?? list.find((a) => a.kind === 'json' && a.id !== 'run.json') ?? list.find((a) => a.id === 'run.json') ?? null
   const rest = list.filter((a) => a !== wide && a !== narrow)
   return { wide, narrow, rest }
 }

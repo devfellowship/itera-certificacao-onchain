@@ -64,6 +64,27 @@ export async function request<R>(path: string, init: RequestInit & { query?: Que
   return (await res.json()) as R
 }
 
+/**
+ * Raw bytes of a stored run output (plan TMA L17). The URL is never built from user text: `href` must be
+ * the value the API returned in GET /runs/:id/artifacts, and it must start with `/runs/`. Same bearer
+ * header, same 401 handling and the same ApiError as `request`. The result is a Blob; the caller decodes
+ * it (UTF-8 text) or shows it (an object URL on an <img>). Never navigate to this URL.
+ */
+export async function requestBytes(href: string): Promise<Blob> {
+  if (typeof href !== 'string' || !/^\/runs\/[^/\s]/.test(href) || /\s/.test(href)) {
+    throw new ApiError(0, 'Refused: the artifact href is not an API path.')
+  }
+  const h: Record<string, string> = {}
+  if (sessionToken) h.Authorization = `Bearer ${sessionToken}`
+  const res = await fetch(`${API_BASE_URL}${href}`, { headers: h })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({ error: res.statusText }))) as { error?: string }
+    if (res.status === 401 && sessionToken) onUnauthorized?.()
+    throw new ApiError(res.status, body?.error || `Request failed with status ${res.status}. Try again.`, body)
+  }
+  return res.blob()
+}
+
 const json = (body: unknown) => JSON.stringify(body)
 
 export const api = {
@@ -144,6 +165,10 @@ export const api = {
   /** U27: the run owner's one answer — did the result match reality? */
   runFeedback: (id: string, matchedReality: boolean, note?: string) =>
     request<{ feedback: T.RunFeedback; taskReputation: T.TaskReputation | null }>(`/runs/${encodeURIComponent(id)}/feedback`, { method: 'POST', body: json({ matchedReality, note }) }),
+  /** L17: the stored output files of a hosted run (owner only). 404 = not the owner, unknown, legacy, or an API without the route. */
+  runArtifacts: (id: string) => request<T.RunArtifactsResponse>(`/runs/${encodeURIComponent(id)}/artifacts`),
+  /** L17: the raw bytes of one stored file, by the `href` the API returned. A Blob; never a navigation. */
+  runArtifactFile: (href: string) => requestBytes(href),
 
   // Public surface (no auth)
   publicEvaluation: (slugOrHash: string) => request<T.PublicEvaluation>(`/public/evaluations/${encodeURIComponent(slugOrHash)}`, { auth: false }),
