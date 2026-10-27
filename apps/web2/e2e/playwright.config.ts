@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 /**
  * Browser e2e of the web2 client (plan 20261015-testmyagent-web2-client, task T13).
- * It tests the DEPLOYED site (default https://testmyagent.devfellowship.com), not a local build.
+ * It tests the DEPLOYED site (default https://testmyagent.com), not a local build.
  *
  * Environment (values are never printed; CI passes them as masked secrets):
  *   E2E_WEB2_URL        site origin (default production)
@@ -26,7 +26,7 @@ export default defineConfig({
   reporter: [['list'], ['json', { outputFile: 'report/results.json' }], ['html', { outputFolder: 'report/html', open: 'never' }]],
   outputDir: 'report/artifacts',
   use: {
-    baseURL: process.env.E2E_WEB2_URL || 'https://testmyagent.devfellowship.com',
+    baseURL: process.env.E2E_WEB2_URL || 'https://testmyagent.com',
     // No trace and no video: the specs type a password and an API key.
     trace: 'off',
     video: 'off',

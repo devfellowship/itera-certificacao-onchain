@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 40
     if: github.repository == 'devfellowship/itera-certificacao-onchain' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
     env:
-      E2E_WEB2_URL: https://testmyagent.devfellowship.com
+      E2E_WEB2_URL: https://testmyagent.com
     defaults:
       run:
         working-directory: apps/web2/e2e
