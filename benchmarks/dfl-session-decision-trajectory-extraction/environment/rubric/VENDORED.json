@@ -1,12 +1,12 @@
 {
-  "source": "the layer-2 contract of plan 20261025-session-trajectory-extraction (task T4, revised in task T16; MANIFEST.json schema_version 1, intent_list_version 2, taxonomy_version 2)",
+  "source": "the layer-2 contract of plan 20261025-session-trajectory-extraction (task T4, revised in tasks T16, T18 and T19; MANIFEST.json schema_version 1, intent_list_version 2, taxonomy_version 2; authorization enum with delegated)",
   "identical": {
-    "schema.json": "3747996d25f202a0c3d2cbd78a94391cc6ff188a59a16487707e1970b9633008",
+    "schema.json": "c1ccf1ecf453ed63b8dd1bdd12cc252152cb15ea78a946a6a18cd507a4ae6e31",
     "intents.md": "db45e60927b9995b676f937ab624093c743a06233b6967ab1bed9a2e2efa3969",
     "taxonomy.md": "f9d4cd68096c950d01e86f356632d25c8d729f4fa0b77fa9919c379be79966e6"
   },
   "open_variant_stand_in": {
-    "risk-anchors.md": "53cc820eb17af527f4d203e872df2723a78166cfacd6b4afbca38edd43e4bbf2"
+    "risk-anchors.md": "b7e180253c2571c05095e38ca49f6d600b17d41fbae61d1dfdcd1d0c48afcb8f"
   },
   "note": "identical = byte for byte the contract file (sha256). open_variant_stand_in = this folder holds a generic copy (same anchors and floor values, generic floor names); a private variant carries the contract file with the listed sha256. tests/hidden/lib/schema.json is the same file as rubric/schema.json."
 }

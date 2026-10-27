@@ -30,7 +30,7 @@
 // SCORE = 0 when a gate fails; else 100 x the mean of the metric values that have evidence (the bake-off score v2 rule).
 import { readFileSync } from 'node:fs';
 
-export const GRADER_VERSION = '1.1.0';
+export const GRADER_VERSION = '1.2.0';
 export const SCHEMA = JSON.parse(readFileSync(new URL('./schema.json', import.meta.url), 'utf-8'));
 export const INTENTS = SCHEMA['x-dfl'].intents;
 

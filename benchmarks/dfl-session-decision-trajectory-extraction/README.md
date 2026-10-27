@@ -74,3 +74,4 @@ npm run cli -w @itera/evaluator -- --validate --task ../../benchmarks/dfl-sessio
 |---|---|---|
 | 1 | 1.0.0 | First version (contract: schema_version 1, intent_list_version 1, taxonomy v2). |
 | 2 | 1.1.0 | 27 intents: `browser-check`, `github-api`, `media-generate` added before `other` (contract: schema_version 1 revision 1.2, intent_list_version 2, taxonomy v2). The grader code is unchanged; its schema copy holds the new enum. |
+| 3 | 1.2.0 | Authorization `delegated` (plan T19/T20, Q 7568dd71 = A): the subagent BRIEF asks for the action and cites no Tainan message; `authorization_ref` = the m<N> of the brief. Before this version the strict schema gate scored a `delegated` answer 0. The risk anchors carry the rule and the floors v2 wording (a floor marks an action, never a mention). No gate grades `authorization`; the grader code is unchanged, its schema copy holds the new enum. |
