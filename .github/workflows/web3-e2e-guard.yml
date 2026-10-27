@@ -105,6 +105,14 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # L19: DELETE /evaluations/:id — the owner check inside the transaction, the run and its child rows go with
+      # the evaluation, hosted / proof / FK-referenced rows are refused and stay. It deletes its own fixtures.
+      - name: Evaluation delete store test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/evaluations/delete.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       - name: Local agents and custom models store test (Postgres)
         working-directory: apps/api
         run: npx vitest run src/local-agents/store.pg.test.ts

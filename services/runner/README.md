@@ -35,6 +35,9 @@ tma run --task tsk_webhook_dup --agent <agent id> --agent-dir examples/sample-ag
 # 3. send the numbers
 tma upload result.json --dry-run      # prints exactly the body that upload sends, and asks the API if it is valid
 tma upload result.json                # inserted | updated | unchanged, the evaluation id and its URL
+
+# 4. (optional) remove a result you uploaded
+tma evaluations delete <evaluation id>          # shows it, asks y/N; --yes skips the question
 ```
 
 What to expect:
@@ -42,6 +45,7 @@ What to expect:
 - **`tma login`** prints `https://testmyagent.devfellowship.com/cli?code=ABCD-EFGH`. Open it on any device, sign in with DFL, check that the page shows the same code, and click **Allow**. The CLI then stores a 24 h session in `~/.config/tma/session.json` (mode 600; `TMA_CONFIG_DIR` changes the folder). The code expires after 10 minutes. `tma logout` revokes the session.
 - **The sandbox image** is built by the CLI the first time that `grade` or `run` needs it (about 1 minute). Its tag is `itera-runner-sandbox:<hash of sandbox/>`, so a change to `sandbox/` builds a new one. Set `ITERA_SANDBOX_IMAGE` to use an image that you built or pulled.
 - **`grade` and `run`** print one row per run (status, score, the five score parts, wall time, cost, cost source, error) and the mean. Upload the same file again and the API answers `unchanged`; it does not add a second row. One agent, one task and one model make ONE evaluation: a new result for the same three (for example a `run` after a `grade`) answers `updated` and replaces the numbers. Use a second agent to keep both.
+- **`tma evaluations delete <id>`** removes ONE of your self-declared evaluations and its runs, through `DELETE /evaluations/:id`. It shows the evaluation and asks first (`--yes` skips the question; without a terminal, `--yes` is required). Only the owner can delete it: another user's id answers `not found`. A hosted evaluation (TestMyAgent ran it) cannot be deleted. The delete cannot be undone.
 - **A run that ends with `0 tool calls` and error `timeout`** usually means that the model API refused the calls (a wrong model id, a bad key, or a spent quota). Check your key and your quota with the provider, then run again.
 
 `--task-dir <folder>` selects a private task folder on your disk instead of `--task` (it never leaves the machine; only its digests go into the result). MCP tasks run hosted only. The patch, the actions and the evidence manifest go to `./tma-runs/<run-id>/`, for you only. `src/run-once.ts` is an alias of `tma run` (`--scenario` works as `--task`). An agent that has the learn MCP can upload without `tma login`: the MCP tool `create_tma_local_result` takes the same file.
