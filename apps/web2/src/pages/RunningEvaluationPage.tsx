@@ -26,11 +26,14 @@ import { AgentAvatar, Breadcrumb, ButtonLink, ModelLabel, SelfDeclaredBadge, Sel
 import { useSession } from '../auth/session'
 import { appendPage, callEvents, EMPTY_FEED, mergeByTime } from './running-evaluation/call-events'
 import type { ActionFeed } from './running-evaluation/call-events'
-import { EvaluationReview } from './running-evaluation/EvaluationReview'
+import { EvaluationReview, RunLoadErrorNote } from './running-evaluation/EvaluationReview'
+import type { RunLoadError } from './running-evaluation/EvaluationReview'
 import { sourceOf, subtitleOf } from './running-evaluation/review'
 import './running-evaluation/running-evaluation.css'
 
 const POLL_MS = 3000
+/** L18: a run record read that has no answer after this time is shown as an error, not as an endless "loading". */
+const RUN_TIMEOUT_MS = 20_000
 const TERMINAL = new Set<string>(['graded', 'issued', 'cancelled', 'failed', 'review'])
 const RUN_TERMINAL = new Set(['pass', 'fail', 'invalid', 'timeout', 'infra_error', 'cancelled'])
 /** Pages of 200 calls pulled per run per poll, at most: a run with more catches up over the next polls. */
@@ -110,7 +113,8 @@ function downloadPatch(runId: string, patch: string) {
   URL.revokeObjectURL(url)
 }
 
-function ArtifactResult({ task, run }: { task: DetailTask; run: Run | undefined }) {
+function ArtifactResult({ task, run, error, onRetry }: { task: DetailTask; run: Run | undefined; error?: RunLoadError; onRetry?: () => void }) {
+  if (!run && error) return <RunLoadErrorNote error={error} testId="artifact-result-error" onRetry={onRetry} />
   if (!run) return <div className="re-artifact re-artifact--loading" aria-busy="true">Loading stored result…</div>
   const changed = run.patchScope?.changedFiles ?? []
   const hasDetails = Boolean(run.patch || changed.length || run.evidence || run.errors?.length || run.tests)
@@ -136,7 +140,7 @@ function ArtifactResult({ task, run }: { task: DetailTask; run: Run | undefined 
   )
 }
 
-export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number }) {
+export function RunningEvaluationPage({ pollMs = POLL_MS, runTimeoutMs = RUN_TIMEOUT_MS }: { pollMs?: number; runTimeoutMs?: number }) {
   const { eid = '' } = useParams()
   const navigate = useNavigate()
   const session = useSession()
@@ -197,20 +201,63 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
   }, [load, pollMs])
 
   // Per-run detail: cost and tool calls. A finished run is read once; an active run on every poll.
+  // L18: a read that fails (404, 5xx, network) or has no answer within `runTimeoutMs` is kept as an error,
+  // so the sections show an error state with a retry. Before, the error was dropped and the sections
+  // stayed on "Loading the run record…" forever.
+  const [runErrors, setRunErrors] = useState<Record<string, RunLoadError>>({})
   const runsRef = useRef(runs)
   runsRef.current = runs
+  const runErrorsRef = useRef(runErrors)
+  runErrorsRef.current = runErrors
+  const fetchRun = useCallback(
+    (runId: string) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new ApiError(0, `No answer after ${Math.round(runTimeoutMs / 1000)} s.`), { timedOut: true })), runTimeoutMs)
+      })
+      Promise.race([api.run(runId), timeout])
+        .then((r) => {
+          setRuns((m) => ({ ...m, [runId]: r }))
+          setRunErrors((m) => {
+            if (!(runId in m)) return m
+            const { [runId]: _gone, ...rest } = m
+            return rest
+          })
+        })
+        .catch((e: unknown) => {
+          const error: RunLoadError = {
+            status: e instanceof ApiError ? e.status : 0,
+            message: e instanceof Error ? e.message : String(e),
+            timedOut: Boolean((e as { timedOut?: boolean } | null)?.timedOut),
+          }
+          setRunErrors((m) => ({ ...m, [runId]: error }))
+        })
+        .finally(() => clearTimeout(timer))
+    },
+    [runTimeoutMs],
+  )
+  const retryRun = useCallback(
+    (runId: string) => {
+      setRunErrors((m) => {
+        const { [runId]: _gone, ...rest } = m
+        return rest
+      })
+      fetchRun(runId)
+    },
+    [fetchRun],
+  )
   useEffect(() => {
     if (!detail) return
+    const ended = TERMINAL.has(detail.status)
     for (const t of detail.tasks) {
       const known = runsRef.current[t.runId]
       if (known && RUN_TERMINAL.has(known.status) && known.modelCostUsd != null) continue
       if (t.stage === 'queued' && t.status !== 'running') continue
-      api
-        .run(t.runId)
-        .then((r) => setRuns((m) => ({ ...m, [t.runId]: r })))
-        .catch(() => undefined)
+      // A finished evaluation is not polled again: a failed read waits for the reader's retry.
+      if (ended && runErrorsRef.current[t.runId]) continue
+      fetchRun(t.runId)
     }
-  }, [detail])
+  }, [detail, fetchRun])
 
   // L14b: the task rules (limits, editable paths, instruction) of each task, once, at the end. A private
   // task answers 404: the rows that need it are omitted.
@@ -592,7 +639,7 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
         </div>
       )}
 
-      {terminal && <EvaluationReview detail={d} runs={runs} profiles={profiles} />}
+      {terminal && <EvaluationReview detail={d} runs={runs} profiles={profiles} runErrors={runErrors} onRetryRun={retryRun} />}
 
       {terminal && tasksCard}
       {terminal ? (
@@ -616,7 +663,7 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
       {terminal && !selfDeclared && (
         <section className="re-artifacts" data-testid="artifacts-results">
           <div className="re-card__head"><div><span className="tma-label">ARTIFACTS AND RESULTS</span><h2 className="tma-h2">Stored run evidence</h2></div><span className="re-mono re-muted">Owner access</span></div>
-          {d.tasks.map((t) => <ArtifactResult key={t.runId} task={t} run={runs[t.runId]} />)}
+          {d.tasks.map((t) => <ArtifactResult key={t.runId} task={t} run={runs[t.runId]} error={runErrors[t.runId]} onRetry={() => retryRun(t.runId)} />)}
         </section>
       )}
     </main>
