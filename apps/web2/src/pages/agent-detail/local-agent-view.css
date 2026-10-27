@@ -1,0 +1,213 @@
+/* Local agent page (L11). Layout only; every color is a --tma-* token. Single column under 900 px. */
+.lav.tma-page {
+  padding-top: 40px;
+  padding-bottom: 96px;
+  gap: 28px;
+}
+.lav-identity {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.lav-identity__text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.lav-identity__line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.lav-h1 {
+  font-size: 32px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.lav-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.lav-meta .tma-model-label__text {
+  color: var(--tma-text);
+  overflow-wrap: anywhere;
+}
+.lav-mono {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text);
+}
+.lav-desc {
+  margin: 0;
+  font-size: 15px;
+  color: var(--tma-text-muted);
+  max-width: 64ch;
+}
+.lav-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 24px;
+  align-items: start;
+}
+.lav-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.lav-section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.lav-section__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--tma-line);
+}
+.lav-section__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.lav-section__sub,
+.lav-muted {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.lav-section .tma-table {
+  border: 0;
+  border-radius: 0;
+}
+.lav-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px;
+}
+.lav-skel {
+  display: block;
+  width: 100%;
+  height: 40px;
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-surface-raised);
+  opacity: 0.6;
+}
+.lav-task {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.lav-task__line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.lav-task__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lav-task__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  color: var(--tma-text-muted);
+}
+.lav-outcome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lav-score {
+  font-family: var(--tma-font-mono);
+  font-size: 14px;
+}
+.lav-dash {
+  color: var(--tma-text-subtle);
+}
+.lav-run {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.lav-run__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.lav-link {
+  font-size: 13px;
+  color: var(--tma-primary-text);
+}
+/* tma CLI steps: numbered, each with one code block that scrolls sideways instead of widening the page. */
+.lav-cli {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.lav-cli__steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.lav-cli__steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.lav-cli__code {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-surface-code);
+  color: var(--tma-text);
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  max-width: 100%;
+}
+.lav-cli__hint {
+  font-size: 12px;
+  color: var(--tma-text-subtle);
+}
+.lav-cli code {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .lav-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lav-identity {
+    flex-direction: column;
+  }
+  .lav-h1 {
+    font-size: 26px;
+  }
+}

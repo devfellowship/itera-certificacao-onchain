@@ -117,7 +117,14 @@ export const api = {
   // Agents
   agentValidate: (input: T.AgentValidateInput) => request<T.AgentValidateResponse>('/agents/validate', { method: 'POST', body: json(input) }),
   createAgent: (input: T.CreateAgentInput) => request<{ agent: T.Agent; version?: T.AgentVersionSummary }>('/agents', { method: 'POST', body: json(input) }),
-  agents: () => request<{ agents: T.Agent[] }>('/agents'),
+  /** `include: 'local'` appends the caller's local agents (no repo). Without it the list is GitHub agents only. */
+  agents: (opts: { include?: 'local' } = {}) => request<{ agents: T.Agent[] }>('/agents', { query: { include: opts.include } }),
+  /** L4: the provider and route enums, the known models, and the caller's own custom models. */
+  modelOptions: () => request<T.ModelOptionsResponse>('/model-options'),
+  /** L4: a custom model of the caller (tenant-scoped). 400 known_model | 409 custom_model_exists | custom_model_limit. */
+  createCustomModel: (input: T.CreateCustomModelInput) => request<{ model: T.ModelOption }>('/me/models', { method: 'POST', body: json(input) }),
+  /** L4: an agent that runs on the owner's machine. No repo. 409 agent_name_taken | 503 schema_not_ready. */
+  createLocalAgent: (input: T.CreateLocalAgentInput) => request<{ agent: T.Agent }>('/agents/local', { method: 'POST', body: json(input) }),
   agent: (id: string) => request<{ agent: T.Agent }>(`/agents/${encodeURIComponent(id)}`),
   refreshAgent: (id: string) => request<{ changed: boolean; agent: T.Agent }>(`/agents/${encodeURIComponent(id)}/refresh`, { method: 'POST' }),
   ranking: (query: T.RankingQuery = {}) => request<T.RankingResponse>('/agents/ranking', { query: { scope: query.scope, q: query.q, taskIds: query.taskIds, tag: query.tag } }),

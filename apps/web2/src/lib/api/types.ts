@@ -138,6 +138,8 @@ export interface TaskHistoryEvaluation {
   shortId: string
   createdAt: string
   status: EvaluationStatus | 'graded'
+  /** 0021: `self_declared` = run on the owner's machine, TMA did not attest it. Absent = `hosted`. */
+  resultOrigin?: ResultOrigin
   score: number | null
   counts: OutcomeCounts
   tests: { passed: number; total: number }
@@ -328,8 +330,15 @@ export interface Agent {
   status?: AgentStatus
   createdAt?: string
   listedAt?: string | null
+  /** 0021: `local` = an agent that runs on its owner's machine (no repo). Absent on a GitHub agent. */
+  connector?: AgentConnector
+  /** Declared provider (a lab key of the model catalog) and route of a local agent. */
+  providerKey?: string | null
+  routeKey?: string | null
+  harness?: string | null
   [extra: string]: unknown
 }
+export type AgentConnector = 'endpoint' | 'github' | 'local'
 // ---------- Agent profile (screen 08) [U15] ----------
 export interface AgentProfileTagCount {
   id: string
@@ -444,6 +453,9 @@ export interface RankingRow {
   runCostUsd: number | null
   runCostLamports: number | null
   runCostSol: string | null
+  /** Defensive (Q4 = C): the ranking is hosted-only; a row with `local` or `self_declared` is dropped by the UI. */
+  connector?: AgentConnector
+  resultOrigin?: ResultOrigin
 }
 export interface PriceInfo {
   usdPerRun: number
@@ -538,6 +550,8 @@ export interface CreateEvaluationResponse {
   txSig?: string
   runs: Array<{ runId: string; taskId: string; seq: number; runStartMemo?: { wireTransactionBase64: string } }>
 }
+/** Where a result comes from. A `self_declared` result is visible only to its owner (plan Q4 = C). */
+export type ResultOrigin = 'hosted' | 'self_declared'
 export type EvaluationStatus = 'pending' | 'in_progress' | 'review' | 'issuing' | 'issued' | 'cancelled' | 'failed'
 export type EvaluationUiState = 'queued' | 'running' | 'issuing' | 'error' | 'issued' | 'cancelled'
 export type Outcome = 'PASS' | 'FAIL' | 'INVALID'
@@ -559,6 +573,8 @@ export interface EvaluationListItem {
   counts: OutcomeCounts
   score: number | null
   status: EvaluationStatus
+  /** 0021: `self_declared` = run on the owner's machine, TMA did not attest it. Absent = `hosted`. */
+  resultOrigin?: ResultOrigin
   share: { kind: 'link' | 'private' | 'none'; url: string | null }
 }
 /** The API names are all | my_agents | others; the hyphenated forms are accepted aliases. */
@@ -587,6 +603,7 @@ export interface EvaluationDetail {
   uiState: EvaluationUiState
   elapsedMs: number
   createdAt?: string
+  resultOrigin?: ResultOrigin
   agent: { id?: string; name: string; slug?: string | null; repo?: string | null; commit: string | null; initials: string; avatarUrl?: string | null; authorWallet?: string | null; authorProfile?: UserProfile }
   /** v2: `{id, release}`; the design fixtures use a label string. */
   model: string | { id: string; release: string | null }
@@ -639,6 +656,7 @@ export interface Run {
   status: RunStatus
   phase: RunPhase | null
   scoreTotal: number | null
+  resultOrigin?: ResultOrigin
   evaluationId?: string | null
   durationMs?: number | null
   /** Model cost in USD as billed by OpenRouter (lane G). Null = not measured yet. */
@@ -1042,4 +1060,48 @@ export interface McpCatalogServer {
   tools: Array<{ name: string; description: string | null; inputSchema: unknown }>
   commit: string | null
   syncedAt: string
+}
+
+// ---------- Local agents and custom models (L4: GET /model-options, POST /me/models, POST /agents/local) ----------
+export interface ModelOptionProvider {
+  key: string
+  name: string
+}
+export interface ModelOptionRoute {
+  key: string
+  name: string
+}
+export interface ModelOption {
+  id: string
+  label: string
+  /** A lab key. Null for a custom model with a custom provider. */
+  provider: string | null
+  providerLabel?: string | null
+  route: string
+  known: boolean
+}
+export interface ModelOptionsResponse {
+  providers: ModelOptionProvider[]
+  routes: ModelOptionRoute[]
+  /** Known models (the enabled `public.models` rows). */
+  models: ModelOption[]
+  /** The caller's own custom models only (tenant-scoped). */
+  custom: ModelOption[]
+}
+export interface CreateCustomModelInput {
+  id: string
+  label: string
+  /** Exactly one of `provider_key` (a lab key) and `provider_label` (a custom provider). */
+  provider_key?: string
+  provider_label?: string
+  route_key: string
+}
+export interface CreateLocalAgentInput {
+  name: string
+  description?: string
+  model_id: string
+  provider_key?: string
+  route_key: string
+  harness?: string
+  visibility?: AgentVisibility
 }

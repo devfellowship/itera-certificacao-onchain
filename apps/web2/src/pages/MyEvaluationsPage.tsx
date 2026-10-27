@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../lib/api'
 import type { Agent, EvaluationListItem as ApiEvaluationListItem, EvaluationScope, EvaluationStatus as ApiEvaluationStatus, EvaluationsResponse } from '../lib/api'
-import { AgentAvatar, Badge, Button, ButtonLink, Table, TableEmpty, Tabs, type Column, type Tone } from '../tma/ui'
+import { AgentAvatar, Badge, Button, ButtonLink, SelfDeclaredBadge, Table, TableEmpty, Tabs, isSelfDeclared, type Column, type Tone } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
 import './my-evaluations.css'
 
@@ -121,6 +121,7 @@ const COLUMNS: Column<EvaluationListItem>[] = [
           </span>
           <span className="tme-agent__meta">
             {evId(e.shortId)} · {dateFmt.format(new Date(e.createdAt))}
+            {isSelfDeclared(e) && <SelfDeclaredBadge testId="row-self-declared" />}
           </span>
         </span>
       </span>

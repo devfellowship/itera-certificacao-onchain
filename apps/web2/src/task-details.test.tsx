@@ -166,3 +166,27 @@ it('does not request private history for an anonymous visitor', async () => {
   expect(container.textContent).toContain('Page not found')
   expect(fetchMock.mock.calls.some(([input]) => new URL(String(input)).pathname.endsWith('/evaluations'))).toBe(false)
 })
+
+it('L11: an owned task row of a self-declared result shows the badge and the source "imported"; a hosted row does not', async () => {
+  saveSession(SESSION)
+  const mixed: TaskHistoryResponse = {
+    ...history,
+    evaluations: [{ ...history.evaluations[0]!, resultOrigin: 'self_declared' }, { ...history.evaluations[1]!, resultOrigin: 'hosted' }],
+  }
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    const path = new URL(input).pathname
+    if (path === '/me') return json(200, { wallet: 'dfl:owner', displayName: 'Tainan', handle: 'taigfs', avatarUrl: null, initials: 'TF' })
+    if (path === `/tasks/${TASK_ID}/evaluations`) return json(200, mixed)
+    return json(404, { error: 'not found' })
+  }))
+  const container = mount(
+    <MemoryRouter initialEntries={[`/tasks/${TASK_ID}`]}>
+      <SessionProvider><Routes><Route path="/tasks/:slug" element={<TaskProfilePage />} /></Routes></SessionProvider>
+    </MemoryRouter>,
+  )
+  await flush()
+  const badges = container.querySelectorAll('[data-testid="task-evaluation-self-declared"]')
+  expect(badges).toHaveLength(1)
+  expect(badges[0]!.getAttribute('data-origin')).toBe('self_declared')
+  expect([...container.querySelectorAll('[data-testid="run-source"]')].map((n) => n.textContent)).toEqual(['imported', 'run here'])
+})

@@ -17,7 +17,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
 import type { EvaluationDetail as ApiEvaluationDetail, EvaluationStatus, EvaluationUiState, Run, Task } from '../lib/api'
 import { TaskName, useTaskCatalog } from '../tma/task-filter'
-import { AgentAvatar, Breadcrumb, ButtonLink, ModelLabel, middle } from '../tma/ui'
+import { AgentAvatar, Breadcrumb, ButtonLink, ModelLabel, SelfDeclaredBadge, SelfDeclaredNote, isSelfDeclared, middle } from '../tma/ui'
 import { useSession } from '../auth/session'
 import { appendPage, callEvents, EMPTY_FEED, mergeByTime } from './running-evaluation/call-events'
 import type { ActionFeed } from './running-evaluation/call-events'
@@ -215,7 +215,7 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
   detailRef.current = detail
   const [pullTick, setPullTick] = useState(0)
   useEffect(() => {
-    if (!detail) return
+    if (!detail || isSelfDeclared(detail)) return // L11: a self-declared run has no actions (Q4 = C).
     for (const t of detail.tasks) {
       const runId = t.runId
       const ended = runEnded(t)
@@ -294,6 +294,8 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
   const authorName = mine ? 'you' : d.agent.authorProfile?.displayName ?? (d.agent.authorProfile?.username ? `@${d.agent.authorProfile.username}` : d.agent.authorWallet ? middle(d.agent.authorWallet, 4, 4) : null)
   const modelLabel = typeof d.model === 'string' ? d.model : (modelLabels[d.model.id] ?? d.model.id)
   const repoShort = d.agent.repo ? d.agent.repo.split('/').pop() : null
+  // L11 (0021): a result the owner uploaded with `tma upload`. TMA did not run, grade or attest it; no actions, no artifact.
+  const selfDeclared = isSelfDeclared(d)
 
   // Error banner: a timed-out run (INVALID) or a platform fault after the free retry.
   const timedOut = d.tasks.find((t) => t.stage === 'timed_out')
@@ -335,7 +337,7 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
   const totalCost = Object.values(runs).reduce((a, r) => a + (r.modelCostUsd ?? 0), 0)
 
   return (
-    <main className="tma-page tma-page--flow re-page" data-testid="running-evaluation-page" data-ui-state={ui}>
+    <main className="tma-page tma-page--flow re-page" data-testid="running-evaluation-page" data-ui-state={ui} data-origin={d.resultOrigin ?? 'hosted'}>
       <div className="re-head">
         <Breadcrumb items={[{ label: 'Agents', to: '/agents' }, { label: d.agent.name, to: agentLink }, { label: 'Evaluation' }]} />
         <div className="re-head__row">
@@ -346,6 +348,7 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
                 <span className="tma-badge__dot" />
                 {badge.label}
               </span>
+              {selfDeclared && <SelfDeclaredBadge testId="evaluation-self-declared" />}
             </div>
             <span className="re-mono re-muted" data-testid="evaluation-meta">
               {d.shortId.startsWith('ev_') ? d.shortId : `ev_${d.shortId}`} · {d.agent.name} {commit} · {d.taskCount} task{d.taskCount === 1 ? '' : 's'}
@@ -437,6 +440,7 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
           Platform fault on “{retrying.name}”. A free retry is queued. No charge.
         </div>
       )}
+      {selfDeclared && <SelfDeclaredNote />}
       {d.status === 'graded' && (
         <div className="re-note re-note--ok" data-testid="graded-banner">
           <span>
@@ -516,7 +520,7 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
           )}
         </div>
 
-        <div className="re-card re-card--log">
+        {!selfDeclared && <div className="re-card re-card--log">
           <div className="re-card__head re-card__head--log">
             <span className="tma-label">Event log</span>
             <span className="re-mono re-subtle">UTC</span>
@@ -540,10 +544,10 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
               </div>
             ))}
           </div>
-        </div>
+        </div>}
       </div>
 
-      {terminal && (
+      {terminal && !selfDeclared && (
         <section className="re-artifacts" data-testid="artifacts-results">
           <div className="re-card__head"><div><span className="tma-label">ARTIFACTS AND RESULTS</span><h2 className="tma-h2">Stored run evidence</h2></div><span className="re-mono re-muted">Owner access</span></div>
           {d.tasks.map((t) => <ArtifactResult key={t.runId} task={t} run={runs[t.runId]} />)}
