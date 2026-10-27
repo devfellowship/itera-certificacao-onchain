@@ -4,21 +4,47 @@ The runner executes ONE agent on ONE benchmark scenario, records each tool call,
 
 ## Step 1: the local CLI (`tma`)
 
-`tma` runs the same sandbox, gateway and grader as the hosted worker on your machine, with YOUR model key. Only numbers leave the machine: `result.json` is `tma-local-result/1` (no actions, no patch, no stdout, no key). Send it with `tma upload`.
+`tma` runs the same sandbox, gateway and grader as the hosted worker on your machine, with YOUR model key. Only numbers leave the machine: `result.json` is `tma-local-result/1` (no actions, no patch, no stdout, no key). Send it with `tma upload`. The result shows on TestMyAgent with a **Self-declared** badge: "Run on the owner's machine. TestMyAgent did not run or verify it."
+
+**You need:** Linux or macOS with `git`, Node 22 or later, and a Docker CLI that can reach a Docker daemon (`docker version` shows a server). `tma grade` and `tma run` need Docker; the other commands do not. The CLI moves files in and out of its containers with `docker cp` (no bind mount), so it also works inside a container that has the host socket (`-v /var/run/docker.sock:/var/run/docker.sock`). Disk: about 50 MB for the install and about 700 MB for the sandbox image.
 
 ```bash
+# 0. once: get the runner (the runner and evaluator workspaces only: about 10 s, 50 MB)
+git clone --depth 1 https://github.com/devfellowship/itera-certificacao-onchain
+cd itera-certificacao-onchain
+npm ci --omit=dev --no-audit --no-fund -w @itera/runner -w @itera/evaluator
 cd services/runner
-npx tsx src/cli/tma.ts tasks                          # the curated tasks of this runner, offline
-npx tsx src/cli/tma.ts workspace --task tsk_webhook_dup --dest ./ws      # public workspace + INSTRUCTION.md, no Docker
-# ... edit ./ws with your own harness, then:
-npx tsx src/cli/tma.ts grade --task tsk_webhook_dup --workspace ./ws --agent <agent id> --model qwen/qwen3-coder --wall-s 120 --cost-usd 0.05 --out result.json
-# or let opencode do it in the sandbox:
-docker build -t itera-runner-sandbox:latest sandbox                      # once; or set ITERA_SANDBOX_IMAGE
-export OPENROUTER_API_KEY=...                                            # YOUR key (OPENCODE_GO_API_KEY for opencode-go/<model>)
-npx tsx src/cli/tma.ts run --task tsk_webhook_dup --agent <agent id> --agent-dir examples/sample-agent --model qwen/qwen3-coder --repeat 3 --out result.json
+alias tma="npx tsx $PWD/src/cli/tma.ts"       # or: npm run tma -- <command>
+
+# 1. once: sign in, and create the agent that your results belong to
+tma login                     # prints a code and a URL: open the URL, sign in with DFL, check the code, click Allow
+tma agent create --name "my-harness" --model deepseek/deepseek-v4.1-flash   # prints the agent id
+tma tasks                     # the curated tasks of this runner (slug and version), offline
+
+# 2a. your own harness: TMA writes the workspace, your harness edits it, TMA grades it
+tma workspace --task tsk_webhook_dup --dest ./ws                    # public files + INSTRUCTION.md; no hidden tests; no Docker
+my-harness --dir ./ws "$(cat ./ws/INSTRUCTION.md)"                  # anything you want; only src/** is graded
+tma grade --task tsk_webhook_dup --workspace ./ws --agent <agent id> --model deepseek/deepseek-v4.1-flash \
+    --wall-s 120 --cost-usd 0.05 --out result.json                  # --wall-s and --cost-usd: what your harness spent
+
+# 2b. or let opencode do it in the TMA sandbox, with YOUR key
+export OPENROUTER_API_KEY=...                                       # YOUR key (OPENCODE_GO_API_KEY for opencode-go/<model>)
+tma run --task tsk_webhook_dup --agent <agent id> --agent-dir examples/sample-agent \
+    --model deepseek/deepseek-v4.1-flash --repeat 3 --out result.json
+
+# 3. send the numbers
+tma upload result.json --dry-run      # prints exactly the body that upload sends, and asks the API if it is valid
+tma upload result.json                # inserted | updated | unchanged, the evaluation id and its URL
 ```
 
-`--task-dir <folder>` selects a private task folder on your disk instead (it never leaves the machine; only its digests go into the result). `grade` and `run` need Docker. MCP tasks run hosted only. The patch, the actions and the evidence manifest go to `./tma-runs/<run-id>/`, for you only. `src/run-once.ts` is an alias of `tma run` (`--scenario` works as `--task`).
+What to expect:
+
+- **`tma login`** prints `https://testmyagent.devfellowship.com/cli?code=ABCD-EFGH`. Open it on any device, sign in with DFL, check that the page shows the same code, and click **Allow**. The CLI then stores a 24 h session in `~/.config/tma/session.json` (mode 600; `TMA_CONFIG_DIR` changes the folder). The code expires after 10 minutes. `tma logout` revokes the session.
+- **The sandbox image** is built by the CLI the first time that `grade` or `run` needs it (about 1 minute). Its tag is `itera-runner-sandbox:<hash of sandbox/>`, so a change to `sandbox/` builds a new one. Set `ITERA_SANDBOX_IMAGE` to use an image that you built or pulled.
+- **`grade` and `run`** print one row per run (status, score, the five score parts, wall time, cost, cost source, error) and the mean. Upload the same file again and the API answers `unchanged`; it does not add a second row. One agent, one task and one model make ONE evaluation: a new result for the same three (for example a `run` after a `grade`) answers `updated` and replaces the numbers. Use a second agent to keep both.
+- **A run that ends with `0 tool calls` and error `timeout`** usually means that the model API refused the calls (a wrong model id, a bad key, or a spent quota). Check your key and your quota with the provider, then run again.
+
+`--task-dir <folder>` selects a private task folder on your disk instead of `--task` (it never leaves the machine; only its digests go into the result). MCP tasks run hosted only. The patch, the actions and the evidence manifest go to `./tma-runs/<run-id>/`, for you only. `src/run-once.ts` is an alias of `tma run` (`--scenario` works as `--task`). An agent that has the learn MCP can upload without `tma login`: the MCP tool `create_tma_local_result` takes the same file.
 
 ## What one run does
 
