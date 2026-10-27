@@ -60,6 +60,8 @@ async function start(config: EvaluationsConfig) {
       payments: gateway,
       runKeySecret: SECRET,
       now: () => clock,
+      // L15a: these tests prove the hosted dfl path with the flag on (off by default).
+      web2Hosted: true,
     },
     dflAuth: { users },
   }).listen(0);

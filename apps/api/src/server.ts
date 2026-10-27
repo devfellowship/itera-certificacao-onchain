@@ -22,6 +22,7 @@ import { createEvaluationIssuer } from "./evaluations/issuer.js";
 import { openRouterPrices } from "./domain/model-prices.js";
 import { createOpenRouterKeyProbe } from "./models/openrouter-key.js";
 import { platformKeyConfigFromEnv } from "./models/platform-key.js";
+import { web2HostedEnabledFromEnv } from "./evaluations/web2-hosted-gate.js";
 import { solUsdProvider } from "./evaluations/price.js";
 import { SolanaPayGateway } from "./payments/adapters/solana-pay-gateway.js";
 import { PgEvaluationsStore } from "./evaluations/store.pg.js";
@@ -98,6 +99,10 @@ createApp(repo, {
     probeModelKey: createOpenRouterKeyProbe(),
     platformKey: platformKeyConfigFromEnv(),
     modelPrice: modelPrices,
+    // L15a: web2 = ingested only for now. TMA_WEB2_HOSTED_ENABLED=true (default false) turns the hosted
+    // dfl path back on; off → 403 hosted_not_available_web2 on the three start routes.
+    web2Hosted: web2HostedEnabledFromEnv(),
+    web2BaseUrl: process.env.TMA_WEB2_BASE_URL,
   },
   // U14: public evaluation profile (needs 0008).
   publicProfiles: new PgPublicProfilesStore(getPool()),

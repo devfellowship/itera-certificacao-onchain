@@ -86,7 +86,8 @@ describe("evaluation routes by principal kind", () => {
     store.versions.push({ id: randomUUID(), agentId, commitSha: "9f2c1ab0".padEnd(40, "0") });
     store.tasks.push({ taskId: "webhook-ledger", taskVersionId: null, slug: "webhook-ledger", name: "Webhook ledger", packId: "webhook-ledger", packVersion: "1", isPublic: true, runnable: true });
     server = createApp(new FakeRepository(), {
-      evaluations: { store, config, price: async () => ({ solUsdRate: 100, priceSource: "pyth", publishedAt: new Date().toISOString() }), payments: gateway, runKeySecret: "k".repeat(48) },
+      // L15a: web2Hosted on, so the dfl adapter tests keep proving the free path (off by default).
+      evaluations: { store, config, price: async () => ({ solUsdRate: 100, priceSource: "pyth", publishedAt: new Date().toISOString() }), payments: gateway, runKeySecret: "k".repeat(48), web2Hosted: true },
     }).listen(0);
     await new Promise<void>((r) => server.once("listening", r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

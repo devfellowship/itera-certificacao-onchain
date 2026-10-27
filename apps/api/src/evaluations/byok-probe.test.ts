@@ -84,6 +84,8 @@ async function start(openrouter: typeof fetch, platformKey: PlatformKeyConfig = 
       probeModelKey: createOpenRouterKeyProbe({ fetchFn: openrouter }),
       platformKey,
       modelPrice: prices,
+      // L15a: these tests prove the hosted dfl path with the flag on (off by default).
+      web2Hosted: true,
     },
     modelsAccess: { probe: { fetchFn: openrouter } },
   }).listen(0);

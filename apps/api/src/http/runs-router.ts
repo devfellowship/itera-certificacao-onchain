@@ -16,6 +16,7 @@ import {
 } from "../domain/runs-store.js";
 import { encryptRunKey } from "../domain/run-key.js";
 import { openRouterPrices, type PriceLookup } from "../domain/model-prices.js";
+import { HOSTED_NOT_AVAILABLE_WEB2_MESSAGE, LOCAL_RUNNER_STEPS, SELF_DECLARED_ROUTE } from "../evaluations/web2-hosted-gate.js";
 import { optionalWallet, requireWallet } from "./auth.js";
 import { sanitizeActionTarget, sanitizeToolName } from "./run-actions.js";
 
@@ -41,14 +42,16 @@ const LIST_LIMIT = 50;
 /**
  * Body of the 410 that `POST /runs` answers to a `dfl` principal (T6, ADR-4 of plan
  * 20261023-tma-tools-on-learn-mcp). The legacy route has only a per-wallet daily cap and an optional
- * key: a run with no key spends ITERA's platform key. The free path (`POST /evaluations`) carries the
- * controls (BYOK required unless TMA_PLATFORM_KEY_ENABLED, 10 runs per day, 3 queued, advisory lock).
+ * key: a run with no key spends ITERA's platform key. Since L15a (web2 = ingested only, Tainan TG 23889)
+ * the hosted start routes (`POST /evaluations*`) refuse a `dfl` principal too, so the pointer goes to the
+ * local runner and `POST /self-declared-results` (evaluations/web2-hosted-gate.ts). The status and the
+ * `code` stay as they were: clients may key on them.
  */
 export const LEGACY_RUNS_GONE_FOR_DFL = {
   error: "gone",
   code: "legacy_runs_retired_for_dfl",
-  message: "POST /runs is retired for DFL sessions. Start a run with POST /evaluations/quote, then POST /evaluations.",
-  replacement: { quote: "POST /evaluations/quote", create: "POST /evaluations" },
+  message: `POST /runs is retired for DFL sessions. ${HOSTED_NOT_AVAILABLE_WEB2_MESSAGE}`,
+  replacement: { localRunner: { steps: [...LOCAL_RUNNER_STEPS] }, selfDeclared: SELF_DECLARED_ROUTE },
 } as const;
 /** Page size of GET /runs/:id/actions. */
 export const ACTIONS_PAGE_LIMIT = 200;
@@ -264,8 +267,9 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
     requireWallet,
     handle(async (req, res) => {
       // T6 (plan 20261023-tma-tools-on-learn-mcp, ADR-4): a run with no key spends ITERA's platform key
-      // (services/runner/src/worker.ts), and this route has none of the free-path controls. A `dfl`
-      // principal starts runs only through POST /evaluations. Refused before any read or write.
+      // (services/runner/src/worker.ts), and this route has none of the free-path controls. Since L15a a
+      // `dfl` principal runs locally (tma) and sends the result to POST /self-declared-results. Refused
+      // before any read or write.
       if (req.principal?.kind === "dfl") {
         res.status(410).json(LEGACY_RUNS_GONE_FOR_DFL);
         return;
