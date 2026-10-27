@@ -1,8 +1,13 @@
 name: web2 e2e (prod)
 
 # Browser e2e of the web2 client against the DEPLOYED site (T13, plan 20261015-testmyagent-web2-client).
-#   login.spec.ts     Login with DFL through the federation handoff (V5)
-#   free-run.spec.ts  one free BYOK run reaches `graded` and shows a score (V6)
+#   login.spec.ts              Login with DFL through the federation handoff (V5)
+#   free-run.spec.ts           one free BYOK run reaches `graded` and shows a score (V6). SKIPPED unless
+#                              E2E_WEB2_HOSTED=true: web2 = ingested only for now (Tainan TG 23889, plan TMA L15),
+#                              the API refuses a hosted start for a Login with DFL session.
+#   local-runner-hint.spec.ts  /evaluate shows the local-runner hint and no key input (L15b). Writes no data.
+#   local-agent.spec.ts        the "New local agent" form, never submitted (L11)
+#   evaluation-review.spec.ts, run-artifacts.spec.ts, task-tabs.spec.ts  read-only checks of existing pages
 #
 # SECURITY: the repo is PUBLIC and this job reads secrets (the DFL smoke user and a capped OpenRouter key).
 # So it never runs on `pull_request`. Triggers: push to main (web2 e2e files only), nightly, manual.
@@ -103,7 +108,7 @@ jobs:
             sleep "$POLL_SECONDS"
           done
 
-      - name: Run login.spec and free-run.spec
+      - name: Run the specs (see the list at the top)
         env:
           E2E_DFL_EMAIL: ${{ secrets.CLAUDE_SMOKE_USERNAME }}
           E2E_DFL_PASSWORD: ${{ secrets.CLAUDE_SMOKE_PASSWORD }}

@@ -11,6 +11,13 @@ export const API_URL = trimSlash(import.meta.env.VITE_TMA_API_URL || DEFAULT_API
 /** Base URL of the DFL federate endpoint (no query string). */
 export const DFL_FEDERATE_URL = import.meta.env.VITE_DFL_FEDERATE_URL || DEFAULT_FEDERATE_URL
 
+/**
+ * Hosted runs (POST /evaluations with your OpenRouter key) from this client.
+ * web2 = ingested only for now (Tainan TG 23889). The API flag is TMA_WEB2_HOSTED_ENABLED; turn both on together.
+ * Off (the default): every hosted-start surface shows the local-runner hint (`tma run` + `tma upload`) instead.
+ */
+export const HOSTED_RUNS_ENABLED = import.meta.env.VITE_TMA_WEB2_HOSTED === 'true'
+
 /** Route of this app that receives the DFL redirect (`pages/DflCallbackPage.tsx`). */
 export const DFL_CALLBACK_PATH = '/auth/dfl/callback'
 

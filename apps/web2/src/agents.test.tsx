@@ -10,6 +10,9 @@ import { AgentsPage } from './pages/AgentsPage'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+// L15b: the hosted path is dormant in prod (web2 = ingested only, Tainan TG 23889). This file tests it with the switch ON.
+vi.mock('./config', async (importOriginal) => ({ ...(await importOriginal<typeof import('./config')>()), HOSTED_RUNS_ENABLED: true }))
+
 let root: Root | undefined
 beforeEach(() => {
   ;(['log', 'info', 'warn', 'error', 'debug'] as const).forEach((m) => vi.spyOn(console, m).mockImplementation(() => {}))

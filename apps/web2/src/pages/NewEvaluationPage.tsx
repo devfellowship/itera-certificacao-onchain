@@ -6,8 +6,10 @@
  * body. It is never logged, never stored, and never shown.
  */
 import { useEffect, useId, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
+import { HOSTED_RUNS_ENABLED } from '../config'
+import { LocalRunnerHint, firstTaskSlugOf } from '../tma/ui'
 import { api, type Agent, type Model, type Task } from '../lib/web2-api'
 import { apiErrorMessage } from '../lib/errors'
 import { ModelKeyField } from '../models/ModelKeyField'
@@ -26,8 +28,22 @@ interface Loaded {
 export function NewEvaluationPage() {
   return (
     <RequireLogin what="start an evaluation">
-      <NewEvaluationForm />
+      {HOSTED_RUNS_ENABLED ? <NewEvaluationForm /> : <NewEvaluationLocalHint />}
     </RequireLogin>
+  )
+}
+
+/**
+ * L15b, web2 = ingested only (Tainan TG 23889): no form, no key input, no POST /evaluations. The page keeps
+ * its title so an old link lands here; `?tasks=<slug>` (a task profile CTA) fills the `tma run --task` line.
+ */
+function NewEvaluationLocalHint() {
+  const [params] = useSearchParams()
+  return (
+    <main className="w2-shell w2-wide">
+      <h1>New evaluation</h1>
+      <LocalRunnerHint taskSlug={firstTaskSlugOf(params.get('tasks'))} />
+    </main>
   )
 }
 

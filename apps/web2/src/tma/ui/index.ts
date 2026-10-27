@@ -14,5 +14,7 @@ export { routeOf, routeOfAgent, DEFAULT_ROUTE, ROUTES, type ModelRoute } from '.
 export { AgentAvatar, AgentTileArt, type AgentAvatarSize, type AgentAvatarAuthor } from './AgentAvatar'
 export { Logo, Lockup } from './Logo'
 export { Modal } from './Modal'
+export { TmaCliSteps, type TmaCliAgent } from './TmaCliSteps'
+export { LocalRunnerHint, LOCAL_RUNNER_HINT_ID, LOCAL_RUNNER_HINT_HASH, LOCAL_RUNNER_HINT_TITLE, LOCAL_RUNNER_HINT_TEXT, NEW_LOCAL_AGENT_PATH, firstTaskSlugOf, type LocalRunnerHintProps } from './LocalRunnerHint'
 export * from './icons'
 export { middle, formatSol, formatUsd } from './format'

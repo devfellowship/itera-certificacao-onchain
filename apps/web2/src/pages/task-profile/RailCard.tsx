@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useSession } from '../../auth/session'
+import { HOSTED_RUNS_ENABLED } from '../../config'
 import { api } from '../../lib/api'
 import type { Agent, TaskCompatibility, TaskProfile } from '../../lib/api/types'
 import { Badge, Button, ButtonLink, Select } from '../../tma/ui'
@@ -16,7 +17,8 @@ function useRunAction(task: TaskProfile) {
   const session = useSession()
   const navigate = useNavigate()
   const [wantRun, setWantRun] = useState(false)
-  const target = `/agents?tasks=${encodeURIComponent(task.slug)}`
+  // L15b: with hosted runs off (web2 = ingested only, Tainan TG 23889) the CTA opens the local-runner hint for this task.
+  const target = HOSTED_RUNS_ENABLED ? `/agents?tasks=${encodeURIComponent(task.slug)}` : `/evaluate?tasks=${encodeURIComponent(task.slug)}`
   useEffect(() => {
     if (wantRun && session.status === 'signed-in') navigate(target)
   }, [wantRun, session.status, navigate, target])
@@ -159,7 +161,7 @@ export function RailCard({ task }: { task: TaskProfile }) {
           <span className="tp-rail__usd" data-testid="price">
             Free
           </span>
-          <span className="tma-body-sm tma-muted">Free · your OpenRouter key</span>
+          <span className="tma-body-sm tma-muted">{HOSTED_RUNS_ENABLED ? 'Free · your OpenRouter key' : 'Free · on your machine with the tma local runner'}</span>
         </div>
         <div className="tp-rail__time">
           <span className="tma-label">Estimated time</span>

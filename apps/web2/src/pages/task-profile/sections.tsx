@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import type { McpServerView, TaskProfile, TaskResults } from '../../lib/api/types'
 import { Badge, Button, ButtonLink, ModelLabel, Segmented, StatusChip, TagPill, middle } from '../../tma/ui'
+import { HOSTED_RUNS_ENABLED } from '../../config'
 import { copyText, fmtDate, fmtDuration, fmtMemory, fmtScore, useFlash } from './helpers'
 
 function Section({ id, title, children, aside }: { id: string; title: string; children: ReactNode; aside?: ReactNode }) {
@@ -489,9 +490,10 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function RunLink({ task }: { task: TaskProfile }) {
+  // L15b: with hosted runs off (web2 = ingested only, Tainan TG 23889) the link opens the local-runner hint for this task.
   return task.runnable ? (
-    <ButtonLink href={`/agents?tasks=${encodeURIComponent(task.slug)}`} variant="primary" size={36}>
-      Be the first to evaluate an agent
+    <ButtonLink href={HOSTED_RUNS_ENABLED ? `/agents?tasks=${encodeURIComponent(task.slug)}` : `/evaluate?tasks=${encodeURIComponent(task.slug)}`} variant="primary" size={36}>
+      {HOSTED_RUNS_ENABLED ? 'Be the first to evaluate an agent' : 'Run your agent on this task'}
     </ButtonLink>
   ) : (
     <Button variant="secondary" size={36} disabled>

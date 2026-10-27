@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
+import { HOSTED_RUNS_ENABLED } from '../config'
 import type { EvaluationDetail as ApiEvaluationDetail, EvaluationStatus, EvaluationUiState, Run, Task, TaskProfile } from '../lib/api'
 import { TaskName, useTaskCatalog } from '../tma/task-filter'
 import { AgentAvatar, Breadcrumb, ButtonLink, ModelLabel, SelfDeclaredBadge, SelfDeclaredNote, isSelfDeclared, middle } from '../tma/ui'
@@ -363,7 +364,8 @@ export function RunningEvaluationPage({ pollMs = POLL_MS }: { pollMs?: number })
   // L14b: at the end the title is the agent, the subtitle names the tasks, the source and the score version.
   const source = sourceOf(d)
   const firstRun = d.tasks[0] ? runs[d.tasks[0].runId] : undefined
-  const rerunHref = terminal && source === 'run here' && d.agent.id ? `/agents/${encodeURIComponent(d.agent.id)}/evaluate` : null
+  // L15b: no Re-run while web2 = ingested only (Tainan TG 23889); the API would refuse the start.
+  const rerunHref = HOSTED_RUNS_ENABLED && terminal && source === 'run here' && d.agent.id ? `/agents/${encodeURIComponent(d.agent.id)}/evaluate` : null
 
   // The live layout pieces, placed by both layouts (L14b).
   const stageTracker = (

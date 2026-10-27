@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
+import { HOSTED_RUNS_ENABLED } from '../config'
 import { Breadcrumb, Button, Card, Field, Input, KeyValue, RadioCard, Stepper } from '../tma/ui'
 import { AgentFilesPanel } from './add-agent/AgentFilesPanel'
 import { describeError } from './add-agent/errors'
@@ -124,7 +125,8 @@ function GithubAgentPage({ picker }: { picker: ReactNode }) {
         // Best effort: a failed picture never blocks the agent; the owner can retry later.
         await api.uploadAgentAvatar(agent.id, picture.blob, 'agent.png').catch(() => undefined)
       }
-      navigate(`/agents/${encodeURIComponent(agent.id)}/evaluate`)
+      // L15b: with hosted runs off (web2 = ingested only, Tainan TG 23889) the next step is the agent page, not a run.
+      navigate(HOSTED_RUNS_ENABLED ? `/agents/${encodeURIComponent(agent.id)}/evaluate` : `/agents/${encodeURIComponent(agent.id)}`)
     } catch (e) {
       setSaveError(describeError(e, 'Could not save the agent. Try again.'))
       setSaving(false)

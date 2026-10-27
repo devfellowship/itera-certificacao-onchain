@@ -10,7 +10,8 @@ import { Link, useParams } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { ApiError, api } from '../lib/api'
 import type { Agent, AgentEvidenceRow, AgentProfileResponse, MyResultRow } from '../lib/api'
-import { AgentAvatar, Badge, Breadcrumb, Button, ButtonLink, Card, Input, ModelLabel, routeOf, TagPill, Table, TableEmpty, isLocalAgent, type Column } from '../tma/ui'
+import { AgentAvatar, Badge, Breadcrumb, Button, ButtonLink, Card, Input, LOCAL_RUNNER_HINT_HASH, LocalRunnerHint, ModelLabel, routeOf, TagPill, Table, TableEmpty, isLocalAgent, type Column } from '../tma/ui'
+import { HOSTED_RUNS_ENABLED } from '../config'
 import { LocalAgentView } from './agent-detail/LocalAgentView'
 import { TaskName } from '../tma/task-filter'
 import { AvatarCropper, renderCrop, type CropState } from './profile-settings/AvatarCropper'
@@ -182,7 +183,8 @@ function Ready({ profile, signedIn, onConnect, onChanged }: { profile: AgentProf
   const { agent, source, model, stats, tags, evidence, latestAttestation } = profile
   const age = relativeAge(stats.lastVerifiedAt)
   // Screen 03 reads GET /agents/:id and posts the quote with the agent id; the slug would answer 404 "Agent not found".
-  const chooseHref = `/agents/${encodeURIComponent(agent.id)}/evaluate`
+  // L15b: while web2 = ingested only (Tainan TG 23889) every "choose tasks" link points at the local-runner hint on this page.
+  const chooseHref = HOSTED_RUNS_ENABLED ? `/agents/${encodeURIComponent(agent.id)}/evaluate` : LOCAL_RUNNER_HINT_HASH
 
   return (
     <main className="tma-page tad" data-testid="agent-detail" data-agent={agent.id}>
@@ -283,7 +285,13 @@ function Ready({ profile, signedIn, onConnect, onChanged }: { profile: AgentProf
               testId="evidence-table"
               empty={
                 <TableEmpty title="No public evidence yet">
-                  <span className="tad-empty-text">{agent.isMine ? 'Run this agent on public tasks. Each graded evaluation adds its results here.' : 'This agent has no graded evaluation on a public task.'}</span>
+                  <span className="tad-empty-text">
+                    {!agent.isMine
+                      ? 'This agent has no graded evaluation on a public task.'
+                      : HOSTED_RUNS_ENABLED
+                        ? 'Run this agent on public tasks. Each graded evaluation adds its results here.'
+                        : 'Hosted runs are off for a DFL login for now. Run a task on your machine with the tma local runner and upload the result; it shows as self-declared, visible only to you.'}
+                  </span>
                   {agent.isMine && (
                     <Link to={chooseHref} className="tma-body-sm">
                       Choose tasks →
@@ -310,16 +318,20 @@ function Ready({ profile, signedIn, onConnect, onChanged }: { profile: AgentProf
             </ButtonLink>
           )}
 
-          <Card pad className="tad-run" data-testid="run-card">
-            <span className="tad-run__title">Run {agent.name} on your tasks</span>
-            <span className="tad-run__text">
-              Pick any public or private task.{' '}
-              Free. Bring your own OpenRouter key.
-            </span>
-            <ButtonLink variant="primary" href={chooseHref} data-testid="choose-tasks">
-              Choose tasks
-            </ButtonLink>
-          </Card>
+          {HOSTED_RUNS_ENABLED ? (
+            <Card pad className="tad-run" data-testid="run-card">
+              <span className="tad-run__title">Run {agent.name} on your tasks</span>
+              <span className="tad-run__text">
+                Pick any public or private task.{' '}
+                Free. Bring your own OpenRouter key.
+              </span>
+              <ButtonLink variant="primary" href={chooseHref} data-testid="choose-tasks">
+                Choose tasks
+              </ButtonLink>
+            </Card>
+          ) : (
+            <LocalRunnerHint />
+          )}
 
           {profile.badge && <BadgeCard profile={profile} />}
         </aside>
