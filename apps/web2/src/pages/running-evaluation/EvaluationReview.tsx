@@ -19,6 +19,40 @@ export interface EvaluationReviewProps {
   runs: Record<string, Run>
   /** By task slug. `null` = the task is private or unknown (404): the rows that need it are omitted. */
   profiles: Record<string, TaskProfile | null>
+  /** L18: by run id, a run record that did not load (an HTTP error, a network error or the time limit). */
+  runErrors?: Record<string, RunLoadError>
+  /** L18: read the run record again. */
+  onRetryRun?: (runId: string) => void
+}
+
+/** A run record that did not load. `status` 0 = no HTTP answer (network error or the time limit). */
+export interface RunLoadError {
+  status: number
+  message: string
+  timedOut?: boolean
+}
+
+/** L18: the text of a run record that did not load. A missing record is never shown as "loading". */
+export function runErrorText(e: RunLoadError): string {
+  if (e.timedOut) return `The run record did not answer in time. ${e.message}`
+  if (e.status === 404) return 'The run record was not found (404). It was deleted, or this account cannot read it.'
+  if (e.status === 0) return `The run record did not load: ${e.message}`
+  return `The run record did not load (HTTP ${e.status}): ${e.message}`
+}
+
+/** L18: the error state of a section whose run record did not load, with a retry. */
+export function RunLoadErrorNote({ error, testId, onRetry }: { error: RunLoadError; testId: string; onRetry?: () => void }) {
+  return (
+    <div className="ev-empty" role="alert" data-testid={testId} data-status={error.status}>
+      <strong>Run record not available</strong>
+      <span className="ev-dim">{runErrorText(error)}</span>
+      {onRetry && (
+        <button type="button" className="ev-text-btn" onClick={onRetry} data-testid={`${testId}-retry`}>
+          Try again
+        </button>
+      )}
+    </div>
+  )
 }
 
 /** `?item={seq}` → the current nav item; an unknown value gives the first. */
@@ -44,7 +78,7 @@ function isTyping(target: EventTarget | null): boolean {
   return ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable === true
 }
 
-export function EvaluationReview({ detail: d, runs, profiles }: EvaluationReviewProps) {
+export function EvaluationReview({ detail: d, runs, profiles, runErrors = {}, onRetryRun }: EvaluationReviewProps) {
   const items = useMemo(() => navItemsOf(d.tasks), [d.tasks])
   const [current, setItem] = useItemParam(items)
   const index = current ? items.findIndex((it) => it.seq === current.seq) : -1
@@ -69,6 +103,8 @@ export function EvaluationReview({ detail: d, runs, profiles }: EvaluationReview
 
   const task: ReviewTask | undefined = current ? d.tasks.find((t) => t.runId === current.runId) : undefined
   const run = task ? runs[task.runId] : undefined
+  const runError = task && !run ? runErrors[task.runId] : undefined
+  const onRetry = task && onRetryRun ? () => onRetryRun(task.runId) : undefined
   const profile = task ? profiles[task.slug] : undefined
   const [showAllPublic, setShowAllPublic] = useState(false)
   const { rows, publicCollapsed } = useMemo(() => compareRows({ run, taskScore: task?.score, durationMs: task?.durationMs ?? run?.durationMs, profile, showAllPublic }), [run, task, profile, showAllPublic])
@@ -78,8 +114,8 @@ export function EvaluationReview({ detail: d, runs, profiles }: EvaluationReview
   return (
     <section className="ev" data-testid="evaluation-review" data-source={source}>
       <ScoreHeader detail={d} rows={rows} items={items} current={current} onSelect={setItem} />
-      <CompareCard task={task} run={run} profile={profile} rows={rows} publicCollapsed={publicCollapsed} onShowAll={() => setShowAllPublic(true)} prev={prev} next={next} onSelect={setItem} view={view} onView={setView} />
-      <ArtifactsCard eid={d.id} task={task} run={run} source={source} onGraderReport={() => setView('json')} />
+      <CompareCard task={task} run={run} runError={runError} onRetry={onRetry} profile={profile} rows={rows} publicCollapsed={publicCollapsed} onShowAll={() => setShowAllPublic(true)} prev={prev} next={next} onSelect={setItem} view={view} onView={setView} />
+      <ArtifactsCard eid={d.id} task={task} run={run} runError={runError} onRetry={onRetry} source={source} onGraderReport={() => setView('json')} />
     </section>
   )
 }
@@ -151,7 +187,7 @@ function ItemNavigator({ items, current, onSelect }: { items: NavItem[]; current
   )
 }
 
-function CompareCard({ task, run, profile, rows, publicCollapsed, onShowAll, prev, next, onSelect, view, onView }: { task: ReviewTask | undefined; run: Run | undefined; profile: TaskProfile | null | undefined; rows: CompareRow[]; publicCollapsed: number; onShowAll: () => void; prev: NavItem | null; next: NavItem | null; onSelect: (seq: number) => void; view: 'fields' | 'json'; onView: (v: 'fields' | 'json') => void }) {
+function CompareCard({ task, run, runError, onRetry, profile, rows, publicCollapsed, onShowAll, prev, next, onSelect, view, onView }: { task: ReviewTask | undefined; run: Run | undefined; runError: RunLoadError | undefined; onRetry: (() => void) | undefined; profile: TaskProfile | null | undefined; rows: CompareRow[]; publicCollapsed: number; onShowAll: () => void; prev: NavItem | null; next: NavItem | null; onSelect: (seq: number) => void; view: 'fields' | 'json'; onView: (v: 'fields' | 'json') => void }) {
   const score = task?.score ?? run?.scoreTotal ?? null
   const input = inputPreview(profile?.input?.instruction?.text)
   return (
@@ -191,6 +227,8 @@ function CompareCard({ task, run, profile, rows, publicCollapsed, onShowAll, pre
       <div className="ev-card__body">
         {!task ? (
           <p className="ev-dim">No task run in this evaluation.</p>
+        ) : !run && runError ? (
+          <RunLoadErrorNote error={runError} testId="compare-error" onRetry={onRetry} />
         ) : !run ? (
           <p className="ev-dim" aria-busy="true" data-testid="compare-loading">
             Loading the run record…
@@ -249,7 +287,7 @@ function CompareCard({ task, run, profile, rows, publicCollapsed, onShowAll, pre
   )
 }
 
-function ArtifactsCard({ eid, task, run, source, onGraderReport }: { eid: string; task: ReviewTask | undefined; run: Run | undefined; source: 'self-declared' | 'imported' | 'run here'; onGraderReport: () => void }) {
+function ArtifactsCard({ eid, task, run, runError, onRetry, source, onGraderReport }: { eid: string; task: ReviewTask | undefined; run: Run | undefined; runError: RunLoadError | undefined; onRetry: (() => void) | undefined; source: 'self-declared' | 'imported' | 'run here'; onGraderReport: () => void }) {
   const changed = run?.patchScope?.changedFiles ?? []
   const stats = patchStats(run?.patch, changed)
   const hasFiles = source === 'run here' && Boolean(run?.patch || changed.length)
@@ -270,8 +308,10 @@ function ArtifactsCard({ eid, task, run, source, onGraderReport }: { eid: string
         )}
       </div>
       <div className="ev-card__body">
-        {!task ? null : !run ? (
-          <p className="ev-dim" aria-busy="true">
+        {!task ? null : !run && runError ? (
+          <RunLoadErrorNote error={runError} testId="artifacts-error" onRetry={onRetry} />
+        ) : !run ? (
+          <p className="ev-dim" aria-busy="true" data-testid="artifacts-loading">
             Loading the run record…
           </p>
         ) : hasFiles ? (

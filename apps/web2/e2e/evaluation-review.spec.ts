@@ -32,3 +32,29 @@ test('evaluation page: big score, item navigator squares, expected-vs-agent rows
   expect(await rows.count()).toBeGreaterThanOrEqual(1)
   await expect(page.getByTestId('artifacts-card')).toBeVisible()
 })
+
+/**
+ * L18 (task DFL-011CE): a self-declared evaluation (uploaded with `tma upload`, no hosted run) shows its
+ * run sections with data. No section stays on "Loading the run record…" and no section shows the error
+ * state. Control: the first self-declared row of the e2e user; none → skip with a clear message.
+ */
+test('self-declared evaluation page: score, label and run sections load, no endless loading', async ({ page }) => {
+  await loginWithDfl(page)
+  await page.goto('/evaluations')
+  await expectMounted(page)
+  await expect(page.locator('[data-testid="evaluations-list"], [data-testid="evaluations-empty"]').first()).toBeVisible({ timeout: 30_000 })
+
+  const selfDeclared = page.locator('[data-testid="evaluation-row"]').filter({ has: page.locator('[data-origin="self_declared"]') })
+  test.skip((await selfDeclared.count()) === 0, 'this user has no self-declared evaluation')
+
+  await selfDeclared.first().locator('a').first().click()
+  await expect(page).toHaveURL(/\/evaluations\/[0-9a-f-]+/)
+  await expect(page.getByTestId('evaluation-review')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('review-score')).toHaveText(/^\d+(\.\d)?$/)
+  await expect(page.getByTestId('self-declared-note')).toBeVisible()
+
+  await expect(page.locator('[data-testid="compare-row"]').first()).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('artifacts-empty')).toBeVisible()
+  await expect(page.getByText('Loading the run record…')).toHaveCount(0)
+  await expect(page.locator('[data-testid="compare-error"], [data-testid="artifacts-error"]')).toHaveCount(0)
+})
