@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { ARTIFACT_REF_PREFIX, artifactPathOfRef, artifactRef, artifactType } from "@itera/contracts/run-artifacts";
 import { hasSelfDeclaredSchema, hostedOnly } from "./schema-features.js";
 import type { Pool, PoolClient } from "pg";
 import {
@@ -9,6 +11,8 @@ import {
   type ProofRecord,
   type RunActionRow,
   type RunsStore,
+  type StoredArtifact,
+  type StoredArtifactRef,
 } from "./runs-store.js";
 
 const UNDEFINED_TABLE = "42P01";
@@ -61,6 +65,16 @@ function numOrNull(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Raw bytes of a stored artifact from the stored text: the text length for utf-8; for base64 the decoded
+ * length (Buffer.toString('base64') always pads to a multiple of 4; `tail` is the last two characters).
+ */
+export function storedBytes(path: string, storedLength: number, tail: string): number {
+  if (artifactType(path)?.encoding !== "base64") return storedLength;
+  const pad = tail.endsWith("==") ? 2 : tail.endsWith("=") ? 1 : 0;
+  return Math.floor(storedLength / 4) * 3 - pad;
 }
 
 function iso(value: Date | string | null): string | null {
@@ -228,13 +242,60 @@ export class PgRunsStore implements RunsStore {
   }
 
   async getPatch(runId: string): Promise<string | null> {
+    // L17a: the stored outputs share the table (output_artifact_ref 'artifact:<path>'); only the patch row counts here.
     const result = await this.pool.query<{ output_artifact_content: string | null }>(
       `select output_artifact_content from public.observations
        where run_id = $1 and mode = 'observed' and output_artifact_content is not null
+         and (output_artifact_ref is null or output_artifact_ref not like $2)
        order by occurred_at desc limit 1`,
-      [runId],
+      [runId, `${ARTIFACT_REF_PREFIX}%`],
     );
     return result.rows[0]?.output_artifact_content ?? null;
+  }
+
+  async listArtifacts(runId: string): Promise<StoredArtifactRef[]> {
+    try {
+      const result = await this.pool.query<{ ref: string; len: number | string; tail: string; digest: string | null }>(
+        `select output_artifact_ref as ref, octet_length(output_artifact_content) as len,
+                right(output_artifact_content, 2) as tail, response_digest as digest
+           from public.observations
+          where run_id = $1 and mode = 'observed' and output_artifact_content is not null and output_artifact_ref like $2
+          order by output_artifact_ref asc, occurred_at desc`,
+        [runId, `${ARTIFACT_REF_PREFIX}%`],
+      );
+      // One entry per path; the latest row of a path wins (the runner writes each path once).
+      const seen = new Set<string>();
+      const out: StoredArtifactRef[] = [];
+      for (const r of result.rows) {
+        const path = artifactPathOfRef(r.ref);
+        if (path === null || seen.has(path)) continue;
+        seen.add(path);
+        // The runner always writes response_digest; "" only for a row that another writer left without one.
+        out.push({ path, bytes: storedBytes(path, Number(r.len), r.tail ?? ""), sha256: r.digest ?? "" });
+      }
+      return out;
+    } catch (e) {
+      rethrow("0000_baseline.sql (observations)", e);
+    }
+  }
+
+  async getArtifact(runId: string, path: string): Promise<StoredArtifact | null> {
+    try {
+      const result = await this.pool.query<{ content: string; digest: string | null }>(
+        `select output_artifact_content as content, response_digest as digest
+           from public.observations
+          where run_id = $1 and mode = 'observed' and output_artifact_content is not null and output_artifact_ref = $2
+          order by occurred_at desc limit 1`,
+        [runId, artifactRef(path)],
+      );
+      const row = result.rows[0];
+      if (!row) return null;
+      const encoding = artifactType(path)?.encoding ?? "utf-8";
+      const sha256 = row.digest ?? createHash("sha256").update(Buffer.from(row.content, encoding === "base64" ? "base64" : "utf8")).digest("hex");
+      return { path, content: row.content, encoding, sha256 };
+    } catch (e) {
+      rethrow("0000_baseline.sql (observations)", e);
+    }
   }
 
   async countActions(runId: string): Promise<number | null> {

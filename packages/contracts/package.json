@@ -16,6 +16,10 @@
       "types": "./index.d.ts",
       "default": "./tool-environment.js"
     },
+    "./run-artifacts": {
+      "types": "./index.d.ts",
+      "default": "./run-artifacts.js"
+    },
     "./model-catalog": {
       "types": "./model-catalog.d.ts",
       "default": "./model-catalog.js"

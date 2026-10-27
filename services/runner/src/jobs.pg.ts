@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { artifactRef } from '@itera/contracts/run-artifacts';
 import type { McpCatalogRef } from './mcp-sidecar.js';
 import { LOST_RUN_REQUEUED, type AgentFile, type ClaimedRun, type JobStore, type RunJob, type RunOutcome, type RunPhase } from './jobs.js';
 
@@ -104,6 +105,17 @@ export class PgJobStore implements JobStore {
           `insert into public.observations (run_id, output_artifact_ref, output_artifact_content, mode)
            values ($1, 'patch.diff', $2, 'observed')`,
           [runId, outcome.patch],
+        );
+      }
+      // L17a: one observations row per stored artifact, next to the patch row and in the same transaction.
+      // Encoding: @itera/contracts/run-artifacts (ref 'artifact:' + path; content utf-8 or base64; digest = sha256 of the raw bytes).
+      const artifacts = outcome.artifacts ?? [];
+      if (artifacts.length > 0) {
+        await client.query(
+          `insert into public.observations (run_id, output_artifact_ref, output_artifact_content, response_digest, mode)
+           select $1, a.ref, a.content, a.digest, 'observed'
+             from unnest($2::text[], $3::text[], $4::text[]) as a(ref, content, digest)`,
+          [runId, artifacts.map((a) => artifactRef(a.path)), artifacts.map((a) => a.content), artifacts.map((a) => a.sha256)],
         );
       }
       if (outcome.actions.length > 0) {

@@ -14,6 +14,7 @@ import type { ClaimedRun, JobStore, RunOutcome } from './jobs.js';
 import { evalLogOf, finalStatus, rateLimitedFinal, runScore, runnerEvidence, statusError } from './outcome.js';
 import { buildProvenance, taskWallMs, type RunnerFacts } from './provenance.js';
 import { decryptRunKey } from './run-key.js';
+import { buildResultArtifact } from './run-artifacts.js';
 import { modelRoute, type SandboxConfig } from './sandbox.js';
 import { toolEnvironment } from '@itera/contracts';
 import { scenarioDir } from '../../evaluator/src/task.js';
@@ -279,6 +280,18 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
               provenance: provenanceOf(agent, manifest),
             };
           }
+          // L17a: the stored outputs. result.json comes from the FINAL outcome (grading failure included),
+          // then the agent's artifacts. A run that failed before the agent started stores nothing.
+          outcome = {
+            ...outcome!,
+            artifacts: [
+              buildResultArtifact({
+                status: outcome!.status, phase: outcome!.phase, scoreTotal: outcome!.scoreTotal, error: outcome!.error,
+                model: job.model, route, agent, cost: outcome!.cost, skipped: agent.artifactsSkipped, secrets: [modelKey],
+              }),
+              ...agent.artifacts,
+            ],
+          };
         }
       }
     }

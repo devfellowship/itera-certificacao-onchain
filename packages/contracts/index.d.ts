@@ -229,3 +229,61 @@ export {
   isRouteKey,
 } from './model-catalog.js';
 export type { Lab, ModelRoute, ProviderKey } from './model-catalog.js';
+
+// --- Stored outputs of a hosted run (plan TMA L17, task L17a). Shared by the runner (collects and
+// stores) and the API (lists and serves). Module: run-artifacts.js (the header documents the storage).
+
+export type ArtifactKind = 'json' | 'markdown' | 'html' | 'text' | 'image' | 'diff';
+export type ArtifactEncoding = 'utf-8' | 'base64';
+export interface ArtifactTypeEntry {
+  contentType: string;
+  kind: ArtifactKind;
+  encoding: ArtifactEncoding;
+}
+/** One stored artifact as the runner hands it to the job store, and as the API reads it back. */
+export interface RunArtifact {
+  /** The stored path: `result.json`, `agent/stderr.txt`, `agent/trace.jsonl`, `files/<workspace path>`. */
+  path: string;
+  /** UTF-8 text, or base64 text for encoding 'base64'. */
+  content: string;
+  encoding: ArtifactEncoding;
+  /** sha256 hex of the raw bytes. */
+  sha256: string;
+  /** Raw bytes. */
+  bytes: number;
+}
+export type ArtifactSkipReason = 'not_allowed' | 'unsafe_path' | 'symlink' | 'not_file' | 'too_large' | 'not_utf8' | 'run_cap' | 'unreadable';
+export interface SkippedArtifact {
+  path: string;
+  reason: ArtifactSkipReason;
+}
+/** `result.json` (format tma-run-result/1): what the worker writes from the final outcome. */
+export interface RunResultArtifact {
+  format: 'tma-run-result/1';
+  status: string;
+  phase: string;
+  scoreTotal: number;
+  error: string | null;
+  model: string | null;
+  route: string | null;
+  agent: { exitCode: number; timedOut: boolean; durationMs: number; errors: string[] } | null;
+  cost: { usd: number; tokensIn: number; tokensOut: number } | null;
+  skipped: SkippedArtifact[];
+}
+
+export declare const RUN_RESULT_FORMAT: 'tma-run-result/1';
+export declare const ARTIFACT_REF_PREFIX: 'artifact:';
+export declare const PATCH_ARTIFACT_PATH: 'patch.diff';
+export declare const PATCH_CONTENT_TYPE: 'text/x-diff';
+export declare const ARTIFACT_MAX_FILE_BYTES: number;
+export declare const ARTIFACT_MAX_RUN_BYTES: number;
+export declare const ARTIFACT_MAX_COUNT: number;
+export declare const ARTIFACT_MAX_PATH_LENGTH: number;
+export declare const ARTIFACT_LIMITS: Readonly<{ maxFileBytes: number; maxRunBytes: number; maxCount: number }>;
+export declare const ARTIFACT_TYPES: Readonly<Record<'json' | 'jsonl' | 'md' | 'markdown' | 'html' | 'htm' | 'txt' | 'log' | 'csv' | 'svg' | 'png' | 'jpg' | 'jpeg' | 'gif' | 'webp', ArtifactTypeEntry>>;
+export declare const REDACTED: '[redacted]';
+export declare function artifactType(path: string): ArtifactTypeEntry | null;
+export declare function isSafeArtifactPath(path: unknown): path is string;
+export declare function artifactRef(path: string): string;
+export declare function artifactPathOfRef(ref: unknown): string | null;
+export declare function redactSecrets(text: string, extra?: readonly string[]): string;

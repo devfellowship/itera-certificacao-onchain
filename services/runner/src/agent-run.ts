@@ -7,6 +7,8 @@ import type { RouteId } from './model-route.js';
 import type { AgentUsage, RunAction } from './types.js';
 import type { CollectedSidecar, McpSidecarPlan } from './mcp-sidecar.js';
 import { diffAgainstBaseline, prepareWorkspace } from './workspace.js';
+import { collectRunArtifacts } from './run-artifacts.js';
+import type { RunArtifact, SkippedArtifact } from '@itera/contracts/run-artifacts';
 
 export interface AgentRunResult {
   scenarioId: string;
@@ -27,6 +29,13 @@ export interface AgentRunResult {
   patch: string;
   /** ADR-11: final state + call log of each MCP sidecar (scored on the worker, never stored raw). */
   mcp?: CollectedSidecar[];
+  /**
+   * L17a: the agent's stored outputs (stderr tail, opencode trace, allowlisted files it added or modified),
+   * collected before the workspace is removed. The worker adds result.json in front.
+   */
+  artifacts: RunArtifact[];
+  /** L17a: what the collector left out, and why (goes into result.json). */
+  artifactsSkipped: SkippedArtifact[];
 }
 
 /** The agent prompt is the task's instruction file (task.json `instruction`, Harbor's instruction.md). */
@@ -67,6 +76,18 @@ export async function runAgent(opts: {
     });
     const trace = parseOpencodeEvents(sandbox.events, (opts.mcp ?? []).map((m) => m.name));
     const patch = await diffAgainstBaseline(ws.dir, outDir);
+    // L17a: the stored outputs, read now, BEFORE the workspace is removed. A collector failure never
+    // fails the run: the outputs are a view for the owner, not evidence.
+    let artifacts: RunArtifact[] = [];
+    let artifactsSkipped: SkippedArtifact[] = [];
+    try {
+      const collected = await collectRunArtifacts({ baselineDir: ws.dir, agentTree: outDir, events: sandbox.events, stderrTail: sandbox.stderrTail, modelKey: opts.modelKey });
+      artifacts = collected.artifacts;
+      artifactsSkipped = collected.skipped;
+    } catch (err) {
+      console.error(JSON.stringify({ at: new Date().toISOString(), event: 'artifacts_failed', runId: opts.runId, error: (err instanceof Error ? err.message : String(err)).slice(0, 300) }));
+      artifactsSkipped = [{ path: 'files', reason: 'unreadable' }];
+    }
     const agentErrors = [...trace.errors];
     if (sandbox.timedOut) agentErrors.push(`agent wall limit reached (${Math.round(opts.config.wallMs / 1000)} s)`);
     else if (sandbox.exitCode !== 0) agentErrors.push(`opencode exited with code ${sandbox.exitCode}`);
@@ -91,6 +112,8 @@ export async function runAgent(opts: {
       agentErrors,
       patch,
       mcp: sandbox.mcp,
+      artifacts,
+      artifactsSkipped,
     };
   } finally {
     await ws.cleanup();

@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isEvidenceManifest, runResult } from "@itera/contracts";
+import { ARTIFACT_LIMITS, PATCH_ARTIFACT_PATH, PATCH_CONTENT_TYPE, artifactType, isSafeArtifactPath, type ArtifactKind } from "@itera/contracts/run-artifacts";
 import { Router, type Request, type Response } from "express";
 import { digestOf } from "../domain/digest.js";
 import type { EvidenceManifest } from "../domain/evidence-manifest.js";
@@ -17,6 +18,7 @@ import {
 import { encryptRunKey } from "../domain/run-key.js";
 import { openRouterPrices, type PriceLookup } from "../domain/model-prices.js";
 import { HOSTED_NOT_AVAILABLE_WEB2_MESSAGE, LOCAL_RUNNER_STEPS, SELF_DECLARED_ROUTE } from "../evaluations/web2-hosted-gate.js";
+import type { RunOriginLookup } from "../self-declared/run-guard.js";
 import { optionalWallet, requireWallet } from "./auth.js";
 import { sanitizeActionTarget, sanitizeToolName } from "./run-actions.js";
 
@@ -70,6 +72,8 @@ export interface RunsRouterDeps {
   runKeySecret?: string;
   /** OpenRouter list prices for GET /models/:id/estimate. Defaults to the public model list. */
   prices?: PriceLookup;
+  /** L17a: tells a self-declared run apart on GET /runs/:id/artifacts (it lists nothing, ADR-1). Absent → every run is hosted. */
+  runOrigins?: RunOriginLookup;
 }
 
 function round6(n: number): number {
@@ -198,6 +202,62 @@ function evidenceView(m: EvidenceManifest) {
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// L17a: the stored outputs of a hosted run (plan TMA L17; Tainan TG 24004). Owner only. The rules
+// (allowlist, path rule, caps, storage encoding) are the shared module @itera/contracts/run-artifacts.
+
+export interface ArtifactListEntry {
+  path: string;
+  contentType: string;
+  kind: ArtifactKind;
+  encoding: "utf-8" | "base64";
+  bytes: number;
+  sha256: string;
+  href: string;
+}
+
+/** Headers of every artifact file answer: never rendered in the API origin, never cached, never sniffed. */
+export const ARTIFACT_FILE_HEADERS = Object.freeze({
+  "X-Content-Type-Options": "nosniff",
+  "Content-Security-Policy": "default-src 'none'; sandbox",
+  "Cache-Control": "private, no-store",
+});
+
+export function artifactHref(runId: string, path: string): string {
+  return `/runs/${runId}/artifacts/file?path=${encodeURIComponent(path)}`;
+}
+
+function sha256Hex(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+/** Stored rows in path order, `result.json` first; a row whose path fails the shared rules is left out. */
+export function artifactListEntries(runId: string, rows: ReadonlyArray<{ path: string; bytes: number; sha256: string }>): ArtifactListEntry[] {
+  const first = (p: string) => (p === "result.json" ? 0 : 1);
+  return rows
+    .filter((r) => isSafeArtifactPath(r.path) && artifactType(r.path) !== null)
+    .sort((a, b) => first(a.path) - first(b.path) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .map((r) => {
+      const t = artifactType(r.path)!;
+      return { path: r.path, contentType: t.contentType, kind: t.kind, encoding: t.encoding, bytes: r.bytes, sha256: r.sha256, href: artifactHref(runId, r.path) };
+    });
+}
+
+/** The patch as the first list entry (its sha256 = sha256 of the patch text). */
+export function patchListEntry(runId: string, patch: string): ArtifactListEntry {
+  return { path: PATCH_ARTIFACT_PATH, contentType: PATCH_CONTENT_TYPE, kind: "diff", encoding: "utf-8", bytes: Buffer.byteLength(patch, "utf8"), sha256: sha256Hex(patch), href: artifactHref(runId, PATCH_ARTIFACT_PATH) };
+}
+
+function sendArtifactFile(res: Response, bytes: Buffer, contentType: string, path: string): void {
+  const filename = path.slice(path.lastIndexOf("/") + 1);
+  res.statusCode = 200;
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Content-Length", String(bytes.length));
+  for (const [k, v] of Object.entries(ARTIFACT_FILE_HEADERS)) res.setHeader(k, v);
+  res.end(bytes);
+}
+
 async function detailView(store: RunsStore, run: AsyncRun, includePrivateArtifacts = false) {
   const manifest = hasEvalLog(run.evidenceManifest) ? run.evidenceManifest : null;
   const [patch, actionsCount, proof] = await Promise.all([store.getPatch(run.id), store.countActions(run.id), store.getProof(run.id)]);
@@ -240,7 +300,7 @@ async function detailView(store: RunsStore, run: AsyncRun, includePrivateArtifac
 }
 
 /**
- * POST /runs · GET /runs/:id · GET /runs/:id/actions · GET /runs?mine=1 · POST /runs/:id/publish — the async, wallet-owned
+ * POST /runs · GET /runs/:id · GET /runs/:id/actions · GET /runs/:id/artifacts[/file] · GET /runs?mine=1 · POST /runs/:id/publish — the async, wallet-owned
  * run flow (contract "Job protocol"). The worker (lane B) executes queued runs; this router only
  * enqueues, reads, and publishes.
  */
@@ -489,6 +549,82 @@ export function createRunsRouter(deps: RunsRouterDeps): Router {
         hasMore: rows.length > limit,
         nextAfterSeq: page.length ? page[page.length - 1]!.seq : afterSeq,
       });
+    }),
+  );
+
+  // L17a: owner only. Not a UUID, unknown, legacy (no owner) or another wallet → the same 404.
+  const ownedRun = async (req: Request): Promise<AsyncRun | null> => {
+    const id = String(req.params.id);
+    const run = UUID_RE.test(id) ? await store.getRun(id) : null;
+    if (!run || run.ownerWallet === null || run.ownerWallet !== req.wallet) return null;
+    return run;
+  };
+  const originOf = async (runId: string): Promise<"hosted" | "self_declared"> => (await deps.runOrigins?.originOf(runId))?.resultOrigin ?? "hosted";
+
+  // GET /runs/:id/artifacts — the list: the patch first (when the run has one), then the stored rows
+  // (result.json first, then path order). A self-declared run has none (ADR-1): reason "self_declared".
+  router.get(
+    "/runs/:id/artifacts",
+    requireWallet,
+    handle(async (req, res) => {
+      const run = await ownedRun(req);
+      if (!run) {
+        res.status(404).json({ error: "run not found" });
+        return;
+      }
+      const resultOrigin = await originOf(run.id);
+      const head = { runId: run.id, resultOrigin, limits: { ...ARTIFACT_LIMITS } };
+      if (resultOrigin === "self_declared") {
+        res.json({ ...head, reason: "self_declared", artifacts: [] });
+        return;
+      }
+      const [patch, stored] = await Promise.all([store.getPatch(run.id), store.listArtifacts(run.id)]);
+      const artifacts: ArtifactListEntry[] = [];
+      if (patch !== null) artifacts.push(patchListEntry(run.id, patch));
+      artifacts.push(...artifactListEntries(run.id, stored));
+      res.json({ ...head, reason: artifacts.length === 0 ? "none_stored" : null, artifacts });
+    }),
+  );
+
+  // GET /runs/:id/artifacts/file?path=<urlencoded path> — the raw bytes, always as an attachment.
+  // A query parameter, not a wildcard segment: no path-to-regexp surprise. The content type comes
+  // from the shared allowlist by extension, never from the stored row.
+  router.get(
+    "/runs/:id/artifacts/file",
+    requireWallet,
+    handle(async (req, res) => {
+      const run = await ownedRun(req);
+      if (!run) {
+        res.status(404).json({ error: "run not found" });
+        return;
+      }
+      const raw = req.query.path;
+      const path = typeof raw === "string" ? raw : null;
+      if (path === null || (path !== PATCH_ARTIFACT_PATH && !isSafeArtifactPath(path))) {
+        res.status(400).json({ error: "invalid path" });
+        return;
+      }
+      if ((await originOf(run.id)) === "self_declared") {
+        res.status(404).json({ error: "artifact not found" });
+        return;
+      }
+      if (path === PATCH_ARTIFACT_PATH) {
+        const patch = await store.getPatch(run.id);
+        if (patch === null) {
+          res.status(404).json({ error: "artifact not found" });
+          return;
+        }
+        sendArtifactFile(res, Buffer.from(patch, "utf8"), `${PATCH_CONTENT_TYPE}; charset=utf-8`, path);
+        return;
+      }
+      const type = artifactType(path);
+      const row = type ? await store.getArtifact(run.id, path) : null;
+      if (!type || !row) {
+        res.status(404).json({ error: "artifact not found" });
+        return;
+      }
+      const bytes = row.encoding === "base64" ? Buffer.from(row.content, "base64") : Buffer.from(row.content, "utf8");
+      sendArtifactFile(res, bytes, type.encoding === "utf-8" ? `${type.contentType}; charset=utf-8` : type.contentType, path);
     }),
   );
 

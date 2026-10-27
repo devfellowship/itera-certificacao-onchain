@@ -46,9 +46,14 @@ function agentResult(over: Partial<AgentRunResult> = {}): AgentRunResult {
     costCapped: false,
     agentErrors: [],
     patch: PATCH,
+    artifacts: [],
+    artifactsSkipped: [],
     ...over,
   };
 }
+
+const HTML_ARTIFACT = { path: 'files/out/report.html', content: '<h1>ok</h1>\n', encoding: 'utf-8' as const, sha256: 'h'.repeat(64), bytes: 12 };
+const TRACE_ARTIFACT = { path: 'agent/trace.jsonl', content: '{"type":"step"}\n', encoding: 'utf-8' as const, sha256: 't'.repeat(64), bytes: 16 };
 
 const SECRET = 's'.repeat(40);
 
@@ -159,6 +164,50 @@ describe('processRun', () => {
     const outcome = await processRun(deps, (await store.claim('w1'))!);
     expect(outcome.status).toBe('infra_error');
     expect(outcome.error).toContain('no AGENTS.md');
+  });
+});
+
+describe('processRun stored outputs (L17a)', () => {
+  const withArtifacts = { artifacts: [TRACE_ARTIFACT, HTML_ARTIFACT], artifactsSkipped: [{ path: 'files/big.json', reason: 'too_large' as const }], agentErrors: ['opencode said sk-or-v1-user and /tmp/itera-run-x/fixture/src/a.ts'] };
+
+  it('a finished run stores result.json first, then the agent artifacts, with the key and the paths scrubbed', async () => {
+    const { store, deps } = setup({ agent: withArtifacts });
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('pass');
+    expect(outcome.artifacts!.map((a) => a.path)).toEqual(['result.json', 'agent/trace.jsonl', 'files/out/report.html']);
+    expect(store.artifacts.get('run-1')).toEqual(outcome.artifacts);
+    const result = outcome.artifacts![0]!;
+    expect(result.encoding).toBe('utf-8');
+    expect(result.bytes).toBe(Buffer.byteLength(result.content));
+    const json = JSON.parse(result.content);
+    expect(json).toMatchObject({
+      format: 'tma-run-result/1', status: 'pass', phase: 'done', scoreTotal: 100, error: null, model: 'qwen/qwen3-coder', route: 'openrouter',
+      agent: { exitCode: 0, timedOut: false, durationMs: 1000 }, cost: { usd: 0.0123, tokensIn: 1200, tokensOut: 300 },
+      skipped: [{ path: 'files/big.json', reason: 'too_large' }],
+    });
+    expect(json.agent.errors).toEqual(['opencode said [redacted] and <tmp>']);
+    expect(result.content).not.toContain('sk-or-v1-user');
+  });
+
+  it('a grading failure still stores the agent artifacts, with result.json from the failed outcome', async () => {
+    const { store, deps } = setup({ agent: withArtifacts });
+    deps.grade = async () => {
+      throw new Error('grader output is not JSON');
+    };
+    const outcome = await processRun(deps, (await store.claim('w1'))!);
+    expect(outcome.status).toBe('infra_error');
+    expect(outcome.artifacts!.map((a) => a.path)).toEqual(['result.json', 'agent/trace.jsonl', 'files/out/report.html']);
+    expect(JSON.parse(outcome.artifacts![0]!.content)).toMatchObject({ status: 'infra_error', scoreTotal: 0, error: 'grading failed: grader output is not JSON' });
+  });
+
+  it('a run that fails before the agent starts stores nothing', async () => {
+    for (const opts of [{ agent: new Error('docker daemon down') }, { noKey: true }, { files: [{ path: 'secrets/.env', content: 'x' }] }]) {
+      const { store, deps } = setup(opts);
+      const outcome = await processRun(deps, (await store.claim('w1'))!);
+      expect(outcome.status).toBe('infra_error');
+      expect(outcome.artifacts).toBeUndefined();
+      expect(store.artifacts.get('run-1')).toEqual([]);
+    }
   });
 });
 

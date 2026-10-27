@@ -1,3 +1,4 @@
+import type { RunArtifact } from '@itera/contracts/run-artifacts';
 import { LOST_RUN_REQUEUED, type ClaimedRun, type JobStore, type RunJob, type RunOutcome, type RunPhase } from './jobs.js';
 
 interface FakeRun {
@@ -15,6 +16,8 @@ interface FakeRun {
 export class FakeJobStore implements JobStore {
   runs = new Map<string, FakeRun>();
   outcomes = new Map<string, RunOutcome>();
+  /** L17a: the artifact rows finish() would insert, by run id (the order is the stored order). */
+  artifacts = new Map<string, RunArtifact[]>();
   phases: Array<{ runId: string; phase: RunPhase }> = [];
 
   enqueue(claimed: ClaimedRun, job: RunJob | null, startedAt = Date.now()): void {
@@ -47,6 +50,7 @@ export class FakeJobStore implements JobStore {
     run.phase = outcome.phase;
     if (run.job) run.job.modelApiKeyEnc = null;
     this.outcomes.set(runId, outcome);
+    this.artifacts.set(runId, [...(outcome.artifacts ?? [])]);
   }
 
   async reapStale(olderThanMs: number): Promise<number> {

@@ -118,6 +118,15 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # L17: stored run outputs share public.observations with the patch row ('artifact:<path>' refs);
+      # getPatch never returns an artifact row, list/get read the exact paths, rows cascade with the run.
+      # The fixture runs are terminal (pass), so the worker never claims them; the test deletes them.
+      - name: Run artifacts store test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/domain/runs-store.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       - uses: ./.github/actions/web3-hermetic-services
 
       - name: 'API e2e: SIWS -> quote -> pay -> run -> attestation -> verify'
