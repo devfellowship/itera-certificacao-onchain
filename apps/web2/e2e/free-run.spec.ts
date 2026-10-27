@@ -12,6 +12,8 @@ const MODEL = process.env.E2E_MODEL || 'deepseek/deepseek-v4.1-flash'
 const TASK_NAME = process.env.E2E_TASK_NAME || 'Duplicate settlement webhook'
 const END_STATES = ['graded', 'failed', 'cancelled', 'review', 'issued']
 const GRADE_TIMEOUT_MS = 15 * 60 * 1000
+/** How long the My evaluations row may lag the evaluation page (the issuer job writes the list columns). */
+const LIST_SETTLE_TIMEOUT_MS = 2 * 60 * 1000
 
 test('free BYOK run: start, wait for graded, score is shown', async ({ page }) => {
   const key = requireEnv('E2E_OPENROUTER_KEY')
@@ -90,5 +92,21 @@ test('free BYOK run: start, wait for graded, score is shown', async ({ page }) =
   // The list links each evaluation by its full id; the short id is its first 8 characters.
   await page.getByTestId('nav-my-evaluations').click()
   await expect(page.locator(`a[href="/evaluations/${evaluationId}"]`)).toBeVisible({ timeout: 30_000 })
-  await expect(page.locator('[data-testid=evaluation-row]', { has: page.locator(`a[href="/evaluations/${evaluationId}"]`) })).toContainText(/graded/i)
+  // The list reads the stored roll-up columns. The API's evaluation-issuer job (issuer.ts, a 5 s
+  // tick over up to 50 open evaluations) writes them; the evaluation page computes its roll-up live.
+  // So the row can still read "Grading…" for some seconds after the page shows graded, and the list
+  // page does not poll. Reload until the row reaches graded (run 40433819144: stale for > 15 s).
+  const row = page.locator('[data-testid=evaluation-row]', { has: page.locator(`a[href="/evaluations/${evaluationId}"]`) })
+  await expect
+    .poll(
+      async () => {
+        const text = (await row.innerText().catch(() => '')) ?? ''
+        if (/graded/i.test(text)) return text
+        await page.reload()
+        await expect(page.locator(`a[href="/evaluations/${evaluationId}"]`)).toBeVisible({ timeout: 30_000 })
+        return (await row.innerText().catch(() => '')) ?? ''
+      },
+      { timeout: LIST_SETTLE_TIMEOUT_MS, intervals: [5_000, 10_000], message: 'the My evaluations row did not reach graded' },
+    )
+    .toMatch(/graded/i)
 })
