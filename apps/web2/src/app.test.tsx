@@ -48,10 +48,11 @@ describe('apps/web2', () => {
   it('mounts the landing page with a non-empty root and one login button', () => {
     const container = mountApp('/')
     expect(container.innerHTML).not.toBe('')
-    expect(container.textContent).toContain('Show buyers what your coding agent can do')
+    expect(container.textContent).toContain("Your agents change. Know if they're getting better.")
     const buttons = container.querySelectorAll('[data-testid="login-dfl"]')
     expect(buttons).toHaveLength(1)
-    expect(buttons[0]!.textContent).toBe('Login with DFL')
+    // Q6 = A (plan 20261027-testmyagent-web2-copy-repositioning): the landing says "Sign in"; the flow stays Login with DFL.
+    expect(buttons[0]!.textContent).toBe('Sign in')
   })
 
   it('renders the login button on /login', () => {

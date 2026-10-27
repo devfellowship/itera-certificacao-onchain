@@ -35,6 +35,24 @@ describe('landing page (web2)', () => {
     expect(c.querySelector('[data-testid="nav-user-email"]')).toBeNull()
   })
 
+  it('v2 copy: every section, honest Hosted LLM Infra, no buyer frame (plan 20261027-testmyagent-web2-copy-repositioning)', () => {
+    const c = mountLanding()
+    for (const id of ['why', 'how', 'versions', 'cost', 'run', 'next', 'faq', 'start']) {
+      expect(c.querySelectorAll(`#${id}`)).toHaveLength(1)
+    }
+    expect(c.querySelector('h1')?.textContent).toBe("Your agents change. Know if they're getting better.")
+    expect(c.querySelector('[data-testid="login-dfl"]')?.textContent).toBe('Sign in')
+    expect(c.textContent).toContain('Uses your DevFellowship account')
+    const request = c.querySelector<HTMLAnchorElement>('[data-testid="landing-request-access"]')
+    expect(request?.textContent).toBe('Request access')
+    expect(request?.getAttribute('href')).toMatch(/^mailto:hello@devfellowship\.com/)
+    const text = c.textContent ?? ''
+    expect(text).toContain('Hosted LLM Infra')
+    for (const banned of [/buyer/i, /Platform-run/, /We run it on our infra/, /Copy link/, /Bring your own runner/i, /open source/i, /DFL infra/i, /Start a hosted run/]) {
+      expect(text).not.toMatch(banned)
+    }
+  })
+
   it('logged in: shows the email in nav-user-email', () => {
     saveSession({ token: 'tok', user: { id: 'u1', email: 'ana@example.com' } })
     const c = mountLanding()
