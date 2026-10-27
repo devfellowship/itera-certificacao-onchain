@@ -25,8 +25,8 @@ test('Login with DFL through the federation handoff', async ({ page }) => {
   await expectMounted(page)
   await expect(page.getByTestId('nav-user-email')).toHaveText(email, { ignoreCase: true })
 
-  // A signed-in page that needs the session renders its data (the model list is loaded with the bearer token).
-  await page.goto('/evaluate')
-  await expect(page.getByTestId('agent-option').first()).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByTestId('task-option').first()).toBeVisible()
+  // A signed-in page that needs the session renders its data (GET /evaluations is loaded with the bearer token;
+  // the e2e user has graded evaluations). /evaluate no longer lists agents while web2 = ingested only (plan TMA L15).
+  await page.goto('/evaluations')
+  await expect(page.getByTestId('evaluation-row').first()).toBeVisible({ timeout: 30_000 })
 })

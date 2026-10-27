@@ -40,7 +40,7 @@ export function NewEvaluationPage() {
 function NewEvaluationLocalHint() {
   const [params] = useSearchParams()
   return (
-    <main className="w2-shell w2-wide">
+    <main className="w2-shell w2-wide w2-hint-page" data-testid="local-runner-hint-page">
       <h1>New evaluation</h1>
       <LocalRunnerHint taskSlug={firstTaskSlugOf(params.get('tasks'))} />
     </main>
