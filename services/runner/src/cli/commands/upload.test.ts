@@ -125,13 +125,24 @@ describe('tma upload — an old tma-bench-import file', () => {
       const v = validateLocalResult(b.body);
       expect(v.ok, JSON.stringify(v)).toBe(true);
       expect(b.body.metrics_shape).toBe('transcript-mining/1');
-      expect(b.body.task).toEqual({ catalog: { slug: 'dfl-transcript-mining', version: 2 } });
+      // The fixture has pack_version '2': the task version is still 1, the version the old importer wrote.
+      expect(b.body.task).toEqual({ catalog: { slug: 'dfl-transcript-mining', version: 1 } });
       expect(b.body.summary).toEqual(old.executors[i].summary);
       expect(b.body.runs).toEqual(old.executors[i].runs);
       expect(b.body.runner.execution).toBe('external');
     }
     expect(bodies[0]!.body.executor).toMatchObject({ provider: 'deepseek', route: 'opencode-go', variant: null });
     expect(bodies[1]!.body.executor).toMatchObject({ provider: 'zai', route: 'zai', variant: 'structured-output' });
+  });
+
+  it('the task version defaults to 1, never the pack version; --task-version overrides it (L9)', () => {
+    const old = legacyMiningFile();
+    old.format = 'tma-bench-import/trajectory-1';
+    old.task = { ...old.task, slug: 'dfl-session-decision-trajectory-extraction', pack_id: 'dfl-session-decision-trajectory-extraction', pack_version: '2' };
+    for (const b of legacyToLocalResults(old, { agentId: AGENT })) expect(b.body.task).toEqual({ catalog: { slug: 'dfl-session-decision-trajectory-extraction', version: 1 } });
+    for (const b of legacyToLocalResults(old, { agentId: AGENT, taskVersion: 4 })) expect(b.body.task).toEqual({ catalog: { slug: 'dfl-session-decision-trajectory-extraction', version: 4 } });
+    delete old.task.pack_version;
+    expect(legacyToLocalResults(old, { agentId: AGENT })[0]!.body.task).toEqual({ catalog: { slug: 'dfl-session-decision-trajectory-extraction', version: 1 } });
   });
 
   it('a trajectory file becomes trajectory/1', () => {

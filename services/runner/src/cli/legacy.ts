@@ -11,6 +11,9 @@ import { CLI_VERSION } from './version.js';
 export const LEGACY_FORMATS = { 'tma-bench-import/1': 'transcript-mining/1', 'tma-bench-import/trajectory-1': 'trajectory/1' } as const;
 export type LegacyFormat = keyof typeof LEGACY_FORMATS;
 
+/** The task version that the retired bench-import.ts always wrote (`insert into public.task_versions (..., version, ...) values (..., 1, ...)`). */
+export const LEGACY_TASK_VERSION = 1;
+
 export function isLegacyFormat(v: unknown): v is LegacyFormat {
   return typeof v === 'string' && Object.hasOwn(LEGACY_FORMATS, v);
 }
@@ -19,7 +22,12 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 
 export interface LegacyOptions {
   agentId: string;
-  /** The TMA task version; default the file's `task.pack_version`. */
+  /**
+   * The TMA task version (`task_versions.version`); default 1. The old importer wrote every task at
+   * version 1 and kept the pack version in its own column (`task_versions.pack_version`), so the
+   * file's `task.pack_version` is NOT the task version (L9: the trajectory file has pack_version 2
+   * and its task has only version 1).
+   */
   taskVersion?: number;
   /** Only this executor (`model_id`, or `model_id#variant`). */
   executor?: string;
@@ -39,8 +47,8 @@ export function legacyToLocalResults(raw: unknown, opts: LegacyOptions): LegacyB
   if (!isObj(raw) || !isLegacyFormat(raw.format)) throw new CliError('not an old tma-bench-import file');
   const task = raw.task;
   if (!isObj(task) || typeof task.slug !== 'string') throw new CliError('the old file has no task.slug');
-  const version = opts.taskVersion ?? Number(task.pack_version);
-  if (!Number.isInteger(version) || version < 1) throw new CliError('the old file has no task version: pass --task-version <n>');
+  const version = opts.taskVersion ?? LEGACY_TASK_VERSION;
+  if (!Number.isInteger(version) || version < 1) throw new CliError('the task version must be an integer >= 1 (--task-version <n>)');
   if (typeof raw.grader_version !== 'string') throw new CliError('the old file has no grader_version');
   if (!Array.isArray(raw.executors) || raw.executors.length === 0) throw new CliError('the old file has no executors');
 
