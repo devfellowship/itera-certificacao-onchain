@@ -80,7 +80,7 @@ function SelectTasksLocalHint() {
   const taskSlug = firstTaskSlugOf(params.get('tasks'), catalogState.status === 'ready' ? catalogState.catalog.tasks : null)
   const agentName = agent?.name ?? '…'
   return (
-    <main className="tma-page tma-page--flow st-page" data-testid="select-tasks-page" data-hosted="off">
+    <main className="tma-page tma-page--flow st-page w2-hint-page" data-testid="select-tasks-page" data-hosted="off">
       <div className="st-head">
         <Breadcrumb items={[{ label: 'Agents', to: '/agents' }, { label: agentName, to: `/agents/${aid}` }, { label: 'New evaluation' }]} />
         <div className="st-head__row">

@@ -1302,3 +1302,36 @@ textarea.tma-input {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* The local-runner hint pages (/evaluate and /agents/:aid/evaluate while web2 = ingested only) work on a phone.
+   The app shell keeps a 1024px floor for the desktop screens (.tma-app above); these pages lift it, as the
+   evaluation page does (.tma-app:has(.re-page), running-evaluation/review.css). The hint card stretches to the
+   column: in a flex column with align-items: flex-start, a card holding a `white-space: pre` line would size to
+   the longest command line and widen the page. */
+.tma-app:has(.w2-hint-page) {
+  min-width: 0;
+}
+.w2-hint-page > .tma-local-hint {
+  align-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+}
+@media (max-width: 720px) {
+  .tma-app:has(.w2-hint-page) .tma-nav {
+    height: auto;
+    padding: 10px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .tma-app:has(.w2-hint-page) .tma-nav__left {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+  .w2-hint-page {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .w2-hint-page h1 {
+    font-size: 28px;
+  }
+}
