@@ -304,7 +304,11 @@ describe("config", () => {
     expect(() => dflAuthConfigFromEnv({ TMA_MIN_IAM_LEVEL: "abc" })).toThrow(/TMA_MIN_IAM_LEVEL/);
   });
 
-  it("allows the web2 origin by default", () => {
-    if (!process.env.ITERA_API_CORS_ORIGINS) expect(CORS_ALLOWED_ORIGINS).toContain("https://testmyagent.devfellowship.com");
+  it("allows the web2 origins by default (new domain + the old host while it redirects)", () => {
+    if (!process.env.ITERA_API_CORS_ORIGINS) {
+      expect(CORS_ALLOWED_ORIGINS).toContain("https://testmyagent.com");
+      expect(CORS_ALLOWED_ORIGINS).toContain("https://testmyagent.devfellowship.com");
+      expect(CORS_ALLOWED_ORIGINS).not.toContain("https://www.testmyagent.com");
+    }
   });
 });
