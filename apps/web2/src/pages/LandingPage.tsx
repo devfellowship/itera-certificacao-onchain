@@ -6,7 +6,8 @@ import './landing.css'
 import { HOSTED_RUNS_ENABLED } from '../config'
 
 // Landing v2 (route /). Port of the Claude Design "v2 — redesign (web2)" boards (V2Main, V2Phone, V2States).
-// Copy: plan 20261027-testmyagent-web2-copy-repositioning v2. Where the design and the plan disagree, the plan wins.
+// Copy: plan 20261027-testmyagent-web2-copy-repositioning v2, trimmed to the leaner design export (Tainan TG 24364).
+// Where the design removes or shortens a block, the page follows the design. Where it states a fact the plan refutes, the plan wins.
 // The sign-in stays Login with DFL (federation handoff); only the label changes (Q6 = A).
 // Every card number on this page is sample data and the page says so, except the case box (our own k15 run, Q2 = A).
 
@@ -29,7 +30,6 @@ const COPY = HOSTED_RUNS_ENABLED
 
 // Q8 = A: "Request access" is a mailto link. No form, no API route.
 const REQUEST_ACCESS_HREF = 'mailto:hello@devfellowship.com?subject=Hosted%20LLM%20Infra%20early%20access'
-const CLI_GUIDE_HREF = 'https://github.com/devfellowship/itera-certificacao-onchain/blob/main/services/runner/README.md'
 
 type AgentRow = { name: string; version: string; model: string; score: string; cost: string }
 
@@ -144,14 +144,25 @@ function Icon({ d }: { d: string }) {
   )
 }
 
-const ICON_MACHINE = 'M3 4.5h14v9H3zM7 16.5h6M10 13.5v3'
-const ICON_KEY = 'M12.5 3.5a4 4 0 1 1-3.2 6.4L4 15.2V17h2.5v-1.5H8V14l1.6-1.6A4 4 0 0 1 12.5 3.5zM13.5 6.5h.01'
-const ICON_HARNESS = 'M7 3.5v4M13 3.5v4M5 7.5h10v2.5a5 5 0 0 1-10 0zM10 15v2.5'
 const ICON_CLOUD = 'M6 15.5h8a3.5 3.5 0 0 0 .4-6.98A5 5 0 0 0 4.7 9.6 3 3 0 0 0 6 15.5z'
 
-function RunCard({ icon, title, children, badge, hosted }: { icon: string; title: string; children: ReactNode; badge?: ReactNode; hosted?: boolean }) {
+function RunCard({
+  icon,
+  title,
+  children,
+  badge,
+  hosted,
+  large,
+}: {
+  icon: string
+  title: string
+  children: ReactNode
+  badge?: ReactNode
+  hosted?: boolean
+  large?: boolean
+}) {
   return (
-    <div className={`lv3-card v2-runcard${hosted ? ' v2-runcard--hosted' : ''}`}>
+    <div className={`lv3-card v2-runcard${hosted ? ' v2-runcard--hosted' : ''}${large ? ' v2-runcard--lg' : ''}`}>
       <div className="v2-runcard__top">
         <Icon d={icon} />
         {badge}
@@ -239,7 +250,6 @@ export function LandingPage() {
             </h1>
             <div className="v2-hero-lines">
               <p>Test your AI agents on real tasks, compare each version and each model, and find out where you can spend less.</p>
-              <p>Run them on your own machine with your own keys. TestMyAgent keeps the grades, the results and the history in one place.</p>
             </div>
             <div className="v2-hero-actions">
               <div className="v2-hero-ctas">
@@ -252,7 +262,7 @@ export function LandingPage() {
                 </a>
               </div>
               <ul className="v2-chips" aria-label="What you keep">
-                {['Your machine or VPS', 'Your own keys', 'Hidden tests on real tasks'].map((c) => (
+                {['Your machine or VPS', 'Your own keys'].map((c) => (
                   <li className="v2-chip" key={c}>
                     <Check />
                     {c}
@@ -356,8 +366,7 @@ export function LandingPage() {
               <Eyebrow>The challenge</Eyebrow>
               <h2 className="lv3-h2">Every change is an experiment. Are you measuring it?</h2>
               <p className="v2-lead">
-                A new model. An updated prompt. Different tools. A tweaked harness. Any of them can make your agent better, break something that used to
-                work, or quietly raise your bill. Without the same tests run the same way, you can't tell which one happened.
+                A new model, prompt or harness can improve your agent, break what worked, or raise your bill. Without fixed tests, you can't tell which.
               </p>
             </div>
             <div className="v2-grid3">
@@ -539,10 +548,7 @@ export function LandingPage() {
               <div className="lv3-rank__copy">
                 <Eyebrow>Optimize · Models and cost</Eyebrow>
                 <h2 className="lv3-h2">Same agent, cheaper model. Does it still pass?</h2>
-                <p className="lv3-rank__lead">
-                  Keep the agent files as they are and swap only the model. Run each model on the same tasks a few times. If the cheap one clears your bar, move
-                  the job to it and keep the difference.
-                </p>
+                <p className="lv3-rank__lead">Swap only the model and rerun the same tasks. If the cheap one clears your bar, keep the difference.</p>
                 <div className="lv3-rank__list">
                   <div>
                     <span>Cost per run</span>
@@ -646,30 +652,34 @@ export function LandingPage() {
 
         <section id="run" className="lv3-section">
           <div className="lv3-block">
-            <div className="lv3-head v2-head--wide">
-              <Eyebrow>Your infrastructure, your control</Eyebrow>
-              <h2 className="lv3-h2">Run anywhere. Evaluate in one place.</h2>
-              <p className="v2-lead">Keep the agents, models and machines you already have. TestMyAgent doesn't ask you to move your agents to a new runtime.</p>
-            </div>
-            <div className="v2-grid4">
-              <RunCard icon={ICON_MACHINE} title="Your machine or VPS">
-                <p className="v2-runcard__p">
-                  <Cmd>tma</Cmd> runs your agent and the hidden tests in Docker on your own box. You need git, Node 22 and Docker.
-                </p>
-              </RunCard>
-              <RunCard icon={ICON_KEY} title="Your own keys">
-                <p className="v2-runcard__p">Your OpenRouter or opencode go key stays on your machine. TestMyAgent never sees it.</p>
-              </RunCard>
-              <RunCard icon={ICON_HARNESS} title="Your own harness">
-                <p className="v2-runcard__p">
-                  Keep the harness you have. <Cmd>tma workspace</Cmd> hands it the task, and <Cmd>tma grade</Cmd> scores what it did. Your agent can also add
-                  agents, tasks and results through our MCP tools.
-                </p>
-              </RunCard>
+            <div className="v2-cost-grid">
+              <div className="lv3-rank__copy">
+                <Eyebrow>Your infrastructure, your control</Eyebrow>
+                <h2 className="lv3-h2">Run anywhere. Evaluate in one place.</h2>
+                {/* The design adds "Or let us run them."; Hosted LLM Infra is not live, so the page does not say it (plan claim C16). */}
+                <p className="lv3-rank__lead">Keep the agents, models and machines you already have.</p>
+                <div className="lv3-rank__list">
+                  <div>
+                    <span>Your machine or VPS</span>
+                    <span className="lv3-muted">Docker, git, Node 22</span>
+                  </div>
+                  <div>
+                    <span>Your own keys</span>
+                    <span className="lv3-muted">never leave your machine</span>
+                  </div>
+                  <div>
+                    <span>Your own harness</span>
+                    <span className="lv3-muted">
+                      <Cmd>tma workspace</Cmd> + <Cmd>tma grade</Cmd>
+                    </span>
+                  </div>
+                </div>
+              </div>
               <RunCard
                 icon={ICON_CLOUD}
                 title="Hosted LLM Infra"
                 hosted
+                large
                 badge={
                   COPY.hostedBadge ? (
                     <Badge tone="warning" dot>
@@ -691,12 +701,6 @@ export function LandingPage() {
                   </a>
                 )}
               </RunCard>
-            </div>
-            <div className="v2-closing">
-              <span className="v2-closing__text">Your machine runs the agents. TestMyAgent tells you how well they did.</span>
-              <a className="v2-link" href={CLI_GUIDE_HREF} target="_blank" rel="noreferrer">
-                Read the CLI guide <span aria-hidden="true">→</span>
-              </a>
             </div>
           </div>
         </section>
