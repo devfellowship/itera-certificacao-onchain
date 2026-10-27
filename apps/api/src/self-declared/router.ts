@@ -26,7 +26,7 @@ export interface SelfDeclaredRouterDeps {
   web2BaseUrl?: string;
 }
 
-export const DEFAULT_WEB2_BASE_URL = "https://testmyagent.devfellowship.com";
+export const DEFAULT_WEB2_BASE_URL = "https://testmyagent.com";
 
 export function selfDeclaredPerDayFromEnv(env: NodeJS.ProcessEnv = process.env): number {
   const n = Number(env.TMA_SELF_DECLARED_PER_DAY);

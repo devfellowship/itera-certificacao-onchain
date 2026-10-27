@@ -28,7 +28,7 @@ concurrency:
 
 env:
   WEB3_URL: https://itera-agent-credentials.devfellowship.com
-  WEB2_URL: https://testmyagent.devfellowship.com
+  WEB2_URL: https://testmyagent.com
   API_URL: ${{ inputs.api_url || 'https://itera-agent-credentials-api.devfellowship.com' }}
 
 jobs:
