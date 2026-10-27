@@ -464,3 +464,49 @@
   .re-artifact__facts, .re-artifact__evidence { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .re-artifact__toolbar { align-items: flex-start; flex-direction: column; }
 }
+
+/* L14b: the terminal layout — header links, and the live view folded under "Event log". */
+.re-head__links {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.re-head__link {
+  font-size: 13px;
+  color: var(--tma-primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.re-head__link:hover {
+  color: var(--tma-primary-hover);
+}
+.re-live__summary {
+  padding: 14px 20px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  list-style: none;
+}
+.re-live__summary::-webkit-details-marker {
+  display: none;
+}
+.re-live__summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 16px;
+  color: var(--tma-text-muted);
+}
+.re-live[open] .re-live__summary::before {
+  content: '▾';
+}
+.re-live__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--tma-line);
+}
+.re-live__body .re-stages,
+.re-live__body .re-card--log {
+  margin-top: 16px;
+}
