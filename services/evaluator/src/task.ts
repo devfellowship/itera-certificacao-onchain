@@ -6,7 +6,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { validateTaskContract, type TaskContract } from '@itera/contracts';
 import { matchesAny } from './glob.js';
 import type { ScopeRules } from './patch-scope.js';
-import { BUNDLE_FOLDER, packFolder } from './pack-folders.js';
+import { BUNDLE_FOLDER } from './pack-folders.js';
 
 export type { TaskContract };
 
@@ -153,11 +153,11 @@ export async function loadTask(taskDir: string): Promise<LoadedTask> {
 
 /**
  * Resolve a pack / scenario id (the legacy `--scenario <id>`, or runs.task_pack_id) to its bundle
- * directory under benchmarks/. An old pack id of a renamed bundle maps to the new folder (pack-folders.ts).
+ * directory under benchmarks/. The pack id IS the folder name (pack-folders.ts).
  */
 export function scenarioDir(repoRoot: string, scenarioId: string): string {
   if (!BUNDLE_FOLDER.test(scenarioId)) throw new TaskError(`invalid scenario id: ${scenarioId}`);
-  return join(repoRoot, 'benchmarks', packFolder(scenarioId));
+  return join(repoRoot, 'benchmarks', scenarioId);
 }
 
 export async function readInstruction(task: LoadedTask): Promise<string> {

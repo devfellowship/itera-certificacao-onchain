@@ -16,7 +16,7 @@ function manifest(over: Partial<EvidenceManifest> = {}): EvidenceManifest {
   return {
     schema_version: '0.1.0',
     evaluator_version: '0.1.0',
-    scenario_id: 'webhook-ledger',
+    scenario_id: 'tsk_webhook_dup',
     generated_at: '2026-10-12T00:00:00.000Z',
     fixture_hash: 'f',
     patch_hash: 'p',
@@ -30,7 +30,7 @@ function manifest(over: Partial<EvidenceManifest> = {}): EvidenceManifest {
 
 function agentResult(over: Partial<AgentRunResult> = {}): AgentRunResult {
   return {
-    scenarioId: 'webhook-ledger',
+    scenarioId: 'tsk_webhook_dup',
     model: 'qwen/qwen3-coder',
     agentFiles: ['AGENTS.md'],
     timedOut: false,
@@ -56,10 +56,10 @@ function setup(opts: { noKey?: boolean; model?: string; agent?: Partial<AgentRun
   const store = new FakeJobStore();
   const seen: { agentDir?: string; agentFiles?: string[]; key?: string; model?: string } = {};
   store.enqueue(
-    { runId: 'run-1', scenarioId: 'webhook-ledger', scenarioVersion: '1', agentVersionId: 'av-1' },
+    { runId: 'run-1', scenarioId: 'tsk_webhook_dup', scenarioVersion: '1', agentVersionId: 'av-1' },
     {
       runId: 'run-1',
-      scenarioId: 'webhook-ledger',
+      scenarioId: 'tsk_webhook_dup',
       scenarioVersion: '1',
       agentVersionId: 'av-1',
       model: opts.model ?? 'qwen/qwen3-coder',
@@ -272,7 +272,7 @@ describe('processRun provenance + rate limits (K11)', () => {
 describe('workerLoop', () => {
   it('claims every queued run and stops when aborted', async () => {
     const { store, deps } = setup();
-    store.enqueue({ runId: 'run-2', scenarioId: 'webhook-ledger', scenarioVersion: '1', agentVersionId: null }, null);
+    store.enqueue({ runId: 'run-2', scenarioId: 'tsk_webhook_dup', scenarioVersion: '1', agentVersionId: null }, null);
     const controller = new AbortController();
     const loop = workerLoop(deps, { concurrency: 2, pollMs: 5, staleMs: 60_000, signal: controller.signal });
     for (let i = 0; i < 100 && store.outcomes.size < 2; i++) await new Promise((r) => setTimeout(r, 5));

@@ -25,8 +25,7 @@ async function agentDir(): Promise<string> {
 
 describe('prepareWorkspace', () => {
   it('holds only the fixture plus the agent files, and no evaluator or hidden tests', async () => {
-    // 'webhook-ledger' is the OLD pack id (still in production rows): scenarioDir maps it to benchmarks/tsk_webhook_dup.
-    const ws = await prepareWorkspace({ repoRoot, scenarioId: 'webhook-ledger', agentDir: await agentDir(), installDeps: false });
+    const ws = await prepareWorkspace({ repoRoot, scenarioId: 'tsk_webhook_dup', agentDir: await agentDir(), installDeps: false });
     cleanups.push(ws.cleanup);
     const entries = (await readdir(ws.dir)).sort();
     expect(entries).toEqual(['.git', '.gitignore', '.opencode', 'AGENTS.md', 'package-lock.json', 'package.json', 'src', 'tests', 'tsconfig.json', 'vitest.config.ts']);
@@ -41,7 +40,7 @@ describe('prepareWorkspace', () => {
 
 describe('diffAgainstBaseline', () => {
   it('returns only the agent change, relative to the fixture root, and ignores the agent .git', async () => {
-    const ws = await prepareWorkspace({ repoRoot, scenarioId: 'webhook-ledger', agentDir: await agentDir(), installDeps: false });
+    const ws = await prepareWorkspace({ repoRoot, scenarioId: 'tsk_webhook_dup', agentDir: await agentDir(), installDeps: false });
     cleanups.push(ws.cleanup);
     const out = join(ws.root, 'out');
     await cp(ws.dir, out, { recursive: true, filter: notGitDir(ws.dir) });
@@ -57,7 +56,7 @@ describe('diffAgainstBaseline', () => {
   });
 
   it('returns an empty patch when nothing changed', async () => {
-    const ws = await prepareWorkspace({ repoRoot, scenarioId: 'webhook-ledger', agentDir: await agentDir(), installDeps: false });
+    const ws = await prepareWorkspace({ repoRoot, scenarioId: 'tsk_webhook_dup', agentDir: await agentDir(), installDeps: false });
     cleanups.push(ws.cleanup);
     const out = join(ws.root, 'out');
     await cp(ws.dir, out, { recursive: true, filter: notGitDir(ws.dir) });
