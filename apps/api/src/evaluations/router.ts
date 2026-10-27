@@ -5,6 +5,7 @@
  *   POST /evaluations/quote/:reference/transaction   the unsigned payment tx for the wallet (1 prompt)
  *   POST /evaluations                                verify the payment (Solana Pay) → queue N runs;
  *                                                    a DFL principal: the free BYOK path → queue N runs
+ *                                                    (only with TMA_WEB2_HOSTED_ENABLED=true, see below)
  *   GET  /evaluations?scope=all|my_agents|others     My evaluations
  *   GET  /evaluations/:id                            roll-up (uiState, stages, tasks, events, proofs)
  *   POST /evaluations/:id/cancel                     queued runs → cancelled; no refund (Gate Q1)
@@ -20,6 +21,11 @@
  *
  * The legacy vendor flow also answers `POST /evaluations` (body with `idempotencyKey`): such a body
  * falls through to it.
+ *
+ * web2 = ingested only for now (Tainan TG 23889, task L15a; `web2-hosted-gate.ts`): a `dfl` principal gets
+ * `403 hosted_not_available_web2` on the three start routes (quote, transaction, POST /evaluations) unless
+ * `TMA_WEB2_HOSTED_ENABLED=true` (`web2Hosted` here). The refusal runs after `requireWallet` and before any
+ * store read, key probe or adapter call. The reads and the cancel stay open for a `dfl` principal.
  */
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
@@ -35,6 +41,8 @@ import { PriceUnavailableError, type SolUsdProvider } from "./price.js";
 import { parseEvaluationRequest, resolveEvaluationRequest } from "./resolve.js";
 import { initialsOf, rollup } from "./rollup.js";
 import type { EvaluationListRow, EvaluationsStore } from "./store.js";
+import { DEFAULT_WEB2_BASE_URL } from "../self-declared/router.js";
+import { refuseHostedForDfl } from "./web2-hosted-gate.js";
 
 export interface EvaluationsRouterDeps {
   store: EvaluationsStore;
@@ -51,6 +59,13 @@ export interface EvaluationsRouterDeps {
   platformKey?: PlatformKeyConfig;
   /** OpenRouter list prices, for the platform path's low-cost model rule. */
   modelPrice?: PriceLookup;
+  /**
+   * TMA_WEB2_HOSTED_ENABLED (default false): the hosted path of a `dfl` principal. Off → the three start
+   * routes answer `403 hosted_not_available_web2` to a `dfl` principal (web2 = ingested only, L15a).
+   */
+  web2Hosted?: boolean;
+  /** Base URL of the web2 client, for the `localRunner.newLocalAgentUrl` of that 403. */
+  web2BaseUrl?: string;
   now?: () => number;
 }
 
@@ -70,6 +85,8 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
   // ADR-6: the payment adapter follows the principal kind (siws → solana_pay, dfl → free_byok).
   const adapters = createPaymentAdapters({ ...deps, now });
   const adapterOf = (req: Request) => paymentAdapterFor(adapters, req.principal!.kind);
+  // L15a: a dfl principal starts no hosted run unless the flag is on. After requireWallet, before any read.
+  const web2Gate = refuseHostedForDfl({ enabled: deps.web2Hosted ?? false, web2BaseUrl: deps.web2BaseUrl ?? DEFAULT_WEB2_BASE_URL });
   const send = (res: Response, o: PaymentOutcome) => {
     if (o.headers) res.set(o.headers);
     res.status(o.status).json(o.body);
@@ -88,6 +105,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
   router.post(
     "/evaluations/quote",
     requireWallet,
+    web2Gate,
     handle(async (req, res) => {
       const wallet = req.wallet!;
       const parsed = parseEvaluationRequest(req.body, config);
@@ -114,6 +132,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
   router.post(
     "/evaluations/quote/:reference/transaction",
     requireWallet,
+    web2Gate,
     handle(async (req, res) => {
       send(res, await adapterOf(req).transaction({ principalId: req.wallet!, reference: String(req.params.reference), body: req.body }));
     }),
@@ -131,6 +150,7 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
       next();
     },
     requireWallet,
+    web2Gate,
     handle(async (req, res) => {
       const wallet = req.wallet!;
       send(res, await adapterOf(req).settle({ principalId: wallet, body: req.body }));

@@ -178,7 +178,10 @@ describe("POST /runs", () => {
       expect(res.status).toBe(410);
       const body = await res.json();
       expect(body).toEqual(LEGACY_RUNS_GONE_FOR_DFL);
-      expect(body.replacement.create).toBe("POST /evaluations");
+      // L15a: the pointer goes to the local runner, never to the hosted start routes.
+      expect(JSON.stringify(body)).not.toContain("POST /evaluations");
+      expect(body.replacement.selfDeclared).toBe("POST /self-declared-results");
+      expect(body.replacement.localRunner.steps).toHaveLength(3);
     }
     // An empty or invalid body gets the same 410: the refusal comes before validation.
     const empty = await fetch(`${baseUrl}/runs`, { method: "POST", headers: dflAuth, body: "{}" });

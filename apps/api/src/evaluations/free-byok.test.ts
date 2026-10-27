@@ -97,8 +97,9 @@ beforeEach(async () => {
     { taskId: "webhook-ledger", taskVersionId: null, slug: "webhook-ledger", name: "Webhook ledger", packId: "webhook-ledger", packVersion: "1", isPublic: true, runnable: true, contract: LEDGER_CONTRACT },
     { taskId: "rate-limiter", taskVersionId: null, slug: "rate-limiter", name: "Rate limiter", packId: "rate-limiter", packVersion: "1", isPublic: true, runnable: true, contract: LEDGER_CONTRACT },
   );
+  // L15a: these tests prove the hosted dfl path with the flag on (off by default: web2-hosted-gate.test.ts).
   server = createApp(new FakeRepository(), {
-    evaluations: { store, config, price: async () => ({ solUsdRate: 100, priceSource: "pyth", publishedAt: new Date().toISOString() }), payments: gateway, runKeySecret: SECRET, probeModelKey: probe },
+    evaluations: { store, config, price: async () => ({ solUsdRate: 100, priceSource: "pyth", publishedAt: new Date().toISOString() }), payments: gateway, runKeySecret: SECRET, probeModelKey: probe, web2Hosted: true },
   }).listen(0);
   await new Promise<void>((r) => server.once("listening", r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
