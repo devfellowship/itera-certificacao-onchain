@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://testmyagent.devfellowship.com/schemas/local-result.schema.json",
+  "$id": "https://testmyagent.com/schemas/local-result.schema.json",
   "title": "TestMyAgent self-declared local result (tma-local-result/1)",
   "description": "The ONE body that POST /self-declared-results accepts (plan 20261026-tma-local-runner-and-self-declared-results, ADR-1). Numbers and identifiers only: every object is closed, every string has a pattern and a length limit, every number has a range. There is no key for actions, events, a patch, stdout, stderr, messages, a prompt, a model answer or a key. A body above 1 MiB is refused. The validator in local-result.js adds the checks a schema cannot say: provider and route against model-catalog/, summary.runs = the length of runs, ran_from <= ran_to.",
   "type": "object",

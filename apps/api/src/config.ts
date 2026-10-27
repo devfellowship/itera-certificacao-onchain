@@ -8,11 +8,11 @@ import { join } from "node:path";
  * open is only acceptable for a fully public, read-only, side-effect-free endpoint). Override via
  * env var for a preview deployment or a local dev origin that isn't the Vite default.
  * `https://testmyagent.com` is the web2 domain (Tainan TG 24166, 2026-10-27). The old host
- * `https://testmyagent.devfellowship.com` stays while it redirects (open tabs keep that origin).
+ * `testmyagent.devfellowship.com` was deleted (Tainan TG 24234), so it is not an origin any more.
  */
 export const CORS_ALLOWED_ORIGINS = (
   process.env.ITERA_API_CORS_ORIGINS ??
-  "https://itera-agent-credentials.devfellowship.com,https://testmyagent.com,https://testmyagent.devfellowship.com,http://localhost:5173"
+  "https://itera-agent-credentials.devfellowship.com,https://testmyagent.com,http://localhost:5173"
 )
   .split(",")
   .map((origin) => origin.trim())
