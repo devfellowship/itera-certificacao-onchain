@@ -37,13 +37,15 @@ describe('packFolder: old pack id → bundle folder', () => {
     expect(() => scenarioDir(repoRoot, 'Tsk_X')).toThrow(TaskError);
   });
 
-  it('curatedPacks registers the renamed bundles under their OLD pack ids, with the new path', async () => {
+  it('curatedPacks registers every bundle under its folder name (Q e9dc0ef2 = A), never under an old pack id', async () => {
     const { packs, errors } = await curatedPacks(repoRoot);
     expect(errors).toEqual([]);
     const byId = Object.fromEntries(packs.map((p) => [p.id, p.evaluatorRef]));
-    expect(byId['webhook-ledger']).toBe('benchmarks/tsk_webhook_dup');
-    expect(byId['helpdesk-refunds']).toBe('benchmarks/tsk_helpdesk_refunds');
-    expect(byId).not.toHaveProperty('tsk_webhook_dup');
+    expect(byId['tsk_webhook_dup']).toBe('benchmarks/tsk_webhook_dup');
+    expect(byId['tsk_helpdesk_refunds']).toBe('benchmarks/tsk_helpdesk_refunds');
+    expect(byId).not.toHaveProperty('webhook-ledger');
+    expect(byId).not.toHaveProperty('helpdesk-refunds');
+    for (const p of packs) expect(p.evaluatorRef).toBe(`benchmarks/${p.id}`);
     expect(byId['dfl-transcript-mining']).toBe('benchmarks/dfl-transcript-mining');
   });
 });
