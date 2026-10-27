@@ -4,7 +4,7 @@
  * paths (SPA routing), and answers `GET /health` with `ok` (Docker HEALTHCHECK).
  * No dependencies: node:http only.
  */
-import { createReadStream } from 'node:fs'
+import { createReadStream, readFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { dirname, extname, join, normalize, sep } from 'node:path'
@@ -12,6 +12,23 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), 'dist')
 const PORT = Number(process.env.PORT ?? 80)
+
+/**
+ * The deployed git commit: 40 lowercase hex characters, or `unknown`.
+ * Order: the GIT_COMMIT env var, then the GIT_COMMIT file next to this script (the Dockerfile `gitsha` stage writes it).
+ */
+export function resolveCommit(env = process.env, file = join(dirname(fileURLToPath(import.meta.url)), 'GIT_COMMIT')) {
+  const valid = (v) => (typeof v === 'string' && /^[0-9a-f]{40}$/.test(v.trim()) ? v.trim() : null)
+  const fromEnv = valid(env.GIT_COMMIT)
+  if (fromEnv) return fromEnv
+  try {
+    return valid(readFileSync(file, 'utf8')) ?? 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+const COMMIT = resolveCommit()
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -62,6 +79,12 @@ export const server = createServer(async (req, res) => {
   if (url.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
     res.end('ok')
+    return
+  }
+  if (url.pathname === '/version') {
+    // Never cached: the e2e workflow polls this to see when a new build is live.
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+    res.end(JSON.stringify({ service: 'tma-web2', commit: COMMIT }))
     return
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') {

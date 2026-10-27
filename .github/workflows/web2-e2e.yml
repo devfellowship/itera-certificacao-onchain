@@ -8,6 +8,15 @@ name: web2 e2e (prod)
 # So it never runs on `pull_request`. Triggers: push to main (web2 e2e files only), nightly, manual.
 # The nightly and manual runs always use the default branch. Each job step also refuses any other event.
 # Spend: one evaluation per run on the cheapest model, with an OpenRouter key capped at US$5.
+#
+# DEPLOY WAIT (plan 20261026-tma-local-runner-and-self-declared-results, task L16): a push starts this workflow
+# BEFORE the Dokploy build of `tma-web2` ends, so a prod spec for new UI could test the old bundle. The step
+# "Wait for the deployed web2 build" polls GET <E2E_WEB2_URL>/version (apps/web2/server.mjs, the commit comes from
+# the Dockerfile `gitsha` stage) every 30 s, up to 15 min, until the deployed commit is the TARGET or a
+# descendant of it. TARGET = the last commit (up to GITHUB_SHA) that touched a path Dokploy watches for web2:
+# a push that changes none of them builds nothing, so waiting for GITHUB_SHA itself would never end.
+# Dokploy clones `main` at build time, so a deploy can be NEWER than the pushed SHA: descendant counts.
+# Keep WEB2_WATCH_PATHS equal to the `tma-web2` watchPaths in dfl-infra:vps/itera-agent-credentials/dokploy-apps.json.
 
 on:
   workflow_dispatch:
@@ -30,7 +39,7 @@ jobs:
   e2e:
     # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     if: github.repository == 'devfellowship/itera-certificacao-onchain' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
     env:
       E2E_WEB2_URL: https://testmyagent.devfellowship.com
@@ -39,6 +48,9 @@ jobs:
         working-directory: apps/web2/e2e
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the deploy wait asks `git log -- <watch paths>` and `git merge-base --is-ancestor`.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -48,6 +60,48 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
+
+      - name: Wait for the deployed web2 build
+        working-directory: ${{ github.workspace }}
+        env:
+          # Same list as the Dokploy `tma-web2` watchPaths (a directory glob `x/**` is written `x`).
+          WEB2_WATCH_PATHS: '.dockerignore apps/web/src/tma/tokens.css apps/web2 package-lock.json package.json packages turbo.json'
+          WAIT_SECONDS: '900'
+          POLL_SECONDS: '30'
+        run: |
+          set -uo pipefail
+          # shellcheck disable=SC2086
+          target="$(git log -1 --format=%H "$GITHUB_SHA" -- $WEB2_WATCH_PATHS)"
+          if [ -z "$target" ]; then
+            echo "No commit touched the web2 watch paths: nothing to wait for."
+            exit 0
+          fi
+          echo "Target commit (last change under the web2 watch paths): $target"
+          deadline=$(( $(date +%s) + WAIT_SECONDS ))
+          deployed=unknown
+          while :; do
+            body="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "$E2E_WEB2_URL/version?t=$(date +%s)" 2>/dev/null || true)"
+            # Before the first /version deploy the SPA fallback answers 200 with HTML: jq fails, so `unknown`.
+            deployed="$(printf '%s' "$body" | jq -r '.commit // "unknown"' 2>/dev/null || echo unknown)"
+            if [[ "$deployed" =~ ^[0-9a-f]{40}$ ]]; then
+              if [ "$deployed" = "$target" ]; then
+                echo "Deployed commit equals the target: $deployed"
+                exit 0
+              fi
+              # The deploy may be newer than the pushed SHA (Dokploy clones main at build time).
+              git fetch --quiet origin main 2>/dev/null || true
+              if git cat-file -e "$deployed^{commit}" 2>/dev/null && git merge-base --is-ancestor "$target" "$deployed"; then
+                echo "Deployed commit $deployed is a descendant of the target $target"
+                exit 0
+              fi
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::web2 at $E2E_WEB2_URL still serves commit '$deployed' after ${WAIT_SECONDS}s; wanted $target or a descendant. Check the Dokploy build of tma-web2."
+              exit 1
+            fi
+            echo "Deployed commit: $deployed. Waiting for $target ..."
+            sleep "$POLL_SECONDS"
+          done
 
       - name: Run login.spec and free-run.spec
         env:

@@ -1,4 +1,17 @@
 # Express API (apps/api). Build context: repository root.
+# Deployed commit for GET /version (task L16). Dokploy clones the repo, so `.git` is in the build context.
+# A bind mount (not COPY) keeps this stage working, with the commit "unknown", when `.git` is absent
+# (a tarball build). `--build-arg GIT_COMMIT=<sha>` wins when given. Only this stage reruns per commit.
+FROM node:24-alpine AS gitsha
+RUN apk add --no-cache git
+ARG GIT_COMMIT=
+RUN --mount=type=bind,source=.,target=/ctx \
+    c="$GIT_COMMIT"; \
+    [ -n "$c" ] || c="$(git -c safe.directory='*' -C /ctx rev-parse HEAD 2>/dev/null || true)"; \
+    case "$c" in *[!0-9a-f]*|"") c=unknown ;; esac; \
+    [ "${#c}" = 40 ] || c=unknown; \
+    printf '%s' "$c" > /GIT_COMMIT
+
 FROM node:24-alpine AS build
 WORKDIR /workspace
 # `npm ci` validates package-lock.json against EVERY workspace, so every
@@ -39,6 +52,8 @@ COPY --from=build /workspace/apps/api/assets ./assets
 # U29: the manifest + tools snapshot of every MCP catalog server (the API syncs them into mcp_catalog).
 # Only the JSON is read; the server code in the same folders is never run by the API.
 COPY mcp/catalog ./mcp/catalog
+# GET /version reads this file (or the GIT_COMMIT env var).
+COPY --from=gitsha /GIT_COMMIT ./GIT_COMMIT
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD wget -q -O /dev/null http://127.0.0.1:${PORT}/health || exit 1
