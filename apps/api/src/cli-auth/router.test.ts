@@ -18,7 +18,10 @@ process.env.ITERA_SESSION_SECRET = "test-session-secret";
 
 const ALICE = "dfl:00000000-0000-4000-8000-00000000000a";
 const BOB = "dfl:00000000-0000-4000-8000-00000000000b";
-const T0 = Date.parse("2026-10-26T12:00:00Z");
+// The fake clock starts at the real time. A fixed date made this file a time bomb: a CLI session issued at
+// the fixed T0 lasts 24 h, and the real-clock check of `requireWallet` refused it once the real time passed T0 + 24 h
+// (main went red on 2026-10-27 12:00Z).
+const T0 = Math.floor(Date.now() / 1000) * 1000;
 const web = (id: string) => issueSessionToken(id, Date.now(), "dfl").token;
 const siws = () => issueSessionToken("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin", Date.now(), "siws").token;
 
