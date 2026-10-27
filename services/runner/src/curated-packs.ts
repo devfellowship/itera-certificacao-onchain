@@ -7,7 +7,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Pool } from 'pg';
 import { loadTask, taskDigests } from '../../evaluator/src/task.js';
-import { BUNDLE_FOLDER, packIdOfFolder } from '../../evaluator/src/pack-folders.js';
+import { BUNDLE_FOLDER } from '../../evaluator/src/pack-folders.js';
 
 export interface CuratedPack {
   id: string;
@@ -26,10 +26,10 @@ export async function curatedPacks(repoRoot: string): Promise<{ packs: CuratedPa
     try {
       const task = await loadTask(join(dir, entry.name));
       const d = await taskDigests(task);
-      // The pack id of a renamed bundle stays the OLD id: production rows still hold the old pack ids
-      // (runs.task_pack_id is a FK on it); renaming them is a data change (separate decision). Only
-      // the path (evaluatorRef) names the new folder.
-      packs.push({ id: packIdOfFolder(entry.name), version: task.contract.task.version, fixtureDigest: d.environment, criteriaDigest: d.hidden_tests, evaluatorRef: `benchmarks/${entry.name}` });
+      // The pack id IS the bundle folder name (= the catalog slug, plan TMA Q 5eff17c7). Q e9dc0ef2 = A
+      // (TG 24074) renames the production pack ids to the folder names, so the worker registers the new
+      // ids. The old rows (webhook-ledger, helpdesk-refunds) stay untouched: insert only.
+      packs.push({ id: entry.name, version: task.contract.task.version, fixtureDigest: d.environment, criteriaDigest: d.hidden_tests, evaluatorRef: `benchmarks/${entry.name}` });
     } catch (err) {
       if (!String((err as Error).message).startsWith('no task.json')) errors.push(`${entry.name}: ${(err as Error).message}`);
     }
