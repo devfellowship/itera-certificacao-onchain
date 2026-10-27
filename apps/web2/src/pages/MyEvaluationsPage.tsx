@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../lib/api'
+import { HOSTED_RUNS_ENABLED } from '../config'
 import type { Agent, EvaluationListItem as ApiEvaluationListItem, EvaluationScope, EvaluationStatus as ApiEvaluationStatus, EvaluationsResponse } from '../lib/api'
 import { AgentAvatar, Badge, Button, ButtonLink, SelfDeclaredBadge, Table, TableEmpty, Tabs, isSelfDeclared, type Column, type Tone } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
@@ -218,6 +219,8 @@ export function MyEvaluationsPage() {
     }
   }, [])
   const newEvaluationHref = useMemo(() => {
+    // L15b: with hosted runs off (web2 = ingested only, Tainan TG 23889) the button lands on the local-runner hint.
+    if (!HOSTED_RUNS_ENABLED) return '/evaluate'
     if (myAgents == null) return '/agents'
     return myAgents.length > 0 ? `/agents/${myAgents[0].id}/evaluate` : '/agents/new'
   }, [myAgents])

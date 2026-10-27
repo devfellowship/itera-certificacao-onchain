@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
 import type { RankingResponse, RankingRow } from '../lib/api'
+import { HOSTED_RUNS_ENABLED } from '../config'
 import { AgentAvatar, Badge, Button, ButtonLink, ModelLabel, RemovableChip, SearchInput, SectionLabel, StatusChip, Table, TableEmpty, Tabs, isLocalAgent, isSelfDeclared, type Column } from '../tma/ui'
 import { findTask, TaskFilter, TaskName, useTaskCatalog } from '../tma/task-filter'
 import { relativeTime } from './agents/format'
@@ -177,7 +178,8 @@ export function AgentsPage() {
       align: 'right',
       render: (a) => {
         const has = a.score != null
-        const canRun = n > 0 && a.coverage?.k === 0
+        // L15b: no hosted start while web2 = ingested only (Tainan TG 23889); the note names the local runner.
+        const canRun = HOSTED_RUNS_ENABLED && n > 0 && a.coverage?.k === 0
         return (
           <div className="agents-score">
             {has && (
@@ -213,7 +215,7 @@ export function AgentsPage() {
   ]
 
   const note = n
-    ? `Score on selected tasks = mean of per-task scores you can see. Run missing tasks for free with your OpenRouter key.`
+    ? `Score on selected tasks = mean of per-task scores you can see. ${HOSTED_RUNS_ENABLED ? 'Run missing tasks for free with your OpenRouter key.' : 'Run missing tasks on your machine with the tma local runner.'}`
     : 'Score = latest verified evaluation: hidden tests passed, weighted by task difficulty, 0–100.'
 
   let body: React.ReactNode

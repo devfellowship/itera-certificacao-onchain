@@ -8,12 +8,18 @@
  */
 import { expect, expectMounted, loginWithDfl, requireEnv, test } from './helpers'
 
+// L15 (plan TMA L15): web2 = ingested only for now (Tainan TG 23889). The API refuses a hosted start for a Login
+// with DFL session (403 hosted_not_available_web2) and the client shows the local-runner hint instead
+// (local-runner-hint.spec.ts). This spec stays for the day the switch turns on: run it with E2E_WEB2_HOSTED=true.
+const HOSTED = process.env.E2E_WEB2_HOSTED === 'true'
+
 const MODEL = process.env.E2E_MODEL || 'deepseek/deepseek-v4.1-flash'
 const TASK_NAME = process.env.E2E_TASK_NAME || 'Duplicate settlement webhook'
 const END_STATES = ['graded', 'failed', 'cancelled', 'review', 'issued']
 const GRADE_TIMEOUT_MS = 15 * 60 * 1000
 
 test('free BYOK run: start, wait for graded, score is shown', async ({ page }) => {
+  test.skip(!HOSTED, 'web2 = ingested only (TG 23889): hosted runs are off')
   const key = requireEnv('E2E_OPENROUTER_KEY')
   await loginWithDfl(page)
 

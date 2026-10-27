@@ -11,6 +11,9 @@ export interface ApiErrorBody {
 }
 
 export const UPGRADING_MESSAGE = 'Service is being upgraded. Try again in a few minutes.'
+/** The API text of `hosted_not_available_web2` (L15a). web2 = ingested only for now (Tainan TG 23889). */
+export const HOSTED_NOT_AVAILABLE_MESSAGE =
+  'Hosted runs are not available for a Login with DFL session. Run the task on your machine with the tma local runner, then send the result to POST /self-declared-results.'
 
 function formatResetAt(resetAt: unknown): string | null {
   if (typeof resetAt !== 'string') return null
@@ -43,6 +46,9 @@ export function apiErrorMessage(status: number, body: ApiErrorBody | null): stri
       return UPGRADING_MESSAGE
     case 'incompatible':
       return body?.error ?? 'The agent is not compatible with a selected task.'
+    case 'hosted_not_available_web2':
+      // A stale tab that still posts gets the API's own sentence (the `message` field), never a generic error.
+      return typeof body?.message === 'string' && body.message.trim() ? body.message : HOSTED_NOT_AVAILABLE_MESSAGE
   }
   if (status === 0) return 'We cannot reach the TestMyAgent API. Check your connection and try again.'
   if (status === 503) return UPGRADING_MESSAGE

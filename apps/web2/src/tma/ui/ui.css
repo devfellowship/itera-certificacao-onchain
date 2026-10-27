@@ -1233,3 +1233,72 @@ textarea.tma-input {
   align-items: center;
   text-decoration: none;
 }
+
+/* tma CLI steps (TmaCliSteps): numbered, each with one code block that scrolls sideways instead of widening the page. */
+.tma-cli {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.tma-cli__steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--tma-text-muted);
+}
+.tma-cli__steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.tma-cli__code {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--tma-radius-md);
+  background: var(--tma-surface-code);
+  color: var(--tma-text);
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  max-width: 100%;
+}
+.tma-cli__hint {
+  font-size: 12px;
+  color: var(--tma-text-subtle);
+}
+.tma-cli code {
+  font-family: var(--tma-font-mono);
+  font-size: 12px;
+}
+
+/* Local-runner hint (LocalRunnerHint): the card every hosted-start surface shows while web2 = ingested only. */
+.tma-local-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  min-width: 0;
+  max-width: 100%;
+}
+.tma-local-hint__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--tma-text);
+}
+.tma-local-hint__text {
+  font-size: 13px;
+  color: var(--tma-text-muted);
+  text-wrap: pretty;
+}
+.tma-local-hint__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

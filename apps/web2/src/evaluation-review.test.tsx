@@ -16,6 +16,9 @@ import { wilson90 } from './tma/detail'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+// L15b: the hosted path is dormant in prod (web2 = ingested only, Tainan TG 23889). This file tests it with the switch ON.
+vi.mock('./config', async (importOriginal) => ({ ...(await importOriginal<typeof import('./config')>()), HOSTED_RUNS_ENABLED: true }))
+
 const SESSION = { token: 'tma-session-token', user: { id: 'dfl:1', email: 'ana@example.com' } }
 const EVAL_ID = '11111111-2222-4333-8444-555555555555'
 const AGENT_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'

@@ -3,6 +3,29 @@ import { useNavigate } from 'react-router-dom'
 import { useSession } from '../auth/session'
 import { AgentAvatar, Badge, Logo, ModelAvatar, TagPill } from '../tma/ui'
 import './landing.css'
+import { HOSTED_RUNS_ENABLED } from '../config'
+
+// L15b: web2 = ingested only for now (Tainan TG 23889). The copy that promised a free hosted run with your own key
+// follows the HOSTED_RUNS_ENABLED switch; the layout stays.
+const COPY = HOSTED_RUNS_ENABLED
+  ? {
+      priced: 'Free. You bring your own OpenRouter key; model usage is billed by OpenRouter to you. Payment never turns a result into a pass.',
+      ownTasks: 'Yes. Create private tasks, run any listed agent on them for the same per-task fee, and compare. Private results stay private.',
+      pickTasks: 'Choose public tasks by tool or concept, or bring your own. Free, with your OpenRouter key.',
+      total: 'your OpenRouter key',
+      rankLead: 'Write a private task once. Run any listed agent on it for free with your own key and compare scores on the work you actually need.',
+      runBtn: 'your OpenRouter key',
+      startLead: 'Log in with DFL, connect your repo, and run your first evaluation. No promise of a passing result.',
+    }
+  : {
+      priced: 'Free. You run the task on your machine with the tma local runner and your own model key. Payment never turns a result into a pass.',
+      ownTasks: 'Yes. Create private tasks, run your agent on them with the tma local runner, and compare. Private results stay private.',
+      pickTasks: 'Choose public tasks by tool or concept, or bring your own. Run them on your machine with the tma local runner.',
+      total: 'on your machine',
+      rankLead: 'Write a private task once. Run your agent on it with the tma local runner and compare scores on the work you actually need.',
+      runBtn: 'local runner',
+      startLead: 'Log in with DFL, add your agent, and upload your first result from the tma local runner. No promise of a passing result.',
+    }
 
 // Landing v3 (route /). Port of "Landing v3.dc.html" at 99 % fidelity; every string is the design's.
 // The page shows no live numbers: the sample evaluation is illustrative by design, so it is static.
@@ -54,8 +77,8 @@ const CARDS: Array<{ name: string; pass: boolean; passed: number; total: number;
 const FAQ: Array<[string, string]> = [
   ["Do I share my agent's source code?", 'Not with buyers. A GitHub App reads your repo at a pinned commit, and we run it in an isolated sandbox. Profiles show results, never code.'],
   ['Which model runs my agent?', 'You pick one from the platform list. We run it on our infra via OpenRouter, so the runtime is platform-run, not just declared.'],
-  ['How is it priced?', 'Free. You bring your own OpenRouter key; model usage is billed by OpenRouter to you. Payment never turns a result into a pass.'],
-  ['Can I rank agents on my own tasks?', 'Yes. Create private tasks, run any listed agent on them for the same per-task fee, and compare. Private results stay private.'],
+  ['How is it priced?', COPY.priced],
+  ['Can I rank agents on my own tasks?', COPY.ownTasks],
 ]
 
 const SAMPLE_LINK = 'testmyagent.com/e/repo-bugfixer-7f3a'
@@ -277,7 +300,7 @@ export function LandingPage() {
                 <div className="lv3-step__top">
                   <span className="lv3-step__n">02</span>
                   <h3 className="lv3-step__h3">Pick tasks, bring your key</h3>
-                  <p className="lv3-step__p">Choose public tasks by tool or concept, or bring your own. Free, with your OpenRouter key.</p>
+                  <p className="lv3-step__p">{COPY.pickTasks}</p>
                 </div>
                 <div className="lv3-demo">
                   {STEP_TASKS.map(([name, tag, on]) => (
@@ -294,7 +317,7 @@ export function LandingPage() {
                   <div className="lv3-total">
                     <span className="lv3-label">Total</span>
                     <span className="lv3-mono13">
-                      Free <span className="lv3-muted">· your OpenRouter key</span>
+                      Free <span className="lv3-muted">· {COPY.total}</span>
                     </span>
                   </div>
                 </div>
@@ -407,7 +430,7 @@ export function LandingPage() {
             <div className="lv3-rank__copy">
               <Eyebrow>For buyers and teams</Eyebrow>
               <h2 className="lv3-h2">Bring your own tasks. Rank any agent on them.</h2>
-              <p className="lv3-rank__lead">Write a private task once. Run any listed agent on it for free with your own key and compare scores on the work you actually need.</p>
+              <p className="lv3-rank__lead">{COPY.rankLead}</p>
               <div className="lv3-rank__list">
                 <div>
                   <span>Private tasks</span>
@@ -461,7 +484,7 @@ export function LandingPage() {
                           <span className="lv3-rankrow__score">{a.score}</span>
                         ) : (
                           <span className="lv3-runbtn">
-                            Free · <span className="lv3-mono">your OpenRouter key</span>
+                            Free · <span className="lv3-mono">{COPY.runBtn}</span>
                           </span>
                         )}
                       </div>
@@ -497,7 +520,7 @@ export function LandingPage() {
         <section id="start" className="lv3-section">
           <div className="lv3-start">
             <h2 className="lv3-start__h2">Make the next buyer question testable.</h2>
-            <p className="lv3-start__lead">Log in with DFL, connect your repo, and run your first evaluation. No promise of a passing result.</p>
+            <p className="lv3-start__lead">{COPY.startLead}</p>
             {cta('landing-connect', 'lv3-btn lv3-btn--hero')}
             {s.error && (
               <div className="lv3-error" role="alert">

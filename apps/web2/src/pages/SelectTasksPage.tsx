@@ -12,9 +12,10 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../lib/api'
 import type { Agent, Model, Task } from '../lib/api'
 import { apiErrorMessage, type ApiErrorBody } from '../lib/errors'
+import { HOSTED_RUNS_ENABLED } from '../config'
 import { ModelKeyField } from '../models/ModelKeyField'
 import { TaskFilter, findTask, useTaskCatalog } from '../tma/task-filter'
-import { Breadcrumb, ModelLabel, Stepper } from '../tma/ui'
+import { Breadcrumb, LocalRunnerHint, ModelLabel, Stepper, firstTaskSlugOf } from '../tma/ui'
 import './select-tasks/select-tasks.css'
 
 const STEPS = ['Agent', 'Tasks', 'Evaluation', 'Results']
@@ -53,6 +54,48 @@ function startErrorMessage(e: unknown): string {
 }
 
 export function SelectTasksPage() {
+  return HOSTED_RUNS_ENABLED ? <HostedSelectTasksPage /> : <SelectTasksLocalHint />
+}
+
+/**
+ * L15b, web2 = ingested only (Tainan TG 23889): the title and the local-runner hint, no key field and no
+ * start button. The agent of `:aid` fills the commands when it is a local agent; the first `?tasks=` entry
+ * (id or slug, resolved through the catalog) fills `tma run --task`.
+ */
+function SelectTasksLocalHint() {
+  const { aid = '' } = useParams()
+  const [params] = useSearchParams()
+  const catalogState = useTaskCatalog()
+  const [agent, setAgent] = useState<Agent | null>(null)
+  useEffect(() => {
+    let live = true
+    api
+      .agent(aid)
+      .then((r) => live && setAgent(r.agent))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [aid])
+  const taskSlug = firstTaskSlugOf(params.get('tasks'), catalogState.status === 'ready' ? catalogState.catalog.tasks : null)
+  const agentName = agent?.name ?? '…'
+  return (
+    <main className="tma-page tma-page--flow st-page" data-testid="select-tasks-page" data-hosted="off">
+      <div className="st-head">
+        <Breadcrumb items={[{ label: 'Agents', to: '/agents' }, { label: agentName, to: `/agents/${aid}` }, { label: 'New evaluation' }]} />
+        <div className="st-head__row">
+          <div className="st-head__titles">
+            <h1 className="tma-h1">Select tasks</h1>
+            <span className="st-head__sub">Each task is graded by hidden tests outside your agent's sandbox.</span>
+          </div>
+        </div>
+      </div>
+      <LocalRunnerHint agent={agent} taskSlug={taskSlug} />
+    </main>
+  )
+}
+
+function HostedSelectTasksPage() {
   const { aid = '' } = useParams()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
