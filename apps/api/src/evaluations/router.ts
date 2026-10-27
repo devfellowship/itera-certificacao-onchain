@@ -9,6 +9,8 @@
  *   GET  /evaluations?scope=all|my_agents|others     My evaluations
  *   GET  /evaluations/:id                            roll-up (uiState, stages, tasks, events, proofs)
  *   POST /evaluations/:id/cancel                     queued runs → cancelled; no refund (Gate Q1)
+ *   DELETE /evaluations/:id                          the owner deletes a self-declared evaluation and its runs
+ *                                                    (plan 20261026-tma-local-runner-and-self-declared-results, L19)
  *
  * One wallet prompt per evaluation: the payment tx carries the transfer (with the Solana Pay
  * reference) and the Memo `itera-eval:v1:{evaluation_id, run_ids, …}`. Its signature is every
@@ -251,6 +253,31 @@ export function createEvaluationsV2Router(deps: EvaluationsRouterDeps): Router {
       }
       const cancelledRuns = await store.cancel(ev.id);
       res.json({ evaluationId: ev.id, status: "cancelled", cancelledRuns, refund: null });
+    }),
+  );
+
+  // L19 (Q 87769da2 = C): the owner deletes one self-declared evaluation, with its runs, in one transaction.
+  // The owner check is in the store, inside that transaction. Not the owner, or no such id → 404 (as GET).
+  // A hosted evaluation is refused (409): a payment, a proof or a public page can point at it.
+  router.delete(
+    "/evaluations/:id",
+    requireWallet,
+    handle(async (req, res) => {
+      const id = String(req.params.id);
+      const r = UUID_RE.test(id) ? await store.deleteEvaluation({ id, ownerWallet: req.wallet! }) : ({ outcome: "not_found" } as const);
+      if (r.outcome === "not_found") {
+        res.status(404).json({ error: "evaluation not found" });
+        return;
+      }
+      if (r.outcome === "not_deletable") {
+        const message =
+          r.reason === "hosted"
+            ? "only a self-declared evaluation can be deleted: TestMyAgent ran this one, and a payment, a proof or a public page can point at it"
+            : "a proof or another record still references a run of this evaluation";
+        res.status(409).json({ error: "evaluation_not_deletable", reason: r.reason, message });
+        return;
+      }
+      res.json({ evaluationId: r.evaluationId, deleted: true, deletedRuns: r.deletedRuns });
     }),
   );
 

@@ -13,6 +13,7 @@ import {
   type PaymentRecord,
   type ResolvedTask,
   type RollupColumns,
+  type DeleteEvaluationOutcome,
   PLATFORM_KEY_PRICE_SOURCE,
   PlatformQuotaExceededError,
   TooManyQueuedError,
@@ -289,4 +290,19 @@ export class FakeEvaluationsStore implements EvaluationsStore {
     return run;
   }
   async setProofEvaluation() {}
+  async deleteEvaluation({ id, ownerWallet }: { id: string; ownerWallet: string }): Promise<DeleteEvaluationOutcome> {
+    const e = this.evaluations.find((x) => x.id === id);
+    if (!e || e.ownerWallet !== ownerWallet) return { outcome: "not_found" };
+    if ((e.resultOrigin ?? "hosted") !== "self_declared") return { outcome: "not_deletable", reason: "hosted" };
+    const runIds = new Set(this.runs.filter((r) => r.evaluationId === id).map((r) => r.id));
+    if (this.proofs.some((p) => runIds.has(p.runId))) return { outcome: "not_deletable", reason: "has_proofs" };
+    this.runs = this.runs.filter((r) => !runIds.has(r.id));
+    for (const r of runIds) {
+      this.runKeys.delete(r);
+      this.runOwners.delete(r);
+    }
+    this.evaluations = this.evaluations.filter((x) => x.id !== id);
+    this.keys.delete(id);
+    return { outcome: "deleted", evaluationId: id, deletedRuns: runIds.size };
+  }
 }

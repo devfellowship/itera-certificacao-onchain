@@ -83,6 +83,7 @@ const ROUTES = [
   "GET /evaluations?scope=all|my_agents|others",
   "GET /evaluations/:id",
   "POST /evaluations/:id/cancel",
+  "DELETE /evaluations/:id",
   "GET /credentials/:id",
   "GET /credentials/:id/verify",
   "GET /credentials/:id/export",

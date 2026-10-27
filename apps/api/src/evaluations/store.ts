@@ -266,6 +266,19 @@ export interface NewFreeEvaluation {
   maxPlatformRunsPerDay?: number;
 }
 
+/**
+ * The answer of `deleteEvaluation` (DELETE /evaluations/:id, plan 20261026-tma-local-runner-and-self-declared-
+ * results, task L19, Q 87769da2 = C).
+ * - `not_found`: no such evaluation, or the caller does not own it (the same answer: an id of another owner
+ *   is not disclosed, as on GET /evaluations/:id).
+ * - `not_deletable`: `hosted` = TestMyAgent ran it (a payment, a proof or a public page can point at it);
+ *   `has_proofs` = a run of it has a proof row; `has_dependents` = another row still references a run.
+ */
+export type DeleteEvaluationOutcome =
+  | { outcome: "deleted"; evaluationId: string; deletedRuns: number }
+  | { outcome: "not_found" }
+  | { outcome: "not_deletable"; reason: "hosted" | "has_proofs" | "has_dependents" };
+
 export interface EvaluationsStore {
   getAgent(agentId: string): Promise<AgentForEval | null>;
   /** The version at `pinnedCommit` when given, else the latest synced version. */
@@ -321,4 +334,11 @@ export interface EvaluationsStore {
   /** Gate Q1: one free retry of an infra_error run. Null when the slot was already retried. */
   insertFreeRetry(evaluationId: string, failedRunId: string): Promise<EvalRun | null>;
   setProofEvaluation(runId: string, evaluationId: string): Promise<void>;
+  /**
+   * L19: the owner deletes one self-declared evaluation. In ONE transaction: lock the evaluation, check that
+   * `ownerWallet` owns it (the only owner check of the route), refuse a hosted one or one with a proof,
+   * delete its runs (their observations, run_actions and run_feedback cascade) and then the evaluation.
+   * Nothing is written when any step refuses or fails. A second call answers `not_found`.
+   */
+  deleteEvaluation(input: { id: string; ownerWallet: string }): Promise<DeleteEvaluationOutcome>;
 }

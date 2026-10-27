@@ -15,6 +15,7 @@ import {
   type NewFreeEvaluation,
   type ResolvedTask,
   type RollupColumns,
+  type DeleteEvaluationOutcome,
   PLATFORM_KEY_PRICE_SOURCE,
   PlatformQuotaExceededError,
   TooManyQueuedError,
@@ -596,5 +597,35 @@ export class PgEvaluationsStore implements EvaluationsStore {
 
   async setProofEvaluation(runId: string, evaluationId: string): Promise<void> {
     await this.pool.query(`update public.proofs set evaluation_id = $2 where run_id = $1 and evaluation_id is null`, [runId, evaluationId]);
+  }
+
+  async deleteEvaluation({ id, ownerWallet }: { id: string; ownerWallet: string }): Promise<DeleteEvaluationOutcome> {
+    const client = await this.pool.connect();
+    const refuse = async (o: DeleteEvaluationOutcome) => {
+      await client.query("rollback");
+      return o;
+    };
+    try {
+      await client.query("begin");
+      const ev = (await client.query(`select owner_wallet, result_origin from public.evaluations where id = $1 for update`, [id])).rows[0];
+      // The owner check: an evaluation of another principal answers exactly as one that does not exist.
+      if (!ev || ev.owner_wallet !== ownerWallet) return await refuse({ outcome: "not_found" });
+      if (ev.result_origin !== "self_declared") return await refuse({ outcome: "not_deletable", reason: "hosted" });
+      const runIds = (await client.query(`select id from public.runs where evaluation_id = $1 for update`, [id])).rows.map((r) => r.id as string);
+      const proofs = await client.query(`select 1 from public.proofs where evaluation_id = $1 or run_id = any($2::uuid[]) limit 1`, [id, runIds]);
+      if (proofs.rowCount) return await refuse({ outcome: "not_deletable", reason: "has_proofs" });
+      // observations, run_actions and run_feedback cascade with the run; payments.evaluation_id is set null.
+      const runs = await client.query(`delete from public.runs where evaluation_id = $1`, [id]);
+      await client.query(`delete from public.evaluations where id = $1`, [id]);
+      await client.query("commit");
+      return { outcome: "deleted", evaluationId: id, deletedRuns: runs.rowCount ?? 0 };
+    } catch (e) {
+      await client.query("rollback").catch(() => undefined);
+      // 23503: a row this route does not own (a claim manifest, a proof) still references a run.
+      if (pgCode(e) === "23503") return { outcome: "not_deletable", reason: "has_dependents" };
+      rethrow(e);
+    } finally {
+      client.release();
+    }
   }
 }
