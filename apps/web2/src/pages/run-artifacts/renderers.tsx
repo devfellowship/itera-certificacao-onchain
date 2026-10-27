@@ -519,7 +519,8 @@ export function useStoredContent(a: Artifact, active: boolean, loader: ArtifactL
 /** A client-side save of a loaded Blob: a detached `<a download>` with an object URL, clicked, then revoked. The page never navigates. */
 export function saveBlob(blob: Blob, filename: string): void {
   if (typeof URL.createObjectURL !== 'function') return
-  const url = URL.createObjectURL(blob)
+  // Re-typed as octet-stream: even if a browser ignored `download`, an HTML or SVG file would not render in our origin.
+  const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }))
   const a = document.createElement('a')
   a.href = url
   a.download = filename
