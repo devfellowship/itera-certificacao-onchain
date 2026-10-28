@@ -63,7 +63,7 @@ npx @devfellowship/tma@0.1.0 grade --task tsk_webhook_dup --workspace ./ws --age
 | Non-root | `USER 10001:10001` in the image (CI checks it); the launcher runs it as YOUR uid with the socket's group. On Docker Desktop the socket in the VM is root-owned, so `run` and `grade` run as root inside the container there. |
 | Resource limits | Every sandbox container: memory, memory-swap, CPUs, pids, `--cap-drop ALL`, `no-new-privileges` (`sandbox.ts`, `grade.ts`, `mcp-sidecar.ts`). The launcher container: `--memory 4g --pids-limit 2048 no-new-privileges`, `--cap-drop ALL` when not root. |
 | Cleanup on exit | A normal end or an error removes the run's containers in a `finally`. On Ctrl-C, `docker stop` or SIGTERM, `src/cli/cleanup.ts` removes the containers (with their volumes) and the network of this process's own runs, in two passes, then exits 130 / 143. `--rm` removes the launcher container. |
-| Signed, SBOM, provenance | `cosign sign` keyless (GitHub OIDC), `sbom: true`, `provenance: mode=max` (buildx). npm publish with `--provenance`. |
+| Signed, SBOM, provenance | `cosign sign` keyless (GitHub OIDC), `sbom: true`, `provenance: mode=max` (buildx). npm trusted publishing (OIDC) with `--provenance`. |
 
 **Docker-only form** (no Node, no launcher; Linux):
 
@@ -74,7 +74,7 @@ docker run --rm -it --init -u "$(id -u):$(id -g)" --group-add "$(stat -c %g /var
   ghcr.io/devfellowship/tma-local@sha256:<digest> <command> [flags]
 ```
 
-**Release.** CI (`.github/workflows/tma-local.yml`) builds and checks the image on every PR. On `main`, when the version of `services/runner/package.json` is not on GHCR yet, it pushes the image, signs it, and publishes the launcher with that digest. A published version never changes: to release, bump the version in `services/runner/package.json`, `tools/tma-launcher/package.json` and `tools/tma-launcher/image.json` together (CI refuses a mismatch). The launcher is Apache-2.0 (`tools/tma-launcher/`); the image content stays proprietary, with the use license `/app/LICENSE-USE.md`.
+**Release.** CI (`.github/workflows/tma-local.yml`) builds and checks the image on every PR. On `main`, when the version of `services/runner/package.json` is not on GHCR yet, it pushes the image and signs it. The job `npm-publish` (environment `npm-publish`, branch `main` only) then publishes the launcher with the verified digest by npm trusted publishing (OIDC, no npm token anywhere), when the repo variable `NPM_TRUSTED_PUBLISHING` is `1`; otherwise it writes "npm launcher publish skipped" and succeeds. A published version never changes: to release, bump the version in `services/runner/package.json`, `tools/tma-launcher/package.json` and `tools/tma-launcher/image.json` together (CI refuses a mismatch). The launcher is Apache-2.0 (`tools/tma-launcher/`); the image content stays proprietary, with the use license `/app/LICENSE-USE.md`.
 
 What to expect:
 

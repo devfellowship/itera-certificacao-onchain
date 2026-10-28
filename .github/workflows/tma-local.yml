@@ -6,9 +6,11 @@ name: tma-local
 # Every PR: launcher tests, leak-check self-test, image build, image checks (non-root user, CLI starts,
 #   no secret shape and no forbidden path in the final file system AND in every layer).
 # main, when the version in services/runner/package.json is not published yet:
-#   push the image with SBOM + max provenance, sign it with cosign keyless (this workflow's OIDC
-#   identity, which the launcher checks), then publish the launcher with the image digest pinned in
-#   image.json, with npm provenance. A published version never changes: bump the version to release.
+#   push the image with SBOM + max provenance and sign it with cosign keyless (this workflow's OIDC
+#   identity, which the launcher checks). Job `npm-publish` (environment `npm-publish`, main only) then
+#   publishes the launcher with the verified digest pinned in image.json, by npm TRUSTED PUBLISHING
+#   (OIDC, no token anywhere; Q 7c90c736 = B), only when the repo variable NPM_TRUSTED_PUBLISHING is '1'.
+#   A published version never changes: bump the version to release.
 
 on:
   pull_request:
@@ -27,19 +29,20 @@ env:
 
 jobs:
   image:
+    outputs:
+      version: ${{ steps.v.outputs.version }}
     # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
-      id-token: write # cosign keyless signing and npm provenance
+      id-token: write # cosign keyless signing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
       - name: Version
         id: v
         run: |
@@ -125,7 +128,7 @@ jobs:
           sbom: true
           provenance: mode=max
       - uses: sigstore/cosign-installer@v3
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.pub.outputs.new == 'true'
       - name: Sign the image (cosign keyless)
         if: steps.pub.outputs.new == 'true'
         env:
@@ -133,13 +136,48 @@ jobs:
         run: |
           cosign sign --yes "$REF"
           echo "published and signed: $REF" | tee -a "$GITHUB_STEP_SUMMARY"
-      # Separate from the image push: when NPM_TOKEN was missing at the first publish, a later main push
-      # publishes the launcher for the version that is already on GHCR.
-      - name: Publish the launcher with the pinned, verified digest (npm provenance)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          VERSION: ${{ steps.v.outputs.version }}
+
+  # The launcher, by npm trusted publishing: OIDC only, no token (Q 7c90c736 = B, TG 24549/24552).
+  # Separate from the image push: a later main push publishes the launcher for a version that is
+  # already on GHCR (for example after trusted publishing is configured).
+  npm-publish:
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Deployment branch policy: main only. `npm trust github` binds this environment and tma-local.yml.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and npm provenance
+    env:
+      VERSION: ${{ needs.image.outputs.version }}
+    steps:
+      - name: Trusted publishing configured?
+        id: gate
+        run: |
+          if [ "${{ vars.NPM_TRUSTED_PUBLISHING }}" = "1" ]; then
+            echo "on=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "npm launcher publish skipped: trusted publishing not configured yet" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "on=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.on == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.on == 'true'
+        with:
+          node-version: '24'
+      - name: npm CLI with trusted publishing (>= 11.5)
+        if: steps.gate.outputs.on == 'true'
+        run: |
+          npm install -g npm@11.6.4
+          npm --version
+      - uses: sigstore/cosign-installer@v3
+        if: steps.gate.outputs.on == 'true'
+      - name: Publish the launcher with the pinned, verified digest
+        if: steps.gate.outputs.on == 'true'
         working-directory: tools/tma-launcher
         run: |
           set -euo pipefail
@@ -155,9 +193,5 @@ jobs:
           DIGEST="$digest" node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('image.json'));p.digest=process.env.DIGEST;fs.writeFileSync('image.json',JSON.stringify(p,null,2)+'\n')"
           cat image.json
           node --test --test-skip-pattern 'development copy' test/launcher.test.mjs >/dev/null
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::warning::NPM_TOKEN is not available to this repository: the launcher is NOT on npm yet. Image $IMAGE@$digest is published and signed." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
           npm publish --provenance --access public
           echo "npm @devfellowship/tma@$VERSION pins $digest" | tee -a "$GITHUB_STEP_SUMMARY"
