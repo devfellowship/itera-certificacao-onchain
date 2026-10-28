@@ -20,6 +20,7 @@ This repository is public. It uses a mixed license scheme (decided by Tainan, 20
 | `services/attestation/` | The on-chain attestation client (Solana Attestation Service). | The proof format must be auditable. Anyone can rebuild the manifest and compare it with the chain. |
 | `mcp/catalog/` | The MCP fixture servers (`helpdesk`, `memory`) and their tool lists. | Task authors pin these images by digest. They need to see what the fixture does. |
 | `mcp/base/` | The shared fixture base inside the catalog images. | Already published under Apache-2.0 in the catalog images (see `mcp/base/LICENSE-NOTICE`). `mcp/catalog/LICENSE` covers it. No file is added here, because a published catalog version is immutable and CI blocks changes. |
+| `tools/tma-launcher/` | The `tma` launcher (npm `@devfellowship/tma`). It runs the signed, digest-pinned local runner image and says what it mounts. | A user gives this code the Docker socket of their machine. They must be able to read exactly what it runs and mounts. The image it runs stays proprietary (use license in the image). |
 | `docs/architecture/` | Architecture documents (for example the MCP sandbox contract). | Design decisions are easier to trust and to review in public. |
 
 Third-party code keeps its own license: `mcp/catalog/memory/LICENSE.upstream` and `mcp/base/LICENSE-NOTICE`.
@@ -34,7 +35,7 @@ Third-party code keeps its own license: `mcp/catalog/memory/LICENSE.upstream` an
 | `apps/api/` | The TestMyAgent API. | Product logic and the business model (quotes, payments, accounts). |
 | `apps/web/` (except `src/verify.ts`) | The web app. | Product UI. |
 | `benchmarks/` (including hidden tests) | Benchmark tasks, solutions and hidden tests. | Hidden tests must stay out of reach of agents. See the note below. |
-| `scripts/`, `db/`, `tools/`, `.github/` | Internal scripts, migrations, tooling and CI. | Internal operations. |
+| `scripts/`, `db/`, `tools/` (except `tools/tma-launcher/`), `.github/` | Internal scripts, migrations, tooling and CI. | Internal operations. |
 
 ## Notes
 

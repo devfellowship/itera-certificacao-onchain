@@ -26,6 +26,7 @@ import { defaultSandboxConfig, ensureSandboxImage, type SandboxConfig } from '..
 import { AGENT_FILES, commitBaseline, diffAgainstBaseline } from '../workspace.js';
 import { childEnv, CliError, sandboxEnv, userEnv } from './env.js';
 import { costSourceOf, resultRow, type ResultRow } from './result.js';
+import { trackRun } from './cleanup.js';
 import { REPO_ROOT, refuseMcp, type ResolvedTask } from './tasks.js';
 
 /** The instruction file of a local workspace. It is ignored by the diff, so it never enters a patch. */
@@ -113,7 +114,10 @@ export async function workspacePatch(r: ResolvedTask, workspaceDir: string): Pro
 }
 
 export function newRunId(): string {
-  return `local-${randomUUID().slice(0, 8)}`;
+  const id = `local-${randomUUID().slice(0, 8)}`;
+  // L10: a signal (Ctrl-C, docker stop) skips the `finally` of a run; the CLI then removes this id's containers.
+  trackRun(id);
+  return id;
 }
 
 /** Hide the user's key in a text. The key reaches only the gateway of a run; no log line may echo it. */

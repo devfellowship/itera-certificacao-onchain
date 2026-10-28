@@ -1,0 +1,18 @@
+{
+  "name": "@devfellowship/tma",
+  "version": "0.1.0",
+  "description": "Launcher of the TestMyAgent local runner: runs the signed, digest-pinned ghcr.io/devfellowship/tma-local image on your machine.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": { "tma": "bin/tma.mjs" },
+  "files": ["bin/", "lib/", "image.json", "LICENSE", "NOTICE", "README.md"],
+  "engines": { "node": ">=18" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devfellowship/itera-certificacao-onchain.git",
+    "directory": "tools/tma-launcher"
+  },
+  "homepage": "https://testmyagent.com",
+  "publishConfig": { "access": "public", "provenance": true },
+  "scripts": { "test": "node --test test/launcher.test.mjs" }
+}
