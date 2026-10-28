@@ -1,0 +1,197 @@
+name: tma-local
+
+# The TestMyAgent LOCAL runner image ghcr.io/devfellowship/tma-local and its launcher npm
+# @devfellowship/tma (plan 20261026-tma-local-runner-and-self-declared-results, task L10, Q3 = A).
+#
+# Every PR: launcher tests, leak-check self-test, image build, image checks (non-root user, CLI starts,
+#   no secret shape and no forbidden path in the final file system AND in every layer).
+# main, when the version in services/runner/package.json is not published yet:
+#   push the image with SBOM + max provenance and sign it with cosign keyless (this workflow's OIDC
+#   identity, which the launcher checks). Job `npm-publish` (environment `npm-publish`, main only) then
+#   publishes the launcher with the verified digest pinned in image.json, by npm TRUSTED PUBLISHING
+#   (OIDC, no token anywhere; Q 7c90c736 = B), only when the repo variable NPM_TRUSTED_PUBLISHING is '1'.
+#   A published version never changes: bump the version to release.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tma-local-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/devfellowship/tma-local
+
+jobs:
+  image:
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # cosign keyless signing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Version
+        id: v
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./services/runner/package.json').version")
+          launcher=$(node -p "require('./tools/tma-launcher/package.json').version")
+          pin=$(node -p "require('./tools/tma-launcher/image.json').version")
+          if [ "$version" != "$launcher" ] || [ "$version" != "$pin" ]; then
+            echo "::error::versions differ: runner $version, launcher $launcher, image.json $pin (keep them equal)"
+            exit 1
+          fi
+          if [ "$(node -p "require('./tools/tma-launcher/image.json').digest")" != "null" ]; then
+            echo "::error::tools/tma-launcher/image.json must keep digest null in git; CI writes it at publish time"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Launcher tests
+        run: node --test tools/tma-launcher/test/launcher.test.mjs
+      - name: Leak check self-test (mutation proof of the scanner)
+        run: python3 services/runner/tma-local/leak-check.py --self-test
+      - uses: docker/setup-buildx-action@v3
+        with:
+          # GitHub-hosted runners pull Docker Hub anonymously and hit its rate limit (429).
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
+      - name: Build the image (load)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/runner/tma-local/Dockerfile
+          platforms: linux/amd64
+          build-args: TMA_VERSION=${{ steps.v.outputs.version }}
+          tags: tma-local:ci
+          load: true
+          push: false
+      - name: Image checks
+        run: |
+          set -euo pipefail
+          user=$(docker inspect -f '{{.Config.User}}' tma-local:ci)
+          [ "$user" = "10001:10001" ] || { echo "::error::image user is '$user', want 10001:10001"; exit 1; }
+          vols=$(docker inspect -f '{{json .Config.Volumes}}' tma-local:ci)
+          [ "$vols" = "null" ] || [ "$vols" = "{}" ] || { echo "::error::image declares volumes: $vols"; exit 1; }
+          # Only these environment names in the image config (no key, no token, no URL with a password).
+          docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' tma-local:ci | cut -d= -f1 | sed '/^$/d' | sort > env.txt
+          printf '%s\n' HOME NODE_VERSION PATH TMA_CONFIG_DIR YARN_VERSION | sort > want.txt
+          diff -u want.txt env.txt
+          [ "$(docker run --rm tma-local:ci --version)" = "${{ steps.v.outputs.version }}" ]
+          docker run --rm tma-local:ci tasks | grep -q tsk_webhook_dup
+          # The image never holds the socket itself: it reaches Docker only through what the launcher mounts.
+          docker run --rm --entrypoint sh tma-local:ci -c 'test ! -e /var/run/docker.sock'
+          cid=$(docker create tma-local:ci)
+          docker export "$cid" | python3 services/runner/tma-local/leak-check.py
+          docker rm -v "$cid" >/dev/null
+          docker save tma-local:ci | python3 services/runner/tma-local/leak-check.py --layers
+      - name: Is this version published?
+        id: pub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:${{ steps.v.outputs.version }}" >/dev/null 2>&1; then
+            echo "$IMAGE:${{ steps.v.outputs.version }} exists: a published version never changes (skip)" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/login-action@v3
+        if: steps.pub.outputs.new == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the image (SBOM + provenance)
+        id: push
+        if: steps.pub.outputs.new == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/runner/tma-local/Dockerfile
+          platforms: linux/amd64
+          build-args: TMA_VERSION=${{ steps.v.outputs.version }}
+          tags: ${{ env.IMAGE }}:${{ steps.v.outputs.version }}
+          push: true
+          sbom: true
+          provenance: mode=max
+      - uses: sigstore/cosign-installer@v3
+        if: steps.pub.outputs.new == 'true'
+      - name: Sign the image (cosign keyless)
+        if: steps.pub.outputs.new == 'true'
+        env:
+          REF: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+        run: |
+          cosign sign --yes "$REF"
+          echo "published and signed: $REF" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The launcher, by npm trusted publishing: OIDC only, no token (Q 7c90c736 = B, TG 24549/24552).
+  # Separate from the image push: a later main push publishes the launcher for a version that is
+  # already on GHCR (for example after trusted publishing is configured).
+  npm-publish:
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Deployment branch policy: main only. `npm trust github` binds this environment and tma-local.yml.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and npm provenance
+    env:
+      VERSION: ${{ needs.image.outputs.version }}
+    steps:
+      - name: Trusted publishing configured?
+        id: gate
+        run: |
+          if [ "${{ vars.NPM_TRUSTED_PUBLISHING }}" = "1" ]; then
+            echo "on=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "npm launcher publish skipped: trusted publishing not configured yet" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "on=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.on == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.on == 'true'
+        with:
+          node-version: '24'
+      - name: npm CLI with trusted publishing (>= 11.5)
+        if: steps.gate.outputs.on == 'true'
+        run: |
+          npm install -g npm@11.6.4
+          npm --version
+      - uses: sigstore/cosign-installer@v3
+        if: steps.gate.outputs.on == 'true'
+      - name: Publish the launcher with the pinned, verified digest
+        if: steps.gate.outputs.on == 'true'
+        working-directory: tools/tma-launcher
+        run: |
+          set -euo pipefail
+          if npm view "@devfellowship/tma@$VERSION" version >/dev/null 2>&1; then
+            echo "@devfellowship/tma@$VERSION is on npm: a published version never changes (skip)" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          # Pin only a digest whose signature verifies with the identity that the launcher checks.
+          cosign verify "$IMAGE@$digest" \
+            --certificate-identity-regexp '^https://github\.com/devfellowship/itera-certificacao-onchain/\.github/workflows/tma-local\.yml@refs/heads/main$' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          DIGEST="$digest" node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('image.json'));p.digest=process.env.DIGEST;fs.writeFileSync('image.json',JSON.stringify(p,null,2)+'\n')"
+          cat image.json
+          node --test --test-skip-pattern 'development copy' test/launcher.test.mjs >/dev/null
+          npm publish --provenance --access public
+          echo "npm @devfellowship/tma@$VERSION pins $digest" | tee -a "$GITHUB_STEP_SUMMARY"

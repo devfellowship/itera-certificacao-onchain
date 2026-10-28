@@ -93,7 +93,7 @@ You need a Solana wallet (for example Phantom or Solflare) set to **devnet**. No
 
 ### Or run it on your own machine (`tma`)
 
-The local runner `tma` runs the same sandbox and grader on your machine, with your own model key, and uploads only the numbers. The result shows with a **Self-declared** badge. You need `git`, Node 22 and Docker. The commands: [`services/runner/README.md`, Step 1](services/runner/README.md#step-1-the-local-cli-tma).
+The local runner `tma` runs the same sandbox and grader on your machine, with your own model key, and uploads only the numbers. The result shows with a **Self-declared** badge. You need `git`, Node 22 and Docker, or only Docker with the signed image `ghcr.io/devfellowship/tma-local` and its launcher `npx @devfellowship/tma` (it mounts your Docker socket for `run` and `grade`: root-equivalent on your machine). The commands: [`services/runner/README.md`, Step 1](services/runner/README.md#step-1-the-local-cli-tma).
 
 ## Verify a proof without trusting us
 

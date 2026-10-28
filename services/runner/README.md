@@ -40,6 +40,42 @@ tma upload result.json                # inserted | updated | unchanged, the eval
 tma evaluations delete <evaluation id>          # shows it, asks y/N; --yes skips the question
 ```
 
+### Or without a clone: the image `ghcr.io/devfellowship/tma-local` and the launcher `npx @devfellowship/tma`
+
+The same CLI ships as one image (plan TMA L10, Q3 = A). It holds the CLI, the evaluator, the contracts, the curated tasks and the sandbox build context. You need Docker only (Docker Engine 24+ or Docker Desktop) and, for the launcher, Node 18+.
+
+```bash
+npx @devfellowship/tma@0.1.0 login          # the same commands as above: tma <command> [flags]
+npx @devfellowship/tma@0.1.0 launcher-info  # the image digest, its signature check, what it mounts
+npx @devfellowship/tma@0.1.0 grade --task tsk_webhook_dup --workspace ./ws --agent <agent id> --model <model> --out result.json
+```
+
+**What the launcher does.** It runs `ghcr.io/devfellowship/tma-local@sha256:<digest>`: the digest is pinned in the npm package at publish time (`image.json`; the git copy keeps `null` and refuses to run without `TMA_LAUNCHER_IMAGE`). When `cosign` is installed, it verifies the image signature first (the identity is this repo's `tma-local.yml` workflow on `main`) and refuses an image that does not verify; `TMA_REQUIRE_SIGNATURE=1` makes `cosign` mandatory. It runs the image with `docker run --rm --init`, as your uid, with your current folder (same path) and `~/.config/tma`. Give paths inside the current folder: the launcher refuses an absolute path outside it. Your model key goes by NAME (`-e OPENROUTER_API_KEY`, never in argv), and only to `tma run`. `TMA_LAUNCHER_DRY_RUN=1` prints the full `docker run` command and stops.
+
+**The Docker socket (read this).** `tma run` and `tma grade` start the sandbox, gateway and grader containers, so the launcher mounts your Docker socket for those two commands only (`login`, `agent`, `tasks`, `workspace`, `upload` and `evaluations` never get it). **Access to the Docker socket is root-equivalent on your machine**: a process that has it can start any container with any host folder. The launcher prints this warning before each of those commands. Tainan decided this trade on 2026-10-27 (Q `37d5c296` = A, TG 24503): the socket is acceptable for the LOCAL runner, on the participant's own machine, because it is the easiest form to adopt. The containers that run untrusted code (the agent sandbox, the model gateway, the grader, the MCP sidecars) never get the socket, locally or hosted: `src/docker-socket.guard.test.ts` fails on a socket, a bind mount or `--privileged` in any of their argv builders. Your socket never goes to TestMyAgent: a hosted run uses TestMyAgent's machines. (On the hosted side the trusted worker container has the socket of its own host, as described in "Step 2"; the hosted API and web apps have no Docker mount.)
+
+**The safety bar of the image**, and where each item is checked:
+
+| Item | How |
+|---|---|
+| No secret, no DFL credential, no private task data in any layer | `tma-local/leak-check.py` on the final file system AND on each layer of `docker save` (CI `tma-local.yml`; its `--self-test` plants a key, a CA bundle, a `.env` and a session file and must fail). Only `services/runner`, `services/evaluator`, `packages/contracts` and `benchmarks/` are copied; the unit tests (fake key shapes) are removed in a build stage, so no layer holds them. The image config holds 5 env names only (CI diff). |
+| Pinned base image | `node:24-bookworm-slim@sha256:…`; the docker CLI tarball is checked with `sha256sum`. |
+| Non-root | `USER 10001:10001` in the image (CI checks it); the launcher runs it as YOUR uid with the socket's group. On Docker Desktop the socket in the VM is root-owned, so `run` and `grade` run as root inside the container there. |
+| Resource limits | Every sandbox container: memory, memory-swap, CPUs, pids, `--cap-drop ALL`, `no-new-privileges` (`sandbox.ts`, `grade.ts`, `mcp-sidecar.ts`). The launcher container: `--memory 4g --pids-limit 2048 no-new-privileges`, `--cap-drop ALL` when not root. |
+| Cleanup on exit | A normal end or an error removes the run's containers in a `finally`. On Ctrl-C, `docker stop` or SIGTERM, `src/cli/cleanup.ts` removes the containers (with their volumes) and the network of this process's own runs, in two passes, then exits 130 / 143. `--rm` removes the launcher container. |
+| Signed, SBOM, provenance | `cosign sign` keyless (GitHub OIDC), `sbom: true`, `provenance: mode=max` (buildx). npm trusted publishing (OIDC) with `--provenance`. |
+
+**Docker-only form** (no Node, no launcher; Linux):
+
+```bash
+docker run --rm -it --init -u "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
+  -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:$PWD" -w "$PWD" \
+  -v "$HOME/.config/tma:/tma-config" -e TMA_CONFIG_DIR=/tma-config -e HOME=/tmp -e OPENROUTER_API_KEY \
+  ghcr.io/devfellowship/tma-local@sha256:<digest> <command> [flags]
+```
+
+**Release.** CI (`.github/workflows/tma-local.yml`) builds and checks the image on every PR. On `main`, when the version of `services/runner/package.json` is not on GHCR yet, it pushes the image and signs it. The job `npm-publish` (environment `npm-publish`, branch `main` only) then publishes the launcher with the verified digest by npm trusted publishing (OIDC, no npm token anywhere), when the repo variable `NPM_TRUSTED_PUBLISHING` is `1`; otherwise it writes "npm launcher publish skipped" and succeeds. A published version never changes: to release, bump the version in `services/runner/package.json`, `tools/tma-launcher/package.json` and `tools/tma-launcher/image.json` together (CI refuses a mismatch). The launcher is Apache-2.0 (`tools/tma-launcher/`); the image content stays proprietary, with the use license `/app/LICENSE-USE.md`.
+
 What to expect:
 
 - **`tma login`** prints `https://testmyagent.com/cli?code=ABCD-EFGH`. Open it on any device, sign in with DFL, check that the page shows the same code, and click **Allow**. The CLI then stores a 24 h session in `~/.config/tma/session.json` (mode 600; `TMA_CONFIG_DIR` changes the folder). The code expires after 10 minutes. `tma logout` revokes the session.

@@ -11,6 +11,7 @@ import { runCommand } from './commands/run.js';
 import { tasksCommand } from './commands/tasks.js';
 import { uploadCommand } from './commands/upload.js';
 import { workspaceCommand } from './commands/workspace.js';
+import { exitAllowed, installSignalCleanup } from './cleanup.js';
 import { CliError } from './env.js';
 import { CLI_VERSION } from './version.js';
 
@@ -52,5 +53,9 @@ export async function main(argv: string[], io = stdio): Promise<number> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('/cli/tma.ts')) {
-  main(process.argv.slice(2)).then((code) => process.exit(code));
+  installSignalCleanup();
+  main(process.argv.slice(2)).then(async (code) => {
+    await exitAllowed();
+    process.exit(code);
+  });
 }
