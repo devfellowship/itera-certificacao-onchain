@@ -1,0 +1,104 @@
+<!doctype html>
+<!--
+  Source of the social preview image of testmyagent.com (apps/web2/public/og-image.png, 1200x630).
+  Regenerate: node apps/web2/og/render.mjs   (needs the root `playwright` devDependency + chromium).
+  Colors are the --tma-* brand tokens (apps/web2/src/tma/tokens.css). The mark is the 8 polygons of
+  apps/web2/src/tma/ui/Logo.tsx. Copy comes from the landing page (apps/web2/src/pages/LandingPage.tsx).
+  Dark only, flat, no gradients (tokens.css rules).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #0a0908;
+        --surface: #141210;
+        --surface-raised: #1c1916;
+        --line: #2a2722;
+        --text: #f4ede2;
+        --muted: #a2aaa1;
+        --subtle: #6e6a62;
+        --primary: #3fd17f;
+        --primary-hover: #78e3a0;
+        --primary-soft: #1c3a2a;
+        --primary-text: #8fe9b1;
+        --danger-bg: #3a1c1c;
+        --danger-text: #f39595;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { width: 1200px; height: 630px; background: var(--bg); overflow: hidden; }
+      body {
+        font-family: 'Geist', system-ui, sans-serif;
+        color: var(--text);
+        position: relative;
+        background-image:
+          linear-gradient(var(--line) 1px, transparent 1px),
+          linear-gradient(90deg, var(--line) 1px, transparent 1px);
+        background-size: 60px 60px;
+        background-position: -1px -1px;
+      }
+      /* Fade the grid out on the left so the copy sits on a flat field. */
+      .field { position: absolute; inset: 0; background: var(--bg); clip-path: polygon(0 0, 62% 0, 50% 100%, 0 100%); }
+      .wrap { position: absolute; inset: 0; padding: 64px 72px; display: flex; flex-direction: column; }
+      .lockup { display: flex; align-items: center; gap: 20px; }
+      .lockup svg { display: block; }
+      .divider { width: 1px; height: 40px; background: var(--line); }
+      .name { font-size: 30px; font-weight: 600; letter-spacing: -0.01em; }
+      .name span { color: var(--subtle); }
+      h1 { margin-top: 72px; font-size: 64px; line-height: 1.06; font-weight: 600; letter-spacing: -0.025em; max-width: 640px; }
+      h1 span { color: var(--subtle); }
+      .lead { margin-top: 28px; font-size: 23px; line-height: 1.4; color: var(--muted); max-width: 640px; }
+      .chips { margin-top: auto; display: flex; gap: 12px; }
+      .chip { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 18px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); }
+      .chip b { color: var(--primary); font-weight: 500; }
+
+      .card { position: absolute; right: 64px; top: 150px; width: 400px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; }
+      .card-h { display: flex; justify-content: space-between; align-items: center; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 15px; color: var(--subtle); text-transform: uppercase; letter-spacing: 0.06em; }
+      .row { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-top: 1px solid var(--line); font-size: 19px; }
+      .row:first-of-type { margin-top: 14px; }
+      .badge { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 14px; font-weight: 500; padding: 5px 10px; border-radius: 6px; }
+      .pass { background: var(--primary-soft); color: var(--primary-text); }
+      .fail { background: var(--danger-bg); color: var(--danger-text); }
+    </style>
+  </head>
+  <body>
+    <div class="field"></div>
+    <div class="wrap">
+      <div class="lockup">
+        <svg viewBox="0 0 214 100" width="94" height="44" aria-hidden="true">
+          <g fill="#3fd17f">
+            <polygon points="0,0 58,0 58,24 0,24" />
+            <polygon points="18,29 40,29 40,100 18,100" />
+            <polygon points="63,0 85,0 85,100 63,100" />
+            <polygon points="90,0 103,0 103,70" />
+            <polygon points="121,0 143,0 143,100 121,100" />
+            <polygon points="148,100 181,0 181,66 170,100" />
+          </g>
+          <g fill="#78e3a0">
+            <polygon points="103,0 116,0 103,70" />
+            <polygon points="181,0 214,100 192,100 181,66" />
+          </g>
+        </svg>
+        <div class="divider"></div>
+        <div class="name">testmyagent<span>.com</span></div>
+      </div>
+      <h1>Your agents change. <span>Know if they're getting better.</span></h1>
+      <p class="lead">Test AI agents on real tasks. Hidden tests grade every run.</p>
+      <div class="chips">
+        <div class="chip"><b>›</b> real tasks</div>
+        <div class="chip"><b>›</b> hidden tests</div>
+        <div class="chip"><b>›</b> cost per task</div>
+      </div>
+    </div>
+
+    <div class="card" aria-hidden="true">
+      <div class="card-h"><span>Hidden tests</span><span>v3 → v4</span></div>
+      <div class="row"><span>Fix failing CI</span><span class="badge pass">PASS</span></div>
+      <div class="row"><span>Null crash in handler</span><span class="badge pass">PASS</span></div>
+      <div class="row"><span>Export frames to SVG</span><span class="badge fail">FAIL</span></div>
+    </div>
+  </body>
+</html>
