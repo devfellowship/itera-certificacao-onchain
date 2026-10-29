@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -49,5 +49,36 @@ describe('GET /version', () => {
   it('keeps /health as it was', async () => {
     const res = await fetch(`${base}/health`)
     expect(await res.text()).toBe('ok')
+  })
+})
+
+// Social preview of testmyagent.com: X, LinkedIn and Slack read these tags from the static index.html
+// (they do not run JS). The image must exist at the size the tags state.
+describe('social preview meta (index.html + public/og-image.png)', () => {
+  const dir = new URL('.', import.meta.url)
+  const html = readFileSync(new URL('index.html', dir), 'utf8')
+  const meta = (attr, key) => html.match(new RegExp(`<meta ${attr}="${key}" content="([^"]*)"`))?.[1]
+
+  it('states an English title, description and locale for Open Graph and X', () => {
+    expect(meta('property', 'og:title')).toMatch(/^TestMyAgent/)
+    expect(meta('name', 'twitter:title')).toBe(meta('property', 'og:title'))
+    expect(meta('property', 'og:description')).toMatch(/AI agents/)
+    expect(meta('name', 'twitter:description')).toBe(meta('property', 'og:description'))
+    expect(meta('property', 'og:locale')).toBe('en_US')
+    expect(meta('name', 'twitter:card')).toBe('summary_large_image')
+  })
+
+  it('points og:image and twitter:image to an absolute https URL of the committed 1200x630 PNG', () => {
+    const image = meta('property', 'og:image')
+    expect(image).toBe('https://testmyagent.com/og-image.png')
+    expect(meta('name', 'twitter:image')).toBe(image)
+    expect(meta('property', 'og:image:width')).toBe('1200')
+    expect(meta('property', 'og:image:height')).toBe('630')
+    expect(meta('property', 'og:image:alt')).toBeTruthy()
+    const png = readFileSync(new URL('public/og-image.png', dir))
+    expect(png.subarray(1, 4).toString('latin1')).toBe('PNG')
+    expect(png.readUInt32BE(16)).toBe(1200)
+    expect(png.readUInt32BE(20)).toBe(630)
+    expect(png.length).toBeLessThan(300 * 1024)
   })
 })
