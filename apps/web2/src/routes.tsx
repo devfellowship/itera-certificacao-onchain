@@ -29,6 +29,7 @@ import { TaskEditorPage } from './pages/TaskEditorPage'
 import { TaskProfilePage } from './pages/TaskProfilePage'
 import { TasksPage } from './pages/TasksPage'
 import { UserPage } from './pages/UserPage'
+import { StudioHomePage } from './studio/StudioHomePage'
 
 /** App routes: App Nav + session gate. */
 function AppLayout() {
@@ -89,6 +90,8 @@ export const routes: RouteObject[] = [
           { path: '/tasks/:id/edit', element: <TaskEditorPage /> },
           { path: '/settings/profile', element: <ProfileSettingsPage /> },
           { path: '/cli', element: <CliLoginPage /> },
+          // Studio area (plan 20261112-tma-c5-studio-area-web2, ADR-1): new routes only, no existing route is touched.
+          { path: '/studio', element: <StudioHomePage /> },
         ],
       },
       {

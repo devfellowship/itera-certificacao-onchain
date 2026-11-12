@@ -4,12 +4,13 @@ import { useSession } from '../../auth/session'
 import { LoginButton } from '../../pages/LoginButton'
 import { Avatar, Lockup } from '../ui'
 
-export type NavSection = 'agents' | 'evaluations' | 'tasks'
+export type NavSection = 'agents' | 'evaluations' | 'tasks' | 'studio'
 
 const LINKS: Array<{ id: NavSection; label: string; to: string; testId: string }> = [
   { id: 'agents', label: 'Agents', to: '/agents', testId: 'nav-agents' },
   { id: 'tasks', label: 'Tasks', to: '/tasks', testId: 'nav-tasks' },
   { id: 'evaluations', label: 'Evaluations', to: '/evaluations', testId: 'nav-my-evaluations' },
+  { id: 'studio', label: 'Studio', to: '/studio', testId: 'nav-studio' },
 ]
 
 /** Section of the nav that a pathname marks active (02, 03, 08 → agents; 04, 09 → evaluations). */
@@ -17,10 +18,11 @@ export function sectionFor(pathname: string): NavSection | null {
   if (pathname.startsWith('/agents')) return 'agents'
   if (pathname.startsWith('/evaluations')) return 'evaluations'
   if (pathname.startsWith('/tasks')) return 'tasks'
+  if (pathname === '/studio' || pathname.startsWith('/studio/')) return 'studio'
   return null
 }
 
-/** App Nav: lockup + three links left and an avatar-only account menu trigger. */
+/** App Nav: lockup + four links left and an avatar-only account menu trigger. */
 export function AppNav({ active }: { active?: NavSection | null }) {
   const { pathname } = useLocation()
   const current = active === undefined ? sectionFor(pathname) : active
