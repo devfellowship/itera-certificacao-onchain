@@ -359,3 +359,49 @@
     flex-wrap: wrap;
   }
 }
+
+/* ---------- Result store (C4-T6): variant strip and the grading rows of a run ---------- */
+.ev-store {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 24px;
+}
+.ev-store__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-width: 0;
+}
+.ev-store__grader code {
+  color: var(--tma-text);
+}
+.ev-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--tma-line-strong);
+  border-radius: var(--tma-radius-pill);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tma-text);
+}
+.ev-badge--baseline {
+  border-color: var(--tma-primary);
+  color: var(--tma-primary);
+}
+.ev-store-run {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.ev-store-run__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

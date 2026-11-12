@@ -595,6 +595,61 @@ export interface ProofSummary {
   proofHash: string | null
   attestationAddress?: string | null
 }
+// ---------- Result store, tma-local-result/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T3 -> T6) ----------
+// GET /evaluations/:id and GET /runs/:id add these fields (camelCase, apps/api/src/self-declared/eval-results.ts).
+// Every one is OPTIONAL: before db/migrations/0023 is applied the API answers the old body without them, and a v1
+// or hosted evaluation gets `case: null`, `variant: null` and empty `graders` after it. The page renders nothing
+// for a missing field. It never fills it with a placeholder.
+export interface EvalCaseView {
+  id: string
+  caseKey: string
+  manifestSha256: string
+  pinSha256: string | null
+  mode: 'replay' | 'trace_review'
+  useCaseKey: string
+  taskId: string | null
+  createdAt: string
+}
+export interface EvalVariantView {
+  id: string
+  variantSha256: string
+  label: string
+  changeKind: string
+  isBaseline: boolean
+  predictionSha256: string | null
+}
+/** One grading row of one run (a re-grade adds a row). `score` is 0-100 or null. */
+export interface GraderRowView {
+  id: string
+  semver: string
+  kind: string
+  codeSha256: string
+  pass: boolean
+  score: number | null
+  weight: number
+  hardGate: boolean
+  decisive: boolean
+  infraOk: boolean | null
+  gradedAt: string
+}
+/** One grader version over the runs of an evaluation: its latest row per run. */
+export interface GraderSummaryView {
+  id: string
+  semver: string
+  kind: string
+  codeSha256: string
+  n: number
+  pass: number
+  meanScore: number | null
+  hardGate: boolean
+  decisive: boolean
+}
+export interface TrajectorySummaryView {
+  steps: number
+  firstFailureSeq: number | null
+  errorClasses: Record<string, number>
+}
+
 export interface EvaluationDetail {
   id: string
   shortId: string
@@ -604,6 +659,10 @@ export interface EvaluationDetail {
   elapsedMs: number
   createdAt?: string
   resultOrigin?: ResultOrigin
+  /** Result store (v2 upload). Absent before migration 0023; null for a v1 or hosted evaluation after it. */
+  case?: EvalCaseView | null
+  variant?: EvalVariantView | null
+  graders?: GraderSummaryView[]
   agent: { id?: string; name: string; slug?: string | null; repo?: string | null; commit: string | null; initials: string; avatarUrl?: string | null; authorWallet?: string | null; authorProfile?: UserProfile }
   /** v2: `{id, release}`; the design fixtures use a label string. */
   model: string | { id: string; release: string | null }
@@ -635,6 +694,9 @@ export interface EvaluationDetail {
     durationMs: number | null
     outcome: Outcome | null
     score: number | null
+    /** Result store: every grading row of this run, and its trajectory summary. Absent before migration 0023. */
+    graders?: GraderRowView[]
+    trajectorySummary?: TrajectorySummaryView | null
   }>
   events: Array<{ tMs: number; tone: EventToneApi; label: string; detail: string | null }>
   proofs: ProofSummary[]
@@ -670,6 +732,11 @@ export interface Run {
   phase: RunPhase | null
   scoreTotal: number | null
   resultOrigin?: ResultOrigin
+  /** Result store (v2 upload). Absent before migration 0023. */
+  case?: EvalCaseView | null
+  variant?: EvalVariantView | null
+  graders?: GraderRowView[]
+  trajectorySummary?: TrajectorySummaryView | null
   evaluationId?: string | null
   durationMs?: number | null
   /** Model cost in USD as billed by OpenRouter (lane G). Null = not measured yet. */

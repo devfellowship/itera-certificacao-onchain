@@ -13,6 +13,7 @@ import { SessionProvider } from './auth/session'
 import { RunningEvaluationPage } from './pages/RunningEvaluationPage'
 import { compareRows, inputPreview, mostLost, patchStats, sourceOf, subtitleOf, verdictOf } from './pages/running-evaluation/review'
 import { wilson90 } from './tma/detail'
+import { graderLinesOf, graderSummariesOf, trajectoryTextOf, variantInfoOf } from './pages/running-evaluation/result-store'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -474,5 +475,122 @@ describe('evaluation review layout', () => {
     expect(q(c, 'rerun')).toBeNull()
     expect(q(c, 'evaluation-title')!.textContent).toBe('Evaluation')
     expect(q(c, 'evaluation-meta')!.textContent).toContain('ev_8d9e905a · codex-agent abc1234 · 2 tasks')
+  })
+})
+
+// ---------- C4-T6: the result-store fields (variant, baseline, grader version, trajectory) ----------
+// The API sends them only after db/migrations/0023 is applied and only for a v2 upload. Both shapes must render.
+const V2_CASE = { id: 'case-1', caseKey: 'checkout-refund', manifestSha256: 'a'.repeat(64), pinSha256: null, mode: 'replay', useCaseKey: 'support', taskId: null, createdAt: '2026-11-12T09:00:00.000Z' }
+const V2_VARIANT = { id: 'var-1', variantSha256: 'b'.repeat(64), label: 'shorter-prompt', changeKind: 'prompt', isBaseline: false, predictionSha256: null }
+const grade = (over: Record<string, unknown> = {}) => ({ id: 'hidden-tests', semver: '1.2.0', kind: 'code', codeSha256: 'c'.repeat(64), pass: true, score: 100, weight: 1, hardGate: true, decisive: true, infraOk: true, gradedAt: '2026-11-12T10:00:00.000Z', ...over })
+const V2_FIELDS = {
+  case: V2_CASE,
+  variant: V2_VARIANT,
+  graders: [{ id: 'hidden-tests', semver: '1.2.0', kind: 'code', codeSha256: 'c'.repeat(64), n: 2, pass: 1, meanScore: 50, hardGate: true, decisive: true }],
+}
+const RUN_1_V2 = { ...RUN_1, graders: [grade()], trajectorySummary: { steps: 7, firstFailureSeq: null, errorClasses: {} } }
+const RUN_2_V2 = { ...RUN_2, graders: [grade({ pass: false, score: 0, gradedAt: '2026-11-12T10:01:00.000Z' }), grade({ pass: false, score: 40, gradedAt: '2026-11-12T10:05:00.000Z' })], trajectorySummary: { steps: 9, firstFailureSeq: 4, errorClasses: { timeout: 2, not_found: 1 } } }
+
+describe('result-store helpers', () => {
+  it('variantInfoOf: needs a variant label; absent, null and malformed answer null', () => {
+    expect(variantInfoOf({})).toBeNull()
+    expect(variantInfoOf({ case: null, variant: null, tasks: [] })).toBeNull()
+    expect(variantInfoOf({ variant: { label: '' } })).toBeNull()
+    expect(variantInfoOf({ variant: 'x' })).toBeNull()
+    expect(variantInfoOf({ ...V2_FIELDS, tasks: [{}, {}] })).toEqual({ label: 'shorter-prompt', changeKind: 'prompt', isBaseline: false, caseKey: 'checkout-refund', mode: 'replay', n: 2 })
+    expect(variantInfoOf({ variant: { ...V2_VARIANT, isBaseline: true }, tasks: [] })).toMatchObject({ isBaseline: true, caseKey: null, mode: null, n: 0 })
+  })
+  it('graderSummariesOf and graderLinesOf drop malformed entries and mark a replaced grading', () => {
+    expect(graderSummariesOf(undefined)).toEqual([])
+    expect(graderSummariesOf([{ id: 'x' }, null, 'y'])).toEqual([])
+    expect(graderSummariesOf(V2_FIELDS.graders)).toMatchObject([{ ref: 'hidden-tests@1.2.0', n: 2, pass: 1, meanScore: 50 }])
+    expect(graderLinesOf(null)).toEqual([])
+    expect(graderLinesOf([{ id: 'x', semver: '1.0.0' }])).toEqual([])
+    const lines = graderLinesOf(RUN_2_V2.graders)
+    expect(lines.map((l) => [l.ref, l.score, l.latest])).toEqual([['hidden-tests@1.2.0', 0, false], ['hidden-tests@1.2.0', 40, true]])
+  })
+  it('trajectoryTextOf: steps, first failure, error classes; null without a summary', () => {
+    expect(trajectoryTextOf(undefined)).toBeNull()
+    expect(trajectoryTextOf(null)).toBeNull()
+    expect(trajectoryTextOf({})).toBeNull()
+    expect(trajectoryTextOf({ steps: 7, firstFailureSeq: null, errorClasses: {} })).toBe('7 steps · no failed step')
+    expect(trajectoryTextOf({ steps: 1, firstFailureSeq: 1, errorClasses: { a: 1 } })).toBe('1 step · first failure at step 1 · 1 a')
+    expect(trajectoryTextOf(RUN_2_V2.trajectorySummary)).toBe('9 steps · first failure at step 4 · 2 timeout, 1 not_found')
+  })
+})
+
+describe('evaluation page: result-store fields', () => {
+  const SELF = { resultOrigin: 'self_declared', paymentKind: 'none' }
+
+  it('v2 shape: variant label, n, case, grader id@semver next to each score, trajectory; baseline badge only for the baseline', async () => {
+    stubApi({
+      [`GET /evaluations/${EVAL_ID}`]: () => json(200, { ...evaluationView(SELF), ...V2_FIELDS }),
+      'GET /runs/r1': () => json(200, RUN_1_V2),
+      'GET /runs/r2': () => json(200, RUN_2_V2),
+    })
+    const c = mountAt(`/evaluations/${EVAL_ID}`)
+    await waitFor(() => q(c, 'run-graders') !== null, 'the run graders')
+    const strip = q(c, 'variant-strip')!
+    expect(strip.dataset.variant).toBe('shorter-prompt')
+    expect(strip.dataset.baseline).toBe('false')
+    expect(q(c, 'variant-label')!.textContent).toBe('shorter-prompt')
+    expect(q(c, 'variant-change')!.textContent).toBe('changes prompt')
+    expect(q(c, 'variant-n')!.textContent).toBe('n 2')
+    expect(q(c, 'variant-case')!.textContent).toBe('case checkout-refund · replay')
+    expect(q(c, 'baseline-badge')).toBeNull()
+    expect(q(c, 'grader-summary')!.dataset.grader).toBe('hidden-tests@1.2.0')
+    expect(q(c, 'grader-summary')!.textContent).toContain('1/2 pass')
+    expect(q(c, 'grader-summary')!.textContent).toContain('mean 50.0')
+    // item 1 is current: one grading row, its trajectory.
+    expect(qa(c, 'run-grader').map((e) => e.textContent)).toEqual([expect.stringContaining('hidden-tests@1.2.0 pass · 100/100')])
+    expect(q(c, 'run-trajectory')!.textContent).toBe('trajectory · 7 steps · no failed step')
+    // item 2: a re-graded run keeps both rows, the first one marked as replaced.
+    click(q(c, 'item-next'))
+    await waitFor(() => qa(c, 'run-grader').length === 2, 'item 2 grading rows')
+    expect(qa(c, 'run-grader').map((e) => e.dataset.latest)).toEqual(['false', 'true'])
+    expect(qa(c, 'run-grader')[0]!.textContent).toContain('replaced by a later grading')
+    expect(qa(c, 'run-grader')[1]!.textContent).toContain('fail · 40/100')
+    expect(q(c, 'run-trajectory')!.textContent).toBe('trajectory · 9 steps · first failure at step 4 · 2 timeout, 1 not_found')
+  })
+
+  it('v2 shape, baseline variant: the baseline badge shows', async () => {
+    stubApi({ [`GET /evaluations/${EVAL_ID}`]: () => json(200, { ...evaluationView(SELF), ...V2_FIELDS, variant: { ...V2_VARIANT, label: 'current', changeKind: 'none', isBaseline: true } }) })
+    const c = mountAt(`/evaluations/${EVAL_ID}`)
+    await waitFor(() => q(c, 'variant-strip') !== null, 'the variant strip')
+    expect(q(c, 'variant-strip')!.dataset.baseline).toBe('true')
+    expect(q(c, 'baseline-badge')!.textContent).toBe('baseline')
+    expect(q(c, 'variant-change')).toBeNull()
+  })
+
+  it('old shape (the v2 fields are absent): the page renders and adds nothing for them', async () => {
+    const c = await mountReady()
+    expect(q(c, 'compare-table')).not.toBeNull()
+    expect(q(c, 'variant-strip')).toBeNull()
+    expect(q(c, 'baseline-badge')).toBeNull()
+    expect(q(c, 'run-graders')).toBeNull()
+    expect(c.textContent).not.toMatch(/[\w-]+@\d+\.\d+\.\d+/)
+    expect(c.textContent).not.toContain('trajectory')
+  })
+
+  it('new API, v1 or hosted evaluation (case and variant null, empty graders): nothing is shown', async () => {
+    stubApi({
+      [`GET /evaluations/${EVAL_ID}`]: () => json(200, { ...evaluationView(), case: null, variant: null, graders: [], tasks: (evaluationView().tasks as object[]).map((t) => ({ ...t, graders: [], trajectorySummary: null })) }),
+      'GET /runs/r1': () => json(200, { ...RUN_1, case: null, variant: null, graders: [], trajectorySummary: null }),
+    })
+    const c = mountAt(`/evaluations/${EVAL_ID}`)
+    await waitFor(() => q(c, 'compare-table') !== null, 'the compare table')
+    expect(q(c, 'variant-strip')).toBeNull()
+    expect(q(c, 'run-graders')).toBeNull()
+  })
+
+  it('malformed v2 fields do not crash the page', async () => {
+    stubApi({
+      [`GET /evaluations/${EVAL_ID}`]: () => json(200, { ...evaluationView(), case: 'x', variant: { label: 7 }, graders: 'nope' }),
+      'GET /runs/r1': () => json(200, { ...RUN_1, graders: [{ id: 5 }, null], trajectorySummary: 'x' }),
+    })
+    const c = mountAt(`/evaluations/${EVAL_ID}`)
+    await waitFor(() => q(c, 'compare-table') !== null, 'the compare table')
+    expect(q(c, 'variant-strip')).toBeNull()
+    expect(q(c, 'run-graders')).toBeNull()
   })
 })
