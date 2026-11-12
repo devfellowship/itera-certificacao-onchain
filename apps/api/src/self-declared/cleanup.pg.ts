@@ -25,17 +25,17 @@ const param = (ids: string[] | null, listing: boolean): string[] | null => (list
 export class PgEvalCleanupStore implements EvalCleanupStore {
   constructor(private readonly pool: Pick<Pool, "connect">) {}
 
-  async cleanup(owner: string, tenant: string, sel: CleanupSelection, options: { dryRun: boolean }): Promise<CleanupOutcome> {
+  async cleanup(owner: string, tenant: string, sel: CleanupSelection, options: { dryRun: boolean; graderAdmin: boolean }): Promise<CleanupOutcome> {
     const c = await this.pool.connect();
     try {
       await c.query("begin");
-      const facts = await this.facts(c, owner, tenant, sel);
-      const plan = planCleanup(facts, sel);
+      const facts = await this.facts(c, owner, tenant, sel, options.graderAdmin);
+      const plan = planCleanup(facts, sel, { graderAdmin: options.graderAdmin });
       if (options.dryRun || (!plan.cases.length && !plan.variants.length && !plan.graderVersions.length)) {
         await c.query("rollback");
         return { plan, deleted: false };
       }
-      await this.apply(c, owner, tenant, plan);
+      await this.apply(c, owner, tenant, plan, options.graderAdmin);
       await c.query("commit");
       return { plan, deleted: true };
     } catch (e) {
@@ -47,7 +47,7 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
     }
   }
 
-  private async facts(c: PoolClient, owner: string, tenant: string, sel: CleanupSelection): Promise<CleanupFacts> {
+  private async facts(c: PoolClient, owner: string, tenant: string, sel: CleanupSelection, graderAdmin: boolean): Promise<CleanupFacts> {
     const listing = sel.caseIds === null && sel.variantIds === null && sel.graderVersionIds === null;
     const cases = await c.query(
       `select k.id, k.case_key, (select count(*)::int from public.runs r where r.case_id = k.id) as run_count
@@ -66,7 +66,8 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
           for update of v`,
       [owner, tenant, param(sel.variantIds, listing)],
     );
-    const graders = await c.query(
+    // The grader registry is read (and locked) only for an admin: for anyone else it is not even looked at.
+    const graders = !graderAdmin ? { rows: [] as Array<Record<string, unknown>> } : await c.query(
       `select g.id, g.grader_id, g.semver, (select count(*)::int from public.grader_results x where x.grader_version_id = g.id) as result_count,
               (g.judge_model_id is not null or g.rubric_sha256 is not null or g.params_sha256 is not null
                or g.tpr is not null or g.tnr is not null or g.test_split_sha256 is not null) as calibrated
@@ -79,12 +80,14 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
     return {
       cases: cases.rows.map((r) => ({ id: r.id, caseKey: r.case_key, runCount: Number(r.run_count) })),
       variants: variants.rows.map((r) => ({ id: r.id, label: r.label, runCount: Number(r.run_count), baselineOfCaseIds: r.baseline_of as string[] })),
-      graders: graders.rows.map((r) => ({ id: r.id, graderId: r.grader_id, semver: r.semver, resultCount: Number(r.result_count), calibrated: Boolean(r.calibrated) })),
+      graders: graders.rows.map((r) => ({ id: String(r.id), graderId: String(r.grader_id), semver: String(r.semver), resultCount: Number(r.result_count), calibrated: Boolean(r.calibrated) })),
     };
   }
 
   /** Cases first (they release their baseline), then variants, then grader versions. Each DELETE must remove exactly the planned rows. */
-  private async apply(c: PoolClient, owner: string, tenant: string, plan: ReturnType<typeof planCleanup>): Promise<void> {
+  private async apply(c: PoolClient, owner: string, tenant: string, plan: ReturnType<typeof planCleanup>, graderAdmin: boolean): Promise<void> {
+    // Second check: a plan with a grader version for a caller that is not an admin never reaches the DELETE.
+    if (plan.graderVersions.length && !graderAdmin) throw new CleanupConflictError("grader versions: the caller is not an admin");
     const expect = async (what: string, sql: string, params: unknown[], want: number) => {
       const r = await c.query(sql, params);
       if ((r.rowCount ?? 0) !== want) throw new CleanupConflictError(`${what}: deleted ${r.rowCount ?? 0} of ${want} planned rows`);

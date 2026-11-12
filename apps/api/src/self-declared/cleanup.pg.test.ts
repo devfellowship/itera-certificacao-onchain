@@ -161,6 +161,8 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
   });
 
   const none = { caseIds: null, variantIds: null, graderVersionIds: null };
+const ADMIN = { dryRun: true, graderAdmin: true };
+const USER = { dryRun: true, graderAdmin: false };
 
   it("the fixture is what the T7 proof left: the evaluation is gone, the case, the variant and the grader version stay", async () => {
     expect(await count(`public.runs where case_id = $1`, [orphan.caseId])).toBe(0);
@@ -171,23 +173,23 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
   });
 
   it("lists the caller's deletable rows and deletes nothing (listing, then the default dry run)", async () => {
-    const listing = await store.cleanup(ALICE, TENANT, none, { dryRun: true });
+    const listing = await store.cleanup(ALICE, TENANT, none, ADMIN);
     expect(listing.deleted).toBe(false);
     expect(listing.plan.cases.map((c) => c.id)).toEqual([orphan.caseId]);
     expect(listing.plan.variants.map((v) => v.id)).toEqual([orphan.variantId]);
     expect(listing.plan.graderVersions.filter((g) => g.graderId.startsWith(tag)).map((g) => g.id).sort()).toEqual([orphan.graderId]);
     expect(listing.plan.refused).toEqual([]);
-    const named = await store.cleanup(ALICE, TENANT, { caseIds: [orphan.caseId], variantIds: [orphan.variantId], graderVersionIds: [orphan.graderId] }, { dryRun: true });
+    const named = await store.cleanup(ALICE, TENANT, { caseIds: [orphan.caseId], variantIds: [orphan.variantId], graderVersionIds: [orphan.graderId] }, ADMIN);
     expect(named.deleted).toBe(false);
     expect(named.plan.refused).toEqual([]);
     for (const [t, id] of [["eval_cases", orphan.caseId], ["eval_variants", orphan.variantId], ["grader_versions", orphan.graderId]] as const) expect(await exists(t, id)).toBe(true);
   });
 
   it("another principal's ids are not_found in both directions, and the rows stay", async () => {
-    const asBob = await store.cleanup(BOB, TENANT, { caseIds: [orphan.caseId], variantIds: [orphan.variantId], graderVersionIds: null }, { dryRun: false });
+    const asBob = await store.cleanup(BOB, TENANT, { caseIds: [orphan.caseId], variantIds: [orphan.variantId], graderVersionIds: null }, { ...USER, dryRun: false });
     expect(asBob.deleted).toBe(false);
     expect(asBob.plan.refused.map((r) => `${r.kind}:${r.reason}`)).toEqual(["case:not_found", "variant:not_found"]);
-    const asAlice = await store.cleanup(ALICE, TENANT, { caseIds: [bobCase], variantIds: [bobVariant], graderVersionIds: null }, { dryRun: false });
+    const asAlice = await store.cleanup(ALICE, TENANT, { caseIds: [bobCase], variantIds: [bobVariant], graderVersionIds: null }, { ...USER, dryRun: false });
     expect(asAlice.deleted).toBe(false);
     expect(asAlice.plan.refused.map((r) => `${r.kind}:${r.reason}`)).toEqual(["case:not_found", "variant:not_found"]);
     expect(await exists("eval_cases", orphan.caseId)).toBe(true);
@@ -195,7 +197,7 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
     expect(await exists("eval_cases", bobCase)).toBe(true);
     expect(await exists("eval_variants", bobVariant)).toBe(true);
     // The tenant is part of the owner check too: the same owner in another tenant sees nothing.
-    const other = await store.cleanup(ALICE, "other-tenant", { caseIds: [orphan.caseId], variantIds: null, graderVersionIds: [orphan.graderId] }, { dryRun: false });
+    const other = await store.cleanup(ALICE, "other-tenant", { caseIds: [orphan.caseId], variantIds: null, graderVersionIds: [orphan.graderId] }, { ...ADMIN, dryRun: false });
     expect(other.plan.refused.map((r) => `${r.kind}:${r.reason}`)).toEqual(["case:not_found", "grader_version:not_found"]);
     expect(await exists("eval_cases", orphan.caseId)).toBe(true);
     expect(await exists("grader_versions", orphan.graderId)).toBe(true);
@@ -205,7 +207,7 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
     const r = await store.cleanup(
       ALICE, TENANT,
       { caseIds: [kept.caseId], variantIds: [kept.variantId], graderVersionIds: [kept.graderId, judgeGrader] },
-      { dryRun: false },
+      { ...ADMIN, dryRun: false },
     );
     expect(r.deleted).toBe(false);
     expect(r.plan.refused).toEqual([
@@ -218,7 +220,7 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
   });
 
   it("a variant that stays as a case's baseline is refused (the case is not in the request)", async () => {
-    const r = await store.cleanup(ALICE, TENANT, { caseIds: null, variantIds: [orphan.variantId], graderVersionIds: null }, { dryRun: false });
+    const r = await store.cleanup(ALICE, TENANT, { caseIds: null, variantIds: [orphan.variantId], graderVersionIds: null }, { ...USER, dryRun: false });
     expect(r.deleted).toBe(false);
     expect(r.plan.refused).toEqual([{ kind: "variant", id: orphan.variantId, reason: "baseline_of_case", detail: { case_ids: [orphan.caseId] } }]);
     expect(await exists("eval_variants", orphan.variantId)).toBe(true);
@@ -226,11 +228,11 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
 
   it("the DELETE statements refuse a forged plan on their own (the SQL guards)", async () => {
     const forge = (over: Partial<CleanupPlan>): CleanupPlan => ({ listing: false, cases: [], variants: [], graderVersions: [], refused: [], ...over });
-    const attempt = async (owner: string, tenant: string, plan: CleanupPlan) => {
+    const attempt = async (owner: string, tenant: string, plan: CleanupPlan, admin = true) => {
       const c = await pool.connect();
       try {
         await c.query("begin");
-        await (store as unknown as { apply(c: unknown, o: string, t: string, p: CleanupPlan): Promise<void> }).apply(c, owner, tenant, plan);
+        await (store as unknown as { apply(c: unknown, o: string, t: string, p: CleanupPlan, admin: boolean): Promise<void> }).apply(c, owner, tenant, plan, admin);
         await c.query("commit");
         return "applied";
       } catch (e) {
@@ -242,6 +244,9 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
         c.release();
       }
     };
+    // A caller that is not an admin: even the free grader version never reaches the DELETE.
+    expect(await attempt(ALICE, TENANT, forge({ graderVersions: [{ id: orphan.graderId, graderId: "x", semver: "2.0.0" }] }), false)).toBe("refused");
+    expect(await exists("grader_versions", orphan.graderId)).toBe(true);
     expect(await attempt(ALICE, TENANT, forge({ cases: [{ id: kept.caseId, caseKey: "x" }] }))).toBe("refused");
     expect(await attempt(ALICE, TENANT, forge({ variants: [{ id: kept.variantId, label: "x" }] }))).toBe("refused");
     expect(await attempt(ALICE, TENANT, forge({ graderVersions: [{ id: kept.graderId, graderId: "x", semver: "1.0.0" }] }))).toBe("refused");
@@ -256,8 +261,21 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
     }
   });
 
+  it("deny direction: a caller that is not an admin lists no grader version, and naming grader ids with dry_run false is admin_only with 0 rows deleted", async () => {
+    const listing = await store.cleanup(ALICE, TENANT, none, USER);
+    expect(listing.plan.graderVersions).toEqual([]);
+    // The caller that does not own the rows is no different: the registry has no owner, so ownership is not the gate.
+    for (const who of [ALICE, BOB]) {
+      const r = await store.cleanup(who, TENANT, { caseIds: null, variantIds: null, graderVersionIds: [orphan.graderId, kept.graderId, judgeGrader] }, { ...USER, dryRun: false });
+      expect(r.deleted).toBe(false);
+      expect(r.plan.graderVersions).toEqual([]);
+      expect(r.plan.refused.map((x) => `${x.kind}:${x.reason}`)).toEqual(["grader_version:admin_only", "grader_version:admin_only", "grader_version:admin_only"]);
+    }
+    for (const id of [orphan.graderId, kept.graderId, judgeGrader]) expect(await exists("grader_versions", id)).toBe(true);
+  });
+
   it("the owner deletes the orphaned case, its baseline variant and the grader version in one transaction", async () => {
-    const r = await store.cleanup(ALICE, TENANT, { caseIds: [orphan.caseId], variantIds: [orphan.variantId], graderVersionIds: [orphan.graderId] }, { dryRun: false });
+    const r = await store.cleanup(ALICE, TENANT, { caseIds: [orphan.caseId], variantIds: [orphan.variantId], graderVersionIds: [orphan.graderId] }, { ...ADMIN, dryRun: false });
     expect(r.deleted).toBe(true);
     expect(r.plan.refused).toEqual([]);
     expect([r.plan.cases.map((c) => c.id), r.plan.variants.map((v) => v.id), r.plan.graderVersions.map((g) => g.id)]).toEqual([[orphan.caseId], [orphan.variantId], [orphan.graderId]]);
@@ -267,7 +285,7 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
       expect(await exists(t, id)).toBe(true);
     }
     // A second delete finds nothing: not_found, not an error.
-    const again = await store.cleanup(ALICE, TENANT, { caseIds: [orphan.caseId], variantIds: null, graderVersionIds: null }, { dryRun: false });
+    const again = await store.cleanup(ALICE, TENANT, { caseIds: [orphan.caseId], variantIds: null, graderVersionIds: null }, { ...USER, dryRun: false });
     expect(again).toMatchObject({ deleted: false, plan: { refused: [{ kind: "case", id: orphan.caseId, reason: "not_found" }] } });
   });
 });
