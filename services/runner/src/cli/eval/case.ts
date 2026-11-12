@@ -30,7 +30,12 @@ export const CASE_INPUT_DIR = 'input';
 export const CASE_RECORDED_FILE = 'recorded.diff';
 export const CASE_RUNS_DIR = 'runs';
 
-const CASE_KEY = /^[a-z0-9][a-z0-9._-]{2,79}$/;
+/**
+ * ONE case_key rule for tma-case/1 and tma-local-result/2: no dot, 3 to 63 characters. The upload contract
+ * (local-result-v2 case.case_key) and the eval_cases.case_key CHECK (0023) allow no dot and 63 at most, so a
+ * case that this kit accepts always uploads. devfellowship/dfl-evals checks the same rule.
+ */
+const CASE_KEY = /^[a-z0-9][a-z0-9_-]{2,62}$/;
 /** The L1 pair type/subtype (umbrella ADR-29). Same segment pattern as eval_cases.use_case_key. */
 const USE_CASE = /^[a-z0-9][a-z0-9-]{0,30}\/[a-z0-9][a-z0-9-]{0,30}$/;
 const L2_TAG = /^[a-z0-9][a-z0-9._-]{1,79}$/;
@@ -85,7 +90,7 @@ export function caseErrors(v: unknown): string[] {
   closedKeys('', v, TOP_KEYS, errors);
   for (const k of REQUIRED) if (!(k in v)) errors.push(`/${k}: required`);
   if ('schema' in v && v.schema !== CASE_FORMAT) errors.push(`/schema: must be ${CASE_FORMAT}`);
-  if ('case_key' in v && (typeof v.case_key !== 'string' || !CASE_KEY.test(v.case_key))) errors.push('/case_key: lowercase letters, digits, . _ -, 3 to 80 characters');
+  if ('case_key' in v && (typeof v.case_key !== 'string' || !CASE_KEY.test(v.case_key))) errors.push('/case_key: lowercase letters, digits, _ and -, 3 to 63 characters (no dot: it is the key of the upload)');
   if ('use_case' in v && (typeof v.use_case !== 'string' || !USE_CASE.test(v.use_case))) {
     errors.push('/use_case: the L1 pair <type>/<subtype>, for example fix/red-ci (umbrella ADR-29; an L2 cluster key goes in l2_tag)');
   }
