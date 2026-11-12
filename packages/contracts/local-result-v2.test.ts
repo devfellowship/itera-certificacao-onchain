@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Itera / DevFellowship
-// tma-local-result/2 and tma-trajectory/1 (plan 20261112-tma-c4-result-store-trajectory-upload, T1).
+// tma-local-result/2 and tma-trajectory/1 (plan 20261112-tma-c4-result-store-trajectory-upload, T1, T8).
 import { describe, expect, it } from 'vitest';
 import {
+  EMPTY_DIFF_SHA256,
   LOCAL_RESULT_MAX_BYTES,
   LOCAL_RESULT_V2_MAX_BYTES,
   LOCAL_RESULT_V2_MAX_RUNS,
   TRAJECTORY_MAX_STEPS,
+  agentVersionSha256,
   localResultSchema,
   localResultV2Schema,
   parseAnyLocalResultText,
@@ -60,12 +62,18 @@ const grader = (over: Record<string, unknown> = {}) => ({
 const v2Run = (repeat: number, score: number, over: Record<string, unknown> = {}) => ({
   ...v1Run(repeat, score), infra_ok: true, graders: [grader({ pass: score === 100, score })], trajectory: traj(), ...over,
 });
+const MODEL = 'openrouter/deepseek/deepseek-v4.1-flash';
+const agentV = (over: Record<string, unknown> = {}): Record<string, any> => ({
+  harness: 'claude-code', harness_version: '2.1.87', harness_repo_sha: '0'.repeat(39) + '1', model_id: MODEL,
+  rules_sha256: H('6'), skills_sha256: H('7'), mcp_manifest_sha256: H('8'), tools_sha256: H('9'), ...over,
+});
 const v2 = (over: Record<string, unknown> = {}): Record<string, any> =>
   v1Base({
     format: 'tma-local-result/2',
     metrics_shape: 'tma-score/1',
-    case: { case_key: 'webhook-dup-001', manifest_sha256: H('1'), pin_sha256: H('2'), mode: 'replay', use_case_key: 'fix/prod-bug' },
-    variant: { variant_sha256: H('3'), label: 'skill v2 (shorter brief)', change_kind: 'skill', is_baseline: false, prediction_sha256: H('4') },
+    case: { case_key: 'webhook-dup-001', manifest_sha256: H('1'), origin_pin_sha256: H('2'), mode: 'replay', use_case_key: 'fix/prod-bug' },
+    variant: { agent: agentV(), variant_sha256: H('3'), label: 'skill v2 (shorter brief)', change_kind: 'skill' },
+    comparison: { is_baseline: false, prediction_sha256: H('4') },
     summary: { score: 90, runs: 2, items: 1 },
     runs: [v2Run(1, 100), v2Run(2, 80)],
     ...over,
@@ -86,8 +94,9 @@ describe('tma-local-result/2 — accepted bodies', () => {
   });
   it('accepts a baseline, a run with no trajectory and no graders, and an infra fault', () => {
     const value = v2({
-      variant: { variant_sha256: H('5'), label: 'baseline', change_kind: 'none', is_baseline: true, prediction_sha256: null },
-      case: { case_key: 'webhook-dup-001', manifest_sha256: H('1'), pin_sha256: null, mode: 'trace_review', use_case_key: 'fix' },
+      variant: { agent: agentV({ harness_version: null, harness_repo_sha: null, rules_sha256: null, skills_sha256: null, mcp_manifest_sha256: null, tools_sha256: null }), variant_sha256: EMPTY_DIFF_SHA256, label: 'baseline', change_kind: 'none' },
+      comparison: { is_baseline: true, prediction_sha256: null },
+      case: { case_key: 'webhook-dup-001', manifest_sha256: H('1'), origin_pin_sha256: null, mode: 'trace_review', use_case_key: 'fix' },
       runs: [v2Run(1, 100, { trajectory: null }), { ...v2Run(2, 0, { graders: [], trajectory: null, infra_ok: false }), status: 'infra_error', error_class: 'infra_error' }],
     });
     expect(issuesV2(value)).toEqual([]);
@@ -250,21 +259,60 @@ describe('tma-local-result/2 — caps', () => {
 });
 
 describe('tma-local-result/2 — the rules a schema cannot say', () => {
-  it('the baseline has change_kind none and no prediction; another variant names its change and has a prediction', () => {
-    const b = v2(); b.variant.is_baseline = true;
+  it('the baseline has change_kind none and no prediction; another variant has a prediction', () => {
+    const b = v2(); b.comparison.is_baseline = true;
     expect(issuesV2(b)).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'inconsistent', path: '/variant/change_kind' }),
-      expect.objectContaining({ code: 'inconsistent', path: '/variant/prediction_sha256' }),
+      expect.objectContaining({ code: 'inconsistent', path: '/comparison/prediction_sha256' }),
     ]));
-    const n = v2(); n.variant.change_kind = 'none'; n.variant.prediction_sha256 = null;
-    expect(issuesV2(n)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'inconsistent', path: '/variant/change_kind' }),
-      expect.objectContaining({ code: 'inconsistent', path: '/variant/prediction_sha256' }),
-    ]));
+    const n = v2(); n.comparison.prediction_sha256 = null;
+    expect(issuesV2(n)).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/comparison/prediction_sha256' }));
   });
-  it('a replay case has a pin', () => {
-    const v = v2(); v.case.pin_sha256 = null;
-    expect(issuesV2(v)).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/case/pin_sha256' }));
+  it('a base agent with no diff (change_kind none) may run off-baseline, with a prediction and the empty diff digest', () => {
+    const v = v2(); v.variant.change_kind = 'none'; v.variant.variant_sha256 = EMPTY_DIFF_SHA256;
+    expect(issuesV2(v)).toEqual([]);
+    const bad = v2(); bad.variant.change_kind = 'none';
+    expect(issuesV2(bad)).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/variant/variant_sha256' }));
+  });
+  it('the executor ran the base model, unless the one diff is the model', () => {
+    const other = v2(); other.variant.agent.model_id = 'zai/glm-5.3';
+    expect(issuesV2(other)).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/executor/model_id' }));
+    const m = v2(); m.variant.change_kind = 'model'; m.variant.agent.model_id = 'zai/glm-5.3';
+    expect(issuesV2(m)).toEqual([]);
+    const same = v2(); same.variant.change_kind = 'model';
+    expect(issuesV2(same)).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/executor/model_id' }));
+  });
+  it('accepts every change kind of ADR-26 and refuses an unknown one', () => {
+    for (const k of ['prompt', 'rules', 'skill', 'retrieval', 'memory', 'tools', 'mcp', 'permissions', 'orchestration', 'limits', 'harness']) {
+      const v = v2(); v.variant.change_kind = k;
+      expect(issuesV2(v), k).toEqual([]);
+    }
+    const u = v2(); u.variant.change_kind = 'vibes';
+    expect(issuesV2(u)).toContainEqual(expect.objectContaining({ path: '/variant/change_kind' }));
+  });
+  it('the variant holds no case and the case holds no agent: binding keys are refused', () => {
+    const a = v2(); a.case.model_id = MODEL;
+    expect(issuesV2(a)).toContainEqual(expect.objectContaining({ code: 'unknown_key', path: '/case/model_id' }));
+    const b = v2(); b.variant.case_key = 'webhook-dup-001';
+    expect(issuesV2(b)).toContainEqual(expect.objectContaining({ code: 'unknown_key', path: '/variant/case_key' }));
+    const c = v2(); c.variant.is_baseline = false;
+    expect(issuesV2(c)).toContainEqual(expect.objectContaining({ code: 'unknown_key', path: '/variant/is_baseline' }));
+    const d = v2(); d.variant.agent.system_prompt = 'x';
+    expect(issuesV2(d)).toContainEqual(expect.objectContaining({ code: 'unknown_key', path: '/variant/agent/system_prompt' }));
+  });
+  it('agentVersionSha256 is stable, order-free and changes with any agent field', () => {
+    const a = agentV();
+    const reordered = Object.fromEntries(Object.entries(a).reverse()) as any;
+    expect(agentVersionSha256(a as any)).toMatch(/^[0-9a-f]{64}$/);
+    expect(agentVersionSha256(reordered)).toBe(agentVersionSha256(a as any));
+    for (const k of Object.keys(a)) {
+      const changed = { ...a, [k]: k === 'harness' ? 'codex' : k === 'model_id' ? 'zai/glm-5.3' : null };
+      expect(agentVersionSha256(changed as any), k).not.toBe(agentVersionSha256(a as any));
+    }
+  });
+  it('a replay case has an origin pin', () => {
+    const v = v2(); v.case.origin_pin_sha256 = null;
+    expect(issuesV2(v)).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/case/origin_pin_sha256' }));
   });
   it('refuses a repeated run, a repeated grader, and infra_ok true on an infra_error run', () => {
     expect(issuesV2(v2({ runs: [v2Run(1, 100), v2Run(1, 80)] }))).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/runs/1/repeat' }));
@@ -319,12 +367,12 @@ describe('tma-trajectory/1 — the step rules', () => {
   it('the v1 schema is unchanged: it still names tma-local-result/1 only', () => {
     expect((localResultSchema as any).properties.format).toEqual({ const: 'tma-local-result/1' });
   });
-  it('v2 is v1 plus case, variant and three run keys: every other v1 property and $def is copied unchanged', () => {
+  it('v2 is v1 plus case, variant, comparison and three run keys: every other v1 property and $def is copied unchanged', () => {
     const s1 = localResultSchema as any;
     const s2 = localResultV2Schema as any;
     const RUN_EXTRA = ['infra_ok', 'graders', 'trajectory'];
     expect(s2.allOf).toEqual(s1.allOf);
-    expect(s2.required).toEqual([...s1.required, 'case', 'variant']);
+    expect(s2.required).toEqual([...s1.required, 'case', 'variant', 'comparison']);
     for (const key of Object.keys(s1.properties)) {
       if (key === 'format' || key === 'runs') continue;
       expect(s2.properties[key], key).toEqual(s1.properties[key]);

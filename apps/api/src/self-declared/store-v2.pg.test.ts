@@ -1,12 +1,13 @@
 /**
  * PgSelfDeclaredStore.importResultV2 and PgEvalResultsReader (plan 20261112-tma-c4-result-store-trajectory-upload,
- * task T3) against a real Postgres. Runs when ITERA_PG_TEST_URL points at a THROWAWAY Postgres with db/migrations
+ * tasks T3 and T8) against a real Postgres. Runs when ITERA_PG_TEST_URL points at a THROWAWAY Postgres with db/migrations
  * applied up to 0023 (the web3 e2e guard job sets it). Never point it at a real project.
  *
- * Proves (the plan's C4 exit signal, hermetic): two variants of one case are two evaluations; repeat 3 is three
+ * Proves (the plan's C4 exit signal, hermetic): two agent variants of one case are two evaluations; one agent variant
+ * on two cases is one variant row and two crossings (parent plan ADR-26); repeat 3 is three
  * `runs` rows (seq 1..3) with their grader rows and trajectory rows; the same body again is `unchanged`; a new
  * repeat adds a row; a changed run ADDS grader rows (a re-grade) and replaces its trajectory; a second baseline
- * is 409 baseline_exists; a dry run writes nothing; a v1 upload still writes one evaluation = one run with no
+ * is 409 baseline_exists (the baseline lives on the case); a changed prediction of a crossing is 409; a dry run writes nothing; a v1 upload still writes one evaluation = one run with no
  * case; the reader returns the case, the variant, the grader rows, the trajectory summary and the case detail
  * (n, pass rate, baseline) to the owner only.
  */
@@ -55,8 +56,15 @@ describe.skipIf(!URL_)("PgSelfDeclaredStore v2 and PgEvalResultsReader on Postgr
     },
     ...over,
   });
-  const BASELINE = { variant_sha256: H("5"), label: "baseline", change_kind: "none", is_baseline: true, prediction_sha256: null };
-  const VARIANT = { variant_sha256: H("6"), label: "skill v2", change_kind: "skill", is_baseline: false, prediction_sha256: H("4") };
+  const EMPTY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  const AGENT = {
+    harness: "opencode", harness_version: "1.18.31", harness_repo_sha: "0".repeat(40), model_id: "opencode-go/deepseek-v4-pro",
+    rules_sha256: H("6"), skills_sha256: H("7"), mcp_manifest_sha256: H("8"), tools_sha256: null,
+  };
+  const BASELINE = { agent: AGENT, variant_sha256: EMPTY, label: "baseline", change_kind: "none" };
+  const IS_BASELINE = { is_baseline: true, prediction_sha256: null };
+  const VARIANT = { agent: AGENT, variant_sha256: H("6"), label: "skill v2", change_kind: "skill" };
+  const PREDICTED = { is_baseline: false, prediction_sha256: H("4") };
 
   const v2 = (over: Record<string, unknown> = {}): LocalResultV2 => {
     const value: Record<string, unknown> = {
@@ -70,8 +78,9 @@ describe.skipIf(!URL_)("PgSelfDeclaredStore v2 and PgEvalResultsReader on Postgr
       ran_from: "2026-11-12T12:00:00Z",
       ran_to: "2026-11-12T12:20:00Z",
       summary: { score: 93.3, runs: 3, items: 1 },
-      case: { case_key: `${tag}-case`, manifest_sha256: H("1"), pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug" },
+      case: { case_key: `${tag}-case`, manifest_sha256: H("1"), origin_pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug" },
       variant: BASELINE,
+      comparison: IS_BASELINE,
       runs: [run(1, 100), run(2, 80), run(3, 100)],
       ...over,
     };
@@ -109,6 +118,7 @@ describe.skipIf(!URL_)("PgSelfDeclaredStore v2 and PgEvalResultsReader on Postgr
     await pool.query(`delete from public.runs where owner_wallet = $1`, [ALICE]);
     await pool.query(`delete from public.evaluations where owner_wallet = $1`, [ALICE]);
     await pool.query(`delete from public.eval_cases where owner_wallet = $1`, [ALICE]);
+    await pool.query(`delete from public.eval_variants where owner_wallet = $1`, [ALICE]);
     await pool.query(`delete from public.grader_versions gv where gv.code_sha256 = $1 and not exists (select 1 from public.grader_results gr where gr.grader_version_id = gv.id)`, [H("f")]);
     await pool.query(`delete from public.release_declarations where agent_id = $1`, [agentA]);
     await pool.query(`delete from public.task_versions where task_id = $1`, [taskId]);
@@ -174,22 +184,32 @@ describe.skipIf(!URL_)("PgSelfDeclaredStore v2 and PgEvalResultsReader on Postgr
   });
 
   it("writes a second variant of the same case as a second evaluation, and refuses a second baseline", async () => {
-    const other = await store.importResultV2(ALICE, v2({ variant: VARIANT, runs: [run(1, 100), run(2, 100)] }), opts);
+    const other = await store.importResultV2(ALICE, v2({ variant: VARIANT, comparison: PREDICTED, runs: [run(1, 100), run(2, 100)] }), opts);
     expect(other.action).toBe("inserted");
     expect(other.evaluationId).not.toBe(baseline.evaluationId);
     expect(other.caseId).toBe(baseline.caseId);
     expect(other.variantId).not.toBe(baseline.variantId);
     expect(await count(`select count(*) as n from public.eval_cases where owner_wallet = $1`, [ALICE])).toBe(1);
     expect(await count(`select count(*) as n from public.evaluations where owner_wallet = $1`, [ALICE])).toBe(2);
-    await expect(store.importResultV2(ALICE, v2({ variant: { ...BASELINE, variant_sha256: H("7") } }), opts))
+    expect((await pool.query(`select baseline_variant_id from public.eval_cases where id = $1`, [baseline.caseId])).rows[0].baseline_variant_id).toBe(baseline.variantId);
+    const otherAgent = { ...BASELINE, agent: { ...AGENT, harness_repo_sha: "1".repeat(40) } };
+    await expect(store.importResultV2(ALICE, v2({ variant: otherAgent }), opts))
       .rejects.toMatchObject({ status: 409, code: "baseline_exists" });
-    await expect(store.importResultV2(ALICE, v2({ variant: { ...VARIANT, change_kind: "prompt" } }), opts))
+    await expect(store.importResultV2(ALICE, v2({ variant: { ...VARIANT, change_kind: "prompt" }, comparison: PREDICTED }), opts))
       .rejects.toMatchObject({ status: 409, code: "variant_conflict" });
+    await expect(store.importResultV2(ALICE, v2({ comparison: PREDICTED }), opts))
+      .rejects.toMatchObject({ status: 409, code: "variant_conflict" });
+    await expect(store.importResultV2(ALICE, v2({ variant: VARIANT, comparison: { is_baseline: false, prediction_sha256: H("9") }, runs: [run(1, 100), run(2, 100)] }), opts))
+      .rejects.toMatchObject({ status: 409, code: "prediction_conflict" });
+    // The refused uploads wrote nothing: one case's baseline, two variants.
+    expect(await count(`select count(*) as n from public.eval_variants where owner_wallet = $1`, [ALICE])).toBe(2);
+    const preds = (await pool.query(`select distinct prediction_sha256 from public.runs where evaluation_id = $1`, [other.evaluationId])).rows;
+    expect(preds).toEqual([{ prediction_sha256: H("4") }]);
   });
 
   it("writes nothing on a dry run", async () => {
     const before = await count(`select count(*) as n from public.runs where owner_wallet = $1`, [ALICE]);
-    const d = await store.importResultV2(ALICE, v2({ variant: { ...VARIANT, variant_sha256: H("8") } }), { ...opts, dryRun: true });
+    const d = await store.importResultV2(ALICE, v2({ variant: { ...VARIANT, variant_sha256: H("8") }, comparison: PREDICTED }), { ...opts, dryRun: true });
     expect(d).toMatchObject({ action: "inserted", dryRun: true });
     expect(await count(`select count(*) as n from public.runs where owner_wallet = $1`, [ALICE])).toBe(before);
     expect(await count(`select count(*) as n from public.eval_variants where variant_sha256 = $1`, [H("8")])).toBe(0);
@@ -198,21 +218,27 @@ describe.skipIf(!URL_)("PgSelfDeclaredStore v2 and PgEvalResultsReader on Postgr
   it("keeps v1: one evaluation = one run, no case, no grader row", async () => {
     const value = v2();
     const v1 = {
-      ...value, format: "tma-local-result/1", case: undefined, variant: undefined,
+      ...value, format: "tma-local-result/1", case: undefined, variant: undefined, comparison: undefined,
       runs: value.runs.map(({ infra_ok: _i, graders: _g, trajectory: _t, ...rest }) => rest),
     } as unknown as LocalResult;
     delete (v1 as unknown as Record<string, unknown>).case;
     delete (v1 as unknown as Record<string, unknown>).variant;
+    delete (v1 as unknown as Record<string, unknown>).comparison;
     const o = await store.importResult(ALICE, { ...v1, executor: { ...v1.executor, model_id: "opencode-go/glm-5.3" } }, { dryRun: false, perDay: 50 });
     expect(o.runId).toBe(o.evaluationId);
-    const r = (await pool.query(`select case_id, variant_id, infra_ok, seq from public.runs where evaluation_id = $1`, [o.evaluationId])).rows;
-    expect(r).toEqual([{ case_id: null, variant_id: null, infra_ok: null, seq: 1 }]);
+    const r = (await pool.query(`select case_id, variant_id, prediction_sha256, infra_ok, seq from public.runs where evaluation_id = $1`, [o.evaluationId])).rows;
+    expect(r).toEqual([{ case_id: null, variant_id: null, prediction_sha256: null, infra_ok: null, seq: 1 }]);
     expect(await count(`select count(*) as n from public.grader_results where run_id = $1`, [o.runId])).toBe(0);
   });
 
   it("reads the case, variant, grader rows and trajectory summary back", async () => {
     const cv = await reader.caseOfEvaluation(baseline.evaluationId);
-    expect(cv).toMatchObject({ case: { id: baseline.caseId, caseKey: `${tag}-case`, mode: "replay", useCaseKey: "fix/prod-bug" }, variant: { id: baseline.variantId, isBaseline: true, changeKind: "none" } });
+    expect(cv).toMatchObject({
+      case: { id: baseline.caseId, caseKey: `${tag}-case`, mode: "replay", useCaseKey: "fix/prod-bug", originPinSha256: H("2"), baselineVariantId: baseline.variantId },
+      variant: { id: baseline.variantId, isBaseline: true, changeKind: "none", agent: { harness: "opencode", modelId: "opencode-go/deepseek-v4-pro", mcpManifestSha256: H("8"), toolsSha256: null } },
+      predictionSha256: null,
+    });
+    expect(cv!.variant.agentSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(await reader.caseOfRun(baseline.runIds[0]!)).toEqual(cv);
     const results = await reader.resultsOfRuns(baseline.runIds);
     expect(results.get(baseline.runIds[0]!)).toMatchObject({
@@ -232,6 +258,22 @@ describe.skipIf(!URL_)("PgSelfDeclaredStore v2 and PgEvalResultsReader on Postgr
     ]);
     expect(detail!.variants[0]!.evaluationIds).toEqual([baseline.evaluationId]);
     expect(await reader.caseDetail(baseline.caseId, BOB)).toBeNull();
+  });
+
+  it("one agent variant on a second case: the same variant row, a second crossing; each case counts its own runs", async () => {
+    const other = await store.importResultV2(ALICE, v2({
+      variant: VARIANT, comparison: PREDICTED, runs: [run(1, 0)],
+      case: { case_key: `${tag}-case-2`, manifest_sha256: H("3"), origin_pin_sha256: null, mode: "trace_review", use_case_key: "fix" },
+    }), opts);
+    const first = await reader.caseDetail(baseline.caseId, ALICE);
+    const firstVariant = first!.variants.find((v) => !v.isBaseline)!;
+    expect(other.variantId).toBe(firstVariant.id);
+    expect(other.caseId).not.toBe(baseline.caseId);
+    expect(firstVariant).toMatchObject({ n: 2, pass: 2, predictionSha256: H("4") });
+    const second = await reader.caseDetail(other.caseId, ALICE);
+    expect(second!.baselineVariantId).toBeNull();
+    expect(second!.variants.map((v) => ({ id: v.id, isBaseline: v.isBaseline, n: v.n, fail: v.fail }))).toEqual([{ id: other.variantId, isBaseline: false, n: 1, fail: 1 }]);
+    expect(await count(`select count(*) as n from public.eval_variants where owner_wallet = $1`, [ALICE])).toBe(2);
   });
 
   it("deletes the grader rows and trajectory rows with the run", async () => {

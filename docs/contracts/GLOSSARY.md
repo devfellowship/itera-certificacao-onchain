@@ -92,6 +92,24 @@ Neutral built-in name → opencode tool names (`OPENCODE_BUILTIN_TOOLS`): `read`
 write, `edit` → edit + patch, `bash` → bash, `search` → grep + glob, `list` → list, `todo` →
 todowrite + todoread. There is no web tool: the run has no internet.
 
+**Environment limit, not agent configuration** (parent plan `20261112-tma-eval-studio-real-trace-evals`
+ADR-26, task C4-T8). The tool environment above belongs to the TEST CASE: it is the most that the
+sandbox lets an agent call (`tools.builtin`, `tools.mcp[].allowed_tools`, `run_egress`), and the MCP
+sidecars with seeded state are environment tools. The tools, MCP servers and permissions that an agent
+has CONFIGURED belong to the AGENT VARIANT: `variant.agent.tools_sha256` and `mcp_manifest_sha256` in
+`tma-local-result/2` (`eval_variants` in migration 0023). A run gets the agent's configured set inside
+the case's limit.
+
+**Test case, agent variant, crossing** (`tma-local-result/2`, migration 0023, ADR-26). A **test case**
+(`eval_cases`) is the problem: input, environment, expected output and graders, by digest
+(`manifest_sha256`); `origin_pin_sha256` (tma-pin/1) is provenance of the origin trace only. An **agent
+variant** (`eval_variants`) is a base agent version (harness, harness repo commit, model, rules, skills,
+configured MCP manifest and tools; digest `agent_sha256`) plus ONE diff (`variant_sha256`,
+`change_kind`). The two are independent; a run crosses them (`runs.case_id`, `runs.variant_id`), N:N.
+The **baseline** is `eval_cases.baseline_variant_id` (one per case); the **prediction** of a variant
+against it is on the crossing (`runs.prediction_sha256`). `executor.variant` is NOT the agent variant:
+it is the legacy structured-output run-profile flag.
+
 **Agent `requires`** (`agents.requires`, migration `0011_agent_requires.sql`): what the agent
 needs from a task, entries `mcp:<server>` or `tool:<builtin>` (a bare name means `mcp:<name>`).
 A requirement matches a server by its task-local `name` or by its catalog name. A chip field on screen 02, stored on the agent (`POST /agents`, `PATCH /agents/:id`, returned by

@@ -15,6 +15,7 @@
  */
 import { createHash } from "node:crypto";
 import type { LocalResult, LocalResultV2, TrajectoryStep } from "@itera/contracts";
+import { agentVersionSha256 } from "@itera/contracts";
 
 export const SELF_DECLARED_MIGRATION = "0021_self_declared_results.sql";
 /** tma-local-result/2 needs this migration (plan 20261112-tma-c4-result-store-trajectory-upload, T2). */
@@ -62,7 +63,7 @@ export class SelfDeclaredError extends Error {
   }
 }
 
-/** The answer of a tma-local-result/2 import: one evaluation (case + variant + executor), one row per run. */
+/** The answer of a tma-local-result/2 import: one evaluation (case × agent variant + executor), one row per run. */
 export interface ImportOutcomeV2 {
   evaluationId: string;
   caseId: string;
@@ -86,9 +87,10 @@ export interface ImportOptionsV2 extends ImportOptions {
 export interface SelfDeclaredStore {
   importResult(principal: string, result: LocalResult, options: ImportOptions): Promise<ImportOutcome>;
   /**
-   * tma-local-result/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T3, ADR-1). In ONE transaction:
-   * the v1 checks; the case and the variant (upserts: the first baseline of a case wins, a second one is
-   * 409 baseline_exists); one evaluation per (principal, task, agent, executor, case, variant); one `runs`
+   * tma-local-result/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T3, T8, ADR-1). In ONE transaction:
+   * the v1 checks; the test case and the agent variant, two independent upserts (parent plan ADR-26); the
+   * baseline of the case (eval_cases.baseline_variant_id: the first wins, another one is 409 baseline_exists);
+   * one evaluation per (principal, task, agent, executor, case, base agent, diff) = one crossing; one `runs`
    * row per run of the body, keyed by (item, kind, repeat), with its grader rows and trajectory rows. A
    * re-upload of the same runs is `unchanged`; a new repeat adds a row; a changed run is updated, its
    * trajectory replaced and its grader rows ADDED (a re-grade never updates a grader row).
@@ -124,10 +126,13 @@ export function selfDeclaredId(principal: string, r: LocalResult): string {
   return stableUuid(`self-declared:${principal}:${taskRef(r)}:${r.agent_id}:${executorKey(r)}`);
 }
 
-/** v2: the case key and the variant digest join the v1 key, so a second variant is a second evaluation. */
+/**
+ * v2: the case key, the base agent digest and the diff digest join the v1 key, so a second agent variant on
+ * the same case is a second evaluation (one evaluation = one crossing of a case and an agent variant).
+ */
 export function selfDeclaredIdV2(principal: string, r: LocalResultV2): string {
   return stableUuid(
-    `self-declared:${principal}:${taskRef(r)}:${r.agent_id}:${executorKey(r)}:${r.case.case_key}:${r.variant.variant_sha256}`,
+    `self-declared:${principal}:${taskRef(r)}:${r.agent_id}:${executorKey(r)}:${r.case.case_key}:${agentVersionSha256(r.variant.agent)}:${r.variant.variant_sha256}`,
   );
 }
 
@@ -168,6 +173,7 @@ export function runEvidenceV2(r: LocalResultV2, run: RunV2, digest: string) {
     ran_from: r.ran_from,
     ran_to: r.ran_to,
     case_key: r.case.case_key,
+    agent_sha256: agentVersionSha256(r.variant.agent),
     variant_sha256: r.variant.variant_sha256,
     item: numbers,
   };

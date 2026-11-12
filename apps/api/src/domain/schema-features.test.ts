@@ -49,12 +49,17 @@ describe("hasEvalResultsSchema (0023)", () => {
   beforeEach(() => resetSchemaFeatures());
 
   it("answers false before 0023, re-asks after 60 s, and fails safe on an error", async () => {
-    const d = db([new Error("boom"), 0, 1]);
+    // 2 = both probe columns (run_actions.retry_of and the T8 eval_cases.baseline_variant_id).
+    const d = db([new Error("boom"), 0, 2]);
     expect(await hasEvalResultsSchema(d, 1_000)).toBe(false);
     expect(await hasEvalResultsSchema(d, 62_000)).toBe(false);
     expect(await hasEvalResultsSchema(d, 123_000)).toBe(true);
     expect(await hasEvalResultsSchema(d, 124_000)).toBe(true);
     expect(d.calls).toBe(3);
+  });
+
+  it("answers false on the first 0023 shape (retry_of present, no eval_cases.baseline_variant_id)", async () => {
+    expect(await hasEvalResultsSchema(db([1]), 1_000)).toBe(false);
   });
 
   it("is independent of the 0021 probe", async () => {

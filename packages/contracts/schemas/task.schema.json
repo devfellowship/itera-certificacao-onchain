@@ -83,19 +83,19 @@
         "cpus": { "type": "number", "exclusiveMinimum": 0, "maximum": 4 },
         "memory_mb": { "type": "integer", "minimum": 256, "maximum": 4096 },
         "tools": {
-          "description": "Inspect: the tools given to the Solver. The runner writes the harness config (opencode `tools` and `mcp`) from this block only.",
+          "description": "Inspect: the tools given to the Solver. The runner writes the harness config (opencode `tools` and `mcp`) from this block only. This block is the ENVIRONMENT LIMIT of the benchmark (part of the test case, parent plan 20261112-tma-eval-studio-real-trace-evals ADR-26): the most that the sandbox lets an agent call. It is not the configuration of the agent. The agent's own CONFIGURED tools, MCP servers and permissions belong to the agent variant (tma-local-result/2 variant.agent.tools_sha256 and mcp_manifest_sha256); a run gets the agent's configured set inside this limit.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "builtin": {
-              "description": "Allow-list of the harness built-in tools, in neutral names (opencode names: GLOSSARY.md). Absent = all of them. There is no web tool: the run has no internet.",
+              "description": "Allow-list of the harness built-in tools, in neutral names (opencode names: GLOSSARY.md). Absent = all of them. There is no web tool: the run has no internet. An environment limit of the task (ADR-26), not the agent's configured tool set.",
               "type": "array",
               "maxItems": 10,
               "uniqueItems": true,
               "items": { "$ref": "#/$defs/builtinTool" }
             },
             "mcp": {
-              "description": "MCP servers that the runner starts per run as sidecars on the sandbox network, with seeded test state and a temporary token.",
+              "description": "MCP servers that the runner starts per run as sidecars on the sandbox network, with seeded test state and a temporary token. These are ENVIRONMENT tools of the test case (ADR-26): they hold the state the task is about. MCP servers that an agent brings on its own are configured tools of the agent variant.",
               "type": "array",
               "maxItems": 5,
               "items": { "$ref": "#/$defs/mcpServer" }
@@ -278,7 +278,7 @@
           "$ref": "#/$defs/relPath"
         },
         "allowed_tools": {
-          "description": "The tools of this server that the agent may call. The SERVER enforces it (ITERA_MCP_ALLOWED_TOOLS: hidden from tools/list, a call is refused); the harness deny list is a convenience only.",
+          "description": "The tools of this server that the agent may call. The SERVER enforces it (ITERA_MCP_ALLOWED_TOOLS: hidden from tools/list, a call is refused); the harness deny list is a convenience only. An environment limit of the task (ADR-26), not a permission of the agent.",
           "type": "array",
           "minItems": 1,
           "maxItems": 50,

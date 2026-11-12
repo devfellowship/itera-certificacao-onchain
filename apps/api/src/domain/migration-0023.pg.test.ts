@@ -1,14 +1,16 @@
 /**
  * db/migrations/0023_eval_results.sql against a real Postgres (plan 20261112-tma-c4-result-store-trajectory-
- * upload, task T2). Runs when ITERA_PG_TEST_URL points at a THROWAWAY Postgres with db/migrations applied, as a
+ * upload, tasks T2 and T8). Runs when ITERA_PG_TEST_URL points at a THROWAWAY Postgres with db/migrations applied, as a
  * role that may ALTER the tables (the web3 e2e guard job sets it to its own database). Never point it at a real
  * project: the test applies the migration file.
  *
  * Proves: the file applies a second time with no error and changes nothing (the catalog of the new tables and
- * columns and the row counts are equal before and after); it has no DB function or trigger; the CHECKs and keys
- * refuse the forbidden shapes (a second baseline, a baseline with a change or a prediction, a replay case with
- * no pin, a variant in another tenant, a run with a case and no variant, a run whose variant is of another
- * case, judge fields on a code grader, an ok step with an error class, a step whose parent is not earlier);
+ * columns and the row counts are equal before and after); it refuses to run on the first 0023 shape (a variant
+ * bound to a case); it has no DB function or trigger; a test case and an agent variant are independent and a run
+ * crosses them N:N (parent plan ADR-26); the CHECKs and keys refuse the forbidden shapes (the same agent variant
+ * twice, change_kind none with a diff digest, an unknown change kind, a replay case with no origin pin, a
+ * baseline in another tenant, a run with a case and no variant, a prediction on a run with no case, judge fields
+ * on a code grader, an ok step with an error class, a step whose parent is not earlier);
  * the API role cannot UPDATE grader_results (a re-grade adds a row), and a run's grader rows go with the run.
  */
 import { randomUUID } from "node:crypto";
@@ -46,7 +48,6 @@ describe.skipIf(!URL_)("migration 0023 on Postgres", () => {
   let otherCaseId = "";
   let baselineId = "";
   let variantId = "";
-  let otherVariantId = "";
   let graderId = "";
   const runIds: string[] = [];
 
@@ -69,17 +70,20 @@ describe.skipIf(!URL_)("migration 0023 on Postgres", () => {
 
   async function newCase(key: string, mode: "replay" | "trace_review", pin: string | null, t = tenant): Promise<string> {
     return (await pool.query(
-      `insert into public.eval_cases (tenant, owner_wallet, case_key, manifest_sha256, pin_sha256, mode, use_case_key)
+      `insert into public.eval_cases (tenant, owner_wallet, case_key, manifest_sha256, origin_pin_sha256, mode, use_case_key)
        values ($1, $2, $3, $4, $5, $6, 'fix/red-ci') returning id`,
       [t, owner, key, H("a"), pin, mode],
     )).rows[0].id;
   }
 
-  async function newVariant(cid: string, sha: string, baseline: boolean, t = tenant): Promise<string> {
+  const EMPTY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  /** An agent variant: a base agent (by digest) plus one diff. No case. */
+  async function newVariant(agentSha: string, diff: string | null, t = tenant): Promise<string> {
     return (await pool.query(
-      `insert into public.eval_variants (case_id, tenant, variant_sha256, label, change_kind, is_baseline, prediction_sha256)
-       values ($1, $2, $3, $4, $5, $6, $7) returning id`,
-      [cid, t, sha, baseline ? "baseline" : "prompt v2", baseline ? "none" : "prompt", baseline, baseline ? null : H("e")],
+      `insert into public.eval_variants (tenant, owner_wallet, agent_sha256, harness, harness_repo_sha, model_id, rules_sha256,
+         skills_sha256, mcp_manifest_sha256, tools_sha256, variant_sha256, label, change_kind)
+       values ($1, $2, $3, 'claude-code', $4, 'zai/glm-5.3', $5, $5, $5, $5, $6, $7, $8) returning id`,
+      [t, owner, agentSha, "0".repeat(40), H("6"), diff ?? EMPTY, diff ? "prompt v2" : "base", diff ? "prompt" : "none"],
     )).rows[0].id;
   }
 
@@ -119,9 +123,9 @@ describe.skipIf(!URL_)("migration 0023 on Postgres", () => {
 
     caseId = await newCase(`${tag}-case`, "replay", H("b"));
     otherCaseId = await newCase(`${tag}-other`, "trace_review", null);
-    baselineId = await newVariant(caseId, H("1"), true);
-    variantId = await newVariant(caseId, H("2"), false);
-    otherVariantId = await newVariant(otherCaseId, H("3"), true);
+    baselineId = await newVariant(H("1"), null);
+    variantId = await newVariant(H("1"), H("2"));
+    await pool.query(`update public.eval_cases set baseline_variant_id = $1 where id = $2`, [baselineId, caseId]);
     graderId = (await pool.query(
       `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256) values ($1, 'hidden-tests', '1.0.0', 'code', $2) returning id`,
       [tenant, H("c")],
@@ -132,6 +136,7 @@ describe.skipIf(!URL_)("migration 0023 on Postgres", () => {
     await pool.query(`delete from public.runs where task_pack_id = $1`, [tag]);
     await pool.query(`delete from public.evaluations where owner_wallet = $1`, [owner]);
     await pool.query(`delete from public.eval_cases where owner_wallet = $1`, [owner]);
+    await pool.query(`delete from public.eval_variants where owner_wallet = $1`, [owner]);
     await pool.query(`delete from public.grader_versions where tenant in ($1, 'other-tenant') and code_sha256 in ($2, $3)`, [tenant, H("c"), H("9")]);
     await pool.query(`delete from public.release_declarations where agent_id = $1`, [agentId]);
     await pool.query(`delete from public.agent_versions where agent_id = $1`, [agentId]);
@@ -168,35 +173,90 @@ describe.skipIf(!URL_)("migration 0023 on Postgres", () => {
     expect(policies.rows[0].n).toBe(0);
   });
 
-  it("allows one baseline per case: a second baseline is a unique violation", async () => {
-    await expect(newVariant(caseId, H("4"), true).catch(pgCode)).resolves.toBe("23505");
-    // The same variant digest twice in one case is one row.
-    await expect(newVariant(caseId, H("2"), false).catch(pgCode)).resolves.toBe("23505");
-    const { rows } = await pool.query(`select count(*)::int as n from public.eval_variants where case_id = $1`, [caseId]);
+  it("refuses to run on the first 0023 shape (a variant bound to a case)", async () => {
+    const c = await pool.connect();
+    try {
+      await c.query("begin");
+      await c.query("alter table public.eval_variants add column case_id uuid");
+      await c.query("savepoint s");
+      // The file has its own begin/commit; inside an open transaction they are a warning and a no-op until the
+      // guard raises, so the error is the guard's.
+      await expect(c.query(SQL)).rejects.toThrow(/first 0023 shape/);
+      await c.query("rollback to savepoint s");
+    } finally {
+      await c.query("rollback").catch(() => undefined);
+      c.release();
+    }
+    const col = await pool.query(
+      `select 1 from information_schema.columns where table_schema = 'public' and table_name = 'eval_variants' and column_name = 'case_id'`,
+    );
+    expect(col.rowCount).toBe(0);
+  });
+
+  it("an agent variant is independent of a case: it has no case column, and one variant runs on two cases", async () => {
+    const cols = await pool.query(
+      `select column_name from information_schema.columns where table_schema = 'public' and table_name = 'eval_variants'`,
+    );
+    const names = cols.rows.map((r: { column_name: string }) => r.column_name);
+    expect(names).not.toContain("case_id");
+    expect(names).not.toContain("is_baseline");
+    expect(names).not.toContain("prediction_sha256");
+    expect(names).toEqual(expect.arrayContaining(["agent_sha256", "harness", "harness_repo_sha", "model_id", "rules_sha256", "skills_sha256", "mcp_manifest_sha256", "tools_sha256"]));
+    const caseCols = await pool.query(
+      `select column_name from information_schema.columns where table_schema = 'public' and table_name = 'eval_cases'`,
+    );
+    const caseNames = caseCols.rows.map((r: { column_name: string }) => r.column_name);
+    for (const agentCol of ["model_id", "harness", "skills_sha256", "pin_sha256"]) expect(caseNames).not.toContain(agentCol);
+    expect(caseNames).toEqual(expect.arrayContaining(["origin_pin_sha256", "baseline_variant_id"]));
+    // N:N: the same variant on two cases, two variants on one case.
+    const a = await newRun();
+    const b = await newRun();
+    await pool.query(`update public.runs set case_id = $1, variant_id = $2, prediction_sha256 = $3 where id = $4`, [caseId, variantId, H("e"), a]);
+    await pool.query(`update public.runs set case_id = $1, variant_id = $2 where id = $3`, [otherCaseId, variantId, b]);
+    const { rows } = await pool.query(`select count(distinct case_id)::int as n from public.runs where variant_id = $1`, [variantId]);
     expect(rows[0].n).toBe(2);
   });
 
-  it("refuses a baseline with a change or a prediction, and a variant without one", async () => {
+  it("one row per agent variant (tenant, owner, base agent, diff); change_kind none has the empty diff digest", async () => {
+    await expect(newVariant(H("1"), H("2")).catch(pgCode)).resolves.toBe("23505");
+    // Another base agent with the same diff is another variant.
+    await newVariant(H("3"), H("2"));
+    await expect(pool.query(
+      `insert into public.eval_variants (tenant, owner_wallet, agent_sha256, harness, model_id, variant_sha256, label, change_kind)
+       values ($1, $2, $3, 'codex', 'zai/glm-5.3', $4, 'x', 'none')`,
+      [tenant, owner, H("4"), H("5")],
+    ).catch(pgCode)).resolves.toBe("23514");
     const bad: [string, unknown[]][] = [
-      [`insert into public.eval_variants (case_id, tenant, variant_sha256, label, change_kind, is_baseline, prediction_sha256)
-        values ($1, $2, $3, 'x', 'prompt', true, null)`, [otherCaseId, tenant, H("5")]],
-      [`insert into public.eval_variants (case_id, tenant, variant_sha256, label, change_kind, is_baseline, prediction_sha256)
-        values ($1, $2, $3, 'x', 'none', false, null)`, [otherCaseId, tenant, H("6")]],
-      [`insert into public.eval_variants (case_id, tenant, variant_sha256, label, change_kind, is_baseline, prediction_sha256)
-        values ($1, $2, $3, 'x', 'prompt', false, null)`, [otherCaseId, tenant, H("7")]],
-      [`insert into public.eval_variants (case_id, tenant, variant_sha256, label, change_kind, is_baseline, prediction_sha256)
-        values ($1, $2, $3, E'two\\nlines', 'prompt', false, $4)`, [otherCaseId, tenant, H("8"), H("e")]],
+      [`insert into public.eval_variants (tenant, owner_wallet, agent_sha256, harness, model_id, variant_sha256, label, change_kind)
+        values ($1, $2, $3, 'codex', 'zai/glm-5.3', $4, 'x', 'vibes')`, [tenant, owner, H("4"), H("6")]],
+      [`insert into public.eval_variants (tenant, owner_wallet, agent_sha256, harness, model_id, variant_sha256, label, change_kind)
+        values ($1, $2, $3, 'Claude Code', 'zai/glm-5.3', $4, 'x', 'prompt')`, [tenant, owner, H("4"), H("7")]],
+      [`insert into public.eval_variants (tenant, owner_wallet, agent_sha256, harness, model_id, variant_sha256, label, change_kind)
+        values ($1, $2, $3, 'codex', 'zai/glm-5.3', $4, E'two\\nlines', 'prompt')`, [tenant, owner, H("4"), H("8")]],
+      [`insert into public.eval_variants (tenant, owner_wallet, agent_sha256, harness, model_id, variant_sha256, label, change_kind, harness_repo_sha)
+        values ($1, $2, $3, 'codex', 'zai/glm-5.3', $4, 'x', 'prompt', 'main')`, [tenant, owner, H("4"), H("9")]],
     ];
     for (const [sql, values] of bad) await expect(pool.query(sql, values).catch(pgCode), sql).resolves.toBe("23514");
+    const kinds = ["retrieval", "memory", "tools", "mcp", "permissions", "orchestration", "limits"];
+    for (const [i, kind] of kinds.entries()) {
+      await pool.query(
+        `insert into public.eval_variants (tenant, owner_wallet, agent_sha256, harness, model_id, variant_sha256, label, change_kind)
+         values ($1, $2, $3, 'codex', 'zai/glm-5.3', $4, $5, $5)`,
+        [tenant, owner, H("a"), H(String(i)), kind],
+      );
+    }
   });
 
-  it("refuses a replay case with no pin and a bad tenant key", async () => {
+  it("refuses a replay case with no origin pin and a bad tenant key", async () => {
     await expect(newCase(`${tag}-nopin`, "replay", null).catch(pgCode)).resolves.toBe("23514");
     await expect(newCase(`${tag}-tenant`, "trace_review", null, "Dev Fellowship").catch(pgCode)).resolves.toBe("23514");
   });
 
-  it("keeps a variant in the tenant of its case", async () => {
-    await expect(newVariant(otherCaseId, H("9"), false, "other-tenant").catch(pgCode)).resolves.toBe("23503");
+  it("one baseline per case (one column); the baseline is in the case's tenant and cannot be deleted under it", async () => {
+    const foreign = await newVariant(H("1"), null, "other-tenant");
+    await expect(pool.query(`update public.eval_cases set baseline_variant_id = $1 where id = $2`, [foreign, otherCaseId]).catch(pgCode)).resolves.toBe("23503");
+    await expect(pool.query(`delete from public.eval_variants where id = $1`, [baselineId]).catch(pgCode)).resolves.toBe("23503");
+    await pool.query(`delete from public.eval_variants where id = $1`, [foreign]);
   });
 
   it("refuses judge fields on a code grader, and takes them on a judge", async () => {
@@ -212,17 +272,18 @@ describe.skipIf(!URL_)("migration 0023 on Postgres", () => {
     expect(Number(judge.rows[0].tpr)).toBe(0.91);
   });
 
-  it("refuses a run with a case and no variant, and a run whose variant is of another case", async () => {
+  it("refuses a run with a case and no variant, and a prediction on a run with no case", async () => {
     const run = await newRun();
     await expect(pool.query(`update public.runs set case_id = $1 where id = $2`, [caseId, run]).catch(pgCode)).resolves.toBe("23514");
-    await expect(pool.query(`update public.runs set case_id = $1, variant_id = $2 where id = $3`, [caseId, otherVariantId, run]).catch(pgCode)).resolves.toBe("23503");
+    await expect(pool.query(`update public.runs set prediction_sha256 = $1 where id = $2`, [H("e"), run]).catch(pgCode)).resolves.toBe("23514");
+    await expect(pool.query(`update public.runs set case_id = $1, variant_id = $2, prediction_sha256 = 'x' where id = $3`, [caseId, variantId, run]).catch(pgCode)).resolves.toBe("23514");
     await pool.query(`update public.runs set case_id = $1, variant_id = $2, infra_ok = true where id = $3`, [caseId, variantId, run]);
-    // Each repeat is its own run row of the same variant (plan ADR-1).
+    // Each repeat is its own run row of the same crossing (plan ADR-1).
     const run2 = await newRun();
     await pool.query(`update public.runs set case_id = $1, variant_id = $2 where id = $3`, [caseId, variantId, run2]);
-    const { rows } = await pool.query(`select count(*)::int as n from public.runs where variant_id = $1`, [variantId]);
-    expect(rows[0].n).toBe(2);
-    // A baseline run of the same case is a third, separate row.
+    const { rows } = await pool.query(`select count(*)::int as n from public.runs where case_id = $1 and variant_id = $2`, [caseId, variantId]);
+    expect(rows[0].n).toBeGreaterThanOrEqual(2);
+    // A baseline run of the same case is a separate row.
     const run3 = await newRun();
     await pool.query(`update public.runs set case_id = $1, variant_id = $2 where id = $3`, [caseId, baselineId, run3]);
   });

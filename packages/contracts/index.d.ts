@@ -214,7 +214,7 @@ export declare const localResultSchema: Record<string, unknown>;
 export declare function validateLocalResult(value: unknown): LocalResultValidation;
 export declare function parseLocalResultText(text: string): LocalResultValidation;
 
-// --- tma-local-result/2 and tma-trajectory/1 (plan 20261112-tma-c4-result-store-trajectory-upload, T1).
+// --- tma-local-result/2 and tma-trajectory/1 (plan 20261112-tma-c4-result-store-trajectory-upload, T1, T8).
 // Schemas: schemas/local-result-v2.schema.json and schemas/trajectory.schema.json (the source of truth);
 // validators: local-result.js and trajectory.js.
 
@@ -263,9 +263,26 @@ export declare const trajectorySchema: Record<string, unknown>;
 export declare function trajectoryStepIssues(steps: ReadonlyArray<TrajectoryStep>, base?: string): TrajectoryIssue[];
 export declare function validateTrajectory(value: unknown): TrajectoryValidation;
 
-export type VariantChangeKind = 'prompt' | 'skill' | 'rules' | 'model' | 'harness' | 'none';
+/** The kind of the ONE diff of an agent variant on its base agent version (parent plan ADR-26). */
+export type VariantChangeKind =
+  | 'prompt' | 'rules' | 'skill' | 'retrieval' | 'memory' | 'model' | 'tools' | 'mcp' | 'permissions'
+  | 'orchestration' | 'limits' | 'harness' | 'none';
 export type GraderKind = 'code' | 'judge' | 'human';
 export type CaseMode = 'replay' | 'trace_review';
+
+/** A base agent version: harness + model + rules + skills + configured tools (field names of tma-pin/1). */
+export interface AgentVersion {
+  harness: string;
+  harness_version: string | null;
+  harness_repo_sha: string | null;
+  model_id: string;
+  rules_sha256: string | null;
+  skills_sha256: string | null;
+  /** The MCP servers and tools the agent has CONFIGURED (not the environment servers of the case). */
+  mcp_manifest_sha256: string | null;
+  /** The configured built-in tools, permissions and scopes. */
+  tools_sha256: string | null;
+}
 
 export interface GraderResult {
   id: string;
@@ -281,8 +298,12 @@ export interface GraderResult {
 
 export interface LocalResultV2 extends Omit<LocalResult, 'format' | 'runs'> {
   format: 'tma-local-result/2';
-  case: { case_key: string; manifest_sha256: string; pin_sha256: string | null; mode: CaseMode; use_case_key: string };
-  variant: { variant_sha256: string; label: string; change_kind: VariantChangeKind; is_baseline: boolean; prediction_sha256: string | null };
+  /** The test case: the problem. origin_pin_sha256 is provenance of the origin trace, never an agent binding. */
+  case: { case_key: string; manifest_sha256: string; origin_pin_sha256: string | null; mode: CaseMode; use_case_key: string };
+  /** The agent variant: a base agent version plus ONE diff. Independent of the case. */
+  variant: { agent: AgentVersion; variant_sha256: string; label: string; change_kind: VariantChangeKind };
+  /** The crossing of this case and this variant. */
+  comparison: { is_baseline: boolean; prediction_sha256: string | null };
   /** Closed per shape: the v1 run of the shape plus infra_ok, graders and trajectory. At most 50. */
   runs: Array<LocalResult['runs'][number] & { infra_ok: boolean; graders: GraderResult[]; trajectory: Trajectory | null }>;
 }
@@ -297,6 +318,11 @@ export declare const LOCAL_RESULT_V2_FORMAT: 'tma-local-result/2';
 export declare const LOCAL_RESULT_V2_MAX_BYTES: number;
 export declare const LOCAL_RESULT_V2_MAX_RUNS: number;
 export declare const VARIANT_CHANGE_KINDS: readonly VariantChangeKind[];
+export declare const AGENT_VERSION_FIELDS: readonly (keyof AgentVersion)[];
+/** sha256 of the empty string: the variant_sha256 of change_kind none. */
+export declare const EMPTY_DIFF_SHA256: string;
+/** sha256 of the canonical base agent version: eval_variants.agent_sha256. */
+export declare function agentVersionSha256(agent: AgentVersion): string;
 export declare const GRADER_KINDS: readonly GraderKind[];
 export declare const CASE_MODES: readonly CaseMode[];
 export declare const localResultV2Schema: Record<string, unknown>;

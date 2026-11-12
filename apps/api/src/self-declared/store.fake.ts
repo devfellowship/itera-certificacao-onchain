@@ -1,5 +1,6 @@
 /** In-memory SelfDeclaredStore for router tests: the same checks, in the same order, as store.pg.ts. */
 import type { LocalResult, LocalResultV2 } from "@itera/contracts";
+import { agentVersionSha256 } from "@itera/contracts";
 import {
   SelfDeclaredError,
   resultDigest as digestOf,
@@ -42,8 +43,10 @@ export class FakeSelfDeclaredStore implements SelfDeclaredStore {
   now = () => Date.now();
   /** Set to throw this error from importResult (e.g. a SchemaNotReadyError). */
   failWith: Error | null = null;
-  /** v2: case key → { variants by digest (baseline flag) }. */
-  cases = new Map<string, { id: string; variants: Map<string, { id: string; isBaseline: boolean }> }>();
+  /** v2: case key → { id, baseline variant id }. A case binds no agent (parent plan ADR-26). */
+  cases = new Map<string, { id: string; baselineVariantId: string | null }>();
+  /** v2: agent variant key (tenant, principal, base agent digest, diff digest) → { id, change kind }. Independent of a case. */
+  variants = new Map<string, { id: string; changeKind: string }>();
   /** v2: evaluation id → run id → { digest, seq, status, graderRows, steps }. */
   v2Runs = new Map<string, Map<string, { digest: string; seq: number; status: string; graderRows: number; steps: number }>>();
   /** The tenant of the last v2 import (the router passes it). */
@@ -55,13 +58,19 @@ export class FakeSelfDeclaredStore implements SelfDeclaredStore {
     this.lastTenant = options.tenant;
     const v1 = await this.importResult(principal, r as unknown as LocalResult, { ...options, dryRun: true });
     const caseKey = `${options.tenant}|${principal}|${r.case.case_key}|${r.case.manifest_sha256}`;
-    const kase = this.cases.get(caseKey) ?? { id: stableUuid(`case:${caseKey}`), variants: new Map() };
-    let variant = kase.variants.get(r.variant.variant_sha256);
-    if (!variant) {
-      if (r.variant.is_baseline && [...kase.variants.values()].some((v) => v.isBaseline)) {
+    const kase = { ...(this.cases.get(caseKey) ?? { id: stableUuid(`case:${caseKey}`), baselineVariantId: null }) };
+    const variantKey = `${options.tenant}|${principal}|${agentVersionSha256(r.variant.agent)}|${r.variant.variant_sha256}`;
+    const variant = this.variants.get(variantKey) ?? { id: stableUuid(`variant:${variantKey}`), changeKind: r.variant.change_kind };
+    if (variant.changeKind !== r.variant.change_kind) {
+      throw new SelfDeclaredError(409, "variant_conflict", "this agent variant exists with another change kind");
+    }
+    if (r.comparison.is_baseline) {
+      if (kase.baselineVariantId && kase.baselineVariantId !== variant.id) {
         throw new SelfDeclaredError(409, "baseline_exists", "this case already has a baseline");
       }
-      variant = { id: stableUuid(`variant:${caseKey}:${r.variant.variant_sha256}`), isBaseline: r.variant.is_baseline };
+      kase.baselineVariantId = variant.id;
+    } else if (kase.baselineVariantId === variant.id) {
+      throw new SelfDeclaredError(409, "variant_conflict", "this agent variant is the baseline of the case: upload it with comparison.is_baseline true");
     }
     const id = selfDeclaredIdV2(principal, r);
     const runs = new Map(this.v2Runs.get(id) ?? []);
@@ -90,7 +99,7 @@ export class FakeSelfDeclaredStore implements SelfDeclaredStore {
       if (n >= options.perDay) throw new SelfDeclaredError(429, "self_declared_quota", `at most ${options.perDay} self-declared results per 24 h`);
     }
     if (!options.dryRun && action !== "unchanged") {
-      kase.variants.set(r.variant.variant_sha256, variant);
+      this.variants.set(variantKey, variant);
       this.cases.set(caseKey, kase);
       this.v2Runs.set(id, runs);
     }
