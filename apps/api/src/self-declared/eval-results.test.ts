@@ -1,5 +1,5 @@
 /**
- * The eval-results read side over a fake reader (plan 20261112-tma-c4-result-store-trajectory-upload, T3). The pg
+ * The eval-results read side over a fake reader (plan 20261112-tma-c4-result-store-trajectory-upload, T3, T8). The pg
  * reader has its own test (store-v2.pg.test.ts). Proves: GET /evaluations/:id and GET /runs/:id get case, variant,
  * graders and trajectory summary on a success body only; before 0023 (reader not ready) the bodies are unchanged
  * and GET /eval-cases/:id answers 503; GET /eval-cases/:id is owner-only (404 for another principal).
@@ -23,8 +23,16 @@ const CASE = "8b6f3c2e-1d4a-4c8e-9f00-123456789abc";
 const H = (c: string) => c.repeat(64);
 const dfl = (id: string) => issueSessionToken(id, Date.now(), "dfl").token;
 
-const kase = { id: CASE, caseKey: "webhook-dup-001", manifestSha256: H("1"), pinSha256: H("2"), mode: "replay" as const, useCaseKey: "fix/prod-bug", taskId: null, createdAt: "2026-11-12T12:00:00.000Z" };
-const variant = { id: "9b6f3c2e-1d4a-4c8e-9f00-123456789abc", variantSha256: H("5"), label: "baseline", changeKind: "none", isBaseline: true, predictionSha256: null };
+const VARIANT = "9b6f3c2e-1d4a-4c8e-9f00-123456789abc";
+const kase = {
+  id: CASE, caseKey: "webhook-dup-001", manifestSha256: H("1"), originPinSha256: H("2"), mode: "replay" as const, useCaseKey: "fix/prod-bug",
+  taskId: null, baselineVariantId: VARIANT, createdAt: "2026-11-12T12:00:00.000Z",
+};
+const agent = {
+  harness: "claude-code", harnessVersion: "2.1.87", harnessRepoSha: "0".repeat(40), modelId: "zai/glm-5.3",
+  rulesSha256: H("6"), skillsSha256: H("7"), mcpManifestSha256: null, toolsSha256: null,
+};
+const variant = { id: VARIANT, agentSha256: H("8"), agent, variantSha256: H("5"), label: "baseline", changeKind: "none", isBaseline: true };
 const grade = (pass: boolean, score: number, gradedAt: string) => ({
   id: "hidden-tests", semver: "2.0.0", kind: "code", codeSha256: H("f"), pass, score, weight: 1, hardGate: true, decisive: true, infraOk: true, gradedAt,
 });
@@ -40,10 +48,10 @@ class FakeReader implements EvalResultsReader {
     return this.isReady;
   }
   async caseOfEvaluation(id: string) {
-    return id === EVAL ? { case: kase, variant } : null;
+    return id === EVAL ? { case: kase, variant, predictionSha256: null } : null;
   }
   async caseOfRun(id: string) {
-    return id === RUN1 || id === RUN2 ? { case: kase, variant } : null;
+    return id === RUN1 || id === RUN2 ? { case: kase, variant, predictionSha256: null } : null;
   }
   async runIdsOf(id: string) {
     return id === EVAL ? [RUN1, RUN2] : [];
@@ -53,7 +61,7 @@ class FakeReader implements EvalResultsReader {
   }
   async caseDetail(id: string, owner: string): Promise<EvalCaseDetail | null> {
     if (id !== CASE || owner !== ALICE) return null;
-    return { ...kase, baselineVariantId: variant.id, variants: [{ ...variant, n: 2, pass: 2, fail: 0, infraErrors: 0, passRate: 1, meanScore: 100, evaluationIds: [EVAL] }] };
+    return { ...kase, variants: [{ ...variant, predictionSha256: null, n: 2, pass: 2, fail: 0, infraErrors: 0, passRate: 1, meanScore: 100, evaluationIds: [EVAL] }] };
   }
 }
 
@@ -91,7 +99,8 @@ describe("eval results on the read routes", () => {
   it("adds case, variant, grader summaries and per-run graders and trajectory summary to GET /evaluations/:id", async () => {
     const r = await get(`/evaluations/${EVAL}`);
     expect(r.status).toBe(200);
-    expect(r.json).toMatchObject({ id: EVAL, status: "graded", case: kase, variant });
+    expect(r.json).toMatchObject({ id: EVAL, status: "graded", case: kase, variant, predictionSha256: null });
+    expect(r.json.variant.agent).toEqual(agent);
     expect(r.json.graders).toEqual([{ id: "hidden-tests", semver: "2.0.0", kind: "code", codeSha256: H("f"), n: 2, pass: 2, meanScore: 100, hardGate: true, decisive: true }]);
     expect(r.json.tasks[0]).toMatchObject({ runId: RUN1, seq: 1, trajectorySummary: { steps: 3, firstFailureSeq: 2, errorClasses: { tool_error: 1 } } });
     expect(r.json.tasks[1].graders).toHaveLength(2);

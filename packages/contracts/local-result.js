@@ -4,9 +4,12 @@
 // accepts (plan 20261026-tma-local-runner-and-self-declared-results, ADR-1). Numbers and identifiers
 // only. The closed schema is schemas/local-result.schema.json (a port of the retired operator import's
 // parser, services/runner/src/bench-import.ts, deleted in plan ADR-3; see git history). This file adds the checks a JSON Schema cannot say.
-// tma-local-result/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T1) is v1 plus the eval case, the
-// variant, per-grader results, infra_ok and the structural trajectory of each run; its closed schema is
-// schemas/local-result-v2.schema.json. v1 stays accepted with its own key and limits.
+// tma-local-result/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T1 and T8) is v1 plus the test case
+// (the problem), the agent variant (a base agent version plus one diff), their comparison (baseline flag,
+// prediction), per-grader results, infra_ok and the structural trajectory of each run; its closed schema is
+// schemas/local-result-v2.schema.json. The case and the variant are independent (parent plan ADR-26): an
+// upload is one crossing of the two. v1 stays accepted with its own key and limits.
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isProviderKey, isRouteKey, PROVIDER_KEYS, ROUTE_KEYS } from './model-catalog.js';
@@ -26,7 +29,20 @@ export const LOCAL_RESULT_V2_FORMAT = 'tma-local-result/2';
 export const LOCAL_RESULT_V2_MAX_BYTES = 4 * 1024 * 1024;
 /** The most runs in one v2 upload. */
 export const LOCAL_RESULT_V2_MAX_RUNS = 50;
-export const VARIANT_CHANGE_KINDS = /** @type {const} */ (['prompt', 'skill', 'rules', 'model', 'harness', 'none']);
+/**
+ * The kind of the ONE diff of an agent variant on its base agent version (parent plan ADR-26): the model, the
+ * system prompt and what is injected into it (rules, skill, retrieval, memory), the configured tools (tools,
+ * mcp, permissions), orchestration, limits, the harness. none = the base agent unchanged.
+ */
+export const VARIANT_CHANGE_KINDS = /** @type {const} */ ([
+  'prompt', 'rules', 'skill', 'retrieval', 'memory', 'model', 'tools', 'mcp', 'permissions', 'orchestration', 'limits', 'harness', 'none',
+]);
+/** The fields of a base agent version (tma-local-result/2 variant.agent), in canonical order. */
+export const AGENT_VERSION_FIELDS = /** @type {const} */ ([
+  'harness', 'harness_version', 'harness_repo_sha', 'model_id', 'rules_sha256', 'skills_sha256', 'mcp_manifest_sha256', 'tools_sha256',
+]);
+/** sha256 of the empty string: the variant_sha256 of change_kind none. */
+export const EMPTY_DIFF_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 export const GRADER_KINDS = /** @type {const} */ (['code', 'judge', 'human']);
 export const CASE_MODES = /** @type {const} */ (['replay', 'trace_review']);
 
@@ -110,7 +126,8 @@ function commonIssues(v) {
 /**
  * Validate a parsed tma-local-result/2: the closed schema (with tma-trajectory/1 per run), the v1
  * cross-field rules, and the v2 rules: the baseline has change_kind none and no prediction, every
- * other variant names its change and has a prediction; a replay case has a pin; one run per
+ * other variant has a prediction; change_kind none has the empty diff digest; the executor model is the
+ * base model unless the diff is the model; a replay case has an origin pin; one run per
  * (item_sha256, kind, repeat); unique grader ids per run; a tma-score run with status infra_error has
  * infra_ok false; the trajectory step rules of trajectory.js.
  * @param {unknown} value
@@ -119,15 +136,23 @@ export function validateLocalResultV2(value) {
   if (!validateV2Fn(value)) return failed(issuesOf(validateV2Fn.errors));
   const v = /** @type {any} */ (value);
   const issues = commonIssues(v);
-  if (v.variant.is_baseline) {
+  if (v.comparison.is_baseline) {
     if (v.variant.change_kind !== 'none') issues.push({ code: 'inconsistent', path: '/variant/change_kind', message: 'must be none for the baseline' });
-    if (v.variant.prediction_sha256 !== null) issues.push({ code: 'inconsistent', path: '/variant/prediction_sha256', message: 'must be null for the baseline' });
-  } else {
-    if (v.variant.change_kind === 'none') issues.push({ code: 'inconsistent', path: '/variant/change_kind', message: 'must name the change of a variant that is not the baseline' });
-    if (v.variant.prediction_sha256 === null) issues.push({ code: 'inconsistent', path: '/variant/prediction_sha256', message: 'is required for a variant that is not the baseline' });
+    if (v.comparison.prediction_sha256 !== null) issues.push({ code: 'inconsistent', path: '/comparison/prediction_sha256', message: 'must be null for the baseline' });
+  } else if (v.comparison.prediction_sha256 === null) {
+    issues.push({ code: 'inconsistent', path: '/comparison/prediction_sha256', message: 'is required for a variant that is not the baseline' });
   }
-  if (v.case.mode === 'replay' && v.case.pin_sha256 === null) {
-    issues.push({ code: 'inconsistent', path: '/case/pin_sha256', message: 'is required when mode is replay' });
+  if (v.variant.change_kind === 'none' && v.variant.variant_sha256 !== EMPTY_DIFF_SHA256) {
+    issues.push({ code: 'inconsistent', path: '/variant/variant_sha256', message: 'must be the sha256 of the empty string when change_kind is none' });
+  }
+  // The executor ran the base model, unless the one diff is the model.
+  if (v.variant.change_kind === 'model') {
+    if (v.executor.model_id === v.variant.agent.model_id) issues.push({ code: 'inconsistent', path: '/executor/model_id', message: 'must differ from variant.agent.model_id when change_kind is model' });
+  } else if (v.executor.model_id !== v.variant.agent.model_id) {
+    issues.push({ code: 'inconsistent', path: '/executor/model_id', message: 'must equal variant.agent.model_id unless change_kind is model' });
+  }
+  if (v.case.mode === 'replay' && v.case.origin_pin_sha256 === null) {
+    issues.push({ code: 'inconsistent', path: '/case/origin_pin_sha256', message: 'is required when mode is replay' });
   }
   /** @type {Set<string>} */
   const runKeys = new Set();
@@ -148,6 +173,18 @@ export function validateLocalResultV2(value) {
   });
   if (issues.length > 0) return failed(issues);
   return { ok: /** @type {const} */ (true), value: v };
+}
+
+/**
+ * The digest of a base agent version (variant.agent of tma-local-result/2): sha256 of the canonical JSON of
+ * its fields in AGENT_VERSION_FIELDS order (null kept). The API stores it as eval_variants.agent_sha256; with
+ * variant_sha256 it is the identity of an agent variant.
+ * @param {Record<string, string | null>} agent
+ * @returns {string}
+ */
+export function agentVersionSha256(agent) {
+  const canonical = JSON.stringify(AGENT_VERSION_FIELDS.map((k) => [k, agent[k] ?? null]));
+  return createHash('sha256').update(`tma-agent-version/1\n${canonical}`).digest('hex');
 }
 
 /**

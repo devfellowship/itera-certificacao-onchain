@@ -1,13 +1,15 @@
 /**
- * Read side of the eval result store (plan 20261112-tma-c4-result-store-trajectory-upload, T3; needs
- * db/migrations/0023_eval_results.sql). Three parts:
+ * Read side of the eval result store (plan 20261112-tma-c4-result-store-trajectory-upload, T3, T8; needs
+ * db/migrations/0023_eval_results.sql). A test case and an agent variant are independent; a run crosses them
+ * (parent plan ADR-26). `variant.isBaseline` is computed against the case in context (the case's
+ * baseline_variant_id), and `predictionSha256` belongs to the crossing, not to the variant. Three parts:
  *
- *   GET /evaluations/:id   adds `case`, `variant`, `graders` (one summary per grader version) and, on each
+ *   GET /evaluations/:id   adds `case`, `variant`, `predictionSha256`, `graders` (one summary per grader version) and, on each
  *                          `tasks[]` row, `graders` (every grading row, re-grades included, oldest first) and
  *                          `trajectorySummary` (step count, first failed step, error classes).
- *   GET /runs/:id          adds `case`, `variant`, `graders` and `trajectorySummary` for that run.
- *   GET /eval-cases/:id    owner only: the case and its variants, each with n, pass, pass rate, mean score
- *                          and the baseline flag. Another principal's case answers the same 404 as an
+ *   GET /runs/:id          adds `case`, `variant`, `predictionSha256`, `graders` and `trajectorySummary` for that run.
+ *   GET /eval-cases/:id    owner only: the case and the agent variants that ran on it (and its baseline), each
+ *                          with n, pass, pass rate, mean score, the prediction and the baseline flag. Another principal's case answers the same 404 as an
  *                          unknown one.
  *
  * The first two decorate the JSON body that their own routers send (as the 0021 run guard does with
@@ -29,20 +31,36 @@ export interface EvalCaseView {
   id: string;
   caseKey: string;
   manifestSha256: string;
-  pinSha256: string | null;
+  /** Provenance of the origin trace (tma-pin/1 digest); never an agent binding. */
+  originPinSha256: string | null;
   mode: "replay" | "trace_review";
   useCaseKey: string;
   taskId: string | null;
+  baselineVariantId: string | null;
   createdAt: string;
+}
+
+/** The base agent version of an agent variant (field names of tma-pin/1, camelCase). */
+export interface AgentVersionView {
+  harness: string;
+  harnessVersion: string | null;
+  harnessRepoSha: string | null;
+  modelId: string;
+  rulesSha256: string | null;
+  skillsSha256: string | null;
+  mcpManifestSha256: string | null;
+  toolsSha256: string | null;
 }
 
 export interface EvalVariantView {
   id: string;
+  agentSha256: string;
+  agent: AgentVersionView;
   variantSha256: string;
   label: string;
   changeKind: string;
+  /** This variant is the baseline of the case in context. */
   isBaseline: boolean;
-  predictionSha256: string | null;
 }
 
 export interface GraderRowView {
@@ -78,6 +96,8 @@ export interface RunEvalResults {
 }
 
 export interface EvalCaseVariantStats extends EvalVariantView {
+  /** The prediction of this variant against the baseline, on this case (null for the baseline). */
+  predictionSha256: string | null;
   /** Every run row of the variant. */
   n: number;
   pass: number;
@@ -90,17 +110,22 @@ export interface EvalCaseVariantStats extends EvalVariantView {
 }
 
 export interface EvalCaseDetail extends EvalCaseView {
-  baselineVariantId: string | null;
   variants: EvalCaseVariantStats[];
+}
+
+export interface CaseVariantOfRun {
+  case: EvalCaseView;
+  variant: EvalVariantView;
+  predictionSha256: string | null;
 }
 
 export interface EvalResultsReader {
   /** False before 0023: the decorators add nothing and GET /eval-cases/:id answers 503. */
   ready(): Promise<boolean>;
   /** The case and variant of an evaluation (null for a v1 or hosted evaluation). */
-  caseOfEvaluation(evaluationId: string): Promise<{ case: EvalCaseView; variant: EvalVariantView } | null>;
+  caseOfEvaluation(evaluationId: string): Promise<CaseVariantOfRun | null>;
   /** The case and variant of a run (null for a v1 or hosted run). */
-  caseOfRun(runId: string): Promise<{ case: EvalCaseView; variant: EvalVariantView } | null>;
+  caseOfRun(runId: string): Promise<CaseVariantOfRun | null>;
   /** The run ids of an evaluation. */
   runIdsOf(evaluationId: string): Promise<string[]>;
   /** Grader rows and trajectory summary per run id (every id of the input is a key). */
@@ -117,28 +142,45 @@ function caseView(r: Record<string, unknown>): EvalCaseView {
     id: String(r.case_id),
     caseKey: String(r.case_key),
     manifestSha256: String(r.manifest_sha256),
-    pinSha256: (r.pin_sha256 as string | null) ?? null,
+    originPinSha256: (r.origin_pin_sha256 as string | null) ?? null,
     mode: r.mode as EvalCaseView["mode"],
     useCaseKey: String(r.use_case_key),
     taskId: (r.task_id as string | null) ?? null,
+    baselineVariantId: (r.baseline_variant_id as string | null) ?? null,
     createdAt: iso(r.case_created_at),
   };
 }
 
-function variantView(r: Record<string, unknown>): EvalVariantView {
+const orNull = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
+
+/** `baselineVariantId`: the baseline of the case in context (isBaseline = this variant is it). */
+function variantView(r: Record<string, unknown>, baselineVariantId: string | null): EvalVariantView {
   return {
     id: String(r.variant_id),
+    agentSha256: String(r.agent_sha256),
+    agent: {
+      harness: String(r.harness),
+      harnessVersion: orNull(r.harness_version),
+      harnessRepoSha: orNull(r.harness_repo_sha),
+      modelId: String(r.variant_model_id),
+      rulesSha256: orNull(r.rules_sha256),
+      skillsSha256: orNull(r.skills_sha256),
+      mcpManifestSha256: orNull(r.mcp_manifest_sha256),
+      toolsSha256: orNull(r.tools_sha256),
+    },
     variantSha256: String(r.variant_sha256),
     label: String(r.label),
     changeKind: String(r.change_kind),
-    isBaseline: Boolean(r.is_baseline),
-    predictionSha256: (r.prediction_sha256 as string | null) ?? null,
+    isBaseline: baselineVariantId !== null && baselineVariantId === String(r.variant_id),
   };
 }
 
-const CASE_VARIANT_COLUMNS = `
-  c.id as case_id, c.case_key, c.manifest_sha256, c.pin_sha256, c.mode, c.use_case_key, c.task_id, c.created_at as case_created_at,
-  v.id as variant_id, v.variant_sha256, v.label, v.change_kind, v.is_baseline, v.prediction_sha256`;
+const CASE_COLUMNS = `
+  c.id as case_id, c.case_key, c.manifest_sha256, c.origin_pin_sha256, c.mode, c.use_case_key, c.task_id, c.baseline_variant_id,
+  c.created_at as case_created_at`;
+const VARIANT_COLUMNS = `
+  v.id as variant_id, v.agent_sha256, v.harness, v.harness_version, v.harness_repo_sha, v.model_id as variant_model_id, v.rules_sha256,
+  v.skills_sha256, v.mcp_manifest_sha256, v.tools_sha256, v.variant_sha256, v.label, v.change_kind`;
 
 export class PgEvalResultsReader implements EvalResultsReader {
   constructor(private readonly pool: () => Pool) {}
@@ -149,14 +191,17 @@ export class PgEvalResultsReader implements EvalResultsReader {
 
   private async caseWhere(where: string, id: string) {
     const { rows } = await this.pool().query(
-      `select ${CASE_VARIANT_COLUMNS}
+      `select ${CASE_COLUMNS}, ${VARIANT_COLUMNS}, r.prediction_sha256
          from public.runs r
          join public.eval_cases c on c.id = r.case_id
          join public.eval_variants v on v.id = r.variant_id
         where ${where} limit 1`,
       [id],
     );
-    return rows[0] ? { case: caseView(rows[0]), variant: variantView(rows[0]) } : null;
+    const row = rows[0];
+    if (!row) return null;
+    const kase = caseView(row);
+    return { case: kase, variant: variantView(row, kase.baselineVariantId), predictionSha256: orNull(row.prediction_sha256) };
   }
 
   caseOfEvaluation(evaluationId: string) {
@@ -213,34 +258,35 @@ export class PgEvalResultsReader implements EvalResultsReader {
 
   async caseDetail(caseId: string, owner: string): Promise<EvalCaseDetail | null> {
     const pool = this.pool();
-    const c = (await pool.query(
-      `select id as case_id, case_key, manifest_sha256, pin_sha256, mode, use_case_key, task_id, created_at as case_created_at
-         from public.eval_cases where id = $1 and owner_wallet = $2`,
-      [caseId, owner],
-    )).rows[0];
+    const c = (await pool.query(`select ${CASE_COLUMNS} from public.eval_cases c where c.id = $1 and c.owner_wallet = $2`, [caseId, owner])).rows[0];
     if (!c) return null;
+    const kase = caseView(c);
+    // The agent variants that ran on this case, and its baseline (even with no run yet). Their stats count only
+    // the runs of THIS case: the same variant on another case is another crossing.
     const { rows } = await pool.query(
-      `select v.id as variant_id, v.variant_sha256, v.label, v.change_kind, v.is_baseline, v.prediction_sha256,
+      `select ${VARIANT_COLUMNS},
               count(r.id)::int as n,
               count(r.id) filter (where r.status = 'pass')::int as pass,
               count(r.id) filter (where r.status = 'fail')::int as fail,
               count(r.id) filter (where r.status = 'infra_error')::int as infra_errors,
               avg(coalesce((r.evidence_manifest -> 'item' ->> 'score')::numeric, r.score_total))
                 filter (where r.status in ('pass', 'fail')) as mean_score,
+              max(r.prediction_sha256) as prediction_sha256,
               coalesce(array_agg(distinct r.evaluation_id) filter (where r.evaluation_id is not null), '{}') as evaluation_ids
          from public.eval_variants v
-         left join public.runs r on r.variant_id = v.id and r.owner_wallet = $2
-        where v.case_id = $1
+         left join public.runs r on r.variant_id = v.id and r.case_id = $1 and r.owner_wallet = $2
+        where v.id = $3::uuid or v.id in (select variant_id from public.runs where case_id = $1 and owner_wallet = $2)
         group by v.id
-        order by v.is_baseline desc, v.created_at, v.id`,
-      [caseId, owner],
+        order by (v.id = $3::uuid) desc nulls last, v.created_at, v.id`,
+      [caseId, owner, kase.baselineVariantId],
     );
     const variants: EvalCaseVariantStats[] = rows.map((r: Record<string, unknown>) => {
       const pass = Number(r.pass);
       const fail = Number(r.fail);
       const mean = num(r.mean_score);
       return {
-        ...variantView(r),
+        ...variantView(r, kase.baselineVariantId),
+        predictionSha256: orNull(r.prediction_sha256),
         n: Number(r.n),
         pass,
         fail,
@@ -250,7 +296,7 @@ export class PgEvalResultsReader implements EvalResultsReader {
         evaluationIds: (r.evaluation_ids as string[]).slice().sort(),
       };
     });
-    return { ...caseView(c), baselineVariantId: variants.find((v) => v.isBaseline)?.id ?? null, variants };
+    return { ...kase, variants };
   }
 }
 
@@ -295,6 +341,7 @@ export function createEvalResultsRouter(reader: EvalResultsReader): Router {
       decorate(res, (body) => ({
         case: cv?.case ?? null,
         variant: cv?.variant ?? null,
+        predictionSha256: cv?.predictionSha256 ?? null,
         graders: graderSummaries(results.values()),
         ...(Array.isArray(body.tasks)
           ? {
@@ -321,6 +368,7 @@ export function createEvalResultsRouter(reader: EvalResultsReader): Router {
       decorate(res, () => ({
         case: cv?.case ?? null,
         variant: cv?.variant ?? null,
+        predictionSha256: cv?.predictionSha256 ?? null,
         graders: r?.graders ?? [],
         trajectorySummary: r?.trajectorySummary ?? null,
       }));

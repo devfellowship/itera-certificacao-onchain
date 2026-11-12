@@ -5,6 +5,7 @@
  * 503 schema_not_ready: nothing is written on a database that is not migrated.
  */
 import type { LocalResult, LocalResultV2 } from "@itera/contracts";
+import { agentVersionSha256 } from "@itera/contracts";
 import type { Pool, PoolClient } from "pg";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
 import { hasEvalResultsSchema } from "../domain/schema-features.js";
@@ -207,10 +208,6 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
       if (e instanceof DryRunDone) return e.outcome as ImportOutcomeV2;
       const code = pgCode(e);
       if (code === "42703" || code === "42P01") throw new SchemaNotReadyError(EVAL_RESULTS_MIGRATION, e);
-      // The partial unique index is the last line: the case lock below already serializes two baselines.
-      if (code === "23505" && (e as { constraint?: string }).constraint === "eval_variants_one_baseline_idx") {
-        throw new SelfDeclaredError(409, "baseline_exists", "this case already has a baseline");
-      }
       throw e;
     } finally {
       c.release();
@@ -237,40 +234,51 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     )).rows[0];
     if (!version) throw new SelfDeclaredError(409, "agent_has_no_version", "the agent has no version yet");
 
-    // The case: an upsert. The same manifest digest with another pin, mode or use case is a conflict.
+    // The test case: an upsert. The same manifest digest with another origin pin, mode or use case is a conflict.
     const k = r.case;
     const caseRow = (await c.query(
-      `insert into public.eval_cases (tenant, owner_wallet, case_key, manifest_sha256, pin_sha256, mode, use_case_key, task_id, task_version_id)
+      `insert into public.eval_cases (tenant, owner_wallet, case_key, manifest_sha256, origin_pin_sha256, mode, use_case_key, task_id, task_version_id)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        on conflict on constraint eval_cases_key do update set case_key = excluded.case_key
-       returning id, pin_sha256, mode, use_case_key`,
-      [tenant, principal, k.case_key, k.manifest_sha256, k.pin_sha256, k.mode, k.use_case_key, task.id, taskVersionId],
+       returning id, origin_pin_sha256, mode, use_case_key, baseline_variant_id`,
+      [tenant, principal, k.case_key, k.manifest_sha256, k.origin_pin_sha256, k.mode, k.use_case_key, task.id, taskVersionId],
     )).rows[0];
-    if (caseRow.pin_sha256 !== k.pin_sha256 || caseRow.mode !== k.mode || caseRow.use_case_key !== k.use_case_key) {
-      throw new SelfDeclaredError(409, "case_conflict", `case ${k.case_key} with this manifest exists with another pin, mode or use case`);
+    if (caseRow.origin_pin_sha256 !== k.origin_pin_sha256 || caseRow.mode !== k.mode || caseRow.use_case_key !== k.use_case_key) {
+      throw new SelfDeclaredError(409, "case_conflict", `case ${k.case_key} with this manifest exists with another origin pin, mode or use case`);
     }
     const caseId = caseRow.id as string;
 
-    // The variant: an upsert. The first baseline of a case wins (plan Q-T4 = A, parent ADR-19).
+    // The agent variant: an upsert, independent of the case (parent plan ADR-26). Its identity is the base agent
+    // digest plus the diff digest; the same identity with another change kind is a conflict.
     const v = r.variant;
-    let variant = (await c.query(
-      `select id, change_kind, is_baseline, prediction_sha256 from public.eval_variants where case_id = $1 and variant_sha256 = $2`,
-      [caseId, v.variant_sha256],
+    const a = v.agent;
+    const agentSha = agentVersionSha256(a);
+    const variant = (await c.query(
+      `insert into public.eval_variants (tenant, owner_wallet, agent_sha256, harness, harness_version, harness_repo_sha, model_id,
+         rules_sha256, skills_sha256, mcp_manifest_sha256, tools_sha256, variant_sha256, label, change_kind)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       on conflict on constraint eval_variants_key do update set variant_sha256 = excluded.variant_sha256
+       returning id, change_kind`,
+      [tenant, principal, agentSha, a.harness, a.harness_version, a.harness_repo_sha, a.model_id, a.rules_sha256, a.skills_sha256,
+        a.mcp_manifest_sha256, a.tools_sha256, v.variant_sha256, v.label, v.change_kind],
     )).rows[0];
-    if (variant && (variant.is_baseline !== v.is_baseline || variant.change_kind !== v.change_kind || variant.prediction_sha256 !== v.prediction_sha256)) {
-      throw new SelfDeclaredError(409, "variant_conflict", "this variant digest exists in the case with another change kind, baseline flag or prediction");
-    }
-    if (!variant) {
-      if (v.is_baseline && (await c.query(`select 1 from public.eval_variants where case_id = $1 and is_baseline`, [caseId])).rowCount) {
-        throw new SelfDeclaredError(409, "baseline_exists", "this case already has a baseline");
-      }
-      variant = (await c.query(
-        `insert into public.eval_variants (case_id, tenant, variant_sha256, label, change_kind, is_baseline, prediction_sha256)
-         values ($1, $2, $3, $4, $5, $6, $7) returning id`,
-        [caseId, tenant, v.variant_sha256, v.label, v.change_kind, v.is_baseline, v.prediction_sha256],
-      )).rows[0];
+    if (variant.change_kind !== v.change_kind) {
+      throw new SelfDeclaredError(409, "variant_conflict", "this agent variant exists with another change kind");
     }
     const variantId = variant.id as string;
+
+    // The baseline of the case: one column, the first baseline wins (plan Q-T4 = A, parent ADR-19). The case
+    // lock above serializes two uploads of the same case.
+    const cmp = r.comparison;
+    if (cmp.is_baseline) {
+      if (caseRow.baseline_variant_id === null) {
+        await c.query(`update public.eval_cases set baseline_variant_id = $1 where id = $2 and baseline_variant_id is null`, [variantId, caseId]);
+      } else if (caseRow.baseline_variant_id !== variantId) {
+        throw new SelfDeclaredError(409, "baseline_exists", "this case already has a baseline");
+      }
+    } else if (caseRow.baseline_variant_id === variantId) {
+      throw new SelfDeclaredError(409, "variant_conflict", "this agent variant is the baseline of the case: upload it with comparison.is_baseline true");
+    }
 
     // The evaluation and its stored runs.
     const prevEval = (await c.query(
@@ -282,15 +290,19 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     }
     const wanted = r.runs.map((run) => ({ run, id: runIdV2(id, run), digest: resultDigest(run) }));
     const stored = (await c.query(
-      `select id, seq, status, evaluation_id, owner_wallet, result_origin, variant_id,
+      `select id, seq, status, evaluation_id, owner_wallet, result_origin, case_id, variant_id, prediction_sha256,
               evidence_manifest ->> 'import_digest' as digest,
               coalesce((evidence_manifest -> 'item' ->> 'score')::numeric, score_total) as score
          from public.runs where evaluation_id = $1 or id = any($2::uuid[]) for update`,
       [id, wanted.map((w) => w.id)],
-    )).rows as Array<{ id: string; seq: number; status: string; evaluation_id: string | null; owner_wallet: string; result_origin: string; variant_id: string | null; digest: string | null; score: string | number | null }>;
+    )).rows as Array<{ id: string; seq: number; status: string; evaluation_id: string | null; owner_wallet: string; result_origin: string; case_id: string | null; variant_id: string | null; prediction_sha256: string | null; digest: string | null; score: string | number | null }>;
     for (const s of stored) {
-      if (s.evaluation_id !== id || s.owner_wallet !== principal || s.result_origin !== "self_declared" || s.variant_id !== variantId) {
+      if (s.evaluation_id !== id || s.owner_wallet !== principal || s.result_origin !== "self_declared" || s.case_id !== caseId || s.variant_id !== variantId) {
         throw new SelfDeclaredError(409, "conflicting_rows", "a run with this id exists with another owner, origin or evaluation");
+      }
+      // The prediction is written before the runs; a later upload of the same crossing cannot change it.
+      if (s.prediction_sha256 !== cmp.prediction_sha256) {
+        throw new SelfDeclaredError(409, "prediction_conflict", "the runs of this case and agent variant exist with another prediction");
       }
     }
     if (!prevEval && stored.length) throw new SelfDeclaredError(409, "conflicting_rows", "runs with this evaluation id exist without their evaluation");
@@ -372,16 +384,16 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
         JSON.stringify(runEvidenceV2(r, run, p.digest)), Math.round(run.score), version.id, principal, task.id, taskVersionId,
         r.executor.model_id, r.executor.model_effective ?? r.executor.model_id, r.executor.provider, run.cost_usd, run.tokens_in == null ? null : Math.round(run.tokens_in),
         run.tokens_out == null ? null : Math.round(run.tokens_out), costSource, run.wall_s == null ? null : Math.round(run.wall_s * 1000),
-        JSON.stringify(this.provenanceV2(r, run)), modelRoute, id, p.seq, caseId, variantId, run.infra_ok,
+        JSON.stringify(this.provenanceV2(r, run)), modelRoute, id, p.seq, caseId, variantId, run.infra_ok, cmp.prediction_sha256,
       ];
       if (p.op === "insert") {
         await c.query(
           `insert into public.runs (id, release_declaration_id, task_pack_id, task_pack_version, nonce, status, started_at, completed_at,
              evidence_manifest, score_total, agent_version_id, owner_wallet, task_id, task_version_id, model_requested, model_effective,
              model_provider, model_cost_usd, model_tokens_in, model_tokens_out, model_cost_source, wall_ms, provenance, model_route,
-             evaluation_id, seq, case_id, variant_id, infra_ok, result_origin)
+             evaluation_id, seq, case_id, variant_id, infra_ok, prediction_sha256, result_origin)
            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-             $25, $26, $27, $28, $29, 'self_declared')`,
+             $25, $26, $27, $28, $29, $30, 'self_declared')`,
           values,
         );
       } else {
@@ -391,7 +403,7 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
              model_requested = $15, model_effective = $16, model_provider = $17, model_cost_usd = $18, model_tokens_in = $19,
              model_tokens_out = $20, model_cost_source = $21, wall_ms = $22, provenance = $23, model_route = $24, infra_ok = $29
            where id = $1 and nonce = $5 and owner_wallet = $12 and task_id = $13 and evaluation_id = $25 and seq = $26
-             and case_id = $27 and variant_id = $28 and result_origin = 'self_declared'`,
+             and case_id = $27 and variant_id = $28 and prediction_sha256 is not distinct from $30 and result_origin = 'self_declared'`,
           values,
         );
         // The trajectory of a changed run is replaced; its grader rows are kept and new ones added (a re-grade).
@@ -417,6 +429,7 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
       run_key: runKeyV2(run),
       repeat: run.repeat,
       case_key: r.case.case_key,
+      agent_sha256: agentVersionSha256(r.variant.agent),
       variant_sha256: r.variant.variant_sha256,
       format: r.format,
     };

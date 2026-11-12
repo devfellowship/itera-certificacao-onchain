@@ -44,8 +44,8 @@ const body = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   ...over,
 });
 
-// tma-local-result/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T3): the v1 body plus case, variant,
-// and per run infra_ok, graders and a structural trajectory.
+// tma-local-result/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T3, T8): the v1 body plus the test case,
+// the agent variant (base agent + one diff), the comparison, and per run infra_ok, graders and a structural trajectory.
 const step = (seq: number, over: Record<string, unknown> = {}) => ({
   seq, parent_seq: null, turn: seq, tool: "Edit", tool_family: "builtin", status: "ok", error_class: null, duration_ms: 120,
   tokens_in: 900, tokens_out: 80, target_kind: "file", target_redacted: "src/webhook/handler.ts", args_sha256: H("b"), result_sha256: H("c"),
@@ -57,13 +57,21 @@ const v2Run = (repeat: number, score: number, over: Record<string, unknown> = {}
   trajectory: { format: "tma-trajectory/1", steps: [step(1), step(2, { status: "error", error_class: "tool_error", tool: "Bash", tool_family: "shell", target_kind: "command", target_redacted: "npm test <args>" })] },
   ...over,
 });
-const BASELINE = { variant_sha256: H("5"), label: "baseline", change_kind: "none", is_baseline: true, prediction_sha256: null };
-const VARIANT = (c: string) => ({ variant_sha256: H(c), label: `skill ${c}`, change_kind: "skill", is_baseline: false, prediction_sha256: H("4") });
+const EMPTY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const AGENT_V = (over: Record<string, unknown> = {}) => ({
+  harness: "claude-code", harness_version: "2.1.87", harness_repo_sha: "0".repeat(40), model_id: "openrouter/deepseek/deepseek-v4.1-flash",
+  rules_sha256: H("6"), skills_sha256: H("7"), mcp_manifest_sha256: null, tools_sha256: null, ...over,
+});
+const BASELINE = { agent: AGENT_V(), variant_sha256: EMPTY, label: "baseline", change_kind: "none" };
+const IS_BASELINE = { is_baseline: true, prediction_sha256: null };
+const VARIANT = (c: string) => ({ agent: AGENT_V(), variant_sha256: H(c), label: `skill ${c}`, change_kind: "skill" });
+const PREDICTED = { is_baseline: false, prediction_sha256: H("4") };
 const v2body = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   ...body(),
   format: "tma-local-result/2",
-  case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug" },
+  case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), origin_pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug" },
   variant: BASELINE,
+  comparison: IS_BASELINE,
   runs: [v2Run(1, 100), v2Run(2, 80)],
   ...over,
 });
@@ -230,7 +238,7 @@ describe("POST /self-declared-results with tma-local-result/2", () => {
     expect(three.json.run_ids).toHaveLength(3);
     expect(three.json.run_ids.slice(0, 2)).toEqual(a.json.run_ids);
 
-    const other = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: VARIANT("6") }) });
+    const other = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: VARIANT("6"), comparison: PREDICTED }) });
     expect(other.status).toBe(201);
     expect(other.json.evaluation_id).not.toBe(a.json.evaluation_id);
     expect(other.json.case_id).toBe(a.json.case_id);
@@ -239,8 +247,25 @@ describe("POST /self-declared-results with tma-local-result/2", () => {
 
   it("answers 409 baseline_exists for a second baseline of the same case", async () => {
     expect((await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body() })).status).toBe(201);
-    const second = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: { ...BASELINE, variant_sha256: H("7") } }) });
+    const otherAgent = { ...BASELINE, agent: AGENT_V({ harness_repo_sha: "1".repeat(40) }) };
+    const second = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: otherAgent }) });
     expect(second).toMatchObject({ status: 409, json: { error: "baseline_exists" } });
+    // The baseline variant uploaded as a non-baseline of the same case is a conflict.
+    const flip = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ comparison: PREDICTED }) });
+    expect(flip).toMatchObject({ status: 409, json: { error: "variant_conflict" } });
+  });
+
+  it("an agent variant is independent of the case: the same variant on two cases is one variant, two crossings", async () => {
+    const a = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: VARIANT("6"), comparison: PREDICTED }) });
+    const b = await call("POST", "/self-declared-results", {
+      token: dfl(ALICE),
+      body: v2body({ variant: VARIANT("6"), comparison: PREDICTED, case: { case_key: "webhook-dup-002", manifest_sha256: H("9"), origin_pin_sha256: null, mode: "trace_review", use_case_key: "fix" } }),
+    });
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+    expect(b.json.variant_id).toBe(a.json.variant_id);
+    expect(b.json.case_id).not.toBe(a.json.case_id);
+    expect(b.json.evaluation_id).not.toBe(a.json.evaluation_id);
   });
 
   it("refuses a text field with 400 and writes nothing: a prompt key, a step argument, a newline in the label", async () => {
@@ -249,7 +274,7 @@ describe("POST /self-declared-results with tma-local-result/2", () => {
     const args = v2body();
     ((args.runs as any[])[0].trajectory.steps[0] as Record<string, unknown>).args = "cat .env";
     expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: args })).toMatchObject({ status: 400, json: { error: "unknown_key", path: "/runs/0/trajectory/steps/0/args" } });
-    const label = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: { ...VARIANT("6"), label: "line one\nline two" } }) });
+    const label = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: { ...VARIANT("6"), label: "line one\nline two" }, comparison: PREDICTED }) });
     expect(label).toMatchObject({ status: 400, json: { error: "invalid", path: "/variant/label" } });
     expect(store.v2Runs.size).toBe(0);
   });
