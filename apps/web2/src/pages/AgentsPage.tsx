@@ -13,6 +13,7 @@ import { AgentAvatar, Badge, Button, ButtonLink, ModelLabel, RemovableChip, Sear
 import { findTask, TaskFilter, TaskName, useTaskCatalog } from '../tma/task-filter'
 import { relativeTime } from './agents/format'
 import { LocalAgentsSection } from './agents/LocalAgentsSection'
+import { StudioLink } from '../studio/links'
 import './agents/agents.css'
 
 type Tab = 'all' | 'mine'
@@ -258,6 +259,9 @@ export function AgentsPage() {
         <div className="agents-head__titles">
           <h1 className="tma-h1">Agents</h1>
           <span className="agents-head__sub">Ranked by verified evaluations. Pick tasks to rank them on what you need.</span>
+          <StudioLink screen="S8" testId="studio-compare-use-case">
+            Compare per use case
+          </StudioLink>
         </div>
         <ButtonLink variant="primary" href="/agents/new">
           Add agent

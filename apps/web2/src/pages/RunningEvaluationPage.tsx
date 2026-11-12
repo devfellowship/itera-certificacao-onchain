@@ -24,6 +24,7 @@ import type { EvaluationDetail as ApiEvaluationDetail, EvaluationStatus, Evaluat
 import { TaskName, useTaskCatalog } from '../tma/task-filter'
 import { AgentAvatar, Breadcrumb, ButtonLink, ModelLabel, SelfDeclaredBadge, SelfDeclaredNote, isSelfDeclared, middle } from '../tma/ui'
 import { useSession } from '../auth/session'
+import { StudioLink } from '../studio/links'
 import { appendPage, callEvents, EMPTY_FEED, mergeByTime } from './running-evaluation/call-events'
 import type { ActionFeed } from './running-evaluation/call-events'
 import { EvaluationReview, RunLoadErrorNote } from './running-evaluation/EvaluationReview'
@@ -554,6 +555,9 @@ export function RunningEvaluationPage({ pollMs = POLL_MS, runTimeoutMs = RUN_TIM
                 <Link to="/evaluations" className="re-head__link">
                   My evaluations
                 </Link>
+                <StudioLink screen="S7" params={{ evaluation: d.id }} when={!!d.variant && !d.variant.isBaseline} className="re-head__link" testId="studio-compare-baseline">
+                  Compare with baseline
+                </StudioLink>
                 {rerunHref && (
                   <ButtonLink variant="primary" href={rerunHref} data-testid="rerun">
                     Re-run

@@ -23,6 +23,7 @@ import { GoalSection, InjectSection, IoSection, LimitsSection, McpSection, Resul
 import { ExpectedOutputCard, InputCard, RunsPanel, inputPartsCount } from './task-profile/overview'
 import './task-profile/task-profile.css'
 import { OwnedTaskDetailPage } from './OwnedTaskDetailPage'
+import { StudioLink } from '../studio/links'
 
 type State = { kind: 'loading' } | { kind: 'ok'; task: TaskProfile } | { kind: 'owned'; data: TaskHistoryResponse } | { kind: 'notfound' } | { kind: 'mine'; id: string } | { kind: 'error'; message: string }
 
@@ -160,6 +161,9 @@ function Profile({ task }: { task: TaskProfile }) {
                 <span className="tp-mono13 tp-hero__sub" data-testid="task-subtitle">
                   {subtitle}
                 </span>
+                <StudioLink screen="S4" params={{ task: task.slug }} className="tp-mono13" testId="studio-task-cases">
+                  Test cases from this task
+                </StudioLink>
               </div>
               <div className="tp-hero__cta">
                 <RunButton task={task} testId="hero-run" />
