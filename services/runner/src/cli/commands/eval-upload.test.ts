@@ -104,6 +104,13 @@ describe('the redaction module', () => {
     expect(redactCommand(`gh pr create --title "${PROMPT}"`)).toBe('gh pr create');
     expect(redactCommand(`curl -H "Authorization: Bearer ${SECRET}" https://x`)).toBe('curl');
     expect(redactCommand('bash /root/.claude/skills/read-plan/read.sh slug')).toBe('bash ~/.claude/skills/read-plan/read.sh slug');
+    expect(redactCommand('cat /proc/loadavg; ls -la')).toBe('cat /proc/loadavg');
+    expect(redactCommand('S=/tmp/x; sed -n 1p f')).toBe('sed');
+    expect(redactCommand('A="x y" git status --short')).toBe('git status');
+    expect(redactCommand('echo please rewrite the ledger')).toBe('echo');
+    expect(redactCommand('bash x/run.sh set 24ad1930 done')).toBe('bash x/run.sh set');
+    expect(redactCommand('npm test 2>&1 | tail -5')).toBe('npm test');
+    expect(redactCommand(`curl https://api.example.test/v1/x?q=please+rewrite&token=${SECRET}`)).toBe('curl https://api.example.test/v1/x');
     expect(redactUrl(`https://u:p@h.test/a/${SECRET}?k=v#f`)).toBe('https://h.test/a/<redacted>');
     expect(redactTarget('pattern', PROMPT)).toBe('<pattern>');
     expect(redactTarget('pattern', 'TODO|FIXME')).toBe('TODO_FIXME'); // | is not in the charset

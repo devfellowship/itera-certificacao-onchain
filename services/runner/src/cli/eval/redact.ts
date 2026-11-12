@@ -4,7 +4,8 @@
 //
 // The rule is "keep the shape, drop the content":
 //   file, dir   a path relative to the workspace (home → ~); a segment that looks like a secret → <redacted>
-//   command     the program and up to two sub-command words (git pr view, npm run test); never an argument
+//   command     the program and up to two sub-command words of a known tool (git pr view, npm run test), or
+//               the script path of any other program (bash x/run.sh set); never a flag, a value or free text
 //   url         scheme, host and path; no query, no fragment, no user info
 //   pattern     only a short pattern with no space (a sentence is a prompt): else <pattern>
 //   agent, skill, mcp, host, repo   a short name in the safe charset, else <name>
@@ -49,6 +50,10 @@ export interface RedactContext {
 }
 
 const SUBCOMMAND = /^[a-z][a-z0-9:_-]{0,24}$/;
+/** Programs whose first words name a sub-command. For any other program the words after it are free text. */
+const SUBCOMMAND_TOOLS = new Set(['git', 'gh', 'npm', 'npx', 'pnpm', 'yarn', 'bun', 'deno', 'docker', 'kubectl', 'helm', 'cargo', 'go', 'pip', 'pip3', 'uv', 'poetry', 'make', 'systemctl', 'journalctl', 'tma', 'supabase', 'terraform', 'aws', 'gcloud', 'az', 'brew', 'apt', 'apt-get', 'dokploy', 'vercel', 'wrangler', 'flyctl', 'tailscale', 'infisical', 'opencode', 'claude', 'codex']);
+/** A script or path argument: it has a slash and no space. */
+const PATH_WORD = /^[^\s-][^\s]*\/[^\s]*$/;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,63}$/;
 
 function finish(text: string): string | null {
@@ -81,22 +86,26 @@ export function redactPath(raw: string, ctx: RedactContext = {}): string {
     .join('/');
 }
 
-/** Shell words of a command line (quotes respected, no expansion). */
+/** Shell words of a command line (quotes joined and removed, no expansion). `;`, `&&`, `||`, `|` and `&`
+ * are words of their own, also when they touch a word (`cat x;`). */
 function words(command: string): string[] {
   const out: string[] = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  const re = /(?:[^\s"';|&]+|"[^"]*"|'[^']*')+|&&|\|\||[;|&]/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(command)) !== null) out.push(m[1] ?? m[2] ?? m[3] ?? '');
+  while ((m = re.exec(command)) !== null) out.push(m[0].replace(/"([^"]*)"|'([^']*)'/g, '$1$2'));
   return out;
 }
 
+const SEPARATORS = new Set(['&&', '||', ';', '|', '&']);
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
 /** The program and up to two sub-command or script-path words. No flag, no value, no free argument. */
 export function redactCommand(raw: string, ctx: RedactContext = {}): string | null {
-  // The first command of a chain; `cd x &&` and VAR=value prefixes are skipped.
+  // The first command of a chain; `cd x &&`, `VAR=value` prefixes and `VAR=value;` statements are skipped.
   let w = words(raw.split(/\n/)[0] ?? '');
   for (;;) {
-    while (w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]!)) w = w.slice(1);
-    const sep = w.findIndex((x) => x === '&&' || x === ';' || x === '||' || x === '|');
+    while (w.length && (ASSIGNMENT.test(w[0]!) || SEPARATORS.has(w[0]!))) w = w.slice(1);
+    const sep = w.findIndex((x) => SEPARATORS.has(x));
     if (w[0] === 'cd' && sep > 0) {
       w = w.slice(sep + 1);
       continue;
@@ -108,10 +117,23 @@ export function redactCommand(raw: string, ctx: RedactContext = {}): string | nu
   const prog = w[0]!;
   const parts: string[] = [prog.includes('/') ? redactPath(prog, ctx) : prog.split('/').pop()!];
   if (!NAME.test(parts[0]!) && !parts[0]!.startsWith('~') && !parts[0]!.startsWith('.')) return '<command>';
-  for (const x of w.slice(1, 3)) {
-    if (SUBCOMMAND.test(x)) parts.push(x);
-    else if (/^[./~]/.test(x) && x.includes('/') && !/\s/.test(x)) parts.push(redactPath(x, ctx));
-    else break;
+  const name = parts[0]!.split('/').pop()!;
+  if (SUBCOMMAND_TOOLS.has(name)) {
+    // git pr view, npm run test, docker compose up: up to two sub-command words.
+    for (const x of w.slice(1, 3)) {
+      if (!SUBCOMMAND.test(x)) break;
+      parts.push(x);
+    }
+  } else {
+    // bash <script> [sub-command], python3 <script>: the script path and one sub-command word after it.
+    // Any other argument is free text (echo please rewrite …) and is dropped.
+    const arg = w[1];
+    if (arg !== undefined && /^[a-z][a-z0-9+.-]*:\/\//i.test(arg)) {
+      parts.push(redactUrl(arg) ?? '<url>');
+    } else if (arg !== undefined && PATH_WORD.test(arg)) {
+      parts.push(redactPath(arg, ctx));
+      if (w[2] !== undefined && SUBCOMMAND.test(w[2])) parts.push(w[2]);
+    }
   }
   return parts.join(' ');
 }
