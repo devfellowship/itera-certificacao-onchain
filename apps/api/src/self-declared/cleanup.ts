@@ -12,10 +12,13 @@
  *             (400 ids_required): a delete is always by explicit id, never "everything unreferenced".
  *   owner     case and variant: `owner_wallet` = the caller. A row of another principal answers `not_found`, the same
  *             as an unknown id. Grader version: the registry has NO owner column (0023: one row per tenant, id@semver and
- *             code digest, created on first use), so the rule is tenant + "bare" (no judge or calibration field) +
- *             unreferenced; a bare registry row is recreated by the next upload that uses it, so nothing is lost.
+ *             code digest, created on first use), so no caller "owns" one. Until a `created_by` column exists, only a
+ *             TMA ADMIN (a principal in ITERA_ADMIN_WALLETS, the allow-list of the other /admin routes) may delete or
+ *             even list grader versions; for everyone else a named grader id is `admin_only` and the listing shows none.
+ *             For an admin the rule is tenant + "bare" (no judge or calibration field) + unreferenced.
  *   refused   referenced_by_runs (case, variant: some run points at it), baseline_of_case (variant: a case that stays
- *             has it as its baseline), referenced_by_grader_results (grader version), grader_has_calibration, not_found.
+ *             has it as its baseline), referenced_by_grader_results (grader version), grader_has_calibration, admin_only
+ *             (grader version, caller is not an admin), not_found.
  *   answer    200 { dry_run, deleted, selected: {cases, variants, grader_versions}, refused: [{kind, id, reason, detail}] }.
  *             `selected` is the exact list that was deleted (dry_run=false) or would be (dry_run=true).
  *
@@ -35,7 +38,8 @@ export type CleanupReason =
   | "referenced_by_runs"
   | "baseline_of_case"
   | "referenced_by_grader_results"
-  | "grader_has_calibration";
+  | "grader_has_calibration"
+  | "admin_only";
 
 /** The rows that the caller can see: its own cases and variants, and the tenant's grader versions. */
 export interface CleanupFacts {
@@ -69,8 +73,11 @@ export interface CleanupPlan {
 
 const uniq = (ids: string[]) => [...new Set(ids)];
 
-/** Pure: which of the requested rows may go. Every refusal names its reason. */
-export function planCleanup(facts: CleanupFacts, sel: CleanupSelection): CleanupPlan {
+/**
+ * Pure: which of the requested rows may go. Every refusal names its reason. `graderAdmin` (default false: fail
+ * closed) says whether the caller may touch the grader registry, which has no owner column.
+ */
+export function planCleanup(facts: CleanupFacts, sel: CleanupSelection, opts: { graderAdmin?: boolean } = {}): CleanupPlan {
   const listing = sel.caseIds === null && sel.variantIds === null && sel.graderVersionIds === null;
   const refused: CleanupRefusal[] = [];
   const refuse = (kind: CleanupKind, id: string, reason: CleanupReason, detail: Record<string, unknown> = {}) => {
@@ -109,11 +116,15 @@ export function planCleanup(facts: CleanupFacts, sel: CleanupSelection): Cleanup
   }
 
   const graderFacts = new Map(facts.graders.map((g) => [g.id, g]));
-  const graderIds = listing ? facts.graders.map((g) => g.id) : uniq(sel.graderVersionIds ?? []);
+  const graderAdmin = opts.graderAdmin === true;
+  // Not an admin: the registry is not the caller's. Nothing is listed, a named id is refused without a lookup, so
+  // the answer does not tell whether the id exists.
+  const graderIds = !graderAdmin ? (listing ? [] : uniq(sel.graderVersionIds ?? [])) : listing ? facts.graders.map((g) => g.id) : uniq(sel.graderVersionIds ?? []);
   const graderVersions: CleanupPlan["graderVersions"] = [];
   for (const id of graderIds) {
     const f = graderFacts.get(id);
-    if (!f) refuse("grader_version", id, "not_found");
+    if (!graderAdmin) refuse("grader_version", id, "admin_only");
+    else if (!f) refuse("grader_version", id, "not_found");
     else if (f.resultCount > 0) refuse("grader_version", id, "referenced_by_grader_results", { results: f.resultCount });
     else if (f.calibrated) refuse("grader_version", id, "grader_has_calibration");
     else graderVersions.push({ id, graderId: f.graderId, semver: f.semver });
@@ -133,7 +144,7 @@ export class CleanupConflictError extends Error {}
 
 export interface EvalCleanupStore {
   /** One transaction: read the facts of `owner`, plan, and (when !dryRun) delete the planned rows. */
-  cleanup(owner: string, tenant: string, selection: CleanupSelection, options: { dryRun: boolean }): Promise<CleanupOutcome>;
+  cleanup(owner: string, tenant: string, selection: CleanupSelection, options: { dryRun: boolean; graderAdmin: boolean }): Promise<CleanupOutcome>;
 }
 
 export interface EvalCleanupRouterDeps {
@@ -142,7 +153,15 @@ export interface EvalCleanupRouterDeps {
   ready: () => Promise<boolean>;
   /** TMA_RESULT_TENANT (default devfellowship). */
   tenant?: string;
+  /** Principals that may delete grader versions. Default: ITERA_ADMIN_WALLETS (comma separated), as the /admin routes. */
+  adminWallets?: () => string[];
 }
+
+const envAdminWallets = () =>
+  (process.env.ITERA_ADMIN_WALLETS ?? "")
+    .split(",")
+    .map((w) => w.trim())
+    .filter(Boolean);
 
 const BODY_KEYS = new Set(["dry_run", "case_ids", "variant_ids", "grader_version_ids"]);
 
@@ -159,6 +178,7 @@ function idList(body: Record<string, unknown>, key: string): { ok: true; ids: st
 export function createEvalCleanupRouter(deps: EvalCleanupRouterDeps): Router {
   const router = Router();
   const tenant = deps.tenant ?? resultTenantFromEnv();
+  const adminWallets = deps.adminWallets ?? envAdminWallets;
 
   router.post("/eval-results/cleanup", requirePrincipal, async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -198,7 +218,8 @@ export function createEvalCleanupRouter(deps: EvalCleanupRouterDeps): Router {
         res.status(503).json({ error: "schema_not_ready", message: `database schema is not migrated yet (needs db/migrations/${EVAL_RESULTS_MIGRATION})` });
         return;
       }
-      const out = await deps.store.cleanup(req.principal!.id, tenant, selection, { dryRun });
+      const graderAdmin = adminWallets().includes(req.principal!.id);
+      const out = await deps.store.cleanup(req.principal!.id, tenant, selection, { dryRun, graderAdmin });
       const p = out.plan;
       res.json({
         dry_run: dryRun,
