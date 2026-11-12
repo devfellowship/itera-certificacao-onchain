@@ -68,10 +68,35 @@ export async function hasEvalResultsSchema(db: Queryable, now: number = Date.now
   return evalPresent;
 }
 
+/**
+ * 0025_grader_versions_created_by.sql adds grader_versions.created_by. Until it is applied, a v2 upload registers
+ * a grader version with no creator (the insert names no created_by). Same cache rule as the probes above.
+ */
+let graderCreatedByPresent = false;
+let graderCreatedByCheckedAt = Number.NEGATIVE_INFINITY;
+
+export async function hasGraderCreatedBy(db: Queryable, now: number = Date.now()): Promise<boolean> {
+  if (graderCreatedByPresent) return true;
+  if (now - graderCreatedByCheckedAt < RECHECK_MS) return false;
+  graderCreatedByCheckedAt = now;
+  try {
+    const { rows } = await db.query(
+      `select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'grader_versions' and column_name = 'created_by'`,
+    );
+    graderCreatedByPresent = rows.length > 0;
+  } catch {
+    graderCreatedByPresent = false;
+  }
+  return graderCreatedByPresent;
+}
+
 /** Test seam: forget the cached answers. */
 export function resetSchemaFeatures(): void {
   present = false;
   checkedAt = Number.NEGATIVE_INFINITY;
   evalPresent = false;
   evalCheckedAt = Number.NEGATIVE_INFINITY;
+  graderCreatedByPresent = false;
+  graderCreatedByCheckedAt = Number.NEGATIVE_INFINITY;
 }

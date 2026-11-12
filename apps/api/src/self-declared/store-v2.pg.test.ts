@@ -282,4 +282,18 @@ describe.skipIf(!URL_)("PgSelfDeclaredStore v2 and PgEvalResultsReader on Postgr
     expect(await count(`select count(*) as n from public.grader_results where run_id = any($1::uuid[])`, [ids])).toBe(0);
     expect(await count(`select count(*) as n from public.run_actions where run_id = any($1::uuid[])`, [ids])).toBe(0);
   });
+
+  it("records who registered a grader version (created_by = the user id of the principal), and keeps the first author", async () => {
+    const row = (await pool.query(
+      `select created_by from public.grader_versions where tenant = 'devfellowship' and grader_id = 'hidden-tests' and code_sha256 = $1`,
+      [H("f")],
+    )).rows[0];
+    expect(row.created_by).toBe(ALICE.slice("dfl:".length));
+    // A second user that uploads the same grader id/semver/digest gets the same row; the creator does not change.
+    await pool.query(`update public.grader_versions set created_by = $1 where tenant = 'devfellowship' and grader_id = 'hidden-tests' and code_sha256 = $2`, [randomUUID(), H("f")]);
+    const before = (await pool.query(`select created_by from public.grader_versions where grader_id = 'hidden-tests' and code_sha256 = $1`, [H("f")])).rows[0].created_by;
+    await store.importResultV2(ALICE, v2({ runs: [run(1, 100), run(2, 80), run(3, 100), run(4, 100)], summary: { score: 95, runs: 4, items: 1 } }), opts);
+    const after = (await pool.query(`select created_by from public.grader_versions where grader_id = 'hidden-tests' and code_sha256 = $1`, [H("f")])).rows[0].created_by;
+    expect(after).toBe(before);
+  });
 });

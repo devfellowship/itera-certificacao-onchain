@@ -8,7 +8,7 @@ import type { LocalResult, LocalResultV2 } from "@itera/contracts";
 import { agentVersionSha256 } from "@itera/contracts";
 import type { Pool, PoolClient } from "pg";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
-import { hasEvalResultsSchema } from "../domain/schema-features.js";
+import { hasEvalResultsSchema, hasGraderCreatedBy } from "../domain/schema-features.js";
 import {
   EVAL_RESULTS_MIGRATION,
   SELF_DECLARED_MIGRATION,
@@ -61,6 +61,12 @@ interface TaskRow {
   slug: string;
   name: string;
   visibility: string;
+}
+
+/** The user id of a `dfl:<uuid>` principal, or null for any other principal shape (a wallet, the hosted runner). */
+export function userIdOf(principal: string): string | null {
+  const m = /^dfl:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(principal);
+  return m ? m[1].toLowerCase() : null;
 }
 
 export class PgSelfDeclaredStore implements SelfDeclaredStore {
@@ -410,7 +416,7 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
         await c.query(`delete from public.run_actions where run_id = $1`, [p.id]);
       }
       for (const g of run.graders) {
-        const gv = await this.graderVersion(c, tenant, g, graderCache);
+        const gv = await this.graderVersion(c, tenant, principal, g, graderCache);
         await c.query(
           `insert into public.grader_results (tenant, run_id, grader_version_id, pass, score, weight, hard_gate, decisive, infra_ok)
            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -435,16 +441,26 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     };
   }
 
-  /** grader_versions is a registry: (tenant, id, semver, code digest) → one row, created on first use. */
-  private async graderVersion(c: PoolClient, tenant: string, g: RunV2["graders"][number], cache: Map<string, string>): Promise<string> {
+  /**
+   * grader_versions is a registry: (tenant, id, semver, code digest) → one row, created on first use. After 0025 the row
+   * records who created it (created_by = the user id of principal dfl:<uuid>; the first author is kept on conflict, and
+   * a row that exists with no creator stays with none). Before 0025 the insert names no created_by.
+   */
+  private async graderVersion(c: PoolClient, tenant: string, principal: string, g: RunV2["graders"][number], cache: Map<string, string>): Promise<string> {
     const key = `${g.id}@${g.semver}#${g.code_sha256}`;
     const hit = cache.get(key);
     if (hit) return hit;
+    const creator = userIdOf(principal);
+    const withCreator = (await hasGraderCreatedBy(c)) && creator !== null;
     const row = (await c.query(
-      `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256) values ($1, $2, $3, $4, $5)
-       on conflict on constraint grader_versions_key do update set kind = public.grader_versions.kind
-       returning id, kind`,
-      [tenant, g.id, g.semver, g.kind, g.code_sha256],
+      withCreator
+        ? `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256, created_by) values ($1, $2, $3, $4, $5, $6)
+           on conflict on constraint grader_versions_key do update set kind = public.grader_versions.kind
+           returning id, kind`
+        : `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256) values ($1, $2, $3, $4, $5)
+           on conflict on constraint grader_versions_key do update set kind = public.grader_versions.kind
+           returning id, kind`,
+      withCreator ? [tenant, g.id, g.semver, g.kind, g.code_sha256, creator] : [tenant, g.id, g.semver, g.kind, g.code_sha256],
     )).rows[0];
     if (row.kind !== g.kind) throw new SelfDeclaredError(409, "grader_conflict", `grader ${key} exists with kind ${row.kind}`);
     cache.set(key, row.id);
