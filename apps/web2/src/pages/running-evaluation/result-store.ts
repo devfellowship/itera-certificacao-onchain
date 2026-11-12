@@ -5,7 +5,7 @@
  * defensively and answers null or an empty list when a field is missing or malformed: the page then renders nothing
  * for it. It never shows a placeholder that looks like data.
  */
-import type { EvalCaseView, EvalVariantView, GraderRowView, GraderSummaryView, TrajectorySummaryView } from '../../lib/api'
+import type { AgentVersionView, EvalCaseView, EvalVariantView, GraderRowView, GraderSummaryView, TrajectorySummaryView } from '../../lib/api'
 import { fmtScore } from '../../tma/detail'
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -21,8 +21,21 @@ export interface VariantInfo {
   isBaseline: boolean
   caseKey: string | null
   mode: string | null
-  /** Run rows of this evaluation (one evaluation = one variant). */
+  /** The base agent of the variant: `model · harness@commit7` (C4-T8), or null when the API sent none. */
+  agent: string | null
+  /** Run rows of this evaluation (one evaluation = one crossing of the case and the agent variant). */
   n: number
+}
+
+/** `model · harness@abcdef1`: the base agent version of an agent variant, or null when it is missing or malformed. */
+export function agentTextOf(a: unknown): string | null {
+  if (!isObj(a)) return null
+  const v = a as Partial<AgentVersionView>
+  const model = str(v.modelId)
+  const harness = str(v.harness)
+  if (!model || !harness) return null
+  const sha = str(v.harnessRepoSha)
+  return `${model} · ${harness}${sha ? `@${sha.slice(0, 7)}` : ''}`
 }
 
 /** The variant of an evaluation, or null for a v1 or hosted one (or before 0023). */
@@ -37,6 +50,7 @@ export function variantInfoOf(d: { case?: unknown; variant?: unknown; tasks?: un
     isBaseline: v.isBaseline === true,
     caseKey: c ? str(c.caseKey) : null,
     mode: c ? str(c.mode) : null,
+    agent: agentTextOf(v.agent),
     n: Array.isArray(d.tasks) ? d.tasks.length : 0,
   }
 }

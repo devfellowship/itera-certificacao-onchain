@@ -13,7 +13,7 @@ import { SessionProvider } from './auth/session'
 import { RunningEvaluationPage } from './pages/RunningEvaluationPage'
 import { compareRows, inputPreview, mostLost, patchStats, sourceOf, subtitleOf, verdictOf } from './pages/running-evaluation/review'
 import { wilson90 } from './tma/detail'
-import { graderLinesOf, graderSummariesOf, trajectoryTextOf, variantInfoOf } from './pages/running-evaluation/result-store'
+import { agentTextOf, graderLinesOf, graderSummariesOf, trajectoryTextOf, variantInfoOf } from './pages/running-evaluation/result-store'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -480,8 +480,9 @@ describe('evaluation review layout', () => {
 
 // ---------- C4-T6: the result-store fields (variant, baseline, grader version, trajectory) ----------
 // The API sends them only after db/migrations/0023 is applied and only for a v2 upload. Both shapes must render.
-const V2_CASE = { id: 'case-1', caseKey: 'checkout-refund', manifestSha256: 'a'.repeat(64), pinSha256: null, mode: 'replay', useCaseKey: 'support', taskId: null, createdAt: '2026-11-12T09:00:00.000Z' }
-const V2_VARIANT = { id: 'var-1', variantSha256: 'b'.repeat(64), label: 'shorter-prompt', changeKind: 'prompt', isBaseline: false, predictionSha256: null }
+const V2_CASE = { id: 'case-1', caseKey: 'checkout-refund', manifestSha256: 'a'.repeat(64), originPinSha256: null, mode: 'replay', useCaseKey: 'support', taskId: null, baselineVariantId: 'var-0', createdAt: '2026-11-12T09:00:00.000Z' }
+const V2_AGENT = { harness: 'claude-code', harnessVersion: '2.1.87', harnessRepoSha: '480db4ba'.padEnd(40, '0'), modelId: 'anthropic/claude-sonnet-5', rulesSha256: null, skillsSha256: null, mcpManifestSha256: null, toolsSha256: null }
+const V2_VARIANT = { id: 'var-1', agentSha256: 'd'.repeat(64), agent: V2_AGENT, variantSha256: 'b'.repeat(64), label: 'shorter-prompt', changeKind: 'prompt', isBaseline: false }
 const grade = (over: Record<string, unknown> = {}) => ({ id: 'hidden-tests', semver: '1.2.0', kind: 'code', codeSha256: 'c'.repeat(64), pass: true, score: 100, weight: 1, hardGate: true, decisive: true, infraOk: true, gradedAt: '2026-11-12T10:00:00.000Z', ...over })
 const V2_FIELDS = {
   case: V2_CASE,
@@ -497,7 +498,16 @@ describe('result-store helpers', () => {
     expect(variantInfoOf({ case: null, variant: null, tasks: [] })).toBeNull()
     expect(variantInfoOf({ variant: { label: '' } })).toBeNull()
     expect(variantInfoOf({ variant: 'x' })).toBeNull()
-    expect(variantInfoOf({ ...V2_FIELDS, tasks: [{}, {}] })).toEqual({ label: 'shorter-prompt', changeKind: 'prompt', isBaseline: false, caseKey: 'checkout-refund', mode: 'replay', n: 2 })
+    expect(variantInfoOf({ ...V2_FIELDS, tasks: [{}, {}] })).toEqual({ label: 'shorter-prompt', changeKind: 'prompt', isBaseline: false, caseKey: 'checkout-refund', mode: 'replay', agent: 'anthropic/claude-sonnet-5 · claude-code@480db4b', n: 2 })
+    // An API before C4-T8 (no agent on the variant) still renders the variant, with no agent text.
+    expect(variantInfoOf({ variant: { label: 'old', changeKind: 'prompt', isBaseline: false }, tasks: [] })).toMatchObject({ label: 'old', agent: null })
+  })
+  it('agentTextOf: model and harness, the short harness commit when there is one; null when malformed', () => {
+    expect(agentTextOf(V2_AGENT)).toBe('anthropic/claude-sonnet-5 · claude-code@480db4b')
+    expect(agentTextOf({ ...V2_AGENT, harnessRepoSha: null })).toBe('anthropic/claude-sonnet-5 · claude-code')
+    expect(agentTextOf({ harness: 'codex' })).toBeNull()
+    expect(agentTextOf(null)).toBeNull()
+    expect(agentTextOf('x')).toBeNull()
     expect(variantInfoOf({ variant: { ...V2_VARIANT, isBaseline: true }, tasks: [] })).toMatchObject({ isBaseline: true, caseKey: null, mode: null, n: 0 })
   })
   it('graderSummariesOf and graderLinesOf drop malformed entries and mark a replaced grading', () => {
@@ -535,6 +545,7 @@ describe('evaluation page: result-store fields', () => {
     expect(strip.dataset.baseline).toBe('false')
     expect(q(c, 'variant-label')!.textContent).toBe('shorter-prompt')
     expect(q(c, 'variant-change')!.textContent).toBe('changes prompt')
+    expect(q(c, 'variant-agent')!.textContent).toBe('agent anthropic/claude-sonnet-5 · claude-code@480db4b')
     expect(q(c, 'variant-n')!.textContent).toBe('n 2')
     expect(q(c, 'variant-case')!.textContent).toBe('case checkout-refund · replay')
     expect(q(c, 'baseline-badge')).toBeNull()
