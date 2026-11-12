@@ -1,7 +1,8 @@
 /**
  * The result-store parts of the evaluation page (plan 20261112-tma-c4-result-store-trajectory-upload, T6; owner's
  * note Q-T13: extend the page that web2 already has, build no second app). Two small blocks:
- *   VariantStrip  under the score header: the variant label, a baseline badge, n and the grader `id@semver` of the evaluation.
+ *   VariantStrip  under the score header: the agent variant label, its base agent (model, harness@commit; C4-T8), a baseline
+ *                 badge, n and the grader `id@semver` of the evaluation.
  *   RunGraders    under the "Expected vs agent" table: the grading rows of the current run with `id@semver` next to each score,
  *                 and the trajectory summary.
  * Both render NOTHING when the API sent no such field (a v1 or hosted evaluation, or 0023 not applied yet).
@@ -22,6 +23,11 @@ export function VariantStrip({ detail }: { detail: Pick<ReviewDetail, 'case' | '
           {variant.isBaseline && (
             <span className="ev-badge ev-badge--baseline" data-testid="baseline-badge">
               baseline
+            </span>
+          )}
+          {variant.agent && (
+            <span className="ev-mono ev-dim" data-testid="variant-agent">
+              agent {variant.agent}
             </span>
           )}
           {variant.changeKind && variant.changeKind !== 'none' && (

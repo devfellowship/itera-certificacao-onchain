@@ -600,23 +600,39 @@ export interface ProofSummary {
 // Every one is OPTIONAL: before db/migrations/0023 is applied the API answers the old body without them, and a v1
 // or hosted evaluation gets `case: null`, `variant: null` and empty `graders` after it. The page renders nothing
 // for a missing field. It never fills it with a placeholder.
+// C4-T8 (parent plan ADR-26): a test case and an agent variant are independent; an evaluation is one crossing of the
+// two. `variant.isBaseline` is computed against the case of this evaluation; the prediction belongs to the crossing.
 export interface EvalCaseView {
   id: string
   caseKey: string
   manifestSha256: string
-  pinSha256: string | null
+  /** Provenance of the origin trace (tma-pin/1 digest); never an agent binding. */
+  originPinSha256: string | null
   mode: 'replay' | 'trace_review'
   useCaseKey: string
   taskId: string | null
+  baselineVariantId: string | null
   createdAt: string
+}
+/** The base agent version of an agent variant: harness + model + rules + skills + configured tools, by digest. */
+export interface AgentVersionView {
+  harness: string
+  harnessVersion: string | null
+  harnessRepoSha: string | null
+  modelId: string
+  rulesSha256: string | null
+  skillsSha256: string | null
+  mcpManifestSha256: string | null
+  toolsSha256: string | null
 }
 export interface EvalVariantView {
   id: string
+  agentSha256: string
+  agent: AgentVersionView
   variantSha256: string
   label: string
   changeKind: string
   isBaseline: boolean
-  predictionSha256: string | null
 }
 /** One grading row of one run (a re-grade adds a row). `score` is 0-100 or null. */
 export interface GraderRowView {
@@ -662,6 +678,8 @@ export interface EvaluationDetail {
   /** Result store (v2 upload). Absent before migration 0023; null for a v1 or hosted evaluation after it. */
   case?: EvalCaseView | null
   variant?: EvalVariantView | null
+  /** The prediction of this variant against the case baseline (null for the baseline). */
+  predictionSha256?: string | null
   graders?: GraderSummaryView[]
   agent: { id?: string; name: string; slug?: string | null; repo?: string | null; commit: string | null; initials: string; avatarUrl?: string | null; authorWallet?: string | null; authorProfile?: UserProfile }
   /** v2: `{id, release}`; the design fixtures use a label string. */
@@ -735,6 +753,7 @@ export interface Run {
   /** Result store (v2 upload). Absent before migration 0023. */
   case?: EvalCaseView | null
   variant?: EvalVariantView | null
+  predictionSha256?: string | null
   graders?: GraderRowView[]
   trajectorySummary?: TrajectorySummaryView | null
   evaluationId?: string | null
