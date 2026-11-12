@@ -15,7 +15,26 @@ import { caseVerdict, type GraderResult } from '../eval/graders.js';
 import type { EvalDeps } from '../eval/runs.js';
 import { variantErrors } from '../eval/variant.js';
 import { captureIo } from '../test/fixtures.js';
-import { makeEvalCommand } from './eval.js';
+import type { Command } from '../command.js';
+import { CliError } from '../env.js';
+import { makeEvalCommand as makeRaw } from './eval.js';
+
+/** As tma.ts runs a command: a CliError is exit 1 with its message on stderr. */
+function makeEvalCommand(deps?: EvalDeps): Command {
+  const cmd = makeRaw(deps);
+  return {
+    ...cmd,
+    main: async (argv, io) => {
+      try {
+        return await cmd.main(argv, io);
+      } catch (e) {
+        if (!(e instanceof CliError)) throw e;
+        io.err(e.message);
+        return 1;
+      }
+    },
+  };
+}
 
 const FIXTURE = join(import.meta.dirname, '..', 'test', 'task-fixture');
 const EXAMPLE = join(import.meta.dirname, '..', '..', '..', 'examples', 'eval', 'tsk_webhook_dup');
@@ -219,8 +238,9 @@ describe('tma eval run', () => {
     const { dir, src } = await builtCase();
     mkdirSync(join(src, 'agent'));
     writeFileSync(join(src, 'agent', 'AGENTS.md'), '# agent\n');
-    const { deps, agentKeys, graded } = fakes({
-      runAgent: async (o) => ({ patch: `${PATCH}// ${o.modelKey}\n`, timedOut: false, costCapped: false, durationMs: 9000, actions: [{ tool: 'edit', input: { k: o.modelKey } }], agentErrors: [], usage: { steps: 2, inputTokens: 10, outputTokens: 5, costUsd: 0 } }) as unknown as AgentRunResult,
+    const agentKeys: string[] = [];
+    const { deps, graded } = fakes({
+      runAgent: async (o) => (agentKeys.push(o.modelKey), { patch: `${PATCH}// ${o.modelKey}\n`, timedOut: false, costCapped: false, durationMs: 9000, actions: [{ tool: 'edit', input: { k: o.modelKey } }], agentErrors: [], usage: { steps: 2, inputTokens: 10, outputTokens: 5, costUsd: 0 } }) as unknown as AgentRunResult,
     });
     const v = variant(src, 'agent', { kind: 'agent', agent: { agent_dir: 'agent', model: 'anthropic/claude-sonnet-4.5' }, change_kind: 'rules', is_baseline: false, prediction: 'Same pass rate.' });
     expect(await makeEvalCommand(deps).main(['run', '--case', dir, '--variant', v, '--repeat', '2'], captureIo())).toBe(0);

@@ -50,7 +50,7 @@ export function patchFiles(patch: string): Map<string, string> {
   let buf: string[] = [];
   let fromGitHeader = false;
   const flush = () => {
-    if (current !== null) files.set(current, (files.get(current) ?? '') + buf.join('\n'));
+    if (current !== null) files.set(current, (files.get(current) ?? '') + buf.join('\n').replace(/\n*$/, '\n'));
     buf = [];
   };
   const strip = (p: string) => p.replace(/^[ab]\//, '').replace(/\t.*$/, '');
