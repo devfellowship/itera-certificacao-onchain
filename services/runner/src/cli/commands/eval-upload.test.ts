@@ -14,6 +14,7 @@ import { defaultSandboxConfig } from '../../sandbox.js';
 import type { Command } from '../command.js';
 import { CliError, sandboxEnv } from '../env.js';
 import { redactCommand, redactTarget, redactUrl } from '../eval/redact.js';
+import { baseAgentFrom, catalogModelId } from '../eval/upload.js';
 import type { EvalDeps } from '../eval/runs.js';
 import { readClaudeCodeSession, trajectoryFromActions } from '../eval/trajectory.js';
 import { SESSION_FORMAT, writeSession } from '../session.js';
@@ -314,5 +315,29 @@ describe('tma eval upload', () => {
     expect(await makeEvalCommand(deps({ env: loggedIn(), fetchImpl: f as unknown as typeof fetch })).main(['upload', '--case', dir, '--variant-dir', vdir, '--agent', AGENT], io2), io2.errText()).toBe(0);
     expect(io2.outText()).toMatch(/inserted\. Evaluation e0e0e0e0/);
     expect((f.mock.calls[0] as unknown as [string])[0]).toBe(`${API}/self-declared-results`);
+  });
+});
+
+describe('the model id of the base agent', () => {
+  it('maps what a harness records to the OpenRouter catalog id the API knows', () => {
+    expect(catalogModelId('claude-opus-5-5')).toBe('anthropic/claude-opus-5.5');
+    expect(catalogModelId('claude-sonnet-5-5')).toBe('anthropic/claude-sonnet-5.5');
+    expect(catalogModelId('claude-haiku-5-5')).toBe('anthropic/claude-haiku-5.5');
+    expect(catalogModelId('claude-fable-5-2')).toBe('anthropic/claude-fable-5.2');
+    expect(catalogModelId('claude-opus-5')).toBe('anthropic/claude-opus-5');
+    expect(catalogModelId('claude-opus-5-5[1m]')).toBe('anthropic/claude-opus-5.5');
+    expect(catalogModelId('claude-haiku-4-5-20251001')).toBe('anthropic/claude-haiku-4.5');
+    expect(catalogModelId('anthropic/claude-opus-5-5')).toBe('anthropic/claude-opus-5.5');
+    for (const g of ['glm-5.3', 'glm-5.3-flash', 'glm-4.7']) expect(catalogModelId(g)).toBe(`z-ai/${g}`);
+  });
+
+  it('leaves a catalog id and a route-prefixed id as they are', () => {
+    for (const id of ['anthropic/claude-sonnet-4.5', 'anthropic/claude-opus-5.5', 'z-ai/glm-5.3', 'zai/glm-5.3', 'openrouter/deepseek/deepseek-v4.1-flash', 'qwen/qwen3-coder', 'gpt-5']) expect(catalogModelId(id)).toBe(id);
+  });
+
+  it('a tma-pin/1 with the harness id gives a base agent with the catalog id', () => {
+    const raw = sealPin({ ...pin, model_id: 'claude-opus-5-5' });
+    expect(baseAgentFrom(raw, 'the case pin').model_id).toBe('anthropic/claude-opus-5.5');
+    expect(() => baseAgentFrom(sealPin({ ...pin, model_id: 'gpt-5' }), 'the case pin')).toThrow(/not a model-catalog id/);
   });
 });

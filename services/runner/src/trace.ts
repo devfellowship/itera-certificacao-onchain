@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ParsedTrace, RunAction, StepErrorClass, StepStatus, StepTrajectory, TargetKind, ToolFamily } from './types.js';
+import type { ParsedTrace, RunAction, StepErrorClass, StepKind, StepStatus, StepTrajectory, TargetKind, ToolFamily } from './types.js';
 
 export const WORKSPACE_IN_SANDBOX = '/workspace';
 const MAX_TARGET = 300;
@@ -71,6 +71,51 @@ export function toolFamilyOf(tool: string, command: string | null, isMcp: boolea
   return 'other';
 }
 
+// tma-trajectory/2 step kind (T10). The same rules classify an old hosted row from its `tool` and `target` (the
+// command of a bash call), so a back-fill can reuse stepKindOf. Close to the layer-1 intent rules of the fleet
+// trajectory: build/test -> test, file-read -> read, search -> search, file-edit and git-write -> write, MCP and skill
+// runs -> mcp.
+const READ_TOOLS = new Set(['read', 'list', 'ls', 'webfetch', 'todoread']);
+const SEARCH_TOOLS = new Set(['glob', 'grep', 'codesearch', 'websearch']);
+const WRITE_TOOLS = new Set(['write', 'edit', 'patch', 'multiedit']);
+const GIT_WRITE = new Set([
+  'add', 'commit', 'push', 'pull', 'checkout', 'switch', 'restore', 'reset', 'merge', 'rebase', 'stash', 'rm', 'mv', 'tag', 'init',
+  'clone', 'cherry-pick', 'revert', 'am', 'apply', 'clean',
+]);
+const TEST_COMMAND = new RegExp([
+  String.raw`\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|t|lint|check|typecheck|build)\b`,
+  String.raw`\b(?:vitest|jest|mocha|ava|tsc|eslint|biome|prettier\s+--check|playwright\s+test)\b`,
+  String.raw`\b(?:pytest|tox|nox|ruff|mypy|flake8|pylint)\b`,
+  String.raw`\bpython3?\s+-m\s+(?:pytest|unittest|py_compile|compileall)\b`,
+  String.raw`\b(?:go|cargo|mvn|gradle|dotnet|mix|deno)\s+test\b`,
+  String.raw`\bcargo\s+(?:build|check|clippy)\b`,
+  String.raw`\bmake\s+(?:test|check|lint)\b`,
+  String.raw`\bnode\s+--test\b`,
+].join('|'));
+const READ_COMMAND = /^(?:cat|head|tail|less|more|ls|tree|wc|stat|file|sed\s+-n)\b/;
+const SEARCH_COMMAND = /^(?:grep|egrep|rg|ag|find|fd|ack)\b/;
+/** The first command of a shell line, after `cd <dir> &&` and leading VAR=value assignments. */
+const FIRST_COMMAND = /^(?:cd\s+\S+\s*(?:&&|;)\s*)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*/;
+
+export function stepKindOf(tool: string, command: string | null, isMcp: boolean): StepKind {
+  if (isMcp) return 'mcp';
+  const name = tool.toLowerCase();
+  if (READ_TOOLS.has(name)) return 'read';
+  if (SEARCH_TOOLS.has(name)) return 'search';
+  if (WRITE_TOOLS.has(name)) return 'write';
+  if (name === 'task') return 'agent';
+  if (name === 'skill') return 'mcp';
+  if (name !== 'bash') return 'other';
+  const cmd = (command ?? '').trim();
+  const first = cmd.replace(FIRST_COMMAND, '');
+  const git = /^git\s+(?:-C\s+\S+\s+)?([a-z-]+)/.exec(first);
+  if (git) return GIT_WRITE.has(git[1]!) ? 'write' : 'shell';
+  if (TEST_COMMAND.test(cmd)) return 'test';
+  if (READ_COMMAND.test(first)) return 'read';
+  if (SEARCH_COMMAND.test(first)) return 'search';
+  return 'shell';
+}
+
 export function targetKindOf(tool: string, target: string | null, isMcp: boolean): TargetKind {
   if (target === null) return 'none';
   if (isMcp) return 'mcp';
@@ -113,6 +158,8 @@ function stepTrajectory(opts: {
   turn: number;
   seq: number;
   earlier: ReadonlyArray<{ seq: number; tool: string; argsSha256: string; failed: boolean }>;
+  /** The time of the first event of the run (ms), or null. */
+  runStart: number | null;
 }): StepTrajectory {
   const { state } = opts;
   const completed = state.status === 'completed';
@@ -146,6 +193,9 @@ function stepTrajectory(opts: {
     argsSha256,
     resultSha256: resultText && resultText.length > 0 ? sha256(resultText) : null,
     retryOf,
+    stepKind: stepKindOf(opts.tool, opts.command, opts.isMcp),
+    startedMs: start !== null && opts.runStart !== null ? Math.min(Math.max(Math.round(start - opts.runStart), 0), MAX_STEP_MS) : null,
+    turnOrigin: opts.turn <= 1 ? 'system' : 'agent',
   };
 }
 
@@ -155,6 +205,8 @@ export function parseOpencodeEvents(text: string, mcpServers: readonly string[] 
   const usage = { steps: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
   let turn = 0;
   const earlier: Array<{ seq: number; tool: string; argsSha256: string; failed: boolean }> = [];
+  /** The time of the first event that carries one: the zero of started_ms. */
+  let runStart: number | null = null;
 
   for (const line of text.split('\n')) {
     const trimmed = line.trim();
@@ -165,8 +217,10 @@ export function parseOpencodeEvents(text: string, mcpServers: readonly string[] 
     } catch {
       continue;
     }
+    if (runStart === null && typeof event?.timestamp === 'number') runStart = event.timestamp;
     if (event?.type === 'tool_use' && event.part?.type === 'tool') {
       const state = event.part.state ?? {};
+      if (runStart === null && typeof state.time?.start === 'number') runStart = state.time.start;
       const started = typeof state.time?.start === 'number' ? state.time.start : event.timestamp;
       const tool = String(event.part.tool ?? 'unknown');
       const isMcp = mcpServers.some((m) => tool.startsWith(`${m}_`));
@@ -174,7 +228,7 @@ export function parseOpencodeEvents(text: string, mcpServers: readonly string[] 
       const seq = actions.length + 1;
       const command = typeof state.input?.command === 'string' ? state.input.command : null;
       const trajectory = stepTrajectory({
-        tool, target, command, input: state.input, state, isMcp, turn: Math.max(turn, 1), seq, earlier,
+        tool, target, command, input: state.input, state, isMcp, turn: Math.max(turn, 1), seq, earlier, runStart,
       });
       earlier.push({ seq, tool, argsSha256: trajectory.argsSha256, failed: trajectory.status !== 'ok' });
       actions.push({

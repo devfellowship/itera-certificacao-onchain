@@ -5,15 +5,18 @@
  *   auth      a TMA session of a `dfl` principal. `siws` → 403 self_declared_dfl_only (web3 results carry proofs).
  *   body      tma-local-result/1 (schemas/local-result.schema.json) or tma-local-result/2 (schemas/local-result-
  *             v2.schema.json, plan 20261112-tma-c4-result-store-trajectory-upload, T3): numbers, digests and
- *             identifiers only. parseAnyLocalResultText picks the version by `format`. At most 4 MiB on THIS
+ *             identifiers only; or tma-local-result/3 (schemas/local-result-v3.schema.json, T9-T11: /2 plus the
+ *             task summary, grader version and label fields, and tma-trajectory/2 runs; plan ADR-3: a new field
+ *             needs /3). /2 and /3 share one writer. parseAnyLocalResultText picks the version by `format`. At most 4 MiB on THIS
  *             route, and at most 1 MiB for a v1 body (413 above). Unknown key → 400 unknown_key with its path.
  *   checks    agent of the caller (404) → known model (400) → task (404 / 409) → [v2: case 409 case_conflict,
  *             variant 409 variant_conflict / baseline_exists] → daily cap (429). store.ts.
  *   answer    v1: 201 inserted | 200 updated | 200 unchanged, with evaluation_id, run_id, result_origin, url
  *             (unchanged). v2: the same, plus case_id, variant_id, run_ids and runs {inserted, updated,
  *             unchanged}; run_id is the first run. dry_run=1: every check and write, then a rollback.
- *   not ready 503 schema_not_ready while db/migrations/0021 (v1, v2) or 0023 (v2) is not applied (nothing is
- *             written). A v1 upload never touches a 0023 table, so it keeps working before 0023.
+ *   not ready 503 schema_not_ready while db/migrations/0021 (v1, v2) or 0023 (v2, v3) is not applied, or 0024
+ *             while a /3 body uses a /3 field (nothing is written). A v1 upload never touches a 0023 table, so it
+ *             keeps working before 0023.
  *
  * Mounted BEFORE the global express.json() (100 kB limit) so this route has its own 4 MiB text parser.
  */
@@ -86,7 +89,7 @@ export function createSelfDeclaredRouter(deps: SelfDeclaredRouterDeps): Router {
         return;
       }
       const dryRun = req.query.dry_run === "1" || req.query.dry_run === "true";
-      if (checked.format === "tma-local-result/2") {
+      if (checked.format === "tma-local-result/2" || checked.format === "tma-local-result/3") {
         deps.store
           .importResultV2(req.principal!.id, checked.value, { dryRun, perDay, tenant })
           .then((o) => {

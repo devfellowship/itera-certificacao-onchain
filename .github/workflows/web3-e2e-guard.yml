@@ -140,6 +140,15 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # C4-T9/T10/T11: the 0024 fields of a tma-local-result/2 upload on the real tables: the task summary (280 chars
+      # stored, another summary is 409), the grader proof, calibration, note and author (written once, 409 on another
+      # value), the label reason and labeler, and the tma-trajectory/2 step columns; the reader returns them.
+      - name: Self-declared v2 results, 0024 fields (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/self-declared/store-v2-meta.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       # C4-T13: POST /eval-results/cleanup — the owner deletes an orphaned case, its baseline variant and a grader
       # version in one transaction; another principal's ids, referenced rows and a calibrated grader are refused and
       # stay; the DELETE statements refuse a forged plan on their own. It deletes its own fixtures.

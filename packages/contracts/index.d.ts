@@ -245,12 +245,32 @@ export interface Trajectory {
   format: 'tma-trajectory/1';
   steps: TrajectoryStep[];
 }
+
+// --- tma-trajectory/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T10): v1 plus three fields per step.
+export type StepKind = 'read' | 'search' | 'write' | 'test' | 'mcp' | 'shell' | 'agent' | 'other';
+export type TurnOrigin = 'human' | 'agent' | 'system';
+export interface TrajectoryStepV2 extends TrajectoryStep {
+  step_kind: StepKind;
+  /** ms from the start of the run, or null when not recorded. */
+  started_ms: number | null;
+  turn_origin: TurnOrigin | null;
+}
+export interface TrajectoryV2 {
+  format: 'tma-trajectory/2';
+  steps: TrajectoryStepV2[];
+}
+export type AnyTrajectory = Trajectory | TrajectoryV2;
+export declare const TRAJECTORY_V2_FORMAT: 'tma-trajectory/2';
+export declare const STEP_KINDS: readonly StepKind[];
+export declare const TURN_ORIGINS: readonly TurnOrigin[];
+export declare const TRAJECTORY_MAX_STARTED_MS: number;
+export declare const trajectoryV2Schema: Record<string, unknown>;
 export interface TrajectoryIssue {
   code: 'unknown_key' | 'invalid' | 'inconsistent';
   path: string;
   message: string;
 }
-export type TrajectoryValidation = { ok: true; value: Trajectory } | { ok: false; issues: TrajectoryIssue[]; errors: string[] };
+export type TrajectoryValidation = { ok: true; value: AnyTrajectory } | { ok: false; issues: TrajectoryIssue[]; errors: string[] };
 
 export declare const TRAJECTORY_FORMAT: 'tma-trajectory/1';
 export declare const TRAJECTORY_MAX_STEPS: number;
@@ -284,6 +304,20 @@ export interface AgentVersion {
   tools_sha256: string | null;
 }
 
+/** The closed reason of a label (grader_results.reason_code; the S13 chips). */
+export type GraderReasonCode = 'wrong_sha' | 'no_check' | 'partial' | 'other';
+/** A judge's label counts and 2x2 table on its test split: tp + fn + tn + fp = n_test <= n_labels. */
+export interface GraderCalibration {
+  n_labels: number;
+  n_test: number;
+  tp: number;
+  fn: number;
+  tn: number;
+  fp: number;
+  /** YYYY-MM-DD, or null. */
+  realigned_at: string | null;
+}
+
 export interface GraderResult {
   id: string;
   semver: string;
@@ -294,6 +328,27 @@ export interface GraderResult {
   weight: number;
   hard_gate: boolean;
   decisive: boolean;
+}
+
+/** A tma-local-result/3 grader entry: the /2 entry plus optional fields (plan T11; refused in /2). */
+export interface GraderResultV3 extends GraderResult {
+  // The first four belong to the grader VERSION: every run that names it sends the same values.
+  proof?: { caught: number; total: number } | null;
+  /** A judge only. */
+  calibration?: GraderCalibration | null;
+  /** At most 60 characters, the label charset. */
+  note?: string | null;
+  /** An actor key (a slug or a principal id). */
+  author?: string | null;
+  // These two belong to this result.
+  reason_code?: GraderReasonCode | null;
+  labeler?: string | null;
+}
+
+/** The task summary of a case (Q-T16 = A): at most 280 characters per field, the label charset. No outcome. */
+export interface TaskSummary {
+  before: string | null;
+  expected: string | null;
 }
 
 export interface LocalResultV2 extends Omit<LocalResult, 'format' | 'runs'> {
@@ -308,15 +363,32 @@ export interface LocalResultV2 extends Omit<LocalResult, 'format' | 'runs'> {
   runs: Array<LocalResult['runs'][number] & { infra_ok: boolean; graders: GraderResult[]; trajectory: Trajectory | null }>;
 }
 
+/**
+ * tma-local-result/3 (plan ADR-3: "A new field needs a contract PR (/3)"): /2 plus the optional case task summary,
+ * the optional grader version and label fields, and a run trajectory of tma-trajectory/1 or tma-trajectory/2.
+ */
+export interface LocalResultV3 extends Omit<LocalResultV2, 'format' | 'case' | 'runs'> {
+  format: 'tma-local-result/3';
+  case: LocalResultV2['case'] & { task_summary?: TaskSummary | null };
+  /** Closed per shape, as in /2; the graders may carry the /3 fields and the trajectory may be tma-trajectory/2. */
+  runs: Array<LocalResult['runs'][number] & { infra_ok: boolean; graders: GraderResultV3[]; trajectory: AnyTrajectory | null }>;
+}
+
+/** A /2 or /3 body: both are assignable to it, so one writer stores both (a /2 body has none of the /3 fields). */
+export type LocalResultV2Plus = Omit<LocalResultV3, 'format'> & { format: 'tma-local-result/2' | 'tma-local-result/3' };
+
 export type LocalResultV2Validation = { ok: true; value: LocalResultV2 } | { ok: false; issues: LocalResultIssue[]; errors: string[] };
+export type LocalResultV3Validation = { ok: true; value: LocalResultV3 } | { ok: false; issues: LocalResultIssue[]; errors: string[] };
 export type AnyLocalResultValidation =
   | ({ format: 'tma-local-result/1' } & LocalResultValidation)
   | ({ format: 'tma-local-result/2' } & LocalResultV2Validation)
+  | ({ format: 'tma-local-result/3' } & LocalResultV3Validation)
   | ({ format: undefined } & { ok: false; issues: LocalResultIssue[]; errors: string[] });
 
 export declare const LOCAL_RESULT_V2_FORMAT: 'tma-local-result/2';
 export declare const LOCAL_RESULT_V2_MAX_BYTES: number;
 export declare const LOCAL_RESULT_V2_MAX_RUNS: number;
+export declare const LOCAL_RESULT_V3_FORMAT: 'tma-local-result/3';
 export declare const VARIANT_CHANGE_KINDS: readonly VariantChangeKind[];
 export declare const AGENT_VERSION_FIELDS: readonly (keyof AgentVersion)[];
 /** sha256 of the empty string: the variant_sha256 of change_kind none. */
@@ -325,11 +397,17 @@ export declare const EMPTY_DIFF_SHA256: string;
 export declare function agentVersionSha256(agent: AgentVersion): string;
 export declare const GRADER_KINDS: readonly GraderKind[];
 export declare const CASE_MODES: readonly CaseMode[];
+export declare const GRADER_VERSION_FIELDS: readonly ('proof' | 'calibration' | 'note' | 'author')[];
+export declare const GRADER_REASON_CODES: readonly GraderReasonCode[];
+/** The grader-version fields of a grader entry as one canonical string (an absent key = null). */
+export declare function graderVersionFieldsKey(g: GraderResultV3): string;
 export declare const localResultV2Schema: Record<string, unknown>;
 export declare function validateLocalResultV2(value: unknown): LocalResultV2Validation;
-/** Validate by `format`: v2 when it says tma-local-result/2, else v1. */
+export declare const localResultV3Schema: Record<string, unknown>;
+export declare function validateLocalResultV3(value: unknown): LocalResultV3Validation;
+/** Validate by `format`: /2 or /3 when it says so, else v1. */
 export declare function validateAnyLocalResult(value: unknown): AnyLocalResultValidation;
-/** Parse and validate either version; refuses above 4 MiB, and a v1 body above 1 MiB. */
+/** Parse and validate any version; refuses above 4 MiB, and a v1 body above 1 MiB. */
 export declare function parseAnyLocalResultText(text: string): AnyLocalResultValidation;
 
 // --- Pin recipe (plan 20261112-tma-c2-trace-selection-pin, T2; parent ADR-7).

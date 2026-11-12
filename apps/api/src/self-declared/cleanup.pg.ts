@@ -6,6 +6,7 @@
  * and must remove exactly the planned rows. A foreign-key refusal (23503) rolls everything back as a conflict.
  */
 import type { Pool, PoolClient } from "pg";
+import { hasEvalMetaSchema } from "../domain/schema-features.js";
 import {
   CleanupConflictError,
   planCleanup,
@@ -19,6 +20,13 @@ function pgCode(e: unknown): string | undefined {
   return typeof e === "object" && e !== null && "code" in e ? String((e as { code: unknown }).code) : undefined;
 }
 
+/**
+ * 0024 adds grader_versions.calibration (a judge's label counts): a version that carries it is calibrated too, and is
+ * never deleted. Before 0024 the column does not exist, so the fragment is empty.
+ */
+const calibrationSet = (meta: boolean, alias: string) => (meta ? ` or ${alias}.calibration is not null` : "");
+const calibrationNull = (meta: boolean, alias: string) => (meta ? ` and ${alias}.calibration is null` : "");
+
 /** SQL `uuid[]` parameter: the ids, or null for "every row" (a listing). */
 const param = (ids: string[] | null, listing: boolean): string[] | null => (listing ? null : (ids ?? []));
 
@@ -28,14 +36,15 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
   async cleanup(owner: string, tenant: string, sel: CleanupSelection, options: { dryRun: boolean; graderAdmin: boolean }): Promise<CleanupOutcome> {
     const c = await this.pool.connect();
     try {
+      const meta = await hasEvalMetaSchema(c);
       await c.query("begin");
-      const facts = await this.facts(c, owner, tenant, sel, options.graderAdmin);
+      const facts = await this.facts(c, owner, tenant, sel, options.graderAdmin, meta);
       const plan = planCleanup(facts, sel, { graderAdmin: options.graderAdmin });
       if (options.dryRun || (!plan.cases.length && !plan.variants.length && !plan.graderVersions.length)) {
         await c.query("rollback");
         return { plan, deleted: false };
       }
-      await this.apply(c, owner, tenant, plan, options.graderAdmin);
+      await this.apply(c, owner, tenant, plan, options.graderAdmin, meta);
       await c.query("commit");
       return { plan, deleted: true };
     } catch (e) {
@@ -47,7 +56,7 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
     }
   }
 
-  private async facts(c: PoolClient, owner: string, tenant: string, sel: CleanupSelection, graderAdmin: boolean): Promise<CleanupFacts> {
+  private async facts(c: PoolClient, owner: string, tenant: string, sel: CleanupSelection, graderAdmin: boolean, meta: boolean): Promise<CleanupFacts> {
     const listing = sel.caseIds === null && sel.variantIds === null && sel.graderVersionIds === null;
     const cases = await c.query(
       `select k.id, k.case_key, (select count(*)::int from public.runs r where r.case_id = k.id) as run_count
@@ -70,7 +79,7 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
     const graders = !graderAdmin ? { rows: [] as Array<Record<string, unknown>> } : await c.query(
       `select g.id, g.grader_id, g.semver, (select count(*)::int from public.grader_results x where x.grader_version_id = g.id) as result_count,
               (g.judge_model_id is not null or g.rubric_sha256 is not null or g.params_sha256 is not null
-               or g.tpr is not null or g.tnr is not null or g.test_split_sha256 is not null) as calibrated
+               or g.tpr is not null or g.tnr is not null or g.test_split_sha256 is not null${calibrationSet(meta, "g")}) as calibrated
          from public.grader_versions g
         where g.tenant = $1 and ($2::uuid[] is null or g.id = any($2::uuid[]))
         order by g.created_at, g.id
@@ -85,7 +94,7 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
   }
 
   /** Cases first (they release their baseline), then variants, then grader versions. Each DELETE must remove exactly the planned rows. */
-  private async apply(c: PoolClient, owner: string, tenant: string, plan: ReturnType<typeof planCleanup>, graderAdmin: boolean): Promise<void> {
+  private async apply(c: PoolClient, owner: string, tenant: string, plan: ReturnType<typeof planCleanup>, graderAdmin: boolean, meta: boolean): Promise<void> {
     // Second check: a plan with a grader version for a caller that is not an admin never reaches the DELETE.
     if (plan.graderVersions.length && !graderAdmin) throw new CleanupConflictError("grader versions: the caller is not an admin");
     const expect = async (what: string, sql: string, params: unknown[], want: number) => {
@@ -119,7 +128,7 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
         `delete from public.grader_versions g
           where g.id = any($1::uuid[]) and g.tenant = $2
             and g.judge_model_id is null and g.rubric_sha256 is null and g.params_sha256 is null
-            and g.tpr is null and g.tnr is null and g.test_split_sha256 is null
+            and g.tpr is null and g.tnr is null and g.test_split_sha256 is null${calibrationNull(meta, "g")}
             and not exists (select 1 from public.grader_results x where x.grader_version_id = g.id)`,
         [plan.graderVersions.map((x) => x.id), tenant],
         plan.graderVersions.length,

@@ -137,6 +137,10 @@ describe('tma-case/1 validation', () => {
     expect(caseErrors(caseManifest({ source: 'trace' })).join()).toMatch(/pin: required/);
     expect(caseErrors(caseManifest({ graders: [{ id: 'hidden-tests', version: '1.0.0', weight: 1, hard_gate: true }, { id: 'hidden-tests', version: '2.0.0', weight: 1, hard_gate: true }] })).join()).toMatch(/listed twice/);
   });
+  it('case_key: one rule with tma-local-result/2 (no dot, 3 to 63 characters)', () => {
+    for (const ok of ['abc', 'tiny-add', 'webhook_dup-replay', 'a' + 'b'.repeat(62)]) expect(caseErrors(caseManifest({ case_key: ok })), ok).toEqual([]);
+    for (const bad of ['ab', 'webhook.dup', 'a' + 'b'.repeat(63), '-abc', 'Abc']) expect(caseErrors(caseManifest({ case_key: bad })).join(), bad).toMatch(/case_key/);
+  });
   it('a variant: a baseline has no prediction, any other variant has one', () => {
     const base = { schema: 'tma-variant/1', label: 'x', kind: 'patch', patch: null, change_kind: 'none' };
     expect(variantErrors({ ...base, is_baseline: true, prediction: null })).toEqual([]);

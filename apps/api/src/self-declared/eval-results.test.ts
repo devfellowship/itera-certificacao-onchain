@@ -26,7 +26,7 @@ const dfl = (id: string) => issueSessionToken(id, Date.now(), "dfl").token;
 const VARIANT = "9b6f3c2e-1d4a-4c8e-9f00-123456789abc";
 const kase = {
   id: CASE, caseKey: "webhook-dup-001", manifestSha256: H("1"), originPinSha256: H("2"), mode: "replay" as const, useCaseKey: "fix/prod-bug",
-  taskId: null, baselineVariantId: VARIANT, createdAt: "2026-11-12T12:00:00.000Z",
+  taskId: null, baselineVariantId: VARIANT, taskSummary: null, createdAt: "2026-11-12T12:00:00.000Z",
 };
 const agent = {
   harness: "claude-code", harnessVersion: "2.1.87", harnessRepoSha: "0".repeat(40), modelId: "zai/glm-5.3",
@@ -34,7 +34,8 @@ const agent = {
 };
 const variant = { id: VARIANT, agentSha256: H("8"), agent, variantSha256: H("5"), label: "baseline", changeKind: "none", isBaseline: true };
 const grade = (pass: boolean, score: number, gradedAt: string) => ({
-  id: "hidden-tests", semver: "2.0.0", kind: "code", codeSha256: H("f"), pass, score, weight: 1, hardGate: true, decisive: true, infraOk: true, gradedAt,
+  id: "hidden-tests", semver: "2.0.0", kind: "code", codeSha256: H("f"), pass, score, weight: 1, hardGate: true, decisive: true, infraOk: true,
+  reasonCode: null, labeler: null, proof: { caught: 3, total: 3 }, calibration: null, note: "v2", author: "claude-main", gradedAt,
 });
 
 class FakeReader implements EvalResultsReader {
@@ -101,7 +102,7 @@ describe("eval results on the read routes", () => {
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ id: EVAL, status: "graded", case: kase, variant, predictionSha256: null });
     expect(r.json.variant.agent).toEqual(agent);
-    expect(r.json.graders).toEqual([{ id: "hidden-tests", semver: "2.0.0", kind: "code", codeSha256: H("f"), n: 2, pass: 2, meanScore: 100, hardGate: true, decisive: true }]);
+    expect(r.json.graders).toEqual([{ id: "hidden-tests", semver: "2.0.0", kind: "code", codeSha256: H("f"), n: 2, pass: 2, meanScore: 100, hardGate: true, decisive: true, proof: { caught: 3, total: 3 }, calibration: null, note: "v2", author: "claude-main" }]);
     expect(r.json.tasks[0]).toMatchObject({ runId: RUN1, seq: 1, trajectorySummary: { steps: 3, firstFailureSeq: 2, errorClasses: { tool_error: 1 } } });
     expect(r.json.tasks[1].graders).toHaveLength(2);
   });
@@ -143,7 +144,10 @@ describe("GET /eval-cases/:id", () => {
 describe("pure helpers", () => {
   it("graderSummaries counts the latest row of each grader version per run", () => {
     const s = graderSummaries([{ graders: [grade(false, 0, "a"), grade(true, 90, "b")], trajectorySummary: null }, { graders: [], trajectorySummary: null }]);
-    expect(s).toEqual([{ id: "hidden-tests", semver: "2.0.0", kind: "code", codeSha256: H("f"), n: 1, pass: 1, meanScore: 90, hardGate: true, decisive: true }]);
+    expect(s).toEqual([{
+      id: "hidden-tests", semver: "2.0.0", kind: "code", codeSha256: H("f"), n: 1, pass: 1, meanScore: 90, hardGate: true, decisive: true,
+      proof: { caught: 3, total: 3 }, calibration: null, note: "v2", author: "claude-main",
+    }]);
   });
 
   it("trajectorySummaryOf names the first failed step and counts the error classes", () => {

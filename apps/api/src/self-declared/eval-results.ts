@@ -18,11 +18,15 @@
  *
  * Deploy safety: before 0023 is applied on production, the probe answers false, the two decorators add
  * nothing (the bodies stay as they were), and GET /eval-cases/:id answers 503 schema_not_ready.
+ *
+ * 0024 (plan T9, T11): the case gets `taskSummary`, each grader row gets the version fields (`proof`, `calibration`,
+ * `note`, `author`) and the label fields (`reasonCode`, `labeler`), and each grader summary gets the version fields.
+ * Before 0024 is applied those keys are null.
  */
 import { Router, type NextFunction, type Request, type Response } from "express";
 import type { Pool } from "pg";
 import { requirePrincipal } from "../auth/middleware.js";
-import { hasEvalResultsSchema } from "../domain/schema-features.js";
+import { hasEvalMetaSchema, hasEvalResultsSchema } from "../domain/schema-features.js";
 import { EVAL_RESULTS_MIGRATION, trajectorySummaryOf, type TrajectorySummary } from "./store.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -37,7 +41,20 @@ export interface EvalCaseView {
   useCaseKey: string;
   taskId: string | null;
   baselineVariantId: string | null;
+  /** 0024 (Q-T16 = A): the state before the task and the expected output, short human text; null when not given. */
+  taskSummary: { before: string | null; expected: string | null } | null;
   createdAt: string;
+}
+
+/** 0024: the fields of a grader VERSION (null when not reported, and before 0024). */
+export interface GraderVersionMetaView {
+  /** The mutation proof: planted bugs caught, of planted. */
+  proof: { caught: number; total: number } | null;
+  /** A judge only: label counts and the 2x2 table of the test split. */
+  calibration: { nLabels: number; nTest: number; tp: number; fn: number; tn: number; fp: number; realignedAt: string | null } | null;
+  note: string | null;
+  /** The actor key of the author. */
+  author: string | null;
 }
 
 /** The base agent version of an agent variant (field names of tma-pin/1, camelCase). */
@@ -63,7 +80,7 @@ export interface EvalVariantView {
   isBaseline: boolean;
 }
 
-export interface GraderRowView {
+export interface GraderRowView extends GraderVersionMetaView {
   id: string;
   semver: string;
   kind: string;
@@ -74,11 +91,15 @@ export interface GraderRowView {
   hardGate: boolean;
   decisive: boolean;
   infraOk: boolean | null;
+  /** 0024: the closed reason of a label (wrong_sha | no_check | partial | other), or null. */
+  reasonCode: string | null;
+  /** 0024: the actor key of the author of the label, or null. */
+  labeler: string | null;
   gradedAt: string;
 }
 
 /** One grader version over the runs of an evaluation: its LATEST row per run. */
-export interface GraderSummaryView {
+export interface GraderSummaryView extends GraderVersionMetaView {
   id: string;
   semver: string;
   kind: string;
@@ -147,7 +168,30 @@ function caseView(r: Record<string, unknown>): EvalCaseView {
     useCaseKey: String(r.use_case_key),
     taskId: (r.task_id as string | null) ?? null,
     baselineVariantId: (r.baseline_variant_id as string | null) ?? null,
+    taskSummary: summaryView(r.task_summary),
     createdAt: iso(r.case_created_at),
+  };
+}
+
+function summaryView(v: unknown): EvalCaseView["taskSummary"] {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  return { before: typeof o.before === "string" ? o.before : null, expected: typeof o.expected === "string" ? o.expected : null };
+}
+
+/** The grader-version fields of a joined grader_versions row (aliases gv_proof_caught, ...). */
+function graderMetaView(r: Record<string, unknown>): GraderVersionMetaView {
+  const c = r.gv_calibration && typeof r.gv_calibration === "object" ? (r.gv_calibration as Record<string, unknown>) : null;
+  return {
+    proof: r.gv_proof_total == null ? null : { caught: Number(r.gv_proof_caught), total: Number(r.gv_proof_total) },
+    calibration: c
+      ? {
+          nLabels: Number(c.n_labels), nTest: Number(c.n_test), tp: Number(c.tp), fn: Number(c.fn), tn: Number(c.tn), fp: Number(c.fp),
+          realignedAt: typeof c.realigned_at === "string" ? c.realigned_at : null,
+        }
+      : null,
+    note: (r.gv_note as string | null) ?? null,
+    author: (r.gv_author as string | null) ?? null,
   };
 }
 
@@ -175,9 +219,11 @@ function variantView(r: Record<string, unknown>, baselineVariantId: string | nul
   };
 }
 
-const CASE_COLUMNS = `
+const CASE_COLUMNS_0023 = `
   c.id as case_id, c.case_key, c.manifest_sha256, c.origin_pin_sha256, c.mode, c.use_case_key, c.task_id, c.baseline_variant_id,
   c.created_at as case_created_at`;
+/** The case columns, with the 0024 task summary when that migration is applied. */
+const caseColumns = (meta: boolean) => (meta ? `${CASE_COLUMNS_0023}, c.task_summary` : CASE_COLUMNS_0023);
 const VARIANT_COLUMNS = `
   v.id as variant_id, v.agent_sha256, v.harness, v.harness_version, v.harness_repo_sha, v.model_id as variant_model_id, v.rules_sha256,
   v.skills_sha256, v.mcp_manifest_sha256, v.tools_sha256, v.variant_sha256, v.label, v.change_kind`;
@@ -190,8 +236,9 @@ export class PgEvalResultsReader implements EvalResultsReader {
   }
 
   private async caseWhere(where: string, id: string) {
+    const meta = await hasEvalMetaSchema(this.pool());
     const { rows } = await this.pool().query(
-      `select ${CASE_COLUMNS}, ${VARIANT_COLUMNS}, r.prediction_sha256
+      `select ${caseColumns(meta)}, ${VARIANT_COLUMNS}, r.prediction_sha256
          from public.runs r
          join public.eval_cases c on c.id = r.case_id
          join public.eval_variants v on v.id = r.variant_id
@@ -221,10 +268,15 @@ export class PgEvalResultsReader implements EvalResultsReader {
     const out = new Map<string, RunEvalResults>(runIds.map((id) => [id, { graders: [], trajectorySummary: null }]));
     if (!runIds.length) return out;
     const pool = this.pool();
+    const meta = await hasEvalMetaSchema(pool);
+    const metaCols = meta
+      ? `, gr.reason_code, gr.labeler, gv.proof_caught as gv_proof_caught, gv.proof_total as gv_proof_total,
+         gv.calibration as gv_calibration, gv.note as gv_note, gv.author as gv_author`
+      : "";
     const [graders, steps] = await Promise.all([
       pool.query(
         `select gr.run_id, gv.grader_id, gv.semver, gv.kind, gv.code_sha256, gr.pass, gr.score, gr.weight, gr.hard_gate, gr.decisive,
-                gr.infra_ok, gr.graded_at
+                gr.infra_ok, gr.graded_at${metaCols}
            from public.grader_results gr join public.grader_versions gv on gv.id = gr.grader_version_id
           where gr.run_id = any($1::uuid[])
           order by gr.run_id, gr.graded_at, gr.id`,
@@ -240,7 +292,8 @@ export class PgEvalResultsReader implements EvalResultsReader {
     for (const g of graders.rows) {
       out.get(g.run_id)?.graders.push({
         id: g.grader_id, semver: g.semver, kind: g.kind, codeSha256: g.code_sha256, pass: g.pass, score: num(g.score),
-        weight: Number(g.weight), hardGate: g.hard_gate, decisive: g.decisive, infraOk: g.infra_ok, gradedAt: iso(g.graded_at),
+        weight: Number(g.weight), hardGate: g.hard_gate, decisive: g.decisive, infraOk: g.infra_ok,
+        reasonCode: g.reason_code ?? null, labeler: g.labeler ?? null, ...graderMetaView(g), gradedAt: iso(g.graded_at),
       });
     }
     const byRun = new Map<string, Array<{ seq: number; status: "ok" | "error" | "denied" | "timeout"; error_class: null }>>();
@@ -258,7 +311,8 @@ export class PgEvalResultsReader implements EvalResultsReader {
 
   async caseDetail(caseId: string, owner: string): Promise<EvalCaseDetail | null> {
     const pool = this.pool();
-    const c = (await pool.query(`select ${CASE_COLUMNS} from public.eval_cases c where c.id = $1 and c.owner_wallet = $2`, [caseId, owner])).rows[0];
+    const meta = await hasEvalMetaSchema(pool);
+    const c = (await pool.query(`select ${caseColumns(meta)} from public.eval_cases c where c.id = $1 and c.owner_wallet = $2`, [caseId, owner])).rows[0];
     if (!c) return null;
     const kase = caseView(c);
     // The agent variants that ran on this case, and its baseline (even with no run yet). Their stats count only
@@ -307,7 +361,10 @@ export function graderSummaries(perRun: Iterable<RunEvalResults>): GraderSummary
     const latest = new Map<string, GraderRowView>();
     for (const g of r.graders) latest.set(`${g.id}@${g.semver}#${g.codeSha256}`, g);
     for (const [key, g] of latest) {
-      const a = acc.get(key) ?? { id: g.id, semver: g.semver, kind: g.kind, codeSha256: g.codeSha256, n: 0, pass: 0, meanScore: null, hardGate: g.hardGate, decisive: g.decisive, scores: [] };
+      const a = acc.get(key) ?? {
+        id: g.id, semver: g.semver, kind: g.kind, codeSha256: g.codeSha256, n: 0, pass: 0, meanScore: null, hardGate: g.hardGate, decisive: g.decisive,
+        proof: g.proof, calibration: g.calibration, note: g.note, author: g.author, scores: [],
+      };
       a.n += 1;
       if (g.pass) a.pass += 1;
       if (g.score !== null) a.scores.push(g.score);

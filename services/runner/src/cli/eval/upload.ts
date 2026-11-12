@@ -37,6 +37,22 @@ import { RUN_FORMAT, runDirs, TRAJECTORY_FILE, type GradingEntry, type RunRecord
 const V2_CASE_KEY = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 const MODEL_ID = /^[a-z0-9][a-z0-9.-]{0,31}(\/[a-z0-9][a-z0-9.-]{0,31})?\/[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const HARNESS = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/**
+ * The model-catalog id of a model id as a harness recorded it. The catalog (`public.models`) is the OpenRouter
+ * list (`anthropic/claude-opus-5.5`, `z-ai/glm-5.3`); a tma-pin/1 keeps the id as the harness wrote it
+ * (`claude-opus-5-5`, `glm-5.3`). The API refuses `anthropic/claude-opus-5-5` as `unknown_model`, so the base
+ * agent of an upload carries the catalog spelling. An id that is not a known fleet shape is returned as it is.
+ */
+export function catalogModelId(raw: string): string {
+  const id = raw.replace(/\[[^\]]*\]$/, ''); // a context suffix such as claude-opus-5-5[1m]
+  const claude = /^(?:anthropic\/)?(claude-(?:opus|sonnet|haiku|fable)-\d{1,2})(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
+  if (claude) return `anthropic/${claude[1]}${claude[2] ? `.${claude[2]}` : ''}`;
+  const glm = /^(?:z-ai\/)?(glm-[0-9][a-z0-9.-]*)$/.exec(id);
+  if (glm) return `z-ai/${glm[1]}`;
+  return id; // a route-prefixed id (zai/glm-5.3, openrouter/...) is already known to the API
+}
+
 const SHA256 = /^[0-9a-f]{64}$/;
 const COMMIT = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
 const AGENT_FIELDS = ['harness', 'harness_version', 'harness_repo_sha', 'model_id', 'rules_sha256', 'skills_sha256', 'mcp_manifest_sha256', 'tools_sha256'] as const;
@@ -57,6 +73,7 @@ export function baseAgentFrom(record: unknown, source: string): AgentVersion {
     if (k === 'tools_sha256' && v === undefined && r.format === 'tma-pin/1') v = null; // tma-pin/1 has no tool digest
     if (v === undefined) throw new CliError(`${source}: the base agent needs ${k} (null when unknown)`);
     if (v !== null && typeof v !== 'string') throw new CliError(`${source}: ${k} must be a string or null`);
+    if (k === 'model_id' && typeof v === 'string') v = catalogModelId(v); // claude-opus-5-5 -> anthropic/claude-opus-5.5
     out[k] = v as string | null;
   }
   if (!out.harness || !HARNESS.test(out.harness)) throw new CliError(`${source}: harness must be a short name such as claude-code, codex or opencode`);
@@ -181,6 +198,8 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
     if (t !== null) {
       const ok = validateTrajectory(t);
       if (!ok.ok) throw new CliError(`${join(rd, TRAJECTORY_FILE)} is not a valid tma-trajectory/1: ${ok.errors.slice(0, 3).join('; ')}`);
+      // This upload is tma-local-result/2, which takes tma-trajectory/1 only (/2 runs need tma-local-result/3).
+      if (ok.value.format !== 'tma-trajectory/1') throw new CliError(`${join(rd, TRAJECTORY_FILE)} is ${ok.value.format}; a tma-local-result/2 upload takes tma-trajectory/1 only`);
       trajectory = ok.value;
     }
     runs.push({
