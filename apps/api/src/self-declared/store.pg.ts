@@ -525,7 +525,7 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
    */
   private async insertTrajectory(c: PoolClient, runId: string, steps: NonNullable<RunV2["trajectory"]>["steps"], meta: boolean): Promise<void> {
     const col = <K extends keyof (typeof steps)[number]>(k: K) => steps.map((s) => s[k]);
-    const v2 = (k: "step_kind" | "started_ms" | "turn_origin") => steps.map((s) => (k in s ? (s as Record<string, unknown>)[k] ?? null : null));
+    const v2 = (k: "step_kind" | "started_ms" | "turn_origin") => steps.map((s) => ((s as unknown as Record<string, unknown>)[k] ?? null));
     await c.query(
       `insert into public.run_actions (run_id, seq, tool, target, ok, parent_seq, turn, tool_family, status, error_class, duration_ms,
          tokens_in, tokens_out, target_kind, args_sha256, result_sha256, retry_of${meta ? ", step_kind, started_ms, turn_origin" : ""})

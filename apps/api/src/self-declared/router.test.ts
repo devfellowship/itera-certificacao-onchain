@@ -302,9 +302,15 @@ describe("POST /self-declared-results with tma-local-result/2", () => {
     const b = v2body({
       case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), origin_pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug",
         task_summary: { before: "a".repeat(280), expected: "200 OK and one ledger row per id" } },
-      runs: [v2Run(1, 100, { graders, trajectory: { format: "tma-trajectory/2", steps: steps2 } }), v2Run(2, 80)],
+      // Run 2 names the same grader version: it sends the same version fields (proof, note, author).
+      runs: [
+        v2Run(1, 100, { graders, trajectory: { format: "tma-trajectory/2", steps: steps2 } }),
+        v2Run(2, 80, { graders: [{ ...graders[0], pass: false, score: 80, reason_code: null, labeler: null }] }),
+      ],
     });
-    expect((await call("POST", "/self-declared-results", { token: dfl(ALICE), body: b })).status).toBe(201);
+    const r = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: b });
+    expect(r.json?.error ?? null).toBeNull();
+    expect(r.status).toBe(201);
   });
 
   it("refuses task_summary.outcome, a 281-character before and a calibration that does not add up, with 400 and no write", async () => {
