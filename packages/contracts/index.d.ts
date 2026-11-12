@@ -214,6 +214,98 @@ export declare const localResultSchema: Record<string, unknown>;
 export declare function validateLocalResult(value: unknown): LocalResultValidation;
 export declare function parseLocalResultText(text: string): LocalResultValidation;
 
+// --- tma-local-result/2 and tma-trajectory/1 (plan 20261112-tma-c4-result-store-trajectory-upload, T1).
+// Schemas: schemas/local-result-v2.schema.json and schemas/trajectory.schema.json (the source of truth);
+// validators: local-result.js and trajectory.js.
+
+export type ToolFamily = 'builtin' | 'shell' | 'git' | 'gh' | 'ssh' | 'web' | 'skill-bash' | 'mcp' | 'agent' | 'other';
+export type StepStatus = 'ok' | 'error' | 'denied' | 'timeout';
+export type StepErrorClass = 'tool_error' | 'invalid_args' | 'not_found' | 'permission' | 'timeout' | 'rate_limited' | 'network' | 'interrupted' | 'other';
+export type TargetKind = 'file' | 'dir' | 'url' | 'host' | 'repo' | 'agent' | 'skill' | 'mcp' | 'command' | 'pattern' | 'none';
+
+export interface TrajectoryStep {
+  seq: number;
+  parent_seq: number | null;
+  turn: number;
+  tool: string;
+  tool_family: ToolFamily;
+  status: StepStatus;
+  error_class: StepErrorClass | null;
+  duration_ms: number | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  target_kind: TargetKind;
+  /** At most 120 characters of the redaction charset; null when target_kind is none. */
+  target_redacted: string | null;
+  args_sha256: string | null;
+  result_sha256: string | null;
+  retry_of: number | null;
+}
+export interface Trajectory {
+  format: 'tma-trajectory/1';
+  steps: TrajectoryStep[];
+}
+export interface TrajectoryIssue {
+  code: 'unknown_key' | 'invalid' | 'inconsistent';
+  path: string;
+  message: string;
+}
+export type TrajectoryValidation = { ok: true; value: Trajectory } | { ok: false; issues: TrajectoryIssue[]; errors: string[] };
+
+export declare const TRAJECTORY_FORMAT: 'tma-trajectory/1';
+export declare const TRAJECTORY_MAX_STEPS: number;
+export declare const TRAJECTORY_MAX_TARGET: number;
+export declare const TOOL_FAMILIES: readonly ToolFamily[];
+export declare const STEP_STATUSES: readonly StepStatus[];
+export declare const STEP_ERROR_CLASSES: readonly StepErrorClass[];
+export declare const TARGET_KINDS: readonly TargetKind[];
+export declare const trajectorySchema: Record<string, unknown>;
+export declare function trajectoryStepIssues(steps: ReadonlyArray<TrajectoryStep>, base?: string): TrajectoryIssue[];
+export declare function validateTrajectory(value: unknown): TrajectoryValidation;
+
+export type VariantChangeKind = 'prompt' | 'skill' | 'rules' | 'model' | 'harness' | 'none';
+export type GraderKind = 'code' | 'judge' | 'human';
+export type CaseMode = 'replay' | 'trace_review';
+
+export interface GraderResult {
+  id: string;
+  semver: string;
+  code_sha256: string;
+  kind: GraderKind;
+  pass: boolean;
+  score: number | null;
+  weight: number;
+  hard_gate: boolean;
+  decisive: boolean;
+}
+
+export interface LocalResultV2 extends Omit<LocalResult, 'format' | 'runs'> {
+  format: 'tma-local-result/2';
+  case: { case_key: string; manifest_sha256: string; pin_sha256: string | null; mode: CaseMode; use_case_key: string };
+  variant: { variant_sha256: string; label: string; change_kind: VariantChangeKind; is_baseline: boolean; prediction_sha256: string | null };
+  /** Closed per shape: the v1 run of the shape plus infra_ok, graders and trajectory. At most 50. */
+  runs: Array<LocalResult['runs'][number] & { infra_ok: boolean; graders: GraderResult[]; trajectory: Trajectory | null }>;
+}
+
+export type LocalResultV2Validation = { ok: true; value: LocalResultV2 } | { ok: false; issues: LocalResultIssue[]; errors: string[] };
+export type AnyLocalResultValidation =
+  | ({ format: 'tma-local-result/1' } & LocalResultValidation)
+  | ({ format: 'tma-local-result/2' } & LocalResultV2Validation)
+  | ({ format: undefined } & { ok: false; issues: LocalResultIssue[]; errors: string[] });
+
+export declare const LOCAL_RESULT_V2_FORMAT: 'tma-local-result/2';
+export declare const LOCAL_RESULT_V2_MAX_BYTES: number;
+export declare const LOCAL_RESULT_V2_MAX_RUNS: number;
+export declare const VARIANT_CHANGE_KINDS: readonly VariantChangeKind[];
+export declare const GRADER_KINDS: readonly GraderKind[];
+export declare const CASE_MODES: readonly CaseMode[];
+export declare const localResultV2Schema: Record<string, unknown>;
+export declare function validateLocalResultV2(value: unknown): LocalResultV2Validation;
+/** Validate by `format`: v2 when it says tma-local-result/2, else v1. */
+export declare function validateAnyLocalResult(value: unknown): AnyLocalResultValidation;
+/** Parse and validate either version; refuses above 4 MiB, and a v1 body above 1 MiB. */
+export declare function parseAnyLocalResultText(text: string): AnyLocalResultValidation;
+
 export {
   FALLBACK_LAB,
   LABS,

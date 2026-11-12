@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/trajectory.schema.json",
+  "title": "TestMyAgent structural trajectory (tma-trajectory/1)",
+  "description": "The structural record of one run: one step per tool call (plan 20261112-tma-c4-result-store-trajectory-upload, T1, ADR-2 and ADR-3). Structure, numbers and digests only: no prompt, no argument text, no tool output. The only free characters are target_redacted: at most 120 characters of the redaction charset (no quote, no backslash, no $, no backtick, no braces, no semicolon, no pipe, no ampersand, no newline), written by the redaction module of the eval kit. The validator in trajectory.js adds the checks a schema cannot say: seq is 1..n in order, parent_seq and retry_of point to an earlier step, an ok step has no error_class and every other step has one, and target_kind none has no target.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "steps"
+  ],
+  "properties": {
+    "format": {
+      "const": "tma-trajectory/1"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 2000,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seq",
+        "parent_seq",
+        "turn",
+        "tool",
+        "tool_family",
+        "status",
+        "error_class",
+        "duration_ms",
+        "tokens_in",
+        "tokens_out",
+        "target_kind",
+        "target_redacted",
+        "args_sha256",
+        "result_sha256",
+        "retry_of"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000,
+          "description": "1..n, in call order."
+        },
+        "parent_seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 2000,
+          "description": "The step that started this one (for example the subagent call), or null."
+        },
+        "turn": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000,
+          "description": "The model turn that made the call."
+        },
+        "tool": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "maxLength": 128,
+          "description": "The tool name as the harness names it (Bash, Edit, mcp__dfl__get_plan, read)."
+        },
+        "tool_family": {
+          "enum": [
+            "builtin",
+            "shell",
+            "git",
+            "gh",
+            "ssh",
+            "web",
+            "skill-bash",
+            "mcp",
+            "agent",
+            "other"
+          ]
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "error",
+            "denied",
+            "timeout"
+          ]
+        },
+        "error_class": {
+          "enum": [
+            "tool_error",
+            "invalid_args",
+            "not_found",
+            "permission",
+            "timeout",
+            "rate_limited",
+            "network",
+            "interrupted",
+            "other",
+            null
+          ]
+        },
+        "duration_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 86400000
+        },
+        "tokens_in": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "tokens_out": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "target_kind": {
+          "enum": [
+            "file",
+            "dir",
+            "url",
+            "host",
+            "repo",
+            "agent",
+            "skill",
+            "mcp",
+            "command",
+            "pattern",
+            "none"
+          ]
+        },
+        "target_redacted": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Za-z0-9 ._/:@#%+=,()<>\\[\\]*~^!?-]+$",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "args_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "maxLength": 64,
+          "description": "sha256 of the canonical arguments; the arguments stay on the host."
+        },
+        "result_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "maxLength": 64,
+          "description": "sha256 of the tool result; the result stays on the host."
+        },
+        "retry_of": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 2000,
+          "description": "The earlier step that this call repeats, or null."
+        }
+      }
+    }
+  }
+}
