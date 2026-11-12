@@ -8,9 +8,11 @@
 // 1. picks the image: ghcr.io/devfellowship/tma-local@sha256:<digest>, pinned in image.json at publish time;
 // 2. verifies its cosign signature when `cosign` is installed (TMA_REQUIRE_SIGNATURE=1 makes it mandatory);
 // 3. runs it with `docker run --rm --init`, as YOUR uid, with your current folder and ~/.config/tma;
-// 4. mounts the host Docker socket ONLY for `tma run` and `tma grade` (they start the sandbox containers),
+// 4. mounts the host Docker socket ONLY for `tma run`, `tma grade`, `tma eval run` and `tma eval grade`
+//    (they start the sandbox containers),
 //    and says so before it starts: socket access is root-equivalent on this machine;
-// 5. passes your model key by NAME (docker reads the value from this process), only to `tma run`.
+// 5. passes your model key by NAME (docker reads the value from this process), only to `tma run` and
+//    `tma eval run`.
 // No dependency. No network call of its own (docker pulls the image; cosign fetches the signature).
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -23,9 +25,15 @@ export const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const LAUNCHER_VERSION = JSON.parse(readFileSync(join(PKG_DIR, 'package.json'), 'utf-8')).version;
 
 /** The commands of the image that start containers through the Docker socket. */
-export const SOCKET_COMMANDS = new Set(['run', 'grade']);
+export const SOCKET_COMMANDS = new Set(['run', 'grade', 'eval run', 'eval grade']);
 /** The commands that send the user's model key to the run's gateway. */
-export const KEY_COMMANDS = new Set(['run']);
+export const KEY_COMMANDS = new Set(['run', 'eval run']);
+
+/** The command of an argument list: `eval <sub>` for the eval kit (plan C3 T3), else the first word. */
+export function commandOf(args) {
+  const first = args[0] ?? '';
+  return first === 'eval' ? `eval ${args[1] ?? ''}`.trim() : first;
+}
 export const KEY_ENV = ['OPENROUTER_API_KEY', 'OPENCODE_GO_API_KEY'];
 /** Variables passed by name to every command (no secret). */
 export const PLAIN_ENV = ['TMA_API_URL', 'ITERA_SANDBOX_IMAGE'];
@@ -77,7 +85,7 @@ export function checkPaths(args, cwd) {
  * ctx: { args, cwd, configDir, image, platform, uid, gid, socketGid, socketPath, env, tty, name }
  */
 export function dockerArgs(ctx) {
-  const command = ctx.args[0] ?? '';
+  const command = commandOf(ctx.args);
   const socket = SOCKET_COMMANDS.has(command);
   const linux = ctx.platform === 'linux';
   const asRoot = linux ? ctx.uid === 0 : socket; // Docker Desktop: the socket in the VM is root-owned.
@@ -134,9 +142,9 @@ function launcherHelp(pin) {
     'tma launcher-info         the image, its signature check, and what the launcher mounts',
     'tma launcher-help         this text',
     '',
-    'Mounts: the current folder, ~/.config/tma; the Docker socket ONLY for `run` and `grade` (root-equivalent, see launcher-info).',
+    'Mounts: the current folder, ~/.config/tma; the Docker socket ONLY for `run`, `grade`, `eval run` and `eval grade` (root-equivalent, see launcher-info).',
     'Paths: give paths inside the current folder (the container sees only that folder).',
-    'Env passed by name: OPENROUTER_API_KEY, OPENCODE_GO_API_KEY (to `run` only), TMA_API_URL, ITERA_SANDBOX_IMAGE.',
+    'Env passed by name: OPENROUTER_API_KEY, OPENCODE_GO_API_KEY (to `run` and `eval run` only), TMA_API_URL, ITERA_SANDBOX_IMAGE.',
     'Launcher env: TMA_REQUIRE_SIGNATURE=1 (cosign mandatory), TMA_LAUNCHER_DRY_RUN=1 (print the docker command), TMA_LAUNCHER_IMAGE (override, development).',
   ].join('\n');
 }
@@ -151,7 +159,7 @@ export async function main(args, env = process.env, io = { out: (s) => process.s
     // The bare help shows what the launcher mounts first, then the image's own help.
     if (args.length === 0 || ['help', '--help', '-h'].includes(args[0])) io.err(`${launcherHelp(pin)}\n`);
     const img = resolveImage(pin, env);
-    const command = args[0] ?? '';
+    const command = commandOf(args);
     const socket = SOCKET_COMMANDS.has(command);
     const cwd = process.cwd();
     checkPaths(args.slice(1), cwd);

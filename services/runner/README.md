@@ -52,7 +52,7 @@ npx @devfellowship/tma@0.1.0 grade --task tsk_webhook_dup --workspace ./ws --age
 
 **What the launcher does.** It runs `ghcr.io/devfellowship/tma-local@sha256:<digest>`: the digest is pinned in the npm package at publish time (`image.json`; the git copy keeps `null` and refuses to run without `TMA_LAUNCHER_IMAGE`). When `cosign` is installed, it verifies the image signature first (the identity is this repo's `tma-local.yml` workflow on `main`) and refuses an image that does not verify; `TMA_REQUIRE_SIGNATURE=1` makes `cosign` mandatory. It runs the image with `docker run --rm --init`, as your uid, with your current folder (same path) and `~/.config/tma`. Give paths inside the current folder: the launcher refuses an absolute path outside it. Your model key goes by NAME (`-e OPENROUTER_API_KEY`, never in argv), and only to `tma run`. `TMA_LAUNCHER_DRY_RUN=1` prints the full `docker run` command and stops.
 
-**The Docker socket (read this).** `tma run` and `tma grade` start the sandbox, gateway and grader containers, so the launcher mounts your Docker socket for those two commands only (`login`, `agent`, `tasks`, `workspace`, `upload` and `evaluations` never get it). **Access to the Docker socket is root-equivalent on your machine**: a process that has it can start any container with any host folder. The launcher prints this warning before each of those commands. Tainan decided this trade on 2026-10-27 (Q `37d5c296` = A, TG 24503): the socket is acceptable for the LOCAL runner, on the participant's own machine, because it is the easiest form to adopt. The containers that run untrusted code (the agent sandbox, the model gateway, the grader, the MCP sidecars) never get the socket, locally or hosted: `src/docker-socket.guard.test.ts` fails on a socket, a bind mount or `--privileged` in any of their argv builders. Your socket never goes to TestMyAgent: a hosted run uses TestMyAgent's machines. (On the hosted side the trusted worker container has the socket of its own host, as described in "Step 2"; the hosted API and web apps have no Docker mount.)
+**The Docker socket (read this).** `tma run` and `tma grade` start the sandbox, gateway and grader containers, so the launcher mounts your Docker socket for those two commands and for `tma eval run` and `tma eval grade` only (`login`, `agent`, `tasks`, `workspace`, `upload`, `evaluations`, `eval case` and `eval diff` never get it). **Access to the Docker socket is root-equivalent on your machine**: a process that has it can start any container with any host folder. The launcher prints this warning before each of those commands. Tainan decided this trade on 2026-10-27 (Q `37d5c296` = A, TG 24503): the socket is acceptable for the LOCAL runner, on the participant's own machine, because it is the easiest form to adopt. The containers that run untrusted code (the agent sandbox, the model gateway, the grader, the MCP sidecars) never get the socket, locally or hosted: `src/docker-socket.guard.test.ts` fails on a socket, a bind mount or `--privileged` in any of their argv builders. Your socket never goes to TestMyAgent: a hosted run uses TestMyAgent's machines. (On the hosted side the trusted worker container has the socket of its own host, as described in "Step 2"; the hosted API and web apps have no Docker mount.)
 
 **The safety bar of the image**, and where each item is checked:
 
@@ -85,6 +85,23 @@ What to expect:
 - **A run that ends with `0 tool calls` and error `timeout`** usually means that the model API refused the calls (a wrong model id, a bad key, or a spent quota). Check your key and your quota with the provider, then run again.
 
 `--task-dir <folder>` selects a private task folder on your disk instead of `--task` (it never leaves the machine; only its digests go into the result). MCP tasks run hosted only. The patch, the actions and the evidence manifest go to `./tma-runs/<run-id>/`, for you only. `src/run-once.ts` is an alias of `tma run` (`--scenario` works as `--task`). An agent that has the learn MCP can upload without `tma login`: the MCP tool `create_tma_local_result` takes the same file.
+
+### The eval kit: `tma eval case|run|grade|diff`
+
+Plan `20261112-tma-c3-eval-repo-kit-docs` T3. A case manifest (`tma-case/1`, from the private eval repo) becomes a case folder on your host. A variant runs N times in the same sandbox as `tma run`, and the case graders grade each run by `id@version` with the hosted grader. Everything stays on the host; `tma eval upload` (T4) sends the numbers.
+
+```bash
+tma eval case  --case cases/fix/red-ci/webhook-dup-replay/case.json --dest ./case   # case.json, case.lock.json, input/, runs/
+tma eval run   --case ./case --variant solution.variant.json --repeat 3               # runs/<variant sha12>/<run-id>/
+tma eval grade --case ./case                                                          # grade again: ADDS a grading to each run
+tma eval diff  ./case/runs/<baseline sha12> ./case/runs/<variant sha12>               # scores, prediction, code diff
+```
+
+- **Variant** (`tma-variant/1`): `kind: "patch"` grades a fixed output (a reference solution, a recorded output, or `"patch": null` for no change; no model, no key). `kind: "agent"` runs opencode with an agent folder and a model (your key, as `tma run`). A non-baseline variant needs a written `prediction` before it runs; the kit keeps it in `prediction.md` and refuses a changed prediction later. A baseline has `change_kind: "none"` and no prediction.
+- **Graders**: built in, `hidden-tests@<evaluator version>` (the evaluator in the grading sandbox; its `code_sha256` is the evaluator digest). A grader that the kit does not have at the exact version is "not measured" (`infra_ok: false`), never a pass or a fail. A failed hard gate scores the case 0.
+- **Integrity**: a case folder whose `case.json` or task bundle changed after `tma eval case` is refused, and so is a run folder whose `patch.diff` changed.
+- **A trace_review case** links its recorded output (`--recorded <patch>`) and `tma eval grade --case <dir>` grades it; it runs nothing.
+- Example: [`examples/eval/tsk_webhook_dup/`](examples/eval/tsk_webhook_dup/README.md).
 
 ## What one run does
 
