@@ -68,9 +68,12 @@ grep -q "pending: none" "$WORK/out" || fail "A: second apply was not a no-op"
 ok "A: second apply applied 0 (idempotent)"
 expect_rc 0 tma_a plan
 grep -q "pending: none" "$WORK/out" || fail "A: plan shows pending files"
-[[ "$(sql tma_a "select count(*) from information_schema.role_table_grants where table_name = 'tma_schema_migrations' and grantee in ('anon','authenticated','service_role','itera_api_service')")" == "0" ]] || fail "A: an API role has a grant on the ledger"
+[[ "$(sql tma_a "select count(*) from pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a where c.oid = 'public.tma_schema_migrations'::regclass and a.grantee <> c.relowner")" == "0" ]] || fail "A: a role other than the owner has a grant on the ledger"
+# Control: the schema default privileges (scripts/e2e/hermetic/db-pre.sql) DO grant a new public table to the API role,
+# so the zero above is the revoke at work, not an absent default.
+[[ "$(sql tma_a "select count(*) from pg_class c, aclexplode(c.relacl) a where c.oid = 'public.run_actions'::regclass and a.grantee <> c.relowner")" -gt 0 ]] || fail "A: control: no non-owner grant on run_actions, so the ledger check proves nothing"
 [[ "$(sql tma_a "select relrowsecurity from pg_class where oid = 'public.tma_schema_migrations'::regclass")" == "t" ]] || fail "A: RLS is off on the ledger"
-ok "A: the ledger has RLS on and no API-role grant"
+ok "A: the ledger has RLS on and no grant to a role other than its owner (control: run_actions has one)"
 
 # -- B production shape --------------------------------------------------------------------------------
 echo "== B production shape: baseline files applied by hand first"

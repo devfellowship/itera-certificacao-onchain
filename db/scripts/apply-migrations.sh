@@ -15,8 +15,9 @@
 # THE LEDGER: public.tma_schema_migrations, one row per file (filename, sha256, how, by, when).
 #   The script creates it (create table if not exists). It is in `public` because the TMA migration
 #   role has CREATE on `public` and no CREATE on the database (it cannot create a schema). RLS is on,
-#   with no policy, and every grant is revoked from anon, authenticated, service_role and
-#   itera_api_service: the API cannot read or write it.
+#   with no policy, and every grant to a role other than the owner is revoked (a default privilege of
+#   the schema can grant a new table to the API role): the API cannot read or write it. No role name
+#   is written here (services/runner/src/result-writes.guard.test.ts, rule R3).
 #
 # THE BASELINE (one-shot): db/migrations/.baseline lists the files that production received by hand
 #   before the ledger existed, each with a read-only probe (one SQL query that returns one boolean).
@@ -120,13 +121,13 @@ create table if not exists $LEDGER (
 comment on table $LEDGER is
   'TMA migration ledger, written only by db/scripts/apply-migrations.sh (one row per applied db/migrations file). Not for the API.';
 alter table $LEDGER enable row level security;
+revoke all on table $LEDGER from public;
 do \$\$
 declare r text;
 begin
-  foreach r in array array['anon', 'authenticated', 'service_role', 'itera_api_service'] loop
-    if exists (select 1 from pg_roles where rolname = r) then
-      execute format('revoke all on table $LEDGER from %I', r);
-    end if;
+  for r in select distinct grantee from information_schema.role_table_grants
+            where table_schema = 'public' and table_name = 'tma_schema_migrations' and grantee <> current_user loop
+    execute format('revoke all on table $LEDGER from %I', r);
   end loop;
 end \$\$;
 SQL
