@@ -238,11 +238,18 @@ describe.skipIf(!URL_)("migration 0023 on Postgres", () => {
     await insert();
     const n = async () => Number((await pool.query(`select count(*)::int as n from public.grader_results where run_id = $1`, [run])).rows[0].n);
     expect(await n()).toBe(2);
-    const priv = await pool.query(
-      `select has_table_privilege('itera_api_service', 'public.grader_results', 'UPDATE') as upd,
-              has_table_privilege('itera_api_service', 'public.grader_results', 'INSERT') as ins`,
+    // Every role granted INSERT on grader_results other than the owner (the API role, reached through
+    // DATABASE_URL) has no UPDATE: a re-grade adds a row.
+    const grantees = await pool.query(
+      `select distinct grantee from information_schema.role_table_grants
+        where table_schema = 'public' and table_name = 'grader_results' and privilege_type = 'INSERT'
+          and grantee <> (select tableowner from pg_tables where schemaname = 'public' and tablename = 'grader_results')`,
     );
-    expect(priv.rows[0]).toEqual({ upd: false, ins: true });
+    expect(grantees.rows.length).toBeGreaterThan(0);
+    for (const { grantee } of grantees.rows) {
+      const upd = await pool.query(`select has_table_privilege($1, 'public.grader_results', 'UPDATE') as upd`, [grantee]);
+      expect(upd.rows[0].upd, grantee).toBe(false);
+    }
     // A grader result in another tenant than its grader version is refused.
     await expect(pool.query(
       `insert into public.grader_results (tenant, run_id, grader_version_id, pass, weight, hard_gate, decisive)
