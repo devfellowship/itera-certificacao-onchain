@@ -162,6 +162,10 @@ describe.skipIf(!URL_)('PgJobStore.finish on Postgres (0023 applied)', () => {
     for (const s of steps) expect(s.args_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(steps[0].duration_ms).toBe(40);
     expect(steps[0].result_sha256).toMatch(/^[0-9a-f]{64}$/);
+    // 0024 (tma-trajectory/2, plan T10): the step kind from the tool and the command, the turn origin, a start offset.
+    expect(steps.map((s) => [s.step_kind, s.turn_origin])).toEqual([['read', 'system'], ['test', 'system'], ['test', 'agent']]);
+    for (const s of steps) expect(s.started_ms).toBeGreaterThanOrEqual(0);
+    expect(steps[2].started_ms).toBeGreaterThan(steps[0].started_ms);
     // The legacy columns are still written the same way.
     expect(steps[0].target).toBe('src/a.ts');
     expect(steps[1].ok).toBe(false);
