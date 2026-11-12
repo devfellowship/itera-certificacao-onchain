@@ -41,7 +41,8 @@ type Write = { file: string; verb: string; table: string };
 /** Files under services/runner that may write SQL, and the tables each may write. */
 export const RUNNER_WRITERS: Record<string, readonly string[]> = {
   // the worker: claim a queued run, phase, trace actions, patch artifact, final result of a HOSTED run
-  'services/runner/src/jobs.pg.ts': ['runs', 'run_actions', 'observations'],
+  // T4 (C4): also the grader registry and the grader rows of a hosted run (migration 0023)
+  'services/runner/src/jobs.pg.ts': ['runs', 'run_actions', 'observations', 'grader_versions', 'grader_results'],
   // operator CLI: queues a hosted run (vendor -> agent -> version -> release -> queued run -> campaign cap). No result.
   'services/runner/src/bench-enqueue.ts': ['vendors', 'agents', 'agent_versions', 'release_declarations', 'runs', 'bench_campaigns'],
   // user-task validation (U19): task status and the validation record

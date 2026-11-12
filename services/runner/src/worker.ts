@@ -11,7 +11,7 @@ import type { ValidationResult } from '../../evaluator/src/validate.js';
 import { materializeAgentFiles } from './agent-files.js';
 import { runAgent, type AgentRunResult } from './agent-run.js';
 import type { ClaimedRun, JobStore, RunOutcome } from './jobs.js';
-import { evalLogOf, finalStatus, rateLimitedFinal, runScore, runnerEvidence, statusError } from './outcome.js';
+import { evalLogOf, finalStatus, hostedGraders, rateLimitedFinal, runScore, runnerEvidence, statusError } from './outcome.js';
 import { buildProvenance, taskWallMs, type RunnerFacts } from './provenance.js';
 import { decryptRunKey } from './run-key.js';
 import { buildResultArtifact } from './run-artifacts.js';
@@ -147,6 +147,8 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
     error,
     patch: null,
     actions: [],
+    // T4: a run that failed before it was measured is an infrastructure failure, never the agent's.
+    infraOk: false,
     ...extra,
   });
 
@@ -278,6 +280,8 @@ export async function processRun(deps: WorkerDeps, claimed: ClaimedRun): Promise
               actions: agent.actions,
               cost: runCost(agent),
               provenance: provenanceOf(agent, manifest),
+              infraOk: status !== 'infra_error',
+              graders: hostedGraders(status, manifest),
             };
           }
           // L17a: the stored outputs. result.json comes from the FINAL outcome (grading failure included),
@@ -422,7 +426,7 @@ async function main(): Promise<void> {
   // ITERA_DB_SSL=disable is for a local test database only.
   const ssl = process.env.ITERA_DB_SSL === 'disable' ? false : { ca: readFileSync(caPath, 'utf-8') };
   const pool = new pg.Pool({ connectionString: databaseUrl, ssl, max: 4 });
-  const store = new PgJobStore(pool);
+  const store = new PgJobStore(pool, { warn: log });
 
   const config = defaultSandboxConfig();
   let prunedImages: string[] = [];

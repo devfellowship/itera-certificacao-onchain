@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EvidenceManifest } from '../../evaluator/src/types.js';
 import { computeScore, hiddenRatioScore, SCORE_VERSION } from '../../evaluator/src/score.js';
 import type { AgentRunResult } from './agent-run.js';
-import { evalLogOf, finalStatus, runScore, statusError, zeroTestSuites } from './outcome.js';
+import { evalLogOf, finalStatus, hostedGraders, runScore, statusError, zeroTestSuites } from './outcome.js';
 
 const suite = (total: number, passed = total) => ({ total, passed, failed: total - passed, cases: [] });
 function m(over: Partial<EvidenceManifest['tests']> = {}, total = 70): EvidenceManifest {
@@ -136,5 +136,29 @@ describe('score version 2 — the k7-dfl-bench-1 shapes', () => {
     const r = settle(agentOf({ timedOut: true }), v1);
     expect(r.log.score.total).toBe(90);
     expect(r.log).not.toHaveProperty('score_rule');
+  });
+});
+
+describe('hostedGraders — the hidden-tests grader row of a hosted run (C4-T4)', () => {
+  const DIGEST = 'e'.repeat(64);
+  const graded = (over: Partial<EvidenceManifest> = {}) => ({ ...m(), evaluator_version: '0.3.0', evaluator_digest: DIGEST, ...over });
+
+  it('a pass is one decisive hard-gate code grader keyed by evaluator version and source digest', () => {
+    expect(hostedGraders('pass', graded())).toEqual([
+      { id: 'hidden-tests', semver: '0.3.0', codeSha256: DIGEST, kind: 'code', pass: true, score: 70, weight: 100, hardGate: true, decisive: true },
+    ]);
+  });
+  it('a fail keeps its score; a timeout scores 0 like runs.score_total', () => {
+    expect(hostedGraders('fail', graded({ score: { ...m().score, total: 90 } }))[0]).toMatchObject({ pass: false, score: 90 });
+    expect(hostedGraders('timeout', graded())[0]).toMatchObject({ pass: false, score: 0 });
+    expect(hostedGraders('invalid', graded())[0]).toMatchObject({ pass: false });
+  });
+  it('an infra_error run was not measured: no grader row', () => {
+    expect(hostedGraders('infra_error', graded())).toEqual([]);
+  });
+  it('a manifest with no usable evaluator version or digest gets no row (the key is never invented)', () => {
+    expect(hostedGraders('pass', graded({ evaluator_digest: undefined }))).toEqual([]);
+    expect(hostedGraders('pass', graded({ evaluator_digest: 'abc' }))).toEqual([]);
+    expect(hostedGraders('pass', graded({ evaluator_version: '0.3' }))).toEqual([]);
   });
 });
