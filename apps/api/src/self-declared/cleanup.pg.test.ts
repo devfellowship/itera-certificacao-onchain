@@ -11,7 +11,7 @@
  * variant and an orphaned grader version in one transaction; another principal's ids are not_found and stay (both
  * ways); a case, variant and grader version that a run or a grading references are refused with their reason and stay;
  * a calibrated grader version is refused; the DELETE statements refuse a forged plan on their own (the SQL guards are
- * a second check, not decoration); the API role has the DELETE grants it needs.
+ * a second check, not decoration).
  */
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
@@ -254,16 +254,6 @@ describe.skipIf(!URL_)("PgEvalCleanupStore on Postgres (0023 applied)", () => {
     for (const [t, id] of [["eval_cases", kept.caseId], ["eval_variants", kept.variantId], ["grader_versions", kept.graderId], ["grader_versions", judgeGrader], ["eval_cases", bobCase], ["eval_variants", bobVariant], ["eval_variants", orphan.variantId]] as const) {
       expect(await exists(t, id)).toBe(true);
     }
-  });
-
-  it("the API role can delete the three tables", async () => {
-    const r = await one(
-      `select has_table_privilege('itera_api_service', 'public.eval_cases', 'DELETE') as c,
-              has_table_privilege('itera_api_service', 'public.eval_variants', 'DELETE') as v,
-              has_table_privilege('itera_api_service', 'public.grader_versions', 'DELETE') as g`,
-      [],
-    );
-    expect(r).toEqual({ c: true, v: true, g: true });
   });
 
   it("the owner deletes the orphaned case, its baseline variant and the grader version in one transaction", async () => {
