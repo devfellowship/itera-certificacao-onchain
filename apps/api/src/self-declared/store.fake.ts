@@ -1,7 +1,14 @@
 /** In-memory SelfDeclaredStore for router tests: the same checks, in the same order, as store.pg.ts. */
-import type { LocalResult } from "@itera/contracts";
+import type { LocalResult, LocalResultV2 } from "@itera/contracts";
 import {
   SelfDeclaredError,
+  resultDigest as digestOf,
+  runIdV2,
+  runStatusV2,
+  selfDeclaredIdV2,
+  stableUuid,
+  type ImportOptionsV2,
+  type ImportOutcomeV2,
   modelLookup,
   outcomeOf,
   resultDigest,
@@ -35,6 +42,66 @@ export class FakeSelfDeclaredStore implements SelfDeclaredStore {
   now = () => Date.now();
   /** Set to throw this error from importResult (e.g. a SchemaNotReadyError). */
   failWith: Error | null = null;
+  /** v2: case key → { variants by digest (baseline flag) }. */
+  cases = new Map<string, { id: string; variants: Map<string, { id: string; isBaseline: boolean }> }>();
+  /** v2: evaluation id → run id → { digest, seq, status, graderRows, steps }. */
+  v2Runs = new Map<string, Map<string, { digest: string; seq: number; status: string; graderRows: number; steps: number }>>();
+  /** The tenant of the last v2 import (the router passes it). */
+  lastTenant: string | null = null;
+
+  /** The same checks, in the same order, as PgSelfDeclaredStore.importResultV2 (the v1 checks first). */
+  async importResultV2(principal: string, r: LocalResultV2, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
+    if (this.failWith) throw this.failWith;
+    this.lastTenant = options.tenant;
+    const v1 = await this.importResult(principal, r as unknown as LocalResult, { ...options, dryRun: true });
+    const caseKey = `${options.tenant}|${principal}|${r.case.case_key}|${r.case.manifest_sha256}`;
+    const kase = this.cases.get(caseKey) ?? { id: stableUuid(`case:${caseKey}`), variants: new Map() };
+    let variant = kase.variants.get(r.variant.variant_sha256);
+    if (!variant) {
+      if (r.variant.is_baseline && [...kase.variants.values()].some((v) => v.isBaseline)) {
+        throw new SelfDeclaredError(409, "baseline_exists", "this case already has a baseline");
+      }
+      variant = { id: stableUuid(`variant:${caseKey}:${r.variant.variant_sha256}`), isBaseline: r.variant.is_baseline };
+    }
+    const id = selfDeclaredIdV2(principal, r);
+    const runs = new Map(this.v2Runs.get(id) ?? []);
+    const counts = { inserted: 0, updated: 0, unchanged: 0 };
+    let seq = Math.max(0, ...[...runs.values()].map((x) => x.seq));
+    for (const run of r.runs) {
+      const rid = runIdV2(id, run);
+      const digest = digestOf(run);
+      const prev = runs.get(rid);
+      if (prev && prev.digest === digest) {
+        counts.unchanged++;
+        continue;
+      }
+      if (prev) counts.updated++;
+      else counts.inserted++;
+      runs.set(rid, {
+        digest, seq: prev?.seq ?? ++seq, status: runStatusV2(r, run),
+        graderRows: (prev?.graderRows ?? 0) + run.graders.length, steps: run.trajectory?.steps.length ?? 0,
+      });
+    }
+    const existed = this.v2Runs.has(id);
+    const action = !existed ? "inserted" : counts.inserted + counts.updated === 0 ? "unchanged" : "updated";
+    if (action === "inserted") {
+      const since = this.now() - 24 * 3600 * 1000;
+      const n = [...this.rows.values()].filter((x) => x.owner === principal && x.createdAt > since).length + [...this.v2Runs.keys()].length;
+      if (n >= options.perDay) throw new SelfDeclaredError(429, "self_declared_quota", `at most ${options.perDay} self-declared results per 24 h`);
+    }
+    if (!options.dryRun && action !== "unchanged") {
+      kase.variants.set(r.variant.variant_sha256, variant);
+      this.cases.set(caseKey, kase);
+      this.v2Runs.set(id, runs);
+    }
+    const ordered = [...runs.entries()].sort((a, b) => a[1].seq - b[1].seq);
+    const graded = ordered.filter(([, x]) => x.status !== "infra_error");
+    return {
+      evaluationId: id, caseId: kase.id, variantId: variant.id, runIds: ordered.map(([rid]) => rid), action, runs: counts,
+      outcome: graded.length > 0 && graded.every(([, x]) => x.status === "pass") ? "pass" : "fail",
+      taskId: v1.taskId, taskVersionId: v1.taskVersionId, dryRun: options.dryRun,
+    };
+  }
 
   async importResult(principal: string, r: LocalResult, options: ImportOptions): Promise<ImportOutcome> {
     if (this.failWith) throw this.failWith;

@@ -44,6 +44,30 @@ const body = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   ...over,
 });
 
+// tma-local-result/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T3): the v1 body plus case, variant,
+// and per run infra_ok, graders and a structural trajectory.
+const step = (seq: number, over: Record<string, unknown> = {}) => ({
+  seq, parent_seq: null, turn: seq, tool: "Edit", tool_family: "builtin", status: "ok", error_class: null, duration_ms: 120,
+  tokens_in: 900, tokens_out: 80, target_kind: "file", target_redacted: "src/webhook/handler.ts", args_sha256: H("b"), result_sha256: H("c"),
+  retry_of: null, ...over,
+});
+const v2Run = (repeat: number, score: number, over: Record<string, unknown> = {}) => ({
+  ...tmaRun(repeat, score), infra_ok: true,
+  graders: [{ id: "hidden-tests", semver: "2.0.0", code_sha256: H("f"), kind: "code", pass: score === 100, score, weight: 1, hard_gate: true, decisive: true }],
+  trajectory: { format: "tma-trajectory/1", steps: [step(1), step(2, { status: "error", error_class: "tool_error", tool: "Bash", tool_family: "shell", target_kind: "command", target_redacted: "npm test <args>" })] },
+  ...over,
+});
+const BASELINE = { variant_sha256: H("5"), label: "baseline", change_kind: "none", is_baseline: true, prediction_sha256: null };
+const VARIANT = (c: string) => ({ variant_sha256: H(c), label: `skill ${c}`, change_kind: "skill", is_baseline: false, prediction_sha256: H("4") });
+const v2body = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+  ...body(),
+  format: "tma-local-result/2",
+  case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug" },
+  variant: BASELINE,
+  runs: [v2Run(1, 100), v2Run(2, 80)],
+  ...over,
+});
+
 class FakeLookup implements RunOriginLookup {
   runs = new Map<string, RunOrigin>();
   async originOf(id: string) {
@@ -185,6 +209,84 @@ describe("POST /self-declared-results", () => {
   it("answers 503 schema_not_ready before migration 0021, and writes nothing", async () => {
     store.failWith = new SchemaNotReadyError("0021_self_declared_results.sql");
     expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: body() })).toMatchObject({ status: 503, json: { error: "schema_not_ready" } });
+  });
+});
+
+describe("POST /self-declared-results with tma-local-result/2", () => {
+  it("writes one evaluation per variant and one run per repeat; the same runs are unchanged, a new repeat adds a run", async () => {
+    const a = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body() });
+    expect(a.status).toBe(201);
+    expect(a.json).toMatchObject({ format: "tma-local-result/2", action: "inserted", result_origin: "self_declared", runs: { inserted: 2, updated: 0, unchanged: 0 } });
+    expect(a.json.run_ids).toHaveLength(2);
+    expect(a.json.run_id).toBe(a.json.run_ids[0]);
+    expect(a.json.url).toBe(`https://web2.example/evaluations/${a.json.evaluation_id}`);
+    expect(store.lastTenant).toBe("devfellowship");
+
+    const same = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body() });
+    expect(same).toMatchObject({ status: 200, json: { action: "unchanged", evaluation_id: a.json.evaluation_id, runs: { unchanged: 2 } } });
+
+    const three = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ runs: [v2Run(1, 100), v2Run(2, 80), v2Run(3, 100)], summary: { score: 93.3, runs: 3, items: 1 } }) });
+    expect(three).toMatchObject({ status: 200, json: { action: "updated", evaluation_id: a.json.evaluation_id, runs: { inserted: 1, unchanged: 2 } } });
+    expect(three.json.run_ids).toHaveLength(3);
+    expect(three.json.run_ids.slice(0, 2)).toEqual(a.json.run_ids);
+
+    const other = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: VARIANT("6") }) });
+    expect(other.status).toBe(201);
+    expect(other.json.evaluation_id).not.toBe(a.json.evaluation_id);
+    expect(other.json.case_id).toBe(a.json.case_id);
+    expect(other.json.variant_id).not.toBe(a.json.variant_id);
+  });
+
+  it("answers 409 baseline_exists for a second baseline of the same case", async () => {
+    expect((await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body() })).status).toBe(201);
+    const second = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: { ...BASELINE, variant_sha256: H("7") } }) });
+    expect(second).toMatchObject({ status: 409, json: { error: "baseline_exists" } });
+  });
+
+  it("refuses a text field with 400 and writes nothing: a prompt key, a step argument, a newline in the label", async () => {
+    const prompt = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: { ...v2body(), prompt: "fix the bug" } });
+    expect(prompt).toMatchObject({ status: 400, json: { error: "unknown_key", path: "/prompt" } });
+    const args = v2body();
+    ((args.runs as any[])[0].trajectory.steps[0] as Record<string, unknown>).args = "cat .env";
+    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: args })).toMatchObject({ status: 400, json: { error: "unknown_key", path: "/runs/0/trajectory/steps/0/args" } });
+    const label = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ variant: { ...VARIANT("6"), label: "line one\nline two" } }) });
+    expect(label).toMatchObject({ status: 400, json: { error: "invalid", path: "/variant/label" } });
+    expect(store.v2Runs.size).toBe(0);
+  });
+
+  it("takes a v2 body above 1 MiB, and answers 413 above 4 MiB", async () => {
+    const steps = Array.from({ length: 2000 }, (_, i) => step(i + 1));
+    const runs = Array.from({ length: 4 }, (_, i) => v2Run(i + 1, 100, { trajectory: { format: "tma-trajectory/1", steps } }));
+    const big = v2body({ runs, summary: { score: 100, runs: 4, items: 1 } });
+    const size = JSON.stringify(big).length;
+    expect(size).toBeGreaterThan(1024 * 1024);
+    expect(size).toBeLessThan(4 * 1024 * 1024);
+    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: big })).toMatchObject({ status: 201, json: { runs: { inserted: 4 } } });
+    const huge = JSON.stringify({ ...v2body(), pad: "x".repeat(4 * 1024 * 1024) });
+    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), raw: huge })).toMatchObject({ status: 413, json: { error: "payload_too_large" } });
+  });
+
+  it("answers 503 schema_not_ready before migration 0023", async () => {
+    store.failWith = new SchemaNotReadyError("0023_eval_results.sql");
+    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body() })).toMatchObject({ status: 503, json: { error: "schema_not_ready" } });
+  });
+
+  it("keeps the v1 answer exactly as before (snapshot of the keys and values)", async () => {
+    const r = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: body() });
+    expect(r.status).toBe(201);
+    expect(Object.keys(r.json).sort()).toEqual(["action", "dry_run", "evaluation_id", "outcome", "result_origin", "run_id", "url"]);
+    expect({ ...r.json, evaluation_id: "<id>", run_id: "<id>", url: r.json.url.replace(r.json.evaluation_id, "<id>") }).toMatchInlineSnapshot(`
+      {
+        "action": "inserted",
+        "dry_run": false,
+        "evaluation_id": "<id>",
+        "outcome": "fail",
+        "result_origin": "self_declared",
+        "run_id": "<id>",
+        "url": "https://web2.example/evaluations/<id>",
+      }
+    `);
+    expect(store.v2Runs.size).toBe(0);
   });
 });
 

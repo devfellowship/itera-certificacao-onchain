@@ -1,6 +1,6 @@
 /** The 0021 schema probe: fail safe before the migration, cache `true`, re-ask `false` once a minute. */
 import { beforeEach, describe, expect, it } from "vitest";
-import { hasSelfDeclaredSchema, hostedOnly, resetSchemaFeatures } from "./schema-features.js";
+import { hasEvalResultsSchema, hasSelfDeclaredSchema, hostedOnly, resetSchemaFeatures } from "./schema-features.js";
 
 const db = (answers: Array<number | Error>) => {
   let calls = 0;
@@ -42,5 +42,23 @@ describe("hasSelfDeclaredSchema", () => {
   it("adds the hosted-only filter only when the column exists", () => {
     expect(hostedOnly(false, "r")).toBe("");
     expect(hostedOnly(true, "r")).toBe(" and r.result_origin = 'hosted'");
+  });
+});
+
+describe("hasEvalResultsSchema (0023)", () => {
+  beforeEach(() => resetSchemaFeatures());
+
+  it("answers false before 0023, re-asks after 60 s, and fails safe on an error", async () => {
+    const d = db([new Error("boom"), 0, 1]);
+    expect(await hasEvalResultsSchema(d, 1_000)).toBe(false);
+    expect(await hasEvalResultsSchema(d, 62_000)).toBe(false);
+    expect(await hasEvalResultsSchema(d, 123_000)).toBe(true);
+    expect(await hasEvalResultsSchema(d, 124_000)).toBe(true);
+    expect(d.calls).toBe(3);
+  });
+
+  it("is independent of the 0021 probe", async () => {
+    expect(await hasSelfDeclaredSchema(db([1]), 1_000)).toBe(true);
+    expect(await hasEvalResultsSchema(db([0]), 1_000)).toBe(false);
   });
 });

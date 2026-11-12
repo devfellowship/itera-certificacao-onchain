@@ -41,6 +41,7 @@ import { createModelsAccessRouter, type ModelsAccessRouterDeps } from "./http/mo
 import { createLocalAgentsRouter, localAgentJson, type LocalAgentsRouterDeps } from "./local-agents/router.js";
 import { createSelfDeclaredRouter, type SelfDeclaredRouterDeps } from "./self-declared/router.js";
 import { createSelfDeclaredRunGuard, type RunOriginLookup } from "./self-declared/run-guard.js";
+import { createEvalResultsRouter, type EvalResultsReader } from "./self-declared/eval-results.js";
 import { createCliAuthRouter, type CliAuthRouterDeps } from "./cli-auth/router.js";
 import { createCliSessionGuard } from "./cli-auth/guard.js";
 
@@ -73,6 +74,7 @@ const ROUTES = [
   "POST /agents/local",
   "GET /runs?mine=1",
   "GET /runs/:id",
+  "GET /eval-cases/:id",
   "GET /runs/:id/actions",
   "GET /runs/:id/artifacts",
   "GET /runs/:id/artifacts/file?path=",
@@ -211,6 +213,10 @@ export interface AppOptions {
   selfDeclared?: SelfDeclaredRouterDeps;
   /** L3, Q4 = C: owner-only guard of the run routes for self-declared runs. Mounted only when given. */
   runOrigins?: RunOriginLookup;
+  /** C4-T3 (plan 20261112-tma-c4-result-store-trajectory-upload): case, variant, graders and trajectory summary on
+   * GET /evaluations/:id and GET /runs/:id, and GET /eval-cases/:id. Needs 0023: before it, the bodies are
+   * unchanged and GET /eval-cases/:id answers 503 schema_not_ready. Mounted only when given. */
+  evalResults?: EvalResultsReader;
   /** L4: GET /model-options, /me/models, POST /agents/local, GET|PATCH /agents/:id of a local agent. Needs 0021
    * for the writes (503 schema_not_ready before it). Mounted only when given, before the GitHub router. */
   localAgents?: LocalAgentsRouterDeps;
@@ -249,10 +255,10 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createRateLimiters());
   // ADR-9 kill switch: `users.disabled` → 403 account_disabled on every write route of a dfl principal.
   if (options.dflAuth?.users) app.use(createAccountGuard({ users: options.dflAuth.users }));
-  // L5: a revoked CLI session (a token with a `sid`) is refused before any router, the 1 MiB one included.
+  // L5: a revoked CLI session (a token with a `sid`) is refused before any router, the 4 MiB one included.
   const cliGuard = options.cliAuth ? createCliSessionGuard({ store: options.cliAuth.store, now: options.cliAuth.now }) : null;
   if (cliGuard) app.use(cliGuard);
-  // L3: BEFORE the global parser, so this one route has its own 1 MiB limit (the global one is 100 kB).
+  // L3: BEFORE the global parser, so this one route has its own 4 MiB limit, 1 MiB for a v1 body (the global one is 100 kB).
   if (options.selfDeclared) app.use(createSelfDeclaredRouter(options.selfDeclared));
   app.use(express.json());
   // U36: owner/author profiles next to every wallet field of a JSON response.
@@ -283,6 +289,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createModelsAccessRouter(options.modelsAccess));
   // L3, Q4 = C: before every router that serves /runs/:id (runs, feedback, proofs).
   if (options.runOrigins) app.use(createSelfDeclaredRunGuard(options.runOrigins));
+  // C4-T3: after the guard (its 404 is never decorated), before the routers whose bodies it extends.
+  if (options.evalResults) app.use(createEvalResultsRouter(options.evalResults));
   // L17a: the runs router reads the origin itself on GET /runs/:id/artifacts (a self-declared run lists nothing).
   if (options.runs) app.use(createRunsRouter({ repo, runOrigins: options.runOrigins, ...options.runs }));
   // Before the 410 router: both answer POST /evaluations (the v2 one falls through on a legacy
