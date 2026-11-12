@@ -6,8 +6,9 @@
  * Proves: dry_run is the default and deletes nothing; only the boolean false deletes; a delete needs ids; another
  * principal's row is `not_found` and stays; a case or variant with a run is refused with its reason and stays; a
  * variant that stays as a case's baseline is refused, and one whose case goes in the same request goes too; a grader
- * version with a result or with calibration fields is refused; the listing shows only deletable rows; before 0023 the
- * route is 503; a closed body.
+ * version with a result or with calibration fields is refused; the grader registry has no owner, so only a TMA admin
+ * (ITERA_ADMIN_WALLETS) can list or delete a grader version, and a caller that is not an admin is refused with
+ * admin_only (also the deny identity); the listing shows only deletable rows; before 0023 the route is 503; a closed body.
  */
 import express from "express";
 import type { Server } from "node:http";
@@ -64,7 +65,7 @@ const seed = (): Db => ({
 class MemStore implements EvalCleanupStore {
   db = seed();
   calls = 0;
-  async cleanup(owner: string, _tenant: string, sel: CleanupSelection, o: { dryRun: boolean }): Promise<CleanupOutcome> {
+  async cleanup(owner: string, _tenant: string, sel: CleanupSelection, o: { dryRun: boolean; graderAdmin: boolean }): Promise<CleanupOutcome> {
     this.calls += 1;
     const facts: CleanupFacts = {
       cases: this.db.cases.filter((c) => c.owner === owner).map((c) => ({ id: c.id, caseKey: c.caseKey, runCount: c.runs })),
@@ -73,7 +74,7 @@ class MemStore implements EvalCleanupStore {
         .map((v) => ({ id: v.id, label: v.label, runCount: v.runs, baselineOfCaseIds: this.db.cases.filter((c) => c.baseline === v.id).map((c) => c.id) })),
       graders: this.db.graders.map((g) => ({ id: g.id, graderId: g.graderId, semver: g.semver, resultCount: g.results, calibrated: g.calibrated })),
     };
-    const plan = planCleanup(facts, sel);
+    const plan = planCleanup(facts, sel, { graderAdmin: o.graderAdmin });
     if (o.dryRun) return { plan, deleted: false };
     const gone = <T extends { id: string }>(rows: T[], ids: string[]) => rows.filter((r) => !ids.includes(r.id));
     this.db.cases = gone(this.db.cases, plan.cases.map((x) => x.id));
@@ -87,13 +88,15 @@ let server: Server;
 let base = "";
 let store: MemStore;
 let ready = true;
+let admins: string[] = [];
 
 beforeEach(async () => {
   store = new MemStore();
   ready = true;
+  admins = [];
   const app = express();
   app.use(express.json());
-  app.use(createEvalCleanupRouter({ store, ready: async () => ready, tenant: "devfellowship" }));
+  app.use(createEvalCleanupRouter({ store, ready: async () => ready, tenant: "devfellowship", adminWallets: () => admins }));
   server = app.listen(0);
   await new Promise<void>((r) => server.once("listening", r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -116,6 +119,8 @@ const post = async (body: unknown, who?: string, raw?: string) => {
   }
 };
 
+const none3: CleanupSelection = { caseIds: null, variantIds: null, graderVersionIds: null };
+
 describe("planCleanup", () => {
   const facts: CleanupFacts = {
     cases: [{ id: C_FREE, caseKey: "a", runCount: 0 }, { id: C_USED, caseKey: "b", runCount: 1 }],
@@ -123,7 +128,10 @@ describe("planCleanup", () => {
       { id: V_BASE, label: "base", runCount: 0, baselineOfCaseIds: [C_FREE] },
       { id: V_STAY, label: "stay", runCount: 0, baselineOfCaseIds: [C_USED] },
     ],
-    graders: [],
+    graders: [
+      { id: G_FREE, graderId: "g", semver: "1.0.0", resultCount: 0, calibrated: false },
+      { id: G_USED, graderId: "g2", semver: "1.0.0", resultCount: 1, calibrated: false },
+    ],
   };
 
   it("releases a baseline variant when its case goes in the same request, and keeps it when the case stays", () => {
@@ -140,6 +148,19 @@ describe("planCleanup", () => {
     expect(p.refused.map((r) => `${r.kind}:${r.reason}`)).toEqual(["case:referenced_by_runs", "variant:baseline_of_case"]);
   });
 
+  it("grader versions: only an admin plans or lists them; the default is not admin", () => {
+    const named = { caseIds: null, variantIds: null, graderVersionIds: [G_FREE, G_USED, id(99)] };
+    const notAdmin = planCleanup(facts, named);
+    expect(notAdmin.graderVersions).toEqual([]);
+    expect(notAdmin.refused.map((r) => `${r.id}:${r.reason}`)).toEqual([`${G_FREE}:admin_only`, `${G_USED}:admin_only`, `${id(99)}:admin_only`]);
+    expect(planCleanup(facts, named, { graderAdmin: false }).graderVersions).toEqual([]);
+    expect(planCleanup(facts, none3).graderVersions).toEqual([]);
+    const admin = planCleanup(facts, named, { graderAdmin: true });
+    expect(admin.graderVersions.map((g) => g.id)).toEqual([G_FREE]);
+    expect(admin.refused.map((r) => `${r.id}:${r.reason}`)).toEqual([`${G_USED}:referenced_by_grader_results`, `${id(99)}:not_found`]);
+    expect(planCleanup(facts, none3, { graderAdmin: true }).graderVersions.map((g) => g.id)).toEqual([G_FREE]);
+  });
+
   it("a duplicated id is planned once", () => {
     expect(planCleanup(facts, { caseIds: [C_FREE, C_FREE], variantIds: null, graderVersionIds: null }).cases).toHaveLength(1);
   });
@@ -151,7 +172,8 @@ describe("POST /eval-results/cleanup", () => {
     expect(store.calls).toBe(0);
   });
 
-  it("lists the deletable rows of the caller when no id is given (dry run, nothing is deleted)", async () => {
+  it("lists the deletable rows of the caller when no id is given (dry run, nothing is deleted); an admin also sees the bare grader versions", async () => {
+    admins = [ALICE];
     const r = await post({}, ALICE);
     expect(r.status).toBe(200);
     expect(r.json.dry_run).toBe(true);
@@ -162,6 +184,33 @@ describe("POST /eval-results/cleanup", () => {
     expect(r.json.selected.grader_versions.map((g: any) => g.id)).toEqual([G_FREE]);
     expect(r.json.refused).toEqual([]);
     expect(store.db.cases).toHaveLength(3);
+  });
+
+  it("a caller that is not an admin sees no grader version in the listing", async () => {
+    const r = await post({}, ALICE);
+    expect(r.json.selected.cases.map((c: any) => c.id)).toEqual([C_FREE]);
+    expect(r.json.selected.grader_versions).toEqual([]);
+  });
+
+  it("the deny direction: a caller that is not an admin names a grader id with dry_run false, is refused admin_only, and 0 rows are deleted", async () => {
+    for (const who of [ALICE, BOB]) {
+      const r = await post({ dry_run: false, grader_version_ids: [G_FREE, G_USED, G_JUDGE] }, who);
+      expect(r.status).toBe(200);
+      expect(r.json).toMatchObject({ dry_run: false, deleted: false, selected: { grader_versions: [] } });
+      expect(r.json.refused).toEqual([G_FREE, G_USED, G_JUDGE].map((g) => ({ kind: "grader_version", id: g, reason: "admin_only", detail: {} })));
+    }
+    expect(store.db.graders.map((g) => g.id)).toEqual([G_FREE, G_USED, G_JUDGE]);
+    expect(store.db).toEqual(seed());
+  });
+
+  it("an admin is only the principals of the allow-list: another principal stays refused", async () => {
+    admins = [ALICE];
+    const bob = await post({ dry_run: false, grader_version_ids: [G_FREE] }, BOB);
+    expect(bob.json.refused).toEqual([{ kind: "grader_version", id: G_FREE, reason: "admin_only", detail: {} }]);
+    expect(store.db.graders.map((g) => g.id)).toContain(G_FREE);
+    const alice = await post({ dry_run: false, grader_version_ids: [G_FREE] }, ALICE);
+    expect(alice.json).toMatchObject({ deleted: true, selected: { grader_versions: [{ id: G_FREE }] }, refused: [] });
+    expect(store.db.graders.map((g) => g.id)).not.toContain(G_FREE);
   });
 
   it("dry_run is the default: ids with no dry_run field delete nothing", async () => {
@@ -182,6 +231,7 @@ describe("POST /eval-results/cleanup", () => {
   });
 
   it("deletes the named rows with dry_run false, and nothing else", async () => {
+    admins = [ALICE];
     const r = await post({ dry_run: false, case_ids: [C_FREE], variant_ids: [V_BASE, V_FREE], grader_version_ids: [G_FREE] }, ALICE);
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ dry_run: false, deleted: true, refused: [] });
@@ -209,6 +259,7 @@ describe("POST /eval-results/cleanup", () => {
   });
 
   it("refuses a referenced case, variant and grader version with the reason, and deletes the free ones of the same request", async () => {
+    admins = [ALICE];
     const r = await post(
       { dry_run: false, case_ids: [C_USED, C_FREE], variant_ids: [V_USED, V_STAY, V_FREE], grader_version_ids: [G_USED, G_JUDGE, G_FREE] },
       ALICE,
