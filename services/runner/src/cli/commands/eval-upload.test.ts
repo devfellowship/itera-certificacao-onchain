@@ -116,6 +116,9 @@ describe('the redaction module', () => {
     // A long, ordinary repo path is not a secret.
     expect(redactTarget('file', 'services/runner/src/cli/eval/itera-certificacao-onchain-trajectory-reader.ts')).toBe('services/runner/src/cli/eval/itera-certificacao-onchain-trajectory-reader.ts');
     expect(redactTarget('none', 'x')).toBeNull();
+    // `sk-` inside a word (task-fixture) is not a key; at a word start it is.
+    expect(redactTarget('file', 'task-fixture/disk-usage.md')).toBe('task-fixture/disk-usage.md');
+    expect(redactTarget('file', 'a/sk-abcdef123/b')).toBe('a/<redacted>/b');
   });
 });
 

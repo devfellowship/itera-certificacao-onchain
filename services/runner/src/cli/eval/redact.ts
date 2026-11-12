@@ -20,7 +20,7 @@ const NOT_CHARSET = /[^A-Za-z0-9 ._/:@#%+=,()<>[\]*~^!?-]/g;
 
 /** Credential shapes. A match anywhere replaces the value (or the path segment) with <redacted>. */
 export const SECRET_PATTERNS: readonly RegExp[] = [
-  /sk-[A-Za-z0-9_-]{6,}/,
+  /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{6,}/, // not inside a word (task-fixture)
   /\bbearer\b/i,
   /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/,
   /\b(ghp|gho|ghs|ghu|github_pat)_[A-Za-z0-9_]{10,}/,

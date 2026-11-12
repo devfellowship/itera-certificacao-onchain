@@ -35,7 +35,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Patterns of a credential in a string value. */
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  [/sk-[A-Za-z0-9_-]{6,}/, 'an API key (sk-...)'],
+  [/(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{6,}/, 'an API key (sk-...)'],
   [/\bbearer\s/i, 'a bearer header'],
   [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/, 'a JWT'],
   [/\b(ghp|gho|ghs|github_pat)_[A-Za-z0-9_]{10,}/, 'a GitHub token'],
