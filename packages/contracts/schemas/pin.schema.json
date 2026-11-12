@@ -1,0 +1,514 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/pin.schema.json",
+  "title": "TestMyAgent pin recipe (tma-pin/1)",
+  "description": "The context of one recorded agent session, as a list of digests (plan 20261112-tma-c2-trace-selection-pin, T2; parent plan 20261112-tma-eval-studio-real-trace-evals, ADR-7). Digests and identifiers only: every object is closed, every string has a pattern or an enum and a length limit, and there is no key for text, a prompt, a path, a session id or a quote. Each pinned field has a completeness flag: exact (read from the record), derived (rebuilt from git at the session time) or missing. A field is null exactly when its flag is missing. A pin is replayable only when no flag is missing; otherwise the session is a trace-review case only. pin_sha256 = the sha256 (hex) of the RFC 8785 (JCS) canonical JSON of the record without the pin_sha256 key. The validator in pin.js adds the checks a schema cannot say: skills_sha256 is sorted, and pin_sha256 matches the record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "repo",
+    "base_sha",
+    "harness",
+    "harness_version",
+    "harness_repo_sha",
+    "rules_sha256",
+    "skills_sha256",
+    "model_id",
+    "mcp_manifest_sha256",
+    "input_sha256",
+    "completeness",
+    "pin_sha256"
+  ],
+  "properties": {
+    "format": {
+      "const": "tma-pin/1"
+    },
+    "repo": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$",
+      "maxLength": 140,
+      "description": "The repository the session worked in, as owner/name."
+    },
+    "base_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+      "maxLength": 64,
+      "description": "The git commit of the repository at the session start (the base the work started from)."
+    },
+    "harness": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "claude-code",
+        "codex",
+        "opencode",
+        null
+      ],
+      "description": "The agent harness that ran the session."
+    },
+    "harness_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$",
+      "maxLength": 64,
+      "description": "The version of the harness binary (for example 2.1.87)."
+    },
+    "harness_repo_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+      "maxLength": 64,
+      "description": "The commit of the harness configuration repository (skills, hooks, rules) in use at the session start. For the DevFellowship fleet: dfl-harness."
+    },
+    "rules_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$",
+      "maxLength": 64,
+      "description": "The sha256 of the rules file as the harness loaded it (CLAUDE.md or AGENTS.md)."
+    },
+    "skills_sha256": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "maxItems": 512,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "maxLength": 64
+      },
+      "description": "The folder digests of the skills the session invoked, at harness_repo_sha, sorted ascending, without duplicates. An empty list = the session invoked no skill. The validator checks the order."
+    },
+    "model_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/\\[\\]-]{0,127}$",
+      "maxLength": 128,
+      "description": "The model id as the harness recorded it (for example claude-opus-5-5 or openrouter/deepseek/deepseek-v4.1-flash). No spaces."
+    },
+    "mcp_manifest_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$",
+      "maxLength": 64,
+      "description": "The sha256 of the MCP tool manifest that the session could call."
+    },
+    "input_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$",
+      "maxLength": 64,
+      "description": "The sha256 of the task input: the rendered task text, or the first human turn of the session."
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "base_sha",
+        "harness",
+        "harness_version",
+        "harness_repo_sha",
+        "rules_sha256",
+        "skills_sha256",
+        "model_id",
+        "mcp_manifest_sha256",
+        "input_sha256"
+      ],
+      "description": "One flag per pinned field.",
+      "properties": {
+        "repo": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        },
+        "base_sha": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        },
+        "harness": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        },
+        "harness_version": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        },
+        "harness_repo_sha": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        },
+        "rules_sha256": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        },
+        "skills_sha256": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        },
+        "model_id": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        },
+        "mcp_manifest_sha256": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        },
+        "input_sha256": {
+          "enum": [
+            "exact",
+            "derived",
+            "missing"
+          ]
+        }
+      }
+    },
+    "pin_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "maxLength": 64,
+      "description": "The sha256 of the canonical record without this key."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "repo": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "repo": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "repo": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "base_sha": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "base_sha": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "base_sha": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "harness": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "harness": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "harness": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "harness_version": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "harness_version": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "harness_version": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "harness_repo_sha": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "harness_repo_sha": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "harness_repo_sha": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "rules_sha256": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rules_sha256": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "rules_sha256": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "skills_sha256": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "skills_sha256": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "skills_sha256": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "model_id": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "model_id": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "model_id": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "mcp_manifest_sha256": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "mcp_manifest_sha256": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "mcp_manifest_sha256": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completeness": {
+            "properties": {
+              "input_sha256": {
+                "const": "missing"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "input_sha256": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "input_sha256": {
+            "not": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

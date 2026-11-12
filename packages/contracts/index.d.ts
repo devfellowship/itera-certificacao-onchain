@@ -306,6 +306,66 @@ export declare function validateAnyLocalResult(value: unknown): AnyLocalResultVa
 /** Parse and validate either version; refuses above 4 MiB, and a v1 body above 1 MiB. */
 export declare function parseAnyLocalResultText(text: string): AnyLocalResultValidation;
 
+// --- Pin recipe (plan 20261112-tma-c2-trace-selection-pin, T2; parent ADR-7).
+// Schema: schemas/pin.schema.json (the source of truth); validator: pin.js.
+
+export type PinField =
+  | 'repo'
+  | 'base_sha'
+  | 'harness'
+  | 'harness_version'
+  | 'harness_repo_sha'
+  | 'rules_sha256'
+  | 'skills_sha256'
+  | 'model_id'
+  | 'mcp_manifest_sha256'
+  | 'input_sha256';
+/** exact = read from the record; derived = rebuilt from git at the session time; missing = not recovered (the field is null). */
+export type PinCompleteness = 'exact' | 'derived' | 'missing';
+
+export interface Pin {
+  format: 'tma-pin/1';
+  /** owner/name */
+  repo: string | null;
+  /** The repository commit at the session start. */
+  base_sha: string | null;
+  harness: 'claude-code' | 'codex' | 'opencode' | null;
+  harness_version: string | null;
+  /** The harness configuration repository commit (fleet: dfl-harness). */
+  harness_repo_sha: string | null;
+  /** sha256 of the rules file as loaded (CLAUDE.md / AGENTS.md). */
+  rules_sha256: string | null;
+  /** Folder digests of the invoked skills, sorted ascending, unique. */
+  skills_sha256: string[] | null;
+  model_id: string | null;
+  mcp_manifest_sha256: string | null;
+  /** sha256 of the rendered task text or the first human turn. */
+  input_sha256: string | null;
+  completeness: Record<PinField, PinCompleteness>;
+  /** sha256 of the RFC 8785 canonical JSON of the record without this key. */
+  pin_sha256: string;
+}
+
+export interface PinIssue {
+  code: 'unknown_key' | 'invalid' | 'too_large' | 'not_json' | 'inconsistent';
+  /** JSON pointer of the offending value, e.g. "/completeness/base_sha". */
+  path: string;
+  message: string;
+}
+export type PinValidation = { ok: true; value: Pin } | { ok: false; issues: PinIssue[]; errors: string[] };
+
+export declare const PIN_FORMAT: 'tma-pin/1';
+export declare const PIN_MAX_BYTES: number;
+export declare const PIN_FIELDS: readonly PinField[];
+export declare const PIN_COMPLETENESS: readonly PinCompleteness[];
+export declare const pinSchema: Record<string, unknown>;
+export declare function canonicalPinJson(record: Record<string, unknown>): string;
+export declare function pinDigest(record: Record<string, unknown>): string;
+export declare function sealPin<T extends Record<string, unknown>>(record: T): T & { pin_sha256: string };
+export declare function pinReplayable(pin: { completeness: Record<string, string> }): boolean;
+export declare function validatePin(value: unknown): PinValidation;
+export declare function parsePinText(text: string): PinValidation;
+
 export {
   FALLBACK_LAB,
   LABS,
