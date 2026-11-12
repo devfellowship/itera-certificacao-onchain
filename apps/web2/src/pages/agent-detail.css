@@ -325,3 +325,12 @@ a.tad-task__name {
   .tad-history__row time { grid-column: 1; }
   .tad-history__arrow { grid-column: 2; grid-row: 2 / span 2; }
 }
+
+/* Studio links (C5-T2): the row is empty, so hidden, until a studio screen exists. */
+.tad-studio-links {
+  display: flex;
+  gap: 16px;
+}
+.tad-studio-links:empty {
+  display: none;
+}

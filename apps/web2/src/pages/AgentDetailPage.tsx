@@ -17,6 +17,7 @@ import { TaskName } from '../tma/task-filter'
 import { AvatarCropper, renderCrop, type CropState } from './profile-settings/AvatarCropper'
 import './profile-settings/profile-settings.css'
 import './agent-detail.css'
+import { StudioLink } from '../studio/links'
 
 const shortDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 const longDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
@@ -209,6 +210,16 @@ function Ready({ profile, signedIn, onConnect, onChanged }: { profile: AgentProf
                 )}
               </span>
             </div>
+          </div>
+
+          {/* Studio links (C5-T2): hidden until the studio screens exist. */}
+          <div className="tad-studio-links">
+            <StudioLink screen="S5" params={{ agent: agent.id }} testId="studio-variants">
+              Variants
+            </StudioLink>
+            <StudioLink screen="S6" params={{ agent: agent.id }} testId="studio-experiments">
+              Experiments
+            </StudioLink>
           </div>
 
           {agent.isMine && <AgentEditor profile={profile} onChanged={onChanged} />}
