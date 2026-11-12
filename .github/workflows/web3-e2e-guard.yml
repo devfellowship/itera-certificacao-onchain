@@ -108,6 +108,16 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # C4-T9/T10/T11: 0024 applies a second time and changes nothing, has no function or trigger, every new column
+      # is nullable, and its CHECKs refuse the forbidden shapes (a task summary with outcome or 281 characters, an
+      # unknown step kind, a negative started_ms, calibration on a code grader, an unknown reason code). It deletes
+      # its own fixtures.
+      - name: Migration 0024 test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/domain/migration-0024.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       - name: Self-declared results store test (Postgres)
         working-directory: apps/api
         run: npx vitest run src/self-declared/store.pg.test.ts
