@@ -54,6 +54,7 @@ export function baseAgentFrom(record: unknown, source: string): AgentVersion {
   for (const k of AGENT_FIELDS) {
     let v = r[k];
     if (k === 'skills_sha256' && Array.isArray(v)) v = sha256(canonicalJson(v)); // a tma-pin/1 skills list
+    if (k === 'tools_sha256' && v === undefined && r.format === 'tma-pin/1') v = null; // tma-pin/1 has no tool digest
     if (v === undefined) throw new CliError(`${source}: the base agent needs ${k} (null when unknown)`);
     if (v !== null && typeof v !== 'string') throw new CliError(`${source}: ${k} must be a string or null`);
     out[k] = v as string | null;
@@ -207,7 +208,7 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
     executor: executorOf({ modelId: executorModel, harness: isAgent ? (first.profile ?? 'opencode') : 'patch', costSource: isAgent && runs.some((r) => r.cost_usd !== null) ? 'derived' : 'none' }),
     ran_from: new Date(from).toISOString(),
     ran_to: new Date(to).toISOString(),
-    summary: summarize(runs as ResultRow[]),
+    summary: summarize(runs as unknown as ResultRow[]),
     runs,
     case: { case_key: c.manifest.case_key, manifest_sha256: c.manifestSha256, origin_pin_sha256: c.lock.pin_sha256, mode: c.manifest.mode, use_case_key: c.manifest.use_case },
     variant: { agent: base, variant_sha256: v.change_kind === 'none' ? EMPTY_DIFF_SHA256 : lock.variant_sha256, label: v.label, change_kind: v.change_kind },

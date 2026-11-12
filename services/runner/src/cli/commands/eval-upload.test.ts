@@ -269,7 +269,7 @@ describe('tma eval upload', () => {
     expect(body.format).toBe('tma-local-result/2');
     expect(body.case).toMatchObject({ case_key: 'tiny-add', use_case_key: 'fix/red-ci', mode: 'replay', origin_pin_sha256: pin.pin_sha256 });
     expect(body.variant).toMatchObject({ label: 'stricter rules', change_kind: 'rules' });
-    expect(body.variant.agent).toMatchObject({ harness: 'claude-code', model_id: 'anthropic/claude-sonnet-4.5', rules_sha256: H('c') });
+    expect(body.variant.agent).toMatchObject({ harness: 'claude-code', model_id: 'anthropic/claude-sonnet-4.5', rules_sha256: H('c'), tools_sha256: null });
     expect(body.comparison.prediction_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(body.runs).toHaveLength(2);
     expect(body.runs[0]).toMatchObject({ status: 'pass', score: 100, infra_ok: true });
