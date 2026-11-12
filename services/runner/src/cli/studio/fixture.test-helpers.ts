@@ -28,7 +28,7 @@ export function webToken(sub = ALLOWED, nowMs = Date.now(), ttlS = 3600): string
 
 /** A fake `GET /auth/me`: 200 {id} for a token with a valid test signature that has not expired, else 401. */
 export function fakeApi(opts: { disabled?: Set<string> } = {}): Introspect & { calls: number } {
-  const fn = (async (token: string) => {
+  const fn = Object.assign(async (token: string): Promise<{ status: number; body: Record<string, unknown> | null }> => {
     fn.calls++;
     const [h, p, s] = token.split('.');
     const expected = createHmac('sha256', TEST_KEY).update(`${h}.${p}`).digest();
@@ -38,8 +38,7 @@ export function fakeApi(opts: { disabled?: Set<string> } = {}): Introspect & { c
     if (claims.exp * 1000 <= Date.now()) return { status: 401, body: { error: 'unauthorized' } };
     if (opts.disabled?.has(claims.sub)) return { status: 403, body: { error: 'account_disabled' } };
     return { status: 200, body: { id: claims.sub, kind: 'dfl', wallet: claims.sub } };
-  }) as Introspect & { calls: number };
-  fn.calls = 0;
+  }, { calls: 0 });
   return fn;
 }
 
