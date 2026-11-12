@@ -21,11 +21,17 @@ function pgCode(e: unknown): string | undefined {
 }
 
 /**
- * 0024 adds grader_versions.calibration (a judge's label counts): a version that carries it is calibrated too, and is
- * never deleted. Before 0024 the column does not exist, so the fragment is empty.
+ * 0024 adds grader_versions.calibration (a judge's label counts): a version that carries it is calibrated too, and only
+ * an admin with allow_calibrated may delete it (still only with no grader result). Before 0024 the column does not
+ * exist, so the fragment is empty.
  */
 const calibrationSet = (meta: boolean, alias: string) => (meta ? ` or ${alias}.calibration is not null` : "");
 const calibrationNull = (meta: boolean, alias: string) => (meta ? ` and ${alias}.calibration is null` : "");
+
+/** The SQL guard of a "bare" grader version (no judge field, no calibration). allow_calibrated (an admin) drops it. */
+const bareGrader = (meta: boolean) => `
+            and g.judge_model_id is null and g.rubric_sha256 is null and g.params_sha256 is null
+            and g.tpr is null and g.tnr is null and g.test_split_sha256 is null${calibrationNull(meta, "g")}`;
 
 /** SQL `uuid[]` parameter: the ids, or null for "every row" (a listing). */
 const param = (ids: string[] | null, listing: boolean): string[] | null => (listing ? null : (ids ?? []));
@@ -33,18 +39,24 @@ const param = (ids: string[] | null, listing: boolean): string[] | null => (list
 export class PgEvalCleanupStore implements EvalCleanupStore {
   constructor(private readonly pool: Pick<Pool, "connect">) {}
 
-  async cleanup(owner: string, tenant: string, sel: CleanupSelection, options: { dryRun: boolean; graderAdmin: boolean }): Promise<CleanupOutcome> {
+  async cleanup(
+    owner: string,
+    tenant: string,
+    sel: CleanupSelection,
+    options: { dryRun: boolean; graderAdmin: boolean; allowCalibrated?: boolean },
+  ): Promise<CleanupOutcome> {
+    const allowCalibrated = options.allowCalibrated === true;
     const c = await this.pool.connect();
     try {
       const meta = await hasEvalMetaSchema(c);
       await c.query("begin");
       const facts = await this.facts(c, owner, tenant, sel, options.graderAdmin, meta);
-      const plan = planCleanup(facts, sel, { graderAdmin: options.graderAdmin });
+      const plan = planCleanup(facts, sel, { graderAdmin: options.graderAdmin, allowCalibrated });
       if (options.dryRun || (!plan.cases.length && !plan.variants.length && !plan.graderVersions.length)) {
         await c.query("rollback");
         return { plan, deleted: false };
       }
-      await this.apply(c, owner, tenant, plan, options.graderAdmin, meta);
+      await this.apply(c, owner, tenant, plan, options.graderAdmin, meta, allowCalibrated);
       await c.query("commit");
       return { plan, deleted: true };
     } catch (e) {
@@ -94,7 +106,15 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
   }
 
   /** Cases first (they release their baseline), then variants, then grader versions. Each DELETE must remove exactly the planned rows. */
-  private async apply(c: PoolClient, owner: string, tenant: string, plan: ReturnType<typeof planCleanup>, graderAdmin: boolean, meta: boolean): Promise<void> {
+  private async apply(
+    c: PoolClient,
+    owner: string,
+    tenant: string,
+    plan: ReturnType<typeof planCleanup>,
+    graderAdmin: boolean,
+    meta: boolean,
+    allowCalibrated: boolean,
+  ): Promise<void> {
     // Second check: a plan with a grader version for a caller that is not an admin never reaches the DELETE.
     if (plan.graderVersions.length && !graderAdmin) throw new CleanupConflictError("grader versions: the caller is not an admin");
     const expect = async (what: string, sql: string, params: unknown[], want: number) => {
@@ -126,9 +146,7 @@ export class PgEvalCleanupStore implements EvalCleanupStore {
       await expect(
         "grader versions",
         `delete from public.grader_versions g
-          where g.id = any($1::uuid[]) and g.tenant = $2
-            and g.judge_model_id is null and g.rubric_sha256 is null and g.params_sha256 is null
-            and g.tpr is null and g.tnr is null and g.test_split_sha256 is null${calibrationNull(meta, "g")}
+          where g.id = any($1::uuid[]) and g.tenant = $2${allowCalibrated ? "" : bareGrader(meta)}
             and not exists (select 1 from public.grader_results x where x.grader_version_id = g.id)`,
         [plan.graderVersions.map((x) => x.id), tenant],
         plan.graderVersions.length,

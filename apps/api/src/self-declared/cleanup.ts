@@ -5,7 +5,8 @@
  * case, the variants and the grader versions of a deleted evaluation stayed behind.
  *
  *   auth      a TMA session (any principal). The rows that it may delete are the caller's own (see "owner").
- *   body      { dry_run?: boolean (default TRUE), case_ids?: uuid[], variant_ids?: uuid[], grader_version_ids?: uuid[] }.
+ *   body      { dry_run?: boolean (default TRUE), case_ids?: uuid[], variant_ids?: uuid[], grader_version_ids?: uuid[],
+ *             allow_calibrated?: boolean (default false) }.
  *             Closed: an unknown key is 400 unknown_key. `dry_run` must be the boolean false to delete; any other
  *             value but true (and absent) is 400 invalid_dry_run.
  *   listing   no id list at all = list the rows that the caller could delete. dry_run=false needs at least one id
@@ -15,7 +16,10 @@
  *             code digest, created on first use), so no caller "owns" one. Until a `created_by` column exists, only a
  *             TMA ADMIN (a principal in ITERA_ADMIN_WALLETS, the allow-list of the other /admin routes) may delete or
  *             even list grader versions; for everyone else a named grader id is `admin_only` and the listing shows none.
- *             For an admin the rule is tenant + "bare" (no judge or calibration field) + unreferenced.
+ *             For an admin the rule is tenant + "bare" (no judge or calibration field) + unreferenced. With
+ *             allow_calibrated true, an admin may also delete a version WITH judge or calibration fields, still only when
+ *             no grader result (so no run) points at it: a proof or a test upload leaves such versions behind, and its
+ *             evaluation delete removed the results. Without the flag the refusal stays grader_has_calibration.
  *   refused   referenced_by_runs (case, variant: some run points at it), baseline_of_case (variant: a case that stays
  *             has it as its baseline), referenced_by_grader_results (grader version), grader_has_calibration, admin_only
  *             (grader version, caller is not an admin), not_found.
@@ -77,7 +81,7 @@ const uniq = (ids: string[]) => [...new Set(ids)];
  * Pure: which of the requested rows may go. Every refusal names its reason. `graderAdmin` (default false: fail
  * closed) says whether the caller may touch the grader registry, which has no owner column.
  */
-export function planCleanup(facts: CleanupFacts, sel: CleanupSelection, opts: { graderAdmin?: boolean } = {}): CleanupPlan {
+export function planCleanup(facts: CleanupFacts, sel: CleanupSelection, opts: { graderAdmin?: boolean; allowCalibrated?: boolean } = {}): CleanupPlan {
   const listing = sel.caseIds === null && sel.variantIds === null && sel.graderVersionIds === null;
   const refused: CleanupRefusal[] = [];
   const refuse = (kind: CleanupKind, id: string, reason: CleanupReason, detail: Record<string, unknown> = {}) => {
@@ -126,7 +130,7 @@ export function planCleanup(facts: CleanupFacts, sel: CleanupSelection, opts: { 
     if (!graderAdmin) refuse("grader_version", id, "admin_only");
     else if (!f) refuse("grader_version", id, "not_found");
     else if (f.resultCount > 0) refuse("grader_version", id, "referenced_by_grader_results", { results: f.resultCount });
-    else if (f.calibrated) refuse("grader_version", id, "grader_has_calibration");
+    else if (f.calibrated && opts.allowCalibrated !== true) refuse("grader_version", id, "grader_has_calibration");
     else graderVersions.push({ id, graderId: f.graderId, semver: f.semver });
   }
 
@@ -144,7 +148,12 @@ export class CleanupConflictError extends Error {}
 
 export interface EvalCleanupStore {
   /** One transaction: read the facts of `owner`, plan, and (when !dryRun) delete the planned rows. */
-  cleanup(owner: string, tenant: string, selection: CleanupSelection, options: { dryRun: boolean; graderAdmin: boolean }): Promise<CleanupOutcome>;
+  cleanup(
+    owner: string,
+    tenant: string,
+    selection: CleanupSelection,
+    options: { dryRun: boolean; graderAdmin: boolean; allowCalibrated?: boolean },
+  ): Promise<CleanupOutcome>;
 }
 
 export interface EvalCleanupRouterDeps {
@@ -157,13 +166,13 @@ export interface EvalCleanupRouterDeps {
   adminWallets?: () => string[];
 }
 
-const envAdminWallets = () =>
+export const envAdminWallets = (): string[] =>
   (process.env.ITERA_ADMIN_WALLETS ?? "")
     .split(",")
     .map((w) => w.trim())
     .filter(Boolean);
 
-const BODY_KEYS = new Set(["dry_run", "case_ids", "variant_ids", "grader_version_ids"]);
+const BODY_KEYS = new Set(["dry_run", "case_ids", "variant_ids", "grader_version_ids", "allow_calibrated"]);
 
 function idList(body: Record<string, unknown>, key: string): { ok: true; ids: string[] | null } | { ok: false; error: string; message: string } {
   const v = body[key];
@@ -198,6 +207,11 @@ export function createEvalCleanupRouter(deps: EvalCleanupRouterDeps): Router {
         return;
       }
       const dryRun = body.dry_run !== false;
+      if (body.allow_calibrated !== undefined && typeof body.allow_calibrated !== "boolean") {
+        res.status(400).json({ error: "invalid_allow_calibrated", message: "allow_calibrated must be true or false" });
+        return;
+      }
+      const allowCalibrated = body.allow_calibrated === true;
       const lists = { caseIds: idList(body, "case_ids"), variantIds: idList(body, "variant_ids"), graderVersionIds: idList(body, "grader_version_ids") };
       for (const l of Object.values(lists)) {
         if (!l.ok) {
@@ -219,7 +233,7 @@ export function createEvalCleanupRouter(deps: EvalCleanupRouterDeps): Router {
         return;
       }
       const graderAdmin = adminWallets().includes(req.principal!.id);
-      const out = await deps.store.cleanup(req.principal!.id, tenant, selection, { dryRun, graderAdmin });
+      const out = await deps.store.cleanup(req.principal!.id, tenant, selection, { dryRun, graderAdmin, allowCalibrated });
       const p = out.plan;
       res.json({
         dry_run: dryRun,

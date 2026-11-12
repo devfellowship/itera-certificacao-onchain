@@ -142,6 +142,14 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # C4-T10: POST /eval-results/recompute — the back-fill of run_actions.step_kind of hosted rows written before 0024:
+      # owner scope, admin scope, only NULL values, never a self-declared run; a second call changes 0 rows.
+      - name: Recompute derived step kinds (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/self-declared/recompute.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       # C4-T13: POST /eval-results/cleanup — the owner deletes an orphaned case, its baseline variant and a grader
       # version in one transaction; another principal's ids, referenced rows and a calibrated grader are refused and
       # stay; the DELETE statements refuse a forged plan on their own. It deletes its own fixtures.

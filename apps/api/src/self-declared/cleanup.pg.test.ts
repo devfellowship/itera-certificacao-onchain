@@ -10,7 +10,7 @@
  * Proves: the listing and the default dry run delete nothing; the owner deletes an orphaned case with its baseline
  * variant and an orphaned grader version in one transaction; another principal's ids are not_found and stay (both
  * ways); a case, variant and grader version that a run or a grading references are refused with their reason and stay;
- * a calibrated grader version is refused; the DELETE statements refuse a forged plan on their own (the SQL guards are
+ * a calibrated grader version is refused, unless an admin sends allow_calibrated and no grading references it; the DELETE statements refuse a forged plan on their own (the SQL guards are
  * a second check, not decoration).
  */
 import { randomUUID } from "node:crypto";
@@ -287,5 +287,34 @@ const USER = { dryRun: true, graderAdmin: false };
     // A second delete finds nothing: not_found, not an error.
     const again = await store.cleanup(ALICE, TENANT, { caseIds: [orphan.caseId], variantIds: null, graderVersionIds: null }, { ...USER, dryRun: false });
     expect(again).toMatchObject({ deleted: false, plan: { refused: [{ kind: "case", id: orphan.caseId, reason: "not_found" }] } });
+  });
+
+  it("allow_calibrated: an admin deletes the unreferenced calibrated version; a referenced version stays, also in a forged plan", async () => {
+    const forged = async () => {
+      const c = await pool.connect();
+      try {
+        await c.query("begin");
+        await (store as unknown as { apply(c: unknown, o: string, t: string, p: unknown, admin: boolean, meta: boolean, allow: boolean): Promise<void> })
+          .apply(c, ALICE, TENANT, { listing: false, cases: [], variants: [], graderVersions: [{ id: kept.graderId, graderId: "x", semver: "1.0.0" }], refused: [] }, true, true, true);
+        await c.query("commit");
+        return "applied";
+      } catch (e) {
+        await c.query("rollback").catch(() => undefined);
+        return e instanceof CleanupConflictError ? "refused" : `error:${String(e)}`;
+      } finally {
+        c.release();
+      }
+    };
+    expect(await forged()).toBe("refused");
+    const notAdmin = await store.cleanup(ALICE, TENANT, { caseIds: null, variantIds: null, graderVersionIds: [judgeGrader] }, { ...USER, dryRun: false, allowCalibrated: true });
+    expect(notAdmin.plan.refused.map((x) => x.reason)).toEqual(["admin_only"]);
+    const r = await store.cleanup(
+      ALICE, TENANT, { caseIds: null, variantIds: null, graderVersionIds: [judgeGrader, kept.graderId] }, { ...ADMIN, dryRun: false, allowCalibrated: true },
+    );
+    expect(r.deleted).toBe(true);
+    expect(r.plan.graderVersions.map((g) => g.id)).toEqual([judgeGrader]);
+    expect(r.plan.refused).toEqual([{ kind: "grader_version", id: kept.graderId, reason: "referenced_by_grader_results", detail: { results: 1 } }]);
+    expect(await exists("grader_versions", judgeGrader)).toBe(false);
+    expect(await exists("grader_versions", kept.graderId)).toBe(true);
   });
 });

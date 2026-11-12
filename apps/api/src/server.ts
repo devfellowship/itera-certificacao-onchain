@@ -3,7 +3,8 @@ import { selfDeclaredPerDayFromEnv } from "./self-declared/router.js";
 import { PgRunOriginLookup } from "./self-declared/run-guard.js";
 import { PgEvalResultsReader } from "./self-declared/eval-results.js";
 import { PgEvalCleanupStore } from "./self-declared/cleanup.pg.js";
-import { hasEvalResultsSchema } from "./domain/schema-features.js";
+import { PgRecomputeStore } from "./self-declared/recompute.pg.js";
+import { hasEvalMetaSchema, hasEvalResultsSchema } from "./domain/schema-features.js";
 import { PgLocalAgentsStore } from "./local-agents/store.pg.js";
 import { PgCliAuthStore } from "./cli-auth/store.pg.js";
 import { createApp } from "./app.js";
@@ -133,6 +134,8 @@ createApp(repo, {
   evalResults: new PgEvalResultsReader(getPool),
   // C4-T13: POST /eval-results/cleanup (owner-only delete of unreferenced cases, variants, grader versions; dry_run default).
   evalCleanup: { store: new PgEvalCleanupStore(getPool()), ready: () => hasEvalResultsSchema(getPool()) },
+  // C4-T10: POST /eval-results/recompute (back-fill of derived columns of the caller's own rows; dry_run default).
+  recompute: { store: new PgRecomputeStore(getPool()), ready: () => hasEvalMetaSchema(getPool()) },
   // L4: local agents and custom models (writes need 0021; 503 schema_not_ready before it).
   localAgents: { store: new PgLocalAgentsStore(getPool) },
   // L5: tma login (device code approved on web2 /cli) and CLI session revocation (needs 0021).
