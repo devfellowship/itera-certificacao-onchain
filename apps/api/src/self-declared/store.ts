@@ -21,6 +21,22 @@ export const SELF_DECLARED_MIGRATION = "0021_self_declared_results.sql";
 /** tma-local-result/2 needs this migration (plan 20261112-tma-c4-result-store-trajectory-upload, T2). */
 export const EVAL_RESULTS_MIGRATION = "0023_eval_results.sql";
 /**
+ * The task summary of a case, the tma-trajectory/2 step fields and the grader version and label fields need this
+ * migration (plan 20261112-tma-c4-result-store-trajectory-upload, T9, T10, T11).
+ */
+export const EVAL_META_MIGRATION = "0024_eval_summary_steps_grader_meta.sql";
+const GRADER_META_KEYS = ["proof", "calibration", "note", "author", "reason_code", "labeler"] as const;
+
+/** True when a v2 body carries a field that only migration 0024 can store. */
+export function usesEvalMetaFields(r: LocalResultV2): boolean {
+  if (r.case.task_summary != null) return true;
+  for (const run of r.runs) {
+    if (run.trajectory?.format === "tma-trajectory/2") return true;
+    for (const g of run.graders) if (GRADER_META_KEYS.some((k) => g[k] != null)) return true;
+  }
+  return false;
+}
+/**
  * The result-plane tenant of every self-declared v2 row (plan ADR-4, parent ADR-11). Only `dfl`
  * principals upload today, so the default is the fleet; TMA_RESULT_TENANT overrides it (C10 adds onboarding).
  */

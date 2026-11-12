@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isProviderKey, isRouteKey, PROVIDER_KEYS, ROUTE_KEYS } from './model-catalog.js';
-import { trajectorySchema, trajectoryStepIssues } from './trajectory.js';
+import { trajectorySchema, trajectoryStepIssues, trajectoryV2Schema } from './trajectory.js';
 
 const require = createRequire(import.meta.url);
 /** @type {typeof import('ajv/dist/2020.js').default} */
@@ -51,8 +51,10 @@ export const localResultV2Schema = JSON.parse(readFileSync(new URL('./schemas/lo
 
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictTypes: false, strictRequired: false });
 const validateFn = ajv.compile(localResultSchema);
-// The v2 schema refers to the trajectory schema by its $id (trajectory.schema.json, a sibling file).
+// The v2 schema refers to the trajectory schemas by their $id (trajectory.schema.json and trajectory-v2.schema.json,
+// sibling files); a run's trajectory takes the one its `format` names.
 ajv.addSchema(trajectorySchema);
+ajv.addSchema(trajectoryV2Schema);
 const validateV2Fn = ajv.compile(localResultV2Schema);
 
 /**
@@ -126,7 +128,9 @@ function commonIssues(v) {
 /**
  * Validate a parsed tma-local-result/2: the closed schema (with tma-trajectory/1 per run), the v1
  * cross-field rules, and the v2 rules: the baseline has change_kind none and no prediction, every
- * other variant has a prediction; change_kind none has the empty diff digest; the executor model is the
+ * other variant has a prediction; a grader proof catches at most its planted bugs, calibration belongs to a judge
+ * and its 2x2 table adds up to n_test (at most n_labels), and every run that names a grader version sends the same
+ * proof, calibration, note and author; change_kind none has the empty diff digest; the executor model is the
  * base model unless the diff is the model; a replay case has an origin pin; one run per
  * (item_sha256, kind, repeat); unique grader ids per run; a tma-score run with status infra_error has
  * infra_ok false; the trajectory step rules of trajectory.js.
@@ -156,6 +160,9 @@ export function validateLocalResultV2(value) {
   }
   /** @type {Set<string>} */
   const runKeys = new Set();
+  /** The grader-version fields of the first run that names each version (id@semver#code digest). */
+  /** @type {Map<string, string>} */
+  const versionFields = new Map();
   v.runs.forEach((/** @type {any} */ run, /** @type {number} */ i) => {
     const key = `${run.item_sha256}:${run.kind ?? ''}:${run.repeat}`;
     if (runKeys.has(key)) issues.push({ code: 'inconsistent', path: `/runs/${i}/repeat`, message: 'repeats an earlier run (same item_sha256, kind and repeat)' });
@@ -165,6 +172,14 @@ export function validateLocalResultV2(value) {
     run.graders.forEach((/** @type {any} */ g, /** @type {number} */ j) => {
       if (graderIds.has(g.id)) issues.push({ code: 'inconsistent', path: `/runs/${i}/graders/${j}/id`, message: 'repeats an earlier grader of this run' });
       graderIds.add(g.id);
+      issues.push(...graderVersionIssues(g, `/runs/${i}/graders/${j}`));
+      const version = `${g.id}@${g.semver}#${g.code_sha256}`;
+      const fields = graderVersionFieldsKey(g);
+      const first = versionFields.get(version);
+      if (first === undefined) versionFields.set(version, fields);
+      else if (first !== fields) {
+        issues.push({ code: 'inconsistent', path: `/runs/${i}/graders/${j}`, message: `proof, calibration, note and author of grader version ${version} differ from an earlier run` });
+      }
     });
     if (run.status === 'infra_error' && run.infra_ok) {
       issues.push({ code: 'inconsistent', path: `/runs/${i}/infra_ok`, message: 'must be false when status is infra_error' });
@@ -173,6 +188,45 @@ export function validateLocalResultV2(value) {
   });
   if (issues.length > 0) return failed(issues);
   return { ok: /** @type {const} */ (true), value: v };
+}
+
+/** The keys of a grader entry that belong to the grader VERSION (grader_versions), not to one result. */
+export const GRADER_VERSION_FIELDS = /** @type {const} */ (['proof', 'calibration', 'note', 'author']);
+/** The closed reason of a label (grader_results.reason_code; the S13 chips). */
+export const GRADER_REASON_CODES = /** @type {const} */ (['wrong_sha', 'no_check', 'partial', 'other']);
+
+/**
+ * The cross-field rules of the optional grader-version fields (plan T11): a proof catches at most the planted bugs;
+ * calibration belongs to a judge, and its 2x2 table adds up to the test split, which is at most the labels.
+ * @param {any} g a schema-valid grader entry
+ * @param {string} at its JSON pointer
+ * @returns {LocalResultIssue[]}
+ */
+function graderVersionIssues(g, at) {
+  /** @type {LocalResultIssue[]} */
+  const issues = [];
+  if (g.proof != null && g.proof.caught > g.proof.total) {
+    issues.push({ code: 'inconsistent', path: `${at}/proof/caught`, message: `is ${g.proof.caught}, more than the ${g.proof.total} planted bugs` });
+  }
+  const c = g.calibration;
+  if (c != null) {
+    if (g.kind !== 'judge') issues.push({ code: 'inconsistent', path: `${at}/calibration`, message: 'is for a judge only (kind judge)' });
+    const sum = c.tp + c.fn + c.tn + c.fp;
+    if (sum !== c.n_test) issues.push({ code: 'inconsistent', path: `${at}/calibration/n_test`, message: `is ${c.n_test}; tp + fn + tn + fp is ${sum}` });
+    if (c.n_test > c.n_labels) issues.push({ code: 'inconsistent', path: `${at}/calibration/n_test`, message: `is ${c.n_test}, more than n_labels ${c.n_labels}` });
+  }
+  return issues;
+}
+
+/**
+ * The grader-version fields of a grader entry as one canonical string (an absent key = null), to compare two runs
+ * that name the same version.
+ * @param {any} g
+ */
+export function graderVersionFieldsKey(g) {
+  const canon = (/** @type {unknown} */ x) =>
+    x !== null && typeof x === 'object' ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, /** @type {any} */ (x)[k]])) : x;
+  return JSON.stringify(GRADER_VERSION_FIELDS.map((k) => [k, canon(g[k] ?? null)]));
 }
 
 /**

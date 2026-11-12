@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { argsDigest, classifyFailure, parseOpencodeEvents, relativize, toolFamilyOf } from './trace.js';
+import { argsDigest, classifyFailure, parseOpencodeEvents, relativize, stepKindOf, toolFamilyOf } from './trace.js';
 
 const tool = (name: string, status: string, input: Record<string, unknown>, start = 1791814411181) =>
   JSON.stringify({
@@ -113,6 +113,44 @@ describe('parseOpencodeEvents', () => {
     expect(classifyFailure('aborted by user', 'error')).toEqual({ status: 'error', errorClass: 'interrupted' });
     expect(classifyFailure(null, 'error')).toEqual({ status: 'error', errorClass: 'tool_error' });
     expect(classifyFailure('boom', 'error')).toEqual({ status: 'error', errorClass: 'tool_error' });
+  });
+
+  it('writes the tma-trajectory/2 step fields: kind, start offset from the first event, turn origin', () => {
+    const t0 = 1791814411181;
+    const text = [
+      JSON.stringify({ type: 'step_start', timestamp: t0 - 100, part: {} }),
+      tool('read', 'completed', { filePath: '/workspace/src/app.ts' }, t0),
+      tool('bash', 'error', { command: 'cd /workspace && npm test' }, t0 + 10),
+      JSON.stringify({ type: 'step_finish', part: { tokens: { input: 1, output: 1 }, cost: 0 } }),
+      JSON.stringify({ type: 'step_start', part: {} }),
+      tool('edit', 'completed', { filePath: '/workspace/src/a.ts', oldString: 'a', newString: 'b' }, t0 + 250),
+    ].join('\n');
+    const [read, test, edit] = parseOpencodeEvents(text).actions.map((a) => a.trajectory!);
+    expect(read).toMatchObject({ stepKind: 'read', startedMs: 100, turnOrigin: 'system' });
+    expect(test).toMatchObject({ stepKind: 'test', startedMs: 110, turnOrigin: 'system' });
+    expect(edit).toMatchObject({ stepKind: 'write', startedMs: 350, turnOrigin: 'agent' });
+  });
+
+  it('a call with no time at all has no start offset', () => {
+    const text = JSON.stringify({ type: 'tool_use', part: { type: 'tool', tool: 'read', state: { status: 'completed', input: { path: 'a' } } } });
+    expect(parseOpencodeEvents(text).actions[0]!.trajectory).toMatchObject({ stepKind: 'read', startedMs: null, turnOrigin: 'system' });
+  });
+
+  it('classifies the step kind from the tool and the command (also for an old row: tool + target)', () => {
+    const cases: Array<[string, string | null, boolean, string]> = [
+      ['read', null, false, 'read'], ['list', null, false, 'read'], ['webfetch', null, false, 'read'],
+      ['grep', null, false, 'search'], ['glob', null, false, 'search'], ['websearch', null, false, 'search'],
+      ['edit', null, false, 'write'], ['write', null, false, 'write'], ['patch', null, false, 'write'],
+      ['task', null, false, 'agent'], ['skill', null, false, 'mcp'], ['dfl_get_plan', null, true, 'mcp'],
+      ['todowrite', null, false, 'other'], ['mystery', null, false, 'other'],
+      ['bash', 'npm test', false, 'test'], ['bash', 'cd . && npx vitest run', false, 'test'], ['bash', 'pnpm run lint', false, 'test'],
+      ['bash', 'python -m pytest -q', false, 'test'], ['bash', 'go test ./...', false, 'test'], ['bash', 'npx tsc --noEmit', false, 'test'],
+      ['bash', 'git commit -m x', false, 'write'], ['bash', 'cd . && git push origin main', false, 'write'], ['bash', 'git status', false, 'shell'],
+      ['bash', 'git commit -m "run npm test"', false, 'write'],
+      ['bash', 'cat src/a.ts', false, 'read'], ['bash', 'sed -n 1,20p a.ts', false, 'read'], ['bash', 'rg handler src', false, 'search'],
+      ['bash', 'find . -name "*.ts"', false, 'search'], ['bash', 'npm install', false, 'shell'], ['bash', 'echo hi', false, 'shell'], ['bash', null, false, 'shell'],
+    ];
+    for (const [t, cmd, mcp, want] of cases) expect(stepKindOf(t, cmd, mcp), `${t} ${cmd}`).toBe(want);
   });
 
   it('argsDigest is stable under key order and differs for different arguments', () => {

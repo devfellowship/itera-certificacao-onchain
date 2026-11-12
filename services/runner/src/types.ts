@@ -19,6 +19,9 @@ export type StepStatus = 'ok' | 'error' | 'denied' | 'timeout';
 export type StepErrorClass =
   | 'tool_error' | 'invalid_args' | 'not_found' | 'permission' | 'timeout' | 'rate_limited' | 'network' | 'interrupted' | 'other';
 export type TargetKind = 'file' | 'dir' | 'url' | 'host' | 'repo' | 'agent' | 'skill' | 'mcp' | 'command' | 'pattern' | 'none';
+/** tma-trajectory/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T10). */
+export type StepKind = 'read' | 'search' | 'write' | 'test' | 'mcp' | 'shell' | 'agent' | 'other';
+export type TurnOrigin = 'human' | 'agent' | 'system';
 
 export interface StepTrajectory {
   /** Earlier step that this one belongs to (a sub-agent call). opencode events carry none, so null. */
@@ -40,6 +43,12 @@ export interface StepTrajectory {
   resultSha256: string | null;
   /** The earlier failed step that this call repeats (same tool, same arguments). */
   retryOf: number | null;
+  /** tma-trajectory/2: the kind of the call, from the tool and (for bash) the command. Written when 0024 is applied. */
+  stepKind: StepKind;
+  /** tma-trajectory/2: ms from the first event of the run to the start of the call; null when unknown. */
+  startedMs: number | null;
+  /** tma-trajectory/2: a hosted run has no human: the first model step answers the task message (system), the rest are the agent's. */
+  turnOrigin: TurnOrigin;
 }
 
 export interface AgentUsage {

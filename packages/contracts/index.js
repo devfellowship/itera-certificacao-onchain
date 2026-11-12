@@ -155,6 +155,9 @@ export {
   validateLocalResultV2,
   validateAnyLocalResult,
   parseAnyLocalResultText,
+  GRADER_VERSION_FIELDS,
+  GRADER_REASON_CODES,
+  graderVersionFieldsKey,
 } from './local-result.js';
 export {
   TRAJECTORY_FORMAT,
@@ -164,7 +167,12 @@ export {
   STEP_STATUSES,
   STEP_ERROR_CLASSES,
   TARGET_KINDS,
+  TRAJECTORY_V2_FORMAT,
+  STEP_KINDS,
+  TURN_ORIGINS,
+  TRAJECTORY_MAX_STARTED_MS,
   trajectorySchema,
+  trajectoryV2Schema,
   trajectoryStepIssues,
   validateTrajectory,
 } from './trajectory.js';

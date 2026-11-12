@@ -245,12 +245,32 @@ export interface Trajectory {
   format: 'tma-trajectory/1';
   steps: TrajectoryStep[];
 }
+
+// --- tma-trajectory/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T10): v1 plus three fields per step.
+export type StepKind = 'read' | 'search' | 'write' | 'test' | 'mcp' | 'shell' | 'agent' | 'other';
+export type TurnOrigin = 'human' | 'agent' | 'system';
+export interface TrajectoryStepV2 extends TrajectoryStep {
+  step_kind: StepKind;
+  /** ms from the start of the run, or null when not recorded. */
+  started_ms: number | null;
+  turn_origin: TurnOrigin | null;
+}
+export interface TrajectoryV2 {
+  format: 'tma-trajectory/2';
+  steps: TrajectoryStepV2[];
+}
+export type AnyTrajectory = Trajectory | TrajectoryV2;
+export declare const TRAJECTORY_V2_FORMAT: 'tma-trajectory/2';
+export declare const STEP_KINDS: readonly StepKind[];
+export declare const TURN_ORIGINS: readonly TurnOrigin[];
+export declare const TRAJECTORY_MAX_STARTED_MS: number;
+export declare const trajectoryV2Schema: Record<string, unknown>;
 export interface TrajectoryIssue {
   code: 'unknown_key' | 'invalid' | 'inconsistent';
   path: string;
   message: string;
 }
-export type TrajectoryValidation = { ok: true; value: Trajectory } | { ok: false; issues: TrajectoryIssue[]; errors: string[] };
+export type TrajectoryValidation = { ok: true; value: AnyTrajectory } | { ok: false; issues: TrajectoryIssue[]; errors: string[] };
 
 export declare const TRAJECTORY_FORMAT: 'tma-trajectory/1';
 export declare const TRAJECTORY_MAX_STEPS: number;
@@ -284,6 +304,20 @@ export interface AgentVersion {
   tools_sha256: string | null;
 }
 
+/** The closed reason of a label (grader_results.reason_code; the S13 chips). */
+export type GraderReasonCode = 'wrong_sha' | 'no_check' | 'partial' | 'other';
+/** A judge's label counts and 2x2 table on its test split: tp + fn + tn + fp = n_test <= n_labels. */
+export interface GraderCalibration {
+  n_labels: number;
+  n_test: number;
+  tp: number;
+  fn: number;
+  tn: number;
+  fp: number;
+  /** YYYY-MM-DD, or null. */
+  realigned_at: string | null;
+}
+
 export interface GraderResult {
   id: string;
   semver: string;
@@ -294,18 +328,35 @@ export interface GraderResult {
   weight: number;
   hard_gate: boolean;
   decisive: boolean;
+  // Optional (plan T11). The first four belong to the grader VERSION: every run that names it sends the same values.
+  proof?: { caught: number; total: number } | null;
+  /** A judge only. */
+  calibration?: GraderCalibration | null;
+  /** At most 60 characters, the label charset. */
+  note?: string | null;
+  /** An actor key (a slug or a principal id). */
+  author?: string | null;
+  // These two belong to this result.
+  reason_code?: GraderReasonCode | null;
+  labeler?: string | null;
+}
+
+/** The task summary of a case (Q-T16 = A): at most 280 characters per field, the label charset. No outcome. */
+export interface TaskSummary {
+  before: string | null;
+  expected: string | null;
 }
 
 export interface LocalResultV2 extends Omit<LocalResult, 'format' | 'runs'> {
   format: 'tma-local-result/2';
   /** The test case: the problem. origin_pin_sha256 is provenance of the origin trace, never an agent binding. */
-  case: { case_key: string; manifest_sha256: string; origin_pin_sha256: string | null; mode: CaseMode; use_case_key: string };
+  case: { case_key: string; manifest_sha256: string; origin_pin_sha256: string | null; mode: CaseMode; use_case_key: string; task_summary?: TaskSummary | null };
   /** The agent variant: a base agent version plus ONE diff. Independent of the case. */
   variant: { agent: AgentVersion; variant_sha256: string; label: string; change_kind: VariantChangeKind };
   /** The crossing of this case and this variant. */
   comparison: { is_baseline: boolean; prediction_sha256: string | null };
   /** Closed per shape: the v1 run of the shape plus infra_ok, graders and trajectory. At most 50. */
-  runs: Array<LocalResult['runs'][number] & { infra_ok: boolean; graders: GraderResult[]; trajectory: Trajectory | null }>;
+  runs: Array<LocalResult['runs'][number] & { infra_ok: boolean; graders: GraderResult[]; trajectory: AnyTrajectory | null }>;
 }
 
 export type LocalResultV2Validation = { ok: true; value: LocalResultV2 } | { ok: false; issues: LocalResultIssue[]; errors: string[] };
@@ -325,6 +376,10 @@ export declare const EMPTY_DIFF_SHA256: string;
 export declare function agentVersionSha256(agent: AgentVersion): string;
 export declare const GRADER_KINDS: readonly GraderKind[];
 export declare const CASE_MODES: readonly CaseMode[];
+export declare const GRADER_VERSION_FIELDS: readonly ('proof' | 'calibration' | 'note' | 'author')[];
+export declare const GRADER_REASON_CODES: readonly GraderReasonCode[];
+/** The grader-version fields of a grader entry as one canonical string (an absent key = null). */
+export declare function graderVersionFieldsKey(g: GraderResult): string;
 export declare const localResultV2Schema: Record<string, unknown>;
 export declare function validateLocalResultV2(value: unknown): LocalResultV2Validation;
 /** Validate by `format`: v2 when it says tma-local-result/2, else v1. */

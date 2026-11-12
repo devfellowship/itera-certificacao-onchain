@@ -23,10 +23,20 @@ export const STEP_ERROR_CLASSES = /** @type {const} */ ([
 ]);
 export const TARGET_KINDS = /** @type {const} */ (['file', 'dir', 'url', 'host', 'repo', 'agent', 'skill', 'mcp', 'command', 'pattern', 'none']);
 
+// tma-trajectory/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T10): tma-trajectory/1 plus step_kind,
+// started_ms and turn_origin per step. The closed schema is schemas/trajectory-v2.schema.json; v1 stays valid.
+export const TRAJECTORY_V2_FORMAT = 'tma-trajectory/2';
+export const STEP_KINDS = /** @type {const} */ (['read', 'search', 'write', 'test', 'mcp', 'shell', 'agent', 'other']);
+export const TURN_ORIGINS = /** @type {const} */ (['human', 'agent', 'system']);
+/** The largest started_ms (one day), the same bound as duration_ms. */
+export const TRAJECTORY_MAX_STARTED_MS = 86_400_000;
+
 export const trajectorySchema = JSON.parse(readFileSync(new URL('./schemas/trajectory.schema.json', import.meta.url), 'utf-8'));
+export const trajectoryV2Schema = JSON.parse(readFileSync(new URL('./schemas/trajectory-v2.schema.json', import.meta.url), 'utf-8'));
 
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictTypes: false, strictRequired: false });
 const validateFn = ajv.compile(trajectorySchema);
+const validateV2Fn = ajv.compile(trajectoryV2Schema);
 
 /**
  * @typedef {{ code: 'unknown_key' | 'invalid' | 'inconsistent', path: string, message: string }} TrajectoryIssue
@@ -75,12 +85,15 @@ export function trajectoryStepIssues(steps, base = '/steps') {
 }
 
 /**
- * Validate a parsed tma-trajectory/1 record: the closed schema, then the cross-step rules.
+ * Validate a parsed tma-trajectory/1 or tma-trajectory/2 record (by its `format`; any other value is checked as
+ * v1): the closed schema, then the cross-step rules (the same for both versions).
  * @param {unknown} value
  */
 export function validateTrajectory(value) {
-  if (!validateFn(value)) {
-    const issues = issuesOf(validateFn.errors);
+  const v2 = value !== null && typeof value === 'object' && /** @type {any} */ (value).format === TRAJECTORY_V2_FORMAT;
+  const fn = v2 ? validateV2Fn : validateFn;
+  if (!fn(value)) {
+    const issues = issuesOf(fn.errors);
     return { ok: /** @type {const} */ (false), issues, errors: issues.map((i) => `${i.path} ${i.message}`) };
   }
   const v = /** @type {any} */ (value);

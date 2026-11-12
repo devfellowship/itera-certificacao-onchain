@@ -40,6 +40,8 @@ export class PgJobStore implements JobStore {
   private readonly now: () => number;
   private evalSchema = false;
   private evalCheckedAt = Number.NEGATIVE_INFINITY;
+  private metaSchema = false;
+  private metaCheckedAt = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly pool: Pool, options: PgJobStoreOptions = {}) {
     this.tenant = options.tenant ?? resultTenantFromEnv();
@@ -68,6 +70,27 @@ export class PgJobStore implements JobStore {
       this.evalSchema = false;
     }
     return this.evalSchema;
+  }
+
+  /**
+   * Is migration 0024 (the tma-trajectory/2 step columns step_kind, started_ms, turn_origin) applied? Same cache rule
+   * as hasEvalResultsSchema. Until it is, the worker writes the tma-trajectory/1 columns only.
+   */
+  async hasTrajectoryV2Schema(): Promise<boolean> {
+    if (this.metaSchema) return true;
+    const now = this.now();
+    if (now - this.metaCheckedAt < RECHECK_MS) return false;
+    this.metaCheckedAt = now;
+    try {
+      const r = await this.pool.query(
+        `select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'run_actions' and column_name = 'turn_origin'`,
+      );
+      this.metaSchema = r.rows.length > 0;
+    } catch {
+      this.metaSchema = false;
+    }
+    return this.metaSchema;
   }
 
   /** ADR-11: a published Itera MCP catalog version (0013_mcp_catalog.sql). Null if absent or not published. */
@@ -116,6 +139,7 @@ export class PgJobStore implements JobStore {
     const p = outcome.provenance ?? null;
     // Asked before the transaction: a failed probe inside it would abort it.
     const evalSchema = await this.hasEvalResultsSchema();
+    const trajectoryV2 = evalSchema && (await this.hasTrajectoryV2Schema());
     const client = await this.pool.connect();
     try {
       await client.query('begin');
@@ -172,7 +196,7 @@ export class PgJobStore implements JobStore {
           [runId, artifacts.map((a) => artifactRef(a.path)), artifacts.map((a) => a.content), artifacts.map((a) => a.sha256)],
         );
       }
-      const actionsDone = evalSchema ? await this.insertTrajectory(client, runId, outcome) : false;
+      const actionsDone = evalSchema ? await this.insertTrajectory(client, runId, outcome, trajectoryV2) : false;
       if (!actionsDone && outcome.actions.length > 0) {
         await client.query(
           `insert into public.run_actions (run_id, seq, tool, target, ok, occurred_at)
@@ -205,7 +229,7 @@ export class PgJobStore implements JobStore {
    * savepoint is rolled back and the caller writes the old columns, so a result is never lost to the extra
    * record. Returns true when the rows are written (or there are none to write).
    */
-  private async insertTrajectory(client: PoolClient, runId: string, outcome: RunOutcome): Promise<boolean> {
+  private async insertTrajectory(client: PoolClient, runId: string, outcome: RunOutcome, v2: boolean): Promise<boolean> {
     const actions = outcome.actions;
     if (actions.length === 0) return true;
     // Steps without a trajectory (a caller that built the actions by hand) take the old columns.
@@ -216,13 +240,13 @@ export class PgJobStore implements JobStore {
       await client.query(
         `insert into public.run_actions
            (run_id, seq, tool, target, ok, occurred_at, parent_seq, turn, tool_family, status, error_class,
-            duration_ms, tokens_in, tokens_out, target_kind, args_sha256, result_sha256, retry_of)
+            duration_ms, tokens_in, tokens_out, target_kind, args_sha256, result_sha256, retry_of${v2 ? ', step_kind, started_ms, turn_origin' : ''})
          select $1, a.seq, a.tool, a.target, a.ok, a.occurred_at, a.parent_seq, a.turn, a.tool_family, a.status, a.error_class,
-                a.duration_ms, a.tokens_in, a.tokens_out, a.target_kind, a.args_sha256, a.result_sha256, a.retry_of
+                a.duration_ms, a.tokens_in, a.tokens_out, a.target_kind, a.args_sha256, a.result_sha256, a.retry_of${v2 ? ', a.step_kind, a.started_ms, a.turn_origin' : ''}
            from unnest($2::int[], $3::text[], $4::text[], $5::boolean[], $6::timestamptz[], $7::int[], $8::int[], $9::text[],
-                       $10::text[], $11::text[], $12::int[], $13::bigint[], $14::bigint[], $15::text[], $16::text[], $17::text[], $18::int[])
+                       $10::text[], $11::text[], $12::int[], $13::bigint[], $14::bigint[], $15::text[], $16::text[], $17::text[], $18::int[]${v2 ? ', $19::text[], $20::int[], $21::text[]' : ''})
                 as a(seq, tool, target, ok, occurred_at, parent_seq, turn, tool_family, status, error_class,
-                     duration_ms, tokens_in, tokens_out, target_kind, args_sha256, result_sha256, retry_of)
+                     duration_ms, tokens_in, tokens_out, target_kind, args_sha256, result_sha256, retry_of${v2 ? ', step_kind, started_ms, turn_origin' : ''})
          on conflict (run_id, seq) do nothing`,
         [
           runId,
@@ -243,6 +267,8 @@ export class PgJobStore implements JobStore {
           t.map((x) => x.argsSha256),
           t.map((x) => x.resultSha256),
           t.map((x) => x.retryOf),
+          // 0024 (tma-trajectory/2). A step built before T10 has none of the three: null.
+          ...(v2 ? [t.map((x) => x.stepKind ?? null), t.map((x) => x.startedMs ?? null), t.map((x) => x.turnOrigin ?? null)] : []),
         ],
       );
       await client.query('release savepoint run_actions_trajectory');
