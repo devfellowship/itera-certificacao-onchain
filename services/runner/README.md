@@ -253,3 +253,29 @@ A task that declares `environment.tools.mcp[]` gets one sidecar per server, per 
 - After the agent: `docker exec /itera/export` (final state) + `docker logs` (call log), then removal. The worker scores the state against `tests/hidden/mcp/<name>/assert.json` (`mcp_state`, weight 50; code scorers take the other 50). Only digests and counts reach the EvalLog. MCP calls are `run_actions` rows with tool `<server>_<tool>`.
 - Validation gate `mcp` step (`src/mcp-gate.ts`): assertions FAIL with no calls; the replay of `solution/mcp-calls.jsonl` makes them PASS 3× with the same export sha256.
 - Curated packs: the worker registers every `benchmarks/*` bundle in `task_packs` at boot (`src/curated-packs.ts`).
+
+## `tma studio serve` — read-only trace content for the studio (C5-T11, a workaround)
+
+The studio screens S2 (trace picker) and S3 (trace view) of web2 need trace content, and the TMA server
+holds no trace text. `tma studio serve` is a small read-only HTTP service on the host that holds the
+traces (plan `20261112-tma-c5-studio-area-web2`, ADR-4, Q-C5-1 = A). It is a workaround with an end:
+task C5-T12 removes it when the final content path (C10) ships.
+
+```bash
+tma studio serve --allow-principal dfl:<uuid> --allow-origin https://testmyagent.com [--port 8787]
+```
+
+- **127.0.0.1 only.** There is no flag for another address. How a browser reaches it is a separate decision.
+- **Read-only.** GET only; every other method answers 405. The trace index is opened read-only.
+- **Login on every call.** `Authorization: Bearer <TMA web session>`. The TMA API checks the token
+  (`GET /auth/me` at `TMA_API_URL`), so the host never holds the session signing key. Only the
+  `--allow-principal` ids may read. A CLI session (`tma login`, it carries `sid`) is refused.
+- **Routes:** `GET /v1/health` (no login, `{ok: true}`), `GET /v1/traces?limit&offset&l2_class&why&mode`
+  (S2: the newest `candidates-<day>.jsonl` of trace-select, with pin status and `task_summary`, max 280
+  characters per field), `GET /v1/traces/<session_id>[?agent_id=<id>]` (S3: session summary, runs with
+  their steps, first failed step).
+- **Sources** (flags, defaults for the fleet host): `--index` the trace index SQLite (C1-T3),
+  `--select-dir` the trace-select output, `--trajectory-root` the layer-1 files. A layer-1 path is served
+  only when its real path is inside the trajectory root. Fields are copied by name; an unknown source
+  field is not served.
+- One request at a time. Tests run on a synthetic fixture (`src/cli/studio/*.test.ts`).
