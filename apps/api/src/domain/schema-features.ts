@@ -37,8 +37,37 @@ export function hostedOnly(selfDeclaredSchema: boolean, alias: string): string {
   return selfDeclaredSchema ? ` and ${alias}.result_origin = 'hosted'` : "";
 }
 
-/** Test seam: forget the cached answer. */
+/**
+ * 0023_eval_results.sql (plan 20261112-tma-c4-result-store-trajectory-upload, T2) adds eval_cases,
+ * eval_variants, grader_versions, grader_results and the case / trajectory columns. Until it is applied on
+ * production, a tma-local-result/2 upload answers 503 schema_not_ready (nothing is written) and the read
+ * routes add no case, variant, grader or trajectory field. v1 uploads and every other route are unchanged.
+ * Same cache rule as the 0021 probe: `true` for the life of the process, `false` re-asked once a minute.
+ */
+let evalPresent = false;
+let evalCheckedAt = Number.NEGATIVE_INFINITY;
+
+export async function hasEvalResultsSchema(db: Queryable, now: number = Date.now()): Promise<boolean> {
+  if (evalPresent) return true;
+  if (now - evalCheckedAt < RECHECK_MS) return false;
+  evalCheckedAt = now;
+  try {
+    // The last object of 0023 (the file is one transaction, so this column means the whole file is applied).
+    const { rows } = await db.query(
+      `select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'run_actions' and column_name = 'retry_of'`,
+    );
+    evalPresent = rows.length > 0;
+  } catch {
+    evalPresent = false;
+  }
+  return evalPresent;
+}
+
+/** Test seam: forget the cached answers. */
 export function resetSchemaFeatures(): void {
   present = false;
   checkedAt = Number.NEGATIVE_INFINITY;
+  evalPresent = false;
+  evalCheckedAt = Number.NEGATIVE_INFINITY;
 }

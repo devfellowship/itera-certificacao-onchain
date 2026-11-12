@@ -14,9 +14,22 @@
  * route scopes it to its owner.
  */
 import { createHash } from "node:crypto";
-import type { LocalResult } from "@itera/contracts";
+import type { LocalResult, LocalResultV2, TrajectoryStep } from "@itera/contracts";
 
 export const SELF_DECLARED_MIGRATION = "0021_self_declared_results.sql";
+/** tma-local-result/2 needs this migration (plan 20261112-tma-c4-result-store-trajectory-upload, T2). */
+export const EVAL_RESULTS_MIGRATION = "0023_eval_results.sql";
+/**
+ * The result-plane tenant of every self-declared v2 row (plan ADR-4, parent ADR-11). Only `dfl`
+ * principals upload today, so the default is the fleet; TMA_RESULT_TENANT overrides it (C10 adds onboarding).
+ */
+export const DEFAULT_RESULT_TENANT = "devfellowship";
+const TENANT_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+export function resultTenantFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+  const t = env.TMA_RESULT_TENANT?.trim();
+  return t && TENANT_RE.test(t) ? t : DEFAULT_RESULT_TENANT;
+}
 export const DEFAULT_SELF_DECLARED_PER_DAY = 50;
 
 export type ImportAction = "inserted" | "updated" | "unchanged";
@@ -49,8 +62,38 @@ export class SelfDeclaredError extends Error {
   }
 }
 
+/** The answer of a tma-local-result/2 import: one evaluation (case + variant + executor), one row per run. */
+export interface ImportOutcomeV2 {
+  evaluationId: string;
+  caseId: string;
+  variantId: string;
+  /** Every run row of the evaluation, in seq order (the old ones included). */
+  runIds: string[];
+  action: ImportAction;
+  outcome: "pass" | "fail";
+  /** What this upload did to the runs it named. */
+  runs: { inserted: number; updated: number; unchanged: number };
+  taskId: string;
+  taskVersionId: string;
+  dryRun: boolean;
+}
+
+export interface ImportOptionsV2 extends ImportOptions {
+  /** The result-plane tenant of the new rows (resultTenantFromEnv). */
+  tenant: string;
+}
+
 export interface SelfDeclaredStore {
   importResult(principal: string, result: LocalResult, options: ImportOptions): Promise<ImportOutcome>;
+  /**
+   * tma-local-result/2 (plan 20261112-tma-c4-result-store-trajectory-upload, T3, ADR-1). In ONE transaction:
+   * the v1 checks; the case and the variant (upserts: the first baseline of a case wins, a second one is
+   * 409 baseline_exists); one evaluation per (principal, task, agent, executor, case, variant); one `runs`
+   * row per run of the body, keyed by (item, kind, repeat), with its grader rows and trajectory rows. A
+   * re-upload of the same runs is `unchanged`; a new repeat adds a row; a changed run is updated, its
+   * trajectory replaced and its grader rows ADDED (a re-grade never updates a grader row).
+   */
+  importResultV2(principal: string, result: LocalResultV2, options: ImportOptionsV2): Promise<ImportOutcomeV2>;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -81,6 +124,72 @@ export function selfDeclaredId(principal: string, r: LocalResult): string {
   return stableUuid(`self-declared:${principal}:${taskRef(r)}:${r.agent_id}:${executorKey(r)}`);
 }
 
+/** v2: the case key and the variant digest join the v1 key, so a second variant is a second evaluation. */
+export function selfDeclaredIdV2(principal: string, r: LocalResultV2): string {
+  return stableUuid(
+    `self-declared:${principal}:${taskRef(r)}:${r.agent_id}:${executorKey(r)}:${r.case.case_key}:${r.variant.variant_sha256}`,
+  );
+}
+
+type RunV2 = LocalResultV2["runs"][number];
+
+/** The identity of one run inside its evaluation: the item, the kind (mining and trajectory shapes) and the repeat. */
+export function runKeyV2(run: RunV2): string {
+  const kind = typeof run.kind === "string" ? run.kind : "";
+  return `${run.item_sha256}:${kind}:${run.repeat}`;
+}
+
+/** The id of one v2 run row: stable, so a re-upload finds the same row. */
+export function runIdV2(evaluationId: string, run: RunV2): string {
+  return stableUuid(`self-declared-run:${evaluationId}:${runKeyV2(run)}`);
+}
+
+/**
+ * The status of one v2 run row. infra_ok false → infra_error (not the agent's fault). tma-score/1: the
+ * run's own status. The other shapes: every hard-gate grader passes and the score is above 0.
+ */
+export function runStatusV2(r: LocalResultV2, run: RunV2): "pass" | "fail" | "infra_error" {
+  if (run.infra_ok === false) return "infra_error";
+  if (r.metrics_shape === "tma-score/1") return run.status === "pass" ? "pass" : "fail";
+  const gates = run.graders.filter((g) => g.hard_gate);
+  return run.score > 0 && gates.every((g) => g.pass) ? "pass" : "fail";
+}
+
+/** The run's numbers as evidence: no grader rows and no trajectory (they have their own tables). */
+export function runEvidenceV2(r: LocalResultV2, run: RunV2, digest: string) {
+  const { graders: _graders, trajectory: _trajectory, ...numbers } = run;
+  return {
+    kind: r.format,
+    metrics_shape: r.metrics_shape,
+    import_digest: digest,
+    grader_version: r.grader_version,
+    runner: r.runner,
+    executor: r.executor,
+    ran_from: r.ran_from,
+    ran_to: r.ran_to,
+    case_key: r.case.case_key,
+    variant_sha256: r.variant.variant_sha256,
+    item: numbers,
+  };
+}
+
+/** What a reader needs from a trajectory without its rows: step count, first failed step, error classes. */
+export interface TrajectorySummary {
+  steps: number;
+  firstFailureSeq: number | null;
+  errorClasses: Record<string, number>;
+}
+
+export function trajectorySummaryOf(steps: ReadonlyArray<Pick<TrajectoryStep, "seq" | "status" | "error_class">>): TrajectorySummary {
+  const errorClasses: Record<string, number> = {};
+  let firstFailureSeq: number | null = null;
+  for (const s of [...steps].sort((a, b) => a.seq - b.seq)) {
+    if (s.status !== "ok" && firstFailureSeq === null) firstFailureSeq = s.seq;
+    if (s.error_class) errorClasses[s.error_class] = (errorClasses[s.error_class] ?? 0) + 1;
+  }
+  return { steps: steps.length, firstFailureSeq, errorClasses };
+}
+
 /** JSON with sorted object keys, so the digest does not depend on the client's key order. */
 function canonical(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
@@ -92,7 +201,7 @@ function canonical(v: unknown): string {
 }
 
 /** Digest of what the import writes; equal digest = nothing to update. */
-export function resultDigest(r: LocalResult): string {
+export function resultDigest(r: LocalResult | LocalResultV2 | RunV2): string {
   return createHash("sha256").update(canonical(r)).digest("hex");
 }
 

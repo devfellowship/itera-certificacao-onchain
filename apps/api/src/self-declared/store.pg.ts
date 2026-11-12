@@ -4,12 +4,21 @@
  * 0021 column or table fails (42703 / 42P01), the transaction rolls back, and the router answers
  * 503 schema_not_ready: nothing is written on a database that is not migrated.
  */
-import type { LocalResult } from "@itera/contracts";
+import type { LocalResult, LocalResultV2 } from "@itera/contracts";
 import type { Pool, PoolClient } from "pg";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
+import { hasEvalResultsSchema } from "../domain/schema-features.js";
 import {
+  EVAL_RESULTS_MIGRATION,
   SELF_DECLARED_MIGRATION,
   SelfDeclaredError,
+  runEvidenceV2,
+  runIdV2,
+  runKeyV2,
+  runStatusV2,
+  selfDeclaredIdV2,
+  type ImportOptionsV2,
+  type ImportOutcomeV2,
   evidenceOf,
   executorKey,
   modelLookup,
@@ -30,10 +39,20 @@ function pgCode(e: unknown): string | undefined {
 }
 
 /** Sentinel: the dry run reached its end and rolls back. */
-class DryRunDone extends Error {
-  constructor(public readonly outcome: ImportOutcome) {
+class DryRunDone<T = ImportOutcome> extends Error {
+  constructor(public readonly outcome: T) {
     super("dry run");
   }
+}
+
+type RunV2 = LocalResultV2["runs"][number];
+
+/** The evaluation numbers of a v2 evaluation, from ALL its runs (the stored ones and this upload's). */
+function evaluationNumbersV2(runs: Array<{ status: string; score: number }>) {
+  const graded = runs.filter((x) => x.status === "pass" || x.status === "fail");
+  const pass = graded.filter((x) => x.status === "pass").length;
+  const score = graded.length ? Math.round((graded.reduce((a, x) => a + x.score, 0) / graded.length) * 10) / 10 : 0;
+  return { pass, fail: graded.length - pass, score, outcome: (graded.length > 0 && pass === graded.length ? "pass" : "fail") as "pass" | "fail" };
 }
 
 interface TaskRow {
@@ -171,6 +190,268 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
       );
     }
     return result;
+  }
+
+  async importResultV2(principal: string, r: LocalResultV2, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
+    const c = await this.pool.connect();
+    try {
+      // Deploy safety: until 0023 is applied, nothing is written (503 schema_not_ready).
+      if (!(await hasEvalResultsSchema(c))) throw new SchemaNotReadyError(EVAL_RESULTS_MIGRATION);
+      await c.query("begin");
+      const outcome = await this.writeV2(c, principal, r, options);
+      if (options.dryRun) throw new DryRunDone(outcome);
+      await c.query("commit");
+      return outcome;
+    } catch (e) {
+      await c.query("rollback").catch(() => undefined);
+      if (e instanceof DryRunDone) return e.outcome as ImportOutcomeV2;
+      const code = pgCode(e);
+      if (code === "42703" || code === "42P01") throw new SchemaNotReadyError(EVAL_RESULTS_MIGRATION, e);
+      // The partial unique index is the last line: the case lock below already serializes two baselines.
+      if (code === "23505" && (e as { constraint?: string }).constraint === "eval_variants_one_baseline_idx") {
+        throw new SelfDeclaredError(409, "baseline_exists", "this case already has a baseline");
+      }
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+
+  private async writeV2(c: PoolClient, principal: string, r: LocalResultV2, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
+    const tenant = options.tenant;
+    const id = selfDeclaredIdV2(principal, r);
+    // One lock per case (the baseline rule), taken before the evaluation lock: one order, no deadlock.
+    await c.query("select pg_advisory_xact_lock(hashtext($1))", [`eval-case:${tenant}:${principal}:${r.case.case_key}:${r.case.manifest_sha256}`]);
+    await c.query("select pg_advisory_xact_lock(hashtext($1))", [`self-declared:${id}`]);
+    // The v1 helpers read only task, agent_id and executor, which v2 has unchanged.
+    const v1 = r as unknown as LocalResult;
+
+    const agent = (await c.query(`select id, owner_wallet, pinned_commit from public.agents where id = $1`, [r.agent_id])).rows[0];
+    if (!agent || agent.owner_wallet !== principal) throw new SelfDeclaredError(404, "agent_not_found", "agent not found");
+    await this.checkModel(c, principal, r.executor.model_id);
+    const { task, taskVersionId, packId, packVersion } = await this.resolveTask(c, principal, v1);
+    const version = (await c.query(
+      `select id, commit_sha from public.agent_versions where agent_id = $1
+        order by (commit_sha = $2) desc, created_at desc limit 1`,
+      [agent.id, agent.pinned_commit ?? ""],
+    )).rows[0];
+    if (!version) throw new SelfDeclaredError(409, "agent_has_no_version", "the agent has no version yet");
+
+    // The case: an upsert. The same manifest digest with another pin, mode or use case is a conflict.
+    const k = r.case;
+    const caseRow = (await c.query(
+      `insert into public.eval_cases (tenant, owner_wallet, case_key, manifest_sha256, pin_sha256, mode, use_case_key, task_id, task_version_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       on conflict on constraint eval_cases_key do update set case_key = excluded.case_key
+       returning id, pin_sha256, mode, use_case_key`,
+      [tenant, principal, k.case_key, k.manifest_sha256, k.pin_sha256, k.mode, k.use_case_key, task.id, taskVersionId],
+    )).rows[0];
+    if (caseRow.pin_sha256 !== k.pin_sha256 || caseRow.mode !== k.mode || caseRow.use_case_key !== k.use_case_key) {
+      throw new SelfDeclaredError(409, "case_conflict", `case ${k.case_key} with this manifest exists with another pin, mode or use case`);
+    }
+    const caseId = caseRow.id as string;
+
+    // The variant: an upsert. The first baseline of a case wins (plan Q-T4 = A, parent ADR-19).
+    const v = r.variant;
+    let variant = (await c.query(
+      `select id, change_kind, is_baseline, prediction_sha256 from public.eval_variants where case_id = $1 and variant_sha256 = $2`,
+      [caseId, v.variant_sha256],
+    )).rows[0];
+    if (variant && (variant.is_baseline !== v.is_baseline || variant.change_kind !== v.change_kind || variant.prediction_sha256 !== v.prediction_sha256)) {
+      throw new SelfDeclaredError(409, "variant_conflict", "this variant digest exists in the case with another change kind, baseline flag or prediction");
+    }
+    if (!variant) {
+      if (v.is_baseline && (await c.query(`select 1 from public.eval_variants where case_id = $1 and is_baseline`, [caseId])).rowCount) {
+        throw new SelfDeclaredError(409, "baseline_exists", "this case already has a baseline");
+      }
+      variant = (await c.query(
+        `insert into public.eval_variants (case_id, tenant, variant_sha256, label, change_kind, is_baseline, prediction_sha256)
+         values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+        [caseId, tenant, v.variant_sha256, v.label, v.change_kind, v.is_baseline, v.prediction_sha256],
+      )).rows[0];
+    }
+    const variantId = variant.id as string;
+
+    // The evaluation and its stored runs.
+    const prevEval = (await c.query(
+      `select owner_wallet, result_origin from public.evaluations where id = $1 for update`,
+      [id],
+    )).rows[0];
+    if (prevEval && (prevEval.owner_wallet !== principal || prevEval.result_origin !== "self_declared")) {
+      throw new SelfDeclaredError(409, "conflicting_rows", "an evaluation with this id exists with another owner or origin");
+    }
+    const wanted = r.runs.map((run) => ({ run, id: runIdV2(id, run), digest: resultDigest(run) }));
+    const stored = (await c.query(
+      `select id, seq, status, evaluation_id, owner_wallet, result_origin, variant_id,
+              evidence_manifest ->> 'import_digest' as digest,
+              coalesce((evidence_manifest -> 'item' ->> 'score')::numeric, score_total) as score
+         from public.runs where evaluation_id = $1 or id = any($2::uuid[]) for update`,
+      [id, wanted.map((w) => w.id)],
+    )).rows as Array<{ id: string; seq: number; status: string; evaluation_id: string | null; owner_wallet: string; result_origin: string; variant_id: string | null; digest: string | null; score: string | number | null }>;
+    for (const s of stored) {
+      if (s.evaluation_id !== id || s.owner_wallet !== principal || s.result_origin !== "self_declared" || s.variant_id !== variantId) {
+        throw new SelfDeclaredError(409, "conflicting_rows", "a run with this id exists with another owner, origin or evaluation");
+      }
+    }
+    if (!prevEval && stored.length) throw new SelfDeclaredError(409, "conflicting_rows", "runs with this evaluation id exist without their evaluation");
+    const byId = new Map(stored.map((s) => [s.id, s]));
+    const plan = wanted.map((w) => {
+      const s = byId.get(w.id);
+      return { ...w, op: !s ? ("insert" as const) : s.digest === w.digest ? ("same" as const) : ("update" as const), seq: s?.seq ?? 0 };
+    });
+    const counts = {
+      inserted: plan.filter((p) => p.op === "insert").length,
+      updated: plan.filter((p) => p.op === "update").length,
+      unchanged: plan.filter((p) => p.op === "same").length,
+    };
+    const action: ImportAction = !prevEval ? "inserted" : counts.inserted + counts.updated === 0 ? "unchanged" : "updated";
+
+    // Seq: a stored run keeps its seq; a new run takes the next one (seq = repeat for one item uploaded in order).
+    let nextSeq = stored.reduce((m, s) => Math.max(m, s.seq), 0);
+    for (const p of plan) if (p.op === "insert") p.seq = ++nextSeq;
+    const merged = new Map<string, { status: string; score: number; seq: number }>(
+      stored.map((s) => [s.id, { status: s.status, score: Number(s.score ?? 0), seq: s.seq }]),
+    );
+    for (const p of plan) merged.set(p.id, { status: runStatusV2(r, p.run), score: p.run.score, seq: p.seq });
+    const all = [...merged.entries()].sort((a, b) => a[1].seq - b[1].seq);
+    const numbers = evaluationNumbersV2(all.map(([, x]) => x));
+    const result: ImportOutcomeV2 = {
+      evaluationId: id, caseId, variantId, runIds: all.map(([rid]) => rid), action, outcome: numbers.outcome, runs: counts,
+      taskId: task.id, taskVersionId, dryRun: options.dryRun,
+    };
+    if (action === "unchanged") return result;
+
+    if (action === "inserted") {
+      const n = (await c.query(
+        `select count(*)::int as n from public.evaluations
+          where owner_wallet = $1 and result_origin = 'self_declared' and created_at > now() - interval '24 hours'`,
+        [principal],
+      )).rows[0].n as number;
+      if (n >= options.perDay) throw new SelfDeclaredError(429, "self_declared_quota", `at most ${options.perDay} self-declared results per 24 h`);
+    }
+
+    const release = (await c.query(
+      `insert into public.release_declarations (agent_id, release_ref) values ($1, 'self-declared')
+       on conflict (agent_id, release_ref) do update set release_ref = excluded.release_ref returning id`,
+      [agent.id],
+    )).rows[0];
+    const taskEntry = {
+      taskId: task.id, taskVersionId, slug: task.slug, name: task.name, packId, packVersion,
+      isPublic: task.visibility === "public", source: "self-declared",
+    };
+    const evalValues = [
+      id, `sd-${id}`, `D${id.replaceAll("-", "")}`, principal, agent.id, version.id, r.executor.model_id, JSON.stringify([taskEntry]),
+      numbers.score, numbers.pass, numbers.fail, numbers.pass, all.length, r.ran_from, r.ran_to, all.length,
+    ];
+    if (action === "inserted") {
+      await c.query(
+        `insert into public.evaluations (id, slug, short_id, owner_wallet, agent_id, agent_version_id, model_id, tasks, status, task_count,
+           payment_kind, result_origin, score, pass_count, fail_count, invalid_count, tests_passed, tests_total, is_public,
+           started_at, completed_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, 'graded', $16, 'none', 'self_declared', $9, $10, $11, 0, $12, $13, false, $14, $15)`,
+        evalValues,
+      );
+    } else {
+      await c.query(
+        `update public.evaluations set agent_version_id = $6, model_id = $7, tasks = $8, score = $9, pass_count = $10, fail_count = $11,
+           tests_passed = $12, tests_total = $13, started_at = least(started_at, $14::timestamptz),
+           completed_at = greatest(completed_at, $15::timestamptz), task_count = $16
+         where id = $1 and slug = $2 and short_id = $3 and owner_wallet = $4 and agent_id = $5 and result_origin = 'self_declared'`,
+        evalValues,
+      );
+    }
+
+    const modelRoute = r.executor.route === "openrouter" || r.executor.route === "opencode-go" ? r.executor.route : null;
+    const costSource = r.executor.cost_source === "reported" ? "derived" : r.executor.cost_source;
+    const graderCache = new Map<string, string>();
+    for (const p of plan) {
+      if (p.op === "same") continue;
+      const run = p.run;
+      const values = [
+        p.id, release.id, packId, packVersion, `self-declared-${p.id}`, runStatusV2(r, run), r.ran_from, r.ran_to,
+        JSON.stringify(runEvidenceV2(r, run, p.digest)), Math.round(run.score), version.id, principal, task.id, taskVersionId,
+        r.executor.model_id, r.executor.model_effective ?? r.executor.model_id, r.executor.provider, run.cost_usd, run.tokens_in == null ? null : Math.round(run.tokens_in),
+        run.tokens_out == null ? null : Math.round(run.tokens_out), costSource, run.wall_s == null ? null : Math.round(run.wall_s * 1000),
+        JSON.stringify(this.provenanceV2(r, run)), modelRoute, id, p.seq, caseId, variantId, run.infra_ok,
+      ];
+      if (p.op === "insert") {
+        await c.query(
+          `insert into public.runs (id, release_declaration_id, task_pack_id, task_pack_version, nonce, status, started_at, completed_at,
+             evidence_manifest, score_total, agent_version_id, owner_wallet, task_id, task_version_id, model_requested, model_effective,
+             model_provider, model_cost_usd, model_tokens_in, model_tokens_out, model_cost_source, wall_ms, provenance, model_route,
+             evaluation_id, seq, case_id, variant_id, infra_ok, result_origin)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+             $25, $26, $27, $28, $29, 'self_declared')`,
+          values,
+        );
+      } else {
+        await c.query(
+          `update public.runs set release_declaration_id = $2, task_pack_id = $3, task_pack_version = $4, status = $6, started_at = $7,
+             completed_at = $8, evidence_manifest = $9, score_total = $10, agent_version_id = $11, task_version_id = $14,
+             model_requested = $15, model_effective = $16, model_provider = $17, model_cost_usd = $18, model_tokens_in = $19,
+             model_tokens_out = $20, model_cost_source = $21, wall_ms = $22, provenance = $23, model_route = $24, infra_ok = $29
+           where id = $1 and nonce = $5 and owner_wallet = $12 and task_id = $13 and evaluation_id = $25 and seq = $26
+             and case_id = $27 and variant_id = $28 and result_origin = 'self_declared'`,
+          values,
+        );
+        // The trajectory of a changed run is replaced; its grader rows are kept and new ones added (a re-grade).
+        await c.query(`delete from public.run_actions where run_id = $1`, [p.id]);
+      }
+      for (const g of run.graders) {
+        const gv = await this.graderVersion(c, tenant, g, graderCache);
+        await c.query(
+          `insert into public.grader_results (tenant, run_id, grader_version_id, pass, score, weight, hard_gate, decisive, infra_ok)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [tenant, p.id, gv, g.pass, g.score, g.weight, g.hard_gate, g.decisive, run.infra_ok],
+        );
+      }
+      if (run.trajectory && run.trajectory.steps.length) await this.insertTrajectory(c, p.id, run.trajectory.steps);
+    }
+    return result;
+  }
+
+  private provenanceV2(r: LocalResultV2, run: RunV2) {
+    return {
+      ...provenanceOf(r as unknown as LocalResult),
+      runs: 1,
+      run_key: runKeyV2(run),
+      repeat: run.repeat,
+      case_key: r.case.case_key,
+      variant_sha256: r.variant.variant_sha256,
+      format: r.format,
+    };
+  }
+
+  /** grader_versions is a registry: (tenant, id, semver, code digest) → one row, created on first use. */
+  private async graderVersion(c: PoolClient, tenant: string, g: RunV2["graders"][number], cache: Map<string, string>): Promise<string> {
+    const key = `${g.id}@${g.semver}#${g.code_sha256}`;
+    const hit = cache.get(key);
+    if (hit) return hit;
+    const row = (await c.query(
+      `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256) values ($1, $2, $3, $4, $5)
+       on conflict on constraint grader_versions_key do update set kind = public.grader_versions.kind
+       returning id, kind`,
+      [tenant, g.id, g.semver, g.kind, g.code_sha256],
+    )).rows[0];
+    if (row.kind !== g.kind) throw new SelfDeclaredError(409, "grader_conflict", `grader ${key} exists with kind ${row.kind}`);
+    cache.set(key, row.id);
+    return row.id as string;
+  }
+
+  /** One run_actions row per step, in one statement. target = target_redacted (plan ADR-2). */
+  private async insertTrajectory(c: PoolClient, runId: string, steps: NonNullable<RunV2["trajectory"]>["steps"]): Promise<void> {
+    const col = <K extends keyof (typeof steps)[number]>(k: K) => steps.map((s) => s[k]);
+    await c.query(
+      `insert into public.run_actions (run_id, seq, tool, target, ok, parent_seq, turn, tool_family, status, error_class, duration_ms,
+         tokens_in, tokens_out, target_kind, args_sha256, result_sha256, retry_of)
+       select $1, * from unnest($2::int[], $3::text[], $4::text[], $5::boolean[], $6::int[], $7::int[], $8::text[], $9::text[], $10::text[],
+         $11::int[], $12::bigint[], $13::bigint[], $14::text[], $15::text[], $16::text[], $17::int[])`,
+      [
+        runId, col("seq"), col("tool"), col("target_redacted"), steps.map((s) => s.status === "ok"), col("parent_seq"), col("turn"),
+        col("tool_family"), col("status"), col("error_class"), col("duration_ms"), col("tokens_in"), col("tokens_out"), col("target_kind"),
+        col("args_sha256"), col("result_sha256"), col("retry_of"),
+      ],
+    );
   }
 
   private async checkModel(c: PoolClient, principal: string, modelId: string): Promise<void> {

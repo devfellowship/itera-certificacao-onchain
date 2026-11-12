@@ -1,6 +1,7 @@
 import { PgSelfDeclaredStore } from "./self-declared/store.pg.js";
 import { selfDeclaredPerDayFromEnv } from "./self-declared/router.js";
 import { PgRunOriginLookup } from "./self-declared/run-guard.js";
+import { PgEvalResultsReader } from "./self-declared/eval-results.js";
 import { PgLocalAgentsStore } from "./local-agents/store.pg.js";
 import { PgCliAuthStore } from "./cli-auth/store.pg.js";
 import { createApp } from "./app.js";
@@ -126,6 +127,8 @@ createApp(repo, {
   },
   // L3, Q4 = C: a self-declared run is visible only to its owner (no-op before 0021).
   runOrigins: new PgRunOriginLookup(getPool),
+  // C4-T3: case, variant, graders, trajectory summary on the read routes + GET /eval-cases/:id (no-op before 0023).
+  evalResults: new PgEvalResultsReader(getPool),
   // L4: local agents and custom models (writes need 0021; 503 schema_not_ready before it).
   localAgents: { store: new PgLocalAgentsStore(getPool) },
   // L5: tma login (device code approved on web2 /cli) and CLI session revocation (needs 0021).
