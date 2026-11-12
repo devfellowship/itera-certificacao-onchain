@@ -99,6 +99,15 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # C4-T2 (plan 20261112-tma-c4-result-store-trajectory-upload): 0023 applies a second time and changes
+      # nothing, has no function or trigger, and its keys and CHECKs refuse the forbidden shapes (a second
+      # baseline, a cross-tenant variant, an UPDATE of grader_results by the API role). It deletes its fixtures.
+      - name: Migration 0023 test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/domain/migration-0023.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       - name: Self-declared results store test (Postgres)
         working-directory: apps/api
         run: npx vitest run src/self-declared/store.pg.test.ts
