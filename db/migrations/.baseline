@@ -1,0 +1,30 @@
+# One-shot baseline for db/scripts/apply-migrations.sh (read only while public.tma_schema_migrations is empty
+# and the database already has public.runs). These files reached production (mkfnbsnyvfkkfcjfpkxz) by hand,
+# before the ledger existed: 0000-0016 at setup, 0017-0020 on 2026-10-15, 0021 on 2026-10-27, 0022 after it
+# (plan 20261026-tma-local-runner-and-self-declared-results). The script records them WITHOUT running them,
+# and only when every probe below returns true. Each probe is one read-only query that returns one boolean.
+# Format: <file>|<select returning one boolean>. The list must be the first files in order.
+# Do not append to this file: once the ledger has rows, it is never read again.
+0000_baseline.sql|select to_regclass('public.vendors') is not null and to_regclass('public.evaluation_requests') is not null
+0001_runs_async.sql|select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'runs' and column_name = 'phase')
+0002_github_agents.sql|select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'agents' and column_name = 'connector')
+0003_run_actions.sql|select to_regclass('public.run_actions') is not null
+0004_proofs.sql|select to_regclass('public.proofs') is not null
+0005_api_role_grants.sql|select has_table_privilege('itera_api_service', 'public.run_actions', 'INSERT')
+0006_run_cost.sql|select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'runs' and column_name = 'model_cost_usd')
+0007_catalog.sql|select to_regclass('public.model_releases') is not null and to_regclass('public.task_versions') is not null
+0008_evaluations_payments.sql|select to_regclass('public.evaluations') is not null and to_regclass('public.payments') is not null
+0009_user_tasks.sql|select to_regclass('public.task_validations') is not null
+0010_reputation.sql|select to_regclass('public.run_feedback') is not null
+0011_agent_requires.sql|select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'agents' and column_name = 'requires')
+0012_task_profile.sql|select to_regclass('public.task_versions') is not null
+0013_mcp_catalog.sql|select to_regclass('public.mcp_catalog') is not null
+0014_helpdesk_task.sql|select exists (select 1 from public.tags where id = 'mcp-helpdesk')
+0015_profile_avatars.sql|select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'agents' and column_name = 'avatar_key')
+0016_sample_repos_faucet.sql|select to_regclass('public.faucet_grants') is not null
+0017_run_provenance.sql|select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'runs' and column_name = 'provenance')
+0018_users_principal.sql|select to_regclass('public.users') is not null
+0019_evaluations_payment_kind.sql|select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'evaluations' and column_name = 'payment_kind')
+0020_runner_heartbeats.sql|select to_regclass('public.runner_heartbeats') is not null
+0021_self_declared_results.sql|select to_regclass('public.cli_device_codes') is not null and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'runs' and column_name = 'result_origin')
+0022_rename_pack_ids.sql|select not exists (select 1 from public.task_versions where pack_id in ('webhook-ledger', 'helpdesk-refunds')) and not exists (select 1 from public.runs where task_pack_id in ('webhook-ledger', 'helpdesk-refunds'))

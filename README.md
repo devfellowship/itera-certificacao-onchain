@@ -276,7 +276,15 @@ faucet and sample repo) and `--no-pay`, and write a report to `e2e-report/`.
 
 Each app (web, API, runner worker) deploys from `main` on a self-hosted platform. A GitHub webhook
 starts the deploy when a push touches the app's watch paths. CI does not gate the deploy, and
-GitHub Actions holds no deployment credential.
+GitHub Actions holds no app deployment credential.
+
+Database migrations apply on merge. When a push to `main` touches `db/migrations/`, the workflow
+[`db-apply`](.github/workflows/db-apply.yml) runs [`db/scripts/apply-migrations.sh`](db/scripts/apply-migrations.sh)
+against the production database: only the files that its ledger (`public.tma_schema_migrations`) does
+not hold, in order, one transaction per file, and it stops at the first error. A second run applies
+nothing. Its only credential is the secret `TMA_DATABASE_URL` of the GitHub environment
+`tma-production`, which only `main` can use. Every PR that touches a migration rehearses the applier
+against a throwaway Postgres first (`db/scripts/test-apply-migrations.sh`).
 
 ## Open vs closed
 
