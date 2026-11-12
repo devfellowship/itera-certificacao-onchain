@@ -4,6 +4,7 @@
 import type { Command } from './command.js';
 import { stdio } from './command.js';
 import { agentCommand } from './commands/agent.js';
+import { evalCommand } from './commands/eval.js';
 import { evaluationsCommand } from './commands/evaluations.js';
 import { gradeCommand } from './commands/grade.js';
 import { loginCommand, logoutCommand } from './commands/login.js';
@@ -16,7 +17,7 @@ import { exitAllowed, installSignalCleanup } from './cleanup.js';
 import { CliError } from './env.js';
 import { CLI_VERSION } from './version.js';
 
-export const COMMANDS: Command[] = [loginCommand, logoutCommand, agentCommand, uploadCommand, evaluationsCommand, tasksCommand, workspaceCommand, gradeCommand, runCommand, studioCommand];
+export const COMMANDS: Command[] = [loginCommand, logoutCommand, agentCommand, uploadCommand, evaluationsCommand, tasksCommand, workspaceCommand, gradeCommand, runCommand, evalCommand, studioCommand];
 
 export function helpText(): string {
   const width = Math.max(...COMMANDS.map((c) => c.name.length));

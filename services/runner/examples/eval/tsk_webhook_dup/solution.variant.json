@@ -1,0 +1,9 @@
+{
+  "schema": "tma-variant/1",
+  "label": "reference solution",
+  "kind": "patch",
+  "patch": "../../../../../benchmarks/tsk_webhook_dup/solution/solution.patch",
+  "change_kind": "none",
+  "is_baseline": true,
+  "prediction": null
+}
