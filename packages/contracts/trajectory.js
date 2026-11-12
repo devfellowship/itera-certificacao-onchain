@@ -2,7 +2,7 @@
 // Copyright 2026 Itera / DevFellowship
 // The structural trajectory (tma-trajectory/1): one step per tool call of one run, structure, numbers
 // and digests only (plan 20261112-tma-c4-result-store-trajectory-upload, T1, ADR-2 and ADR-3). The
-// closed schema is schemas/trajectory.schema.json. A tma-local-result/2 run carries one of these; the
+// closed schema is schemas/trajectory.schema.json. A tma-local-result/2 run carries a /1 one, a /3 run either one; the
 // API writes each step as a run_actions row. This file adds the checks a JSON Schema cannot say.
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';

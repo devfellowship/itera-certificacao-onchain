@@ -328,7 +328,11 @@ export interface GraderResult {
   weight: number;
   hard_gate: boolean;
   decisive: boolean;
-  // Optional (plan T11). The first four belong to the grader VERSION: every run that names it sends the same values.
+}
+
+/** A tma-local-result/3 grader entry: the /2 entry plus optional fields (plan T11; refused in /2). */
+export interface GraderResultV3 extends GraderResult {
+  // The first four belong to the grader VERSION: every run that names it sends the same values.
   proof?: { caught: number; total: number } | null;
   /** A judge only. */
   calibration?: GraderCalibration | null;
@@ -350,24 +354,40 @@ export interface TaskSummary {
 export interface LocalResultV2 extends Omit<LocalResult, 'format' | 'runs'> {
   format: 'tma-local-result/2';
   /** The test case: the problem. origin_pin_sha256 is provenance of the origin trace, never an agent binding. */
-  case: { case_key: string; manifest_sha256: string; origin_pin_sha256: string | null; mode: CaseMode; use_case_key: string; task_summary?: TaskSummary | null };
+  case: { case_key: string; manifest_sha256: string; origin_pin_sha256: string | null; mode: CaseMode; use_case_key: string };
   /** The agent variant: a base agent version plus ONE diff. Independent of the case. */
   variant: { agent: AgentVersion; variant_sha256: string; label: string; change_kind: VariantChangeKind };
   /** The crossing of this case and this variant. */
   comparison: { is_baseline: boolean; prediction_sha256: string | null };
   /** Closed per shape: the v1 run of the shape plus infra_ok, graders and trajectory. At most 50. */
-  runs: Array<LocalResult['runs'][number] & { infra_ok: boolean; graders: GraderResult[]; trajectory: AnyTrajectory | null }>;
+  runs: Array<LocalResult['runs'][number] & { infra_ok: boolean; graders: GraderResult[]; trajectory: Trajectory | null }>;
 }
 
+/**
+ * tma-local-result/3 (plan ADR-3: "A new field needs a contract PR (/3)"): /2 plus the optional case task summary,
+ * the optional grader version and label fields, and a run trajectory of tma-trajectory/1 or tma-trajectory/2.
+ */
+export interface LocalResultV3 extends Omit<LocalResultV2, 'format' | 'case' | 'runs'> {
+  format: 'tma-local-result/3';
+  case: LocalResultV2['case'] & { task_summary?: TaskSummary | null };
+  runs: Array<Omit<LocalResultV2['runs'][number], 'graders' | 'trajectory'> & { graders: GraderResultV3[]; trajectory: AnyTrajectory | null }>;
+}
+
+/** A /2 or /3 body: both are assignable to it, so one writer stores both (a /2 body has none of the /3 fields). */
+export type LocalResultV2Plus = Omit<LocalResultV3, 'format'> & { format: 'tma-local-result/2' | 'tma-local-result/3' };
+
 export type LocalResultV2Validation = { ok: true; value: LocalResultV2 } | { ok: false; issues: LocalResultIssue[]; errors: string[] };
+export type LocalResultV3Validation = { ok: true; value: LocalResultV3 } | { ok: false; issues: LocalResultIssue[]; errors: string[] };
 export type AnyLocalResultValidation =
   | ({ format: 'tma-local-result/1' } & LocalResultValidation)
   | ({ format: 'tma-local-result/2' } & LocalResultV2Validation)
+  | ({ format: 'tma-local-result/3' } & LocalResultV3Validation)
   | ({ format: undefined } & { ok: false; issues: LocalResultIssue[]; errors: string[] });
 
 export declare const LOCAL_RESULT_V2_FORMAT: 'tma-local-result/2';
 export declare const LOCAL_RESULT_V2_MAX_BYTES: number;
 export declare const LOCAL_RESULT_V2_MAX_RUNS: number;
+export declare const LOCAL_RESULT_V3_FORMAT: 'tma-local-result/3';
 export declare const VARIANT_CHANGE_KINDS: readonly VariantChangeKind[];
 export declare const AGENT_VERSION_FIELDS: readonly (keyof AgentVersion)[];
 /** sha256 of the empty string: the variant_sha256 of change_kind none. */
@@ -379,12 +399,14 @@ export declare const CASE_MODES: readonly CaseMode[];
 export declare const GRADER_VERSION_FIELDS: readonly ('proof' | 'calibration' | 'note' | 'author')[];
 export declare const GRADER_REASON_CODES: readonly GraderReasonCode[];
 /** The grader-version fields of a grader entry as one canonical string (an absent key = null). */
-export declare function graderVersionFieldsKey(g: GraderResult): string;
+export declare function graderVersionFieldsKey(g: GraderResultV3): string;
 export declare const localResultV2Schema: Record<string, unknown>;
 export declare function validateLocalResultV2(value: unknown): LocalResultV2Validation;
-/** Validate by `format`: v2 when it says tma-local-result/2, else v1. */
+export declare const localResultV3Schema: Record<string, unknown>;
+export declare function validateLocalResultV3(value: unknown): LocalResultV3Validation;
+/** Validate by `format`: /2 or /3 when it says so, else v1. */
 export declare function validateAnyLocalResult(value: unknown): AnyLocalResultValidation;
-/** Parse and validate either version; refuses above 4 MiB, and a v1 body above 1 MiB. */
+/** Parse and validate any version; refuses above 4 MiB, and a v1 body above 1 MiB. */
 export declare function parseAnyLocalResultText(text: string): AnyLocalResultValidation;
 
 // --- Pin recipe (plan 20261112-tma-c2-trace-selection-pin, T2; parent ADR-7).

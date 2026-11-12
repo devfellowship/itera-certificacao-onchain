@@ -14,7 +14,7 @@
  * route scopes it to its owner.
  */
 import { createHash } from "node:crypto";
-import type { LocalResult, LocalResultV2, TrajectoryStep } from "@itera/contracts";
+import type { LocalResult, LocalResultV2Plus, TrajectoryStep } from "@itera/contracts";
 import { agentVersionSha256 } from "@itera/contracts";
 
 export const SELF_DECLARED_MIGRATION = "0021_self_declared_results.sql";
@@ -27,8 +27,8 @@ export const EVAL_RESULTS_MIGRATION = "0023_eval_results.sql";
 export const EVAL_META_MIGRATION = "0024_eval_summary_steps_grader_meta.sql";
 const GRADER_META_KEYS = ["proof", "calibration", "note", "author", "reason_code", "labeler"] as const;
 
-/** True when a v2 body carries a field that only migration 0024 can store. */
-export function usesEvalMetaFields(r: LocalResultV2): boolean {
+/** True when a /3 body carries a field that only migration 0024 can store (a /2 body has none of them). */
+export function usesEvalMetaFields(r: LocalResultV2Plus): boolean {
   if (r.case.task_summary != null) return true;
   for (const run of r.runs) {
     if (run.trajectory?.format === "tma-trajectory/2") return true;
@@ -111,7 +111,7 @@ export interface SelfDeclaredStore {
    * re-upload of the same runs is `unchanged`; a new repeat adds a row; a changed run is updated, its
    * trajectory replaced and its grader rows ADDED (a re-grade never updates a grader row).
    */
-  importResultV2(principal: string, result: LocalResultV2, options: ImportOptionsV2): Promise<ImportOutcomeV2>;
+  importResultV2(principal: string, result: LocalResultV2Plus, options: ImportOptionsV2): Promise<ImportOutcomeV2>;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -146,13 +146,13 @@ export function selfDeclaredId(principal: string, r: LocalResult): string {
  * v2: the case key, the base agent digest and the diff digest join the v1 key, so a second agent variant on
  * the same case is a second evaluation (one evaluation = one crossing of a case and an agent variant).
  */
-export function selfDeclaredIdV2(principal: string, r: LocalResultV2): string {
+export function selfDeclaredIdV2(principal: string, r: LocalResultV2Plus): string {
   return stableUuid(
     `self-declared:${principal}:${taskRef(r)}:${r.agent_id}:${executorKey(r)}:${r.case.case_key}:${agentVersionSha256(r.variant.agent)}:${r.variant.variant_sha256}`,
   );
 }
 
-type RunV2 = LocalResultV2["runs"][number];
+type RunV2 = LocalResultV2Plus["runs"][number];
 
 /** The identity of one run inside its evaluation: the item, the kind (mining and trajectory shapes) and the repeat. */
 export function runKeyV2(run: RunV2): string {
@@ -169,7 +169,7 @@ export function runIdV2(evaluationId: string, run: RunV2): string {
  * The status of one v2 run row. infra_ok false → infra_error (not the agent's fault). tma-score/1: the
  * run's own status. The other shapes: every hard-gate grader passes and the score is above 0.
  */
-export function runStatusV2(r: LocalResultV2, run: RunV2): "pass" | "fail" | "infra_error" {
+export function runStatusV2(r: LocalResultV2Plus, run: RunV2): "pass" | "fail" | "infra_error" {
   if (run.infra_ok === false) return "infra_error";
   if (r.metrics_shape === "tma-score/1") return run.status === "pass" ? "pass" : "fail";
   const gates = run.graders.filter((g) => g.hard_gate);
@@ -177,7 +177,7 @@ export function runStatusV2(r: LocalResultV2, run: RunV2): "pass" | "fail" | "in
 }
 
 /** The run's numbers as evidence: no grader rows and no trajectory (they have their own tables). */
-export function runEvidenceV2(r: LocalResultV2, run: RunV2, digest: string) {
+export function runEvidenceV2(r: LocalResultV2Plus, run: RunV2, digest: string) {
   const { graders: _graders, trajectory: _trajectory, ...numbers } = run;
   return {
     kind: r.format,
@@ -223,7 +223,7 @@ function canonical(v: unknown): string {
 }
 
 /** Digest of what the import writes; equal digest = nothing to update. */
-export function resultDigest(r: LocalResult | LocalResultV2 | RunV2): string {
+export function resultDigest(r: LocalResult | LocalResultV2Plus | RunV2): string {
   return createHash("sha256").update(canonical(r)).digest("hex");
 }
 

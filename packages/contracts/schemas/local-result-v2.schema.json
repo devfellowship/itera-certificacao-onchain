@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testmyagent.com/schemas/local-result-v2.schema.json",
   "title": "TestMyAgent self-declared local result (tma-local-result/2)",
-  "description": "tma-local-result/1 plus the eval case (the test case: the problem), the agent variant (a base agent version plus ONE diff), the comparison of the two (baseline flag, prediction digest), every run with its per-grader results and infra_ok, and the structural trajectory (tma-trajectory/1, schemas/trajectory.schema.json, or tma-trajectory/2, schemas/trajectory-v2.schema.json) of each run (plan 20261112-tma-c4-result-store-trajectory-upload, T1 and T8, ADR-3; parent plan ADR-26: a test case and an agent variant are two objects, and an execution crosses them N:N). Numbers, digests and identifiers only: every object is closed, every string has a pattern and a length limit, every number has a range. Only variant.label (60 characters, the safe charset), a grader version note (60 characters, the same charset), case.task_summary.before and .expected (280 characters each, the same charset; Q-T16 = A) and a trajectory step's target_redacted (120 characters, the redaction charset) carry free characters. The optional keys case.task_summary and the grader keys proof, calibration, note, author, reason_code and labeler were added after the first release of this contract (plan T9, T11); a body without them is valid as before. There is no key for actions, events, a patch, stdout, stderr, messages, a prompt, a model answer or a key. A body above 4 MiB is refused; at most 50 runs and 2,000 steps per run. The validator in local-result.js adds the checks a schema cannot say: the v1 checks, one run per (item_sha256, kind, repeat), unique grader ids per run, the baseline, prediction, model and replay rules, and the trajectory step order.",
+  "description": "tma-local-result/1 plus the eval case (the test case: the problem), the agent variant (a base agent version plus ONE diff), the comparison of the two (baseline flag, prediction digest), every run with its per-grader results and infra_ok, and the structural trajectory (tma-trajectory/1, schemas/trajectory.schema.json) of each run (plan 20261112-tma-c4-result-store-trajectory-upload, T1 and T8, ADR-3; parent plan ADR-26: a test case and an agent variant are two objects, and an execution crosses them N:N). Numbers, digests and identifiers only: every object is closed, every string has a pattern and a length limit, every number has a range. Only variant.label (60 characters, the safe charset) and a trajectory step's target_redacted (120 characters, the redaction charset) carry free characters. There is no key for actions, events, a patch, stdout, stderr, messages, a prompt, a model answer or a key. A body above 4 MiB is refused; at most 50 runs and 2,000 steps per run. The validator in local-result.js adds the checks a schema cannot say: the v1 checks, one run per (item_sha256, kind, repeat), unique grader ids per run, the baseline, prediction, model and replay rules, and the trajectory step order.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -352,38 +352,6 @@
           "pattern": "^[a-z0-9][a-z0-9-]{0,30}(/[a-z0-9][a-z0-9-]{0,30})?$",
           "maxLength": 63,
           "description": "The use case: an L2 cluster key, for example fix/red-ci."
-        },
-        "task_summary": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "additionalProperties": false,
-          "required": [
-            "before",
-            "expected"
-          ],
-          "description": "Optional. The task summary of the case for a human (parent plan ADR-27, ADR-28, Q-T16 = A): the state before the task and the expected output, short human-written text, at most 280 characters per field in the label charset. There is no outcome key: the outcome of a run stays on the trace, on the host.",
-          "properties": {
-            "before": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "pattern": "^[A-Za-z0-9 .,:;/()+\\-_%$=&'#]*$",
-              "minLength": 1,
-              "maxLength": 280
-            },
-            "expected": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "pattern": "^[A-Za-z0-9 .,:;/()+\\-_%$=&'#]*$",
-              "minLength": 1,
-              "maxLength": 280
-            }
-          }
         }
       }
     },
@@ -599,126 +567,6 @@
         "decisive": {
           "type": "boolean",
           "description": "false: a side signal (for example an uncalibrated judge)."
-        },
-        "proof": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "additionalProperties": false,
-          "required": [
-            "caught",
-            "total"
-          ],
-          "description": "Optional, a property of the grader VERSION: its mutation proof (planted bugs caught, of planted). Every run that names the same version must send the same value.",
-          "properties": {
-            "caught": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1000
-            },
-            "total": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1000
-            }
-          }
-        },
-        "calibration": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "additionalProperties": false,
-          "required": [
-            "n_labels",
-            "n_test",
-            "tp",
-            "fn",
-            "tn",
-            "fp",
-            "realigned_at"
-          ],
-          "description": "Optional, a judge only, a property of the grader VERSION: the label counts and the 2x2 table of its test split. tp + fn + tn + fp = n_test and n_test <= n_labels. Counts and one date, no text.",
-          "properties": {
-            "n_labels": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1000000
-            },
-            "n_test": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1000000
-            },
-            "tp": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1000000
-            },
-            "fn": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1000000
-            },
-            "tn": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1000000
-            },
-            "fp": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1000000
-            },
-            "realigned_at": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-              "maxLength": 10,
-              "description": "The date (YYYY-MM-DD) of the last re-alignment with the human labels."
-            }
-          }
-        },
-        "note": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[A-Za-z0-9 .,:;/()+\\-_%$=&'#]*$",
-          "minLength": 1,
-          "maxLength": 60,
-          "description": "Optional, a property of the grader VERSION: its version note (the label charset)."
-        },
-        "author": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}$",
-          "maxLength": 64,
-          "description": "Optional, a property of the grader VERSION: the actor key of its author (a slug or a principal id, never an e-mail address)."
-        },
-        "reason_code": {
-          "enum": [
-            "wrong_sha",
-            "no_check",
-            "partial",
-            "other",
-            null
-          ],
-          "description": "Optional, a property of this RESULT: the closed reason of a label (wrong_sha = checked the wrong SHA, no_check, partial, other)."
-        },
-        "labeler": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[a-z0-9][a-z0-9_.:-]{0,63}$",
-          "maxLength": 64,
-          "description": "Optional, a property of this RESULT: the actor key of the author of the label."
         }
       }
     },
@@ -1042,31 +890,15 @@
           }
         },
         "trajectory": {
-          "description": "The structural trajectory of the run (tma-trajectory/1 or tma-trajectory/2, chosen by its format), or null when none was recorded.",
-          "if": {
-            "type": "object",
-            "required": [
-              "format"
-            ],
-            "properties": {
-              "format": {
-                "const": "tma-trajectory/2"
-              }
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "trajectory.schema.json"
             }
-          },
-          "then": {
-            "$ref": "trajectory-v2.schema.json"
-          },
-          "else": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "trajectory.schema.json"
-              }
-            ]
-          }
+          ],
+          "description": "The structural trajectory of the run (tma-trajectory/1), or null when none was recorded."
         }
       }
     },
@@ -1553,31 +1385,15 @@
           }
         },
         "trajectory": {
-          "description": "The structural trajectory of the run (tma-trajectory/1 or tma-trajectory/2, chosen by its format), or null when none was recorded.",
-          "if": {
-            "type": "object",
-            "required": [
-              "format"
-            ],
-            "properties": {
-              "format": {
-                "const": "tma-trajectory/2"
-              }
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "trajectory.schema.json"
             }
-          },
-          "then": {
-            "$ref": "trajectory-v2.schema.json"
-          },
-          "else": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "trajectory.schema.json"
-              }
-            ]
-          }
+          ],
+          "description": "The structural trajectory of the run (tma-trajectory/1), or null when none was recorded."
         }
       }
     },
@@ -1998,31 +1814,15 @@
           }
         },
         "trajectory": {
-          "description": "The structural trajectory of the run (tma-trajectory/1 or tma-trajectory/2, chosen by its format), or null when none was recorded.",
-          "if": {
-            "type": "object",
-            "required": [
-              "format"
-            ],
-            "properties": {
-              "format": {
-                "const": "tma-trajectory/2"
-              }
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "trajectory.schema.json"
             }
-          },
-          "then": {
-            "$ref": "trajectory-v2.schema.json"
-          },
-          "else": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "trajectory.schema.json"
-              }
-            ]
-          }
+          ],
+          "description": "The structural trajectory of the run (tma-trajectory/1), or null when none was recorded."
         }
       }
     }

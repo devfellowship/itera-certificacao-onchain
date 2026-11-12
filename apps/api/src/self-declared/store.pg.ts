@@ -4,7 +4,7 @@
  * 0021 column or table fails (42703 / 42P01), the transaction rolls back, and the router answers
  * 503 schema_not_ready: nothing is written on a database that is not migrated.
  */
-import type { LocalResult, LocalResultV2 } from "@itera/contracts";
+import type { LocalResult, LocalResultV2Plus } from "@itera/contracts";
 import { agentVersionSha256 } from "@itera/contracts";
 import type { Pool, PoolClient } from "pg";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
@@ -48,9 +48,9 @@ class DryRunDone<T = ImportOutcome> extends Error {
   }
 }
 
-type RunV2 = LocalResultV2["runs"][number];
+type RunV2 = LocalResultV2Plus["runs"][number];
 type GraderV2 = RunV2["graders"][number];
-type TaskSummaryV2 = NonNullable<LocalResultV2["case"]["task_summary"]>;
+type TaskSummaryV2 = NonNullable<LocalResultV2Plus["case"]["task_summary"]>;
 
 /** JSON with sorted object keys (jsonb returns its own key order). */
 function canon(v: unknown): string {
@@ -217,7 +217,7 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     return result;
   }
 
-  async importResultV2(principal: string, r: LocalResultV2, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
+  async importResultV2(principal: string, r: LocalResultV2Plus, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
     const c = await this.pool.connect();
     try {
       // Deploy safety: until 0023 is applied, nothing is written (503 schema_not_ready).
@@ -241,7 +241,7 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     }
   }
 
-  private async writeV2(c: PoolClient, principal: string, r: LocalResultV2, options: ImportOptionsV2, meta: boolean): Promise<ImportOutcomeV2> {
+  private async writeV2(c: PoolClient, principal: string, r: LocalResultV2Plus, options: ImportOptionsV2, meta: boolean): Promise<ImportOutcomeV2> {
     const tenant = options.tenant;
     const id = selfDeclaredIdV2(principal, r);
     // One lock per case (the baseline rule), taken before the evaluation lock: one order, no deadlock.
@@ -463,7 +463,7 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     return result;
   }
 
-  private provenanceV2(r: LocalResultV2, run: RunV2) {
+  private provenanceV2(r: LocalResultV2Plus, run: RunV2) {
     return {
       ...provenanceOf(r as unknown as LocalResult),
       runs: 1,

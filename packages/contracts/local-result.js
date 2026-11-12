@@ -9,6 +9,10 @@
 // prediction), per-grader results, infra_ok and the structural trajectory of each run; its closed schema is
 // schemas/local-result-v2.schema.json. The case and the variant are independent (parent plan ADR-26): an
 // upload is one crossing of the two. v1 stays accepted with its own key and limits.
+// tma-local-result/3 (same plan, T9, T10 and T11; ADR-3: "A new field needs a contract PR (/3)") is /2 plus the
+// optional case task summary, the grader version fields (proof, calibration, note, author), the label fields
+// (reason_code, labeler) and a run trajectory of tma-trajectory/1 or tma-trajectory/2; its closed schema is
+// schemas/local-result-v3.schema.json. /2 is unchanged and stays accepted; /3 has the /2 limits and rules.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -29,6 +33,8 @@ export const LOCAL_RESULT_V2_FORMAT = 'tma-local-result/2';
 export const LOCAL_RESULT_V2_MAX_BYTES = 4 * 1024 * 1024;
 /** The most runs in one v2 upload. */
 export const LOCAL_RESULT_V2_MAX_RUNS = 50;
+/** tma-local-result/3: /2 plus the task summary, grader version and label fields, and tma-trajectory/2 runs. Same limits as /2. */
+export const LOCAL_RESULT_V3_FORMAT = 'tma-local-result/3';
 /**
  * The kind of the ONE diff of an agent variant on its base agent version (parent plan ADR-26): the model, the
  * system prompt and what is injected into it (rules, skill, retrieval, memory), the configured tools (tools,
@@ -48,14 +54,17 @@ export const CASE_MODES = /** @type {const} */ (['replay', 'trace_review']);
 
 export const localResultSchema = JSON.parse(readFileSync(new URL('./schemas/local-result.schema.json', import.meta.url), 'utf-8'));
 export const localResultV2Schema = JSON.parse(readFileSync(new URL('./schemas/local-result-v2.schema.json', import.meta.url), 'utf-8'));
+export const localResultV3Schema = JSON.parse(readFileSync(new URL('./schemas/local-result-v3.schema.json', import.meta.url), 'utf-8'));
 
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictTypes: false, strictRequired: false });
 const validateFn = ajv.compile(localResultSchema);
-// The v2 schema refers to the trajectory schemas by their $id (trajectory.schema.json and trajectory-v2.schema.json,
-// sibling files); a run's trajectory takes the one its `format` names.
+// The v2 and v3 schemas refer to the trajectory schemas by their $id (sibling files): /2 takes tma-trajectory/1
+// only (trajectory.schema.json); a /3 run's trajectory takes the one its `format` names (trajectory-v2.schema.json for
+// tma-trajectory/2).
 ajv.addSchema(trajectorySchema);
 ajv.addSchema(trajectoryV2Schema);
 const validateV2Fn = ajv.compile(localResultV2Schema);
+const validateV3Fn = ajv.compile(localResultV3Schema);
 
 /**
  * @typedef {{ code: 'unknown_key' | 'invalid' | 'too_large' | 'not_json' | 'unknown_provider' | 'unknown_route' | 'inconsistent', path: string, message: string }} LocalResultIssue
@@ -128,9 +137,7 @@ function commonIssues(v) {
 /**
  * Validate a parsed tma-local-result/2: the closed schema (with tma-trajectory/1 per run), the v1
  * cross-field rules, and the v2 rules: the baseline has change_kind none and no prediction, every
- * other variant has a prediction; a grader proof catches at most its planted bugs, calibration belongs to a judge
- * and its 2x2 table adds up to n_test (at most n_labels), and every run that names a grader version sends the same
- * proof, calibration, note and author; change_kind none has the empty diff digest; the executor model is the
+ * other variant has a prediction; change_kind none has the empty diff digest; the executor model is the
  * base model unless the diff is the model; a replay case has an origin pin; one run per
  * (item_sha256, kind, repeat); unique grader ids per run; a tma-score run with status infra_error has
  * infra_ok false; the trajectory step rules of trajectory.js.
@@ -138,7 +145,27 @@ function commonIssues(v) {
  */
 export function validateLocalResultV2(value) {
   if (!validateV2Fn(value)) return failed(issuesOf(validateV2Fn.errors));
-  const v = /** @type {any} */ (value);
+  return checkedV2(/** @type {any} */ (value));
+}
+
+/**
+ * Validate a parsed tma-local-result/3: the closed schema (a run trajectory of tma-trajectory/1 or /2, the optional
+ * task summary, grader version and label fields), the /2 rules, and the /3 rules: a grader proof catches at most its
+ * planted bugs; calibration belongs to a judge and its 2x2 table adds up to n_test (at most n_labels); every run that
+ * names a grader version sends the same proof, calibration, note and author.
+ * @param {unknown} value
+ */
+export function validateLocalResultV3(value) {
+  if (!validateV3Fn(value)) return failed(issuesOf(validateV3Fn.errors));
+  return checkedV2(/** @type {any} */ (value));
+}
+
+/**
+ * The cross-field rules of /2 and /3 on a schema-valid body. The grader version rules find nothing on a /2 body,
+ * because its schema has none of those keys.
+ * @param {any} v
+ */
+function checkedV2(v) {
   const issues = commonIssues(v);
   if (v.comparison.is_baseline) {
     if (v.variant.change_kind !== 'none') issues.push({ code: 'inconsistent', path: '/variant/change_kind', message: 'must be none for the baseline' });
@@ -196,7 +223,7 @@ export const GRADER_VERSION_FIELDS = /** @type {const} */ (['proof', 'calibratio
 export const GRADER_REASON_CODES = /** @type {const} */ (['wrong_sha', 'no_check', 'partial', 'other']);
 
 /**
- * The cross-field rules of the optional grader-version fields (plan T11): a proof catches at most the planted bugs;
+ * The cross-field rules of the optional grader-version fields of /3 (plan T11): a proof catches at most the planted bugs;
  * calibration belongs to a judge, and its 2x2 table adds up to the test split, which is at most the labels.
  * @param {any} g a schema-valid grader entry
  * @param {string} at its JSON pointer
@@ -249,6 +276,7 @@ export function agentVersionSha256(agent) {
 export function validateAnyLocalResult(value) {
   const format = value !== null && typeof value === 'object' ? /** @type {any} */ (value).format : undefined;
   if (format === LOCAL_RESULT_V2_FORMAT) return { ...validateLocalResultV2(value), format: LOCAL_RESULT_V2_FORMAT };
+  if (format === LOCAL_RESULT_V3_FORMAT) return { ...validateLocalResultV3(value), format: LOCAL_RESULT_V3_FORMAT };
   return { ...validateLocalResult(value), format: LOCAL_RESULT_FORMAT };
 }
 

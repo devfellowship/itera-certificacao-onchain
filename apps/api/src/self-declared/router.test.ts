@@ -75,6 +75,9 @@ const v2body = (over: Record<string, unknown> = {}): Record<string, unknown> => 
   runs: [v2Run(1, 100), v2Run(2, 80)],
   ...over,
 });
+// tma-local-result/3 (plan ADR-3: a new field needs /3): /2 plus the task summary, grader version and label fields
+// and tma-trajectory/2 runs.
+const v3body = (over: Record<string, unknown> = {}): Record<string, unknown> => v2body({ format: "tma-local-result/3", ...over });
 
 class FakeLookup implements RunOriginLookup {
   runs = new Map<string, RunOrigin>();
@@ -299,7 +302,7 @@ describe("POST /self-declared-results with tma-local-result/2", () => {
         calibration: { n_labels: 120, n_test: 86, tp: 40, fn: 3, tn: 39, fp: 4, realigned_at: "2026-11-12" } },
     ];
     const steps2 = [{ ...step(1), step_kind: "read", started_ms: 0, turn_origin: "human" }, { ...step(2), step_kind: "test", started_ms: 1500, turn_origin: "agent" }];
-    const b = v2body({
+    const b = v3body({
       case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), origin_pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug",
         task_summary: { before: "a".repeat(280), expected: "200 OK and one ledger row per id" } },
       // Run 2 names the same grader version: it sends the same version fields (proof, note, author).
@@ -311,20 +314,34 @@ describe("POST /self-declared-results with tma-local-result/2", () => {
     const r = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: b });
     expect(r.json?.error ?? null).toBeNull();
     expect(r.status).toBe(201);
+    expect(r.json).toMatchObject({ format: "tma-local-result/3", action: "inserted" });
+  });
+
+  it("keeps tma-local-result/2 closed: a /3 field or a tma-trajectory/2 run in a /2 body is 400, with no write", async () => {
+    const summary = v2body({ case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), origin_pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug", task_summary: { before: "x", expected: null } } });
+    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: summary }))
+      .toMatchObject({ status: 400, json: { error: "unknown_key", path: "/case/task_summary" } });
+    const proof = { id: "hidden-tests", semver: "2.0.0", code_sha256: H("f"), kind: "code", pass: true, score: 100, weight: 1, hard_gate: true, decisive: true, proof: { caught: 1, total: 1 } };
+    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ runs: [v2Run(1, 100, { graders: [proof] }), v2Run(2, 80)] }) }))
+      .toMatchObject({ status: 400, json: { error: "unknown_key", path: "/runs/0/graders/0/proof" } });
+    const steps2 = [{ ...step(1), step_kind: "read", started_ms: 0, turn_origin: "human" }];
+    const traj2 = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ runs: [v2Run(1, 100, { trajectory: { format: "tma-trajectory/2", steps: steps2 } }), v2Run(2, 80)] }) });
+    expect(traj2.status).toBe(400);
+    expect(store.v2Runs.size).toBe(0);
   });
 
   it("refuses task_summary.outcome, a 281-character before and a calibration that does not add up, with 400 and no write", async () => {
     const withSummary = (task_summary: unknown) =>
-      v2body({ case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), origin_pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug", task_summary } });
+      v3body({ case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), origin_pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug", task_summary } });
     expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: withSummary({ before: "x", expected: "y", outcome: "merged" }) }))
       .toMatchObject({ status: 400, json: { error: "unknown_key", path: "/case/task_summary/outcome" } });
     expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: withSummary({ before: "a".repeat(281), expected: null }) }))
       .toMatchObject({ status: 400, json: { error: "invalid", path: "/case/task_summary/before" } });
     const judge = { id: "judge-ci-claim", semver: "1.0.0", code_sha256: H("e"), kind: "judge", pass: true, score: null, weight: 0, hard_gate: false, decisive: false,
       calibration: { n_labels: 120, n_test: 86, tp: 41, fn: 3, tn: 39, fp: 4, realigned_at: null } };
-    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v2body({ runs: [v2Run(1, 100, { graders: [judge] }), v2Run(2, 80)] }) }))
+    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: v3body({ runs: [v2Run(1, 100, { graders: [judge] }), v2Run(2, 80)] }) }))
       .toMatchObject({ status: 400, json: { error: "inconsistent", path: "/runs/0/graders/0/calibration/n_test" } });
-    const badStep = v2body({ runs: [v2Run(1, 100, { trajectory: { format: "tma-trajectory/2", steps: [{ ...step(1), step_kind: "browse", started_ms: -1, turn_origin: "agent" }] } }), v2Run(2, 80)] });
+    const badStep = v3body({ runs: [v2Run(1, 100, { trajectory: { format: "tma-trajectory/2", steps: [{ ...step(1), step_kind: "browse", started_ms: -1, turn_origin: "agent" }] } }), v2Run(2, 80)] });
     const r = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: badStep });
     expect(r.status).toBe(400);
     expect(store.v2Runs.size).toBe(0);
@@ -332,7 +349,7 @@ describe("POST /self-declared-results with tma-local-result/2", () => {
 
   it("answers 503 schema_not_ready before migration 0024 for a body that uses its fields", async () => {
     store.failWith = new SchemaNotReadyError("0024_eval_summary_steps_grader_meta.sql");
-    const b = v2body({ case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), origin_pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug", task_summary: { before: "x", expected: null } } });
+    const b = v3body({ case: { case_key: "webhook-dup-001", manifest_sha256: H("1"), origin_pin_sha256: H("2"), mode: "replay", use_case_key: "fix/prod-bug", task_summary: { before: "x", expected: null } } });
     expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: b })).toMatchObject({ status: 503, json: { error: "schema_not_ready" } });
   });
 

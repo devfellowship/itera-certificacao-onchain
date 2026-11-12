@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Itera / DevFellowship
-// tma-local-result/2 and tma-trajectory/1 (plan 20261112-tma-c4-result-store-trajectory-upload, T1, T8).
+// tma-local-result/2, /3, tma-trajectory/1 and /2 (plan 20261112-tma-c4-result-store-trajectory-upload, T1, T8, T9-T11).
 import { describe, expect, it } from 'vitest';
 import {
   EMPTY_DIFF_SHA256,
@@ -11,6 +11,7 @@ import {
   agentVersionSha256,
   localResultSchema,
   localResultV2Schema,
+  localResultV3Schema,
   parseAnyLocalResultText,
   parseLocalResultText,
   trajectorySchema,
@@ -18,6 +19,7 @@ import {
   validateAnyLocalResult,
   validateLocalResult,
   validateLocalResultV2,
+  validateLocalResultV3,
   validateTrajectory,
 } from './index.js';
 
@@ -82,6 +84,12 @@ const v2 = (over: Record<string, unknown> = {}): Record<string, any> =>
 
 const issuesV2 = (v: unknown) => {
   const r = validateLocalResultV2(v);
+  return r.ok ? [] : r.issues;
+};
+/** tma-local-result/3 (plan ADR-3: a new field needs /3): the /2 fixture with the /3 format. */
+const v3 = (over: Record<string, unknown> = {}): Record<string, any> => v2({ format: 'tma-local-result/3', ...over });
+const issuesV3 = (v: unknown) => {
+  const r = validateLocalResultV3(v);
   return r.ok ? [] : r.issues;
 };
 
@@ -199,7 +207,7 @@ describe('tma-local-result/2 — closed: no text field (Q-T9 = A, plan ADR-3)', 
     // The ONE allowed exception (plan T11): the grader version note, at most 60 characters of the label charset,
     // the same bound as variant.label. Its bound is asserted below.
     const allowed = new Set(['/$defs/grader/properties/note']);
-    for (const schema of [localResultV2Schema, trajectorySchema, trajectoryV2Schema]) {
+    for (const schema of [localResultV2Schema, localResultV3Schema, trajectorySchema, trajectoryV2Schema]) {
       const names: string[] = [];
       const walk = (node: unknown, at: string): void => {
         if (Array.isArray(node)) return node.forEach((n, i) => walk(n, `${at}/${i}`));
@@ -214,8 +222,9 @@ describe('tma-local-result/2 — closed: no text field (Q-T9 = A, plan ADR-3)', 
       expect(names.length).toBeGreaterThan(10);
       expect(names.filter((n) => forbidden.test(n))).toEqual([]);
     }
-    const note = (localResultV2Schema as any).$defs.grader.properties.note;
-    const label = (localResultV2Schema as any).properties.variant.properties.label;
+    expect((localResultV2Schema as any).$defs.grader.properties.note).toBeUndefined();
+    const note = (localResultV3Schema as any).$defs.grader.properties.note;
+    const label = (localResultV3Schema as any).properties.variant.properties.label;
     expect(note.maxLength).toBe(60);
     expect(note.pattern).toBe(label.pattern);
   });
@@ -230,6 +239,7 @@ describe('tma-local-result/2 — closed: no text field (Q-T9 = A, plan ADR-3)', 
       for (const [k, v] of Object.entries(o)) walk(v, `${at}/${k}`);
     };
     walk(localResultV2Schema, '');
+    walk(localResultV3Schema, '');
     walk(trajectorySchema, '');
     walk(trajectoryV2Schema, '');
     expect(unbounded).toEqual([]);
@@ -400,91 +410,91 @@ describe('tma-trajectory/1 — the step rules', () => {
   });
 });
 
-describe('tma-local-result/2 — task summary (plan T9, Q-T16 = A)', () => {
+describe('tma-local-result/3 — task summary (plan T9, Q-T16 = A)', () => {
   const withSummary = (summary: unknown) => {
-    const v = v2();
+    const v = v3();
     v.case.task_summary = summary;
     return v;
   };
   it('accepts before and expected of 280 characters each, a null field, null, and no key at all', () => {
-    expect(issuesV2(withSummary({ before: 'a'.repeat(280), expected: 'b'.repeat(280) }))).toEqual([]);
-    expect(issuesV2(withSummary({ before: "Red CI on main: the dup webhook test fails (#12).", expected: null }))).toEqual([]);
-    expect(issuesV2(withSummary(null))).toEqual([]);
-    expect(issuesV2(v2())).toEqual([]);
+    expect(issuesV3(withSummary({ before: 'a'.repeat(280), expected: 'b'.repeat(280) }))).toEqual([]);
+    expect(issuesV3(withSummary({ before: "Red CI on main: the dup webhook test fails (#12).", expected: null }))).toEqual([]);
+    expect(issuesV3(withSummary(null))).toEqual([]);
+    expect(issuesV3(v3())).toEqual([]);
   });
   it('refuses outcome: the outcome of a run stays on the trace, on the host', () => {
-    expect(issuesV2(withSummary({ before: 'x', expected: 'y', outcome: 'merged' })))
+    expect(issuesV3(withSummary({ before: 'x', expected: 'y', outcome: 'merged' })))
       .toContainEqual(expect.objectContaining({ code: 'unknown_key', path: '/case/task_summary/outcome' }));
   });
   it('refuses 281 characters, an empty field, a missing field, a newline, a quote and a brace', () => {
-    expect(issuesV2(withSummary({ before: 'a'.repeat(281), expected: null })))
+    expect(issuesV3(withSummary({ before: 'a'.repeat(281), expected: null })))
       .toContainEqual(expect.objectContaining({ path: '/case/task_summary/before' }));
-    expect(issuesV2(withSummary({ before: null, expected: 'a'.repeat(281) })))
+    expect(issuesV3(withSummary({ before: null, expected: 'a'.repeat(281) })))
       .toContainEqual(expect.objectContaining({ path: '/case/task_summary/expected' }));
-    expect(issuesV2(withSummary({ before: '', expected: null }))).toContainEqual(expect.objectContaining({ path: '/case/task_summary/before' }));
-    expect(issuesV2(withSummary({ before: 'x' }))).not.toEqual([]);
+    expect(issuesV3(withSummary({ before: '', expected: null }))).toContainEqual(expect.objectContaining({ path: '/case/task_summary/before' }));
+    expect(issuesV3(withSummary({ before: 'x' }))).not.toEqual([]);
     for (const bad of ['two\nlines', 'say "hi"', 'a {b}', 'echo `id`']) {
-      expect(issuesV2(withSummary({ before: bad, expected: null })), bad).toContainEqual(expect.objectContaining({ path: '/case/task_summary/before' }));
+      expect(issuesV3(withSummary({ before: bad, expected: null })), bad).toContainEqual(expect.objectContaining({ path: '/case/task_summary/before' }));
     }
   });
 });
 
-describe('tma-local-result/2 — grader version and label fields (plan T11)', () => {
+describe('tma-local-result/3 — grader version and label fields (plan T11)', () => {
   const CAL = { n_labels: 120, n_test: 86, tp: 40, fn: 3, tn: 39, fp: 4, realigned_at: '2026-11-12' };
   const withGrader = (over: Record<string, unknown>, run = 0) => {
-    const v = v2();
+    const v = v3();
     v.runs[run].graders[0] = { ...v.runs[run].graders[0], ...over };
     return v;
   };
   const judge = { id: 'judge-ci-claim', kind: 'judge' };
   it('accepts proof, note, author, reason_code and labeler on a code grader, and calibration on a judge', () => {
-    const v = v2();
+    const v = v3();
     const meta = { proof: { caught: 3, total: 3 }, note: 'Catches the dup webhook; v2.1 (#12)', author: 'claude-main' };
     v.runs[0].graders[0] = { ...v.runs[0].graders[0], ...meta, reason_code: 'partial', labeler: 'dfl:6c4b1a3e-0000-4000-8000-000000000000' };
     v.runs[1].graders[0] = { ...v.runs[1].graders[0], ...meta, reason_code: null, labeler: null };
-    expect(issuesV2(v)).toEqual([]);
-    const j = v2();
+    expect(issuesV3(v)).toEqual([]);
+    const j = v3();
     for (const run of j.runs) run.graders.push(grader({ ...judge, calibration: CAL, decisive: false }));
-    expect(issuesV2(j)).toEqual([]);
-    for (const reason of ['wrong_sha', 'no_check', 'partial', 'other']) expect(issuesV2(withGrader({ reason_code: reason }))).toEqual([]);
+    expect(issuesV3(j)).toEqual([]);
+    for (const reason of ['wrong_sha', 'no_check', 'partial', 'other']) expect(issuesV3(withGrader({ reason_code: reason }))).toEqual([]);
   });
   it('refuses calibration whose 2x2 table does not add up to n_test, or n_test above n_labels', () => {
-    expect(issuesV2(withGrader({ ...judge, calibration: { ...CAL, tp: 41 } })))
+    expect(issuesV3(withGrader({ ...judge, calibration: { ...CAL, tp: 41 } })))
       .toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/runs/0/graders/0/calibration/n_test' }));
-    expect(issuesV2(withGrader({ ...judge, calibration: { ...CAL, n_labels: 80 } })))
+    expect(issuesV3(withGrader({ ...judge, calibration: { ...CAL, n_labels: 80 } })))
       .toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/runs/0/graders/0/calibration/n_test' }));
   });
   it('refuses calibration on a code grader, a missing or an extra calibration key, and a non-integer count', () => {
-    expect(issuesV2(withGrader({ calibration: CAL })))
+    expect(issuesV3(withGrader({ calibration: CAL })))
       .toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/runs/0/graders/0/calibration' }));
     const { realigned_at: _r, ...missing } = CAL;
-    expect(issuesV2(withGrader({ ...judge, calibration: missing }))).not.toEqual([]);
-    expect(issuesV2(withGrader({ ...judge, calibration: { ...CAL, why: 'the judge said' } })))
+    expect(issuesV3(withGrader({ ...judge, calibration: missing }))).not.toEqual([]);
+    expect(issuesV3(withGrader({ ...judge, calibration: { ...CAL, why: 'the judge said' } })))
       .toContainEqual(expect.objectContaining({ code: 'unknown_key', path: '/runs/0/graders/0/calibration/why' }));
-    expect(issuesV2(withGrader({ ...judge, calibration: { ...CAL, tp: 39.5, fn: 3.5 } })))
+    expect(issuesV3(withGrader({ ...judge, calibration: { ...CAL, tp: 39.5, fn: 3.5 } })))
       .toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/calibration/tp' }));
-    expect(issuesV2(withGrader({ ...judge, calibration: { ...CAL, realigned_at: 'yesterday' } })))
+    expect(issuesV3(withGrader({ ...judge, calibration: { ...CAL, realigned_at: 'yesterday' } })))
       .toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/calibration/realigned_at' }));
   });
   it('refuses a proof that catches more than it planted, a 61-character note, an e-mail author or labeler, an unknown reason', () => {
-    expect(issuesV2(withGrader({ proof: { caught: 4, total: 3 } })))
+    expect(issuesV3(withGrader({ proof: { caught: 4, total: 3 } })))
       .toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/runs/0/graders/0/proof/caught' }));
-    expect(issuesV2(withGrader({ proof: { caught: 0, total: 0 } }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/proof/total' }));
-    expect(issuesV2(withGrader({ note: 'x'.repeat(61) }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/note' }));
-    expect(issuesV2(withGrader({ note: 'line\nbreak' }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/note' }));
-    expect(issuesV2(withGrader({ author: 'tainan@example.com' }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/author' }));
-    expect(issuesV2(withGrader({ labeler: 'Tainan Fidelis' }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/labeler' }));
-    expect(issuesV2(withGrader({ reason_code: 'vibes' }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/reason_code' }));
+    expect(issuesV3(withGrader({ proof: { caught: 0, total: 0 } }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/proof/total' }));
+    expect(issuesV3(withGrader({ note: 'x'.repeat(61) }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/note' }));
+    expect(issuesV3(withGrader({ note: 'line\nbreak' }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/note' }));
+    expect(issuesV3(withGrader({ author: 'tainan@example.com' }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/author' }));
+    expect(issuesV3(withGrader({ labeler: 'Tainan Fidelis' }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/labeler' }));
+    expect(issuesV3(withGrader({ reason_code: 'vibes' }))).toContainEqual(expect.objectContaining({ path: '/runs/0/graders/0/reason_code' }));
   });
   it('refuses two runs that send other version fields for the same grader version', () => {
-    const v = v2();
+    const v = v3();
     v.runs[0].graders[0].proof = { caught: 3, total: 3 };
     v.runs[1].graders[0].proof = { caught: 2, total: 3 };
-    expect(issuesV2(v)).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/runs/1/graders/0' }));
+    expect(issuesV3(v)).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/runs/1/graders/0' }));
     // An absent key and null are the same.
-    const same = v2();
+    const same = v3();
     same.runs[0].graders[0].note = null;
-    expect(issuesV2(same)).toEqual([]);
+    expect(issuesV3(same)).toEqual([]);
   });
 });
 
@@ -500,12 +510,12 @@ describe('tma-trajectory/2 (plan T10)', () => {
     const r = validateTrajectory(v);
     return r.ok ? [] : r.issues;
   };
-  it('accepts a v2 trajectory alone and in a run, next to a v1 run in the same upload', () => {
+  it('accepts a v2 trajectory alone and in a /3 run, next to a v1 run in the same upload', () => {
     expect(tIssues(traj2())).toEqual([]);
     expect(tIssues(traj())).toEqual([]);
-    const v = v2();
+    const v = v3();
     v.runs[0].trajectory = traj2();
-    expect(issuesV2(v)).toEqual([]);
+    expect(issuesV3(v)).toEqual([]);
     for (const kind of ['read', 'search', 'write', 'test', 'mcp', 'shell', 'agent', 'other']) expect(tIssues(traj2([step2(1, { step_kind: kind })])), kind).toEqual([]);
     for (const origin of ['human', 'agent', 'system']) expect(tIssues(traj2([step2(1, { turn_origin: origin })])), origin).toEqual([]);
   });
@@ -517,15 +527,15 @@ describe('tma-trajectory/2 (plan T10)', () => {
     const { step_kind: _k, ...noKind } = step2(1);
     expect(tIssues(traj2([noKind]))).not.toEqual([]);
   });
-  it('in an upload: the errors of a v2 step name only the bad field, and a v1 step with step_kind is an unknown key', () => {
-    const v = v2();
+  it('in a /3 upload: the errors of a v2 step name only the bad field, and a v1 step with step_kind is an unknown key', () => {
+    const v = v3();
     v.runs[0].trajectory = traj2([step2(1, { step_kind: 'browse' })]);
-    const issues = issuesV2(v);
+    const issues = issuesV3(v);
     expect(issues).toContainEqual(expect.objectContaining({ path: '/runs/0/trajectory/steps/0/step_kind' }));
     expect(issues.filter((i) => i.path !== '/runs/0/trajectory/steps/0/step_kind')).toEqual([]);
-    const w = v2();
+    const w = v3();
     w.runs[0].trajectory.steps[0].step_kind = 'read';
-    expect(issuesV2(w)).toContainEqual(expect.objectContaining({ code: 'unknown_key', path: '/runs/0/trajectory/steps/0/step_kind' }));
+    expect(issuesV3(w)).toContainEqual(expect.objectContaining({ code: 'unknown_key', path: '/runs/0/trajectory/steps/0/step_kind' }));
   });
   it('keeps the tma-trajectory/1 step rules in v2', () => {
     expect(tIssues(traj2([step2(1), step2(3)]))).toContainEqual(expect.objectContaining({ code: 'inconsistent', path: '/steps/1/seq' }));
@@ -541,5 +551,48 @@ describe('tma-trajectory/2 (plan T10)', () => {
     for (const k of EXTRA) delete p2[k];
     expect(p2).toEqual(s1.$defs.step.properties);
     expect(s2.properties.steps).toEqual(s1.properties.steps);
+  });
+});
+
+describe('tma-local-result/3 is /2 plus the T9-T11 fields; /2 stays unchanged (plan ADR-3)', () => {
+  it('/2 refuses every /3 field and a tma-trajectory/2 run', () => {
+    const summary = v2();
+    summary.case.task_summary = { before: 'x', expected: null };
+    expect(issuesV2(summary)).toContainEqual(expect.objectContaining({ code: 'unknown_key', path: '/case/task_summary' }));
+    for (const k of ['proof', 'calibration', 'note', 'author', 'reason_code', 'labeler']) {
+      const v = v2();
+      v.runs[0].graders[0][k] = null;
+      expect(issuesV2(v), k).toContainEqual(expect.objectContaining({ code: 'unknown_key', path: `/runs/0/graders/0/${k}` }));
+    }
+    const t = v2();
+    t.runs[0].trajectory = { format: 'tma-trajectory/2', steps: [step(1, { step_kind: 'read', started_ms: 0, turn_origin: 'agent' })] };
+    expect(issuesV2(t)).not.toEqual([]);
+  });
+  it('a /2 body with the /3 format is a valid /3 body, and validateAnyLocalResult picks each by its format', () => {
+    expect(issuesV3(v3())).toEqual([]);
+    expect(validateAnyLocalResult(v3())).toMatchObject({ ok: true, format: 'tma-local-result/3' });
+    expect(validateAnyLocalResult(v2())).toMatchObject({ ok: true, format: 'tma-local-result/2' });
+    expect(parseAnyLocalResultText(JSON.stringify(v3()))).toMatchObject({ ok: true, format: 'tma-local-result/3' });
+    // A /3 body with the /2 format is refused when it uses a /3 field.
+    const withNote = v3();
+    withNote.runs[0].graders[0].note = 'v2.1';
+    withNote.runs[1].graders[0].note = 'v2.1';
+    expect(issuesV3(withNote)).toEqual([]);
+    expect(validateAnyLocalResult({ ...withNote, format: 'tma-local-result/2' })).toMatchObject({ ok: false, format: 'tma-local-result/2' });
+  });
+  it('the /3 schema is the /2 schema plus the T9-T11 keys and the trajectory choice, nothing else', () => {
+    const s2 = localResultV2Schema as any;
+    const s3 = localResultV3Schema as any;
+    expect(s3.properties.format).toEqual({ const: 'tma-local-result/3' });
+    expect(s3.required).toEqual(s2.required);
+    expect(Object.keys(s3.properties).sort()).toEqual(Object.keys(s2.properties).sort());
+    const caseProps = { ...s3.properties.case.properties };
+    delete caseProps.task_summary;
+    expect(caseProps).toEqual(s2.properties.case.properties);
+    expect(s3.properties.case.required).toEqual(s2.properties.case.required);
+    const g3 = { ...s3.$defs.grader.properties };
+    for (const k of ['proof', 'calibration', 'note', 'author', 'reason_code', 'labeler']) delete g3[k];
+    expect(g3).toEqual(s2.$defs.grader.properties);
+    expect(s3.$defs.grader.required).toEqual(s2.$defs.grader.required);
   });
 });

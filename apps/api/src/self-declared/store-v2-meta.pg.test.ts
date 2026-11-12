@@ -1,5 +1,5 @@
 /**
- * The 0024 fields of a tma-local-result/2 upload on a real Postgres (plan 20261112-tma-c4-result-store-trajectory-upload,
+ * The 0024 fields of a tma-local-result/3 upload on a real Postgres (plan 20261112-tma-c4-result-store-trajectory-upload,
  * tasks T9, T10 and T11): the task summary of the case, the tma-trajectory/2 step columns, the grader version proof,
  * calibration, note and author, and the label reason and labeler of a grader result. Runs when ITERA_PG_TEST_URL
  * points at a THROWAWAY Postgres with db/migrations applied up to 0024 (the web3 e2e guard job sets it). Never point it
@@ -9,13 +9,14 @@
  * first summary of a case stays and another one is 409 case_conflict, while an upload with no summary is fine; the
  * grader version fields are written once, filled when empty, and another value is 409 grader_conflict; the reason
  * code and the labeler are on the grader result row; a tma-trajectory/2 step writes step_kind, started_ms and
- * turn_origin, and a tma-trajectory/1 step leaves them null; the reader returns every new field.
+ * turn_origin, and a tma-trajectory/1 step leaves them null; the reader returns every new field; a /2 body and the same
+ * body as /3 are one evaluation with the same run rows (the format is not part of the key).
  */
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { LocalResultV2 } from "@itera/contracts";
-import { validateLocalResultV2 } from "@itera/contracts";
+import type { LocalResultV2, LocalResultV3 } from "@itera/contracts";
+import { validateLocalResultV2, validateLocalResultV3 } from "@itera/contracts";
 import { resetSchemaFeatures } from "../domain/schema-features.js";
 import { PgEvalResultsReader } from "./eval-results.js";
 import { PgSelfDeclaredStore } from "./store.pg.js";
@@ -24,7 +25,7 @@ import { SelfDeclaredError } from "./store.js";
 const URL_ = process.env.ITERA_PG_TEST_URL;
 const H = (c: string) => c.repeat(64);
 
-describe.skipIf(!URL_)("tma-local-result/2 with the 0024 fields on Postgres", () => {
+describe.skipIf(!URL_)("tma-local-result/3 with the 0024 fields on Postgres", () => {
   const pool = new Pool({ connectionString: URL_, max: 4 });
   const store = new PgSelfDeclaredStore(pool);
   const reader = new PgEvalResultsReader(() => pool);
@@ -78,9 +79,9 @@ describe.skipIf(!URL_)("tma-local-result/2 with the 0024 fields on Postgres", ()
     ...(summary === undefined ? {} : { task_summary: summary }),
   });
 
-  const v2 = (over: Record<string, unknown> = {}): LocalResultV2 => {
+  const v2 = (over: Record<string, unknown> = {}): LocalResultV3 => {
     const value: Record<string, unknown> = {
-      format: "tma-local-result/2",
+      format: "tma-local-result/3",
       agent_id: agentA,
       task: { catalog: { slug: tag, version: 1 } },
       metrics_shape: "tma-score/1",
@@ -97,7 +98,13 @@ describe.skipIf(!URL_)("tma-local-result/2 with the 0024 fields on Postgres", ()
       ...over,
     };
     value.summary = { ...(value.summary as Record<string, number>), runs: (value.runs as unknown[]).length };
-    const checked = validateLocalResultV2(value);
+    const checked = validateLocalResultV3(value);
+    if (!checked.ok) throw new Error(`fixture is not a valid tma-local-result/3: ${checked.errors.join("; ")}`);
+    return checked.value;
+  };
+  /** The same body as tma-local-result/2: it must carry none of the /3 fields. */
+  const asV2 = (r: LocalResultV3): LocalResultV2 => {
+    const checked = validateLocalResultV2({ ...r, format: "tma-local-result/2" });
     if (!checked.ok) throw new Error(`fixture is not a valid tma-local-result/2: ${checked.errors.join("; ")}`);
     return checked.value;
   };
@@ -211,6 +218,20 @@ describe.skipIf(!URL_)("tma-local-result/2 with the 0024 fields on Postgres", ()
     await store.importResultV2(ALICE, v3({ caught: 4, total: 5 }), opts);
     const filled = (await pool.query(`select proof_caught, proof_total from public.grader_versions where grader_id = $1 and semver = '2.2.0'`, [CODE_GRADER])).rows[0];
     expect(filled).toEqual({ proof_caught: 4, proof_total: 5 });
+  });
+
+  it("a /2 body and the same body as /3 are one evaluation with the same runs", async () => {
+    const { proof: _p, note: _n, author: _a, ...plain } = code({ id: `${tag}-plain` });
+    const body = v2({
+      case: kase(`${tag}-same`, undefined),
+      runs: [run(1, { graders: [plain], trajectory: { format: "tma-trajectory/1", steps: [step(1)] } })],
+    });
+    const asTwo = await store.importResultV2(ALICE, asV2(body), opts);
+    expect(asTwo).toMatchObject({ action: "inserted" });
+    const asThree = await store.importResultV2(ALICE, body, opts);
+    expect(asThree.evaluationId).toBe(asTwo.evaluationId);
+    expect(asThree.runIds).toEqual(asTwo.runIds);
+    expect(asThree.runs.inserted).toBe(0);
   });
 
   it("a tma-trajectory/1 step on a 0024 database leaves the three columns null", async () => {
