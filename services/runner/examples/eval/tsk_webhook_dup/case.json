@@ -1,0 +1,22 @@
+{
+  "schema": "tma-case/1",
+  "case_key": "webhook-dup-replay",
+  "use_case": "fix/red-ci",
+  "l2_tag": "webhook-dedupe",
+  "task_summary": {
+    "before": "A webhook handler applies a duplicate delivery twice and never checks the signature.",
+    "expected": "A duplicate delivery is applied once by event id; a bad signature is refused; the hidden tests pass."
+  },
+  "mode": "replay",
+  "answer_shape": "single",
+  "pin": null,
+  "task_ref": { "kind": "tma-task", "id": "tsk_webhook_dup@1.0.0" },
+  "expected": {
+    "text": "The ledger verifies the HMAC signature, applies each event id once and never moves a settled entry back. Every hidden test passes.",
+    "written_by": "claude-main",
+    "written_at": "2026-11-12T18:30:00Z"
+  },
+  "graders": [{ "id": "hidden-tests", "version": "0.3.0", "weight": 1, "hard_gate": true }],
+  "split": "none",
+  "source": "synthetic"
+}

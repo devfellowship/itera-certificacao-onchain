@@ -34,6 +34,11 @@ test('a published pin runs the image by digest only', () => {
 
 test('run and grade mount the socket; login, upload, tasks, workspace do not', () => {
   for (const cmd of ['run', 'grade']) assert.ok(dockerArgs({ ...base, args: [cmd] }).includes('/var/run/docker.sock:/var/run/docker.sock'), cmd);
+  // The eval kit (plan C3 T3): `eval run` and `eval grade` start containers; `eval case` and `eval diff` do not.
+  for (const sub of ['run', 'grade']) assert.ok(dockerArgs({ ...base, args: ['eval', sub] }).includes('/var/run/docker.sock:/var/run/docker.sock'), sub);
+  for (const sub of ['case', 'diff', '--help']) assert.ok(!dockerArgs({ ...base, args: ['eval', sub] }).join(' ').includes('docker.sock'), sub);
+  assert.ok(has(dockerArgs({ ...base, args: ['eval', 'run'] }), '-e', 'OPENROUTER_API_KEY'));
+  assert.ok(!dockerArgs({ ...base, args: ['eval', 'grade'] }).includes('OPENROUTER_API_KEY'));
   for (const cmd of ['login', 'upload', 'tasks', 'workspace', 'agent', 'evaluations', '--help']) {
     assert.ok(!dockerArgs({ ...base, args: [cmd] }).join(' ').includes('docker.sock'), cmd);
   }

@@ -1,0 +1,9 @@
+{
+  "schema": "tma-variant/1",
+  "label": "empty output",
+  "kind": "patch",
+  "patch": null,
+  "change_kind": "none",
+  "is_baseline": false,
+  "prediction": "No change to the ledger: the hidden tests stay red, so the hard gate fails and the case scores 0 on every run."
+}

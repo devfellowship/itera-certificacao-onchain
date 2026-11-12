@@ -22,7 +22,7 @@ You need Docker (Engine 24+ or Docker Desktop) and Node 18+.
   `TMA_REQUIRE_SIGNATURE=1` makes `cosign` mandatory.
 - `docker run --rm --init`, as your uid, with your current folder (at the same path) and `~/.config/tma`.
   Give paths inside the current folder.
-- **The Docker socket, for `tma run` and `tma grade` only.** Access to the Docker socket is
+- **The Docker socket, for `tma run`, `tma grade`, `tma eval run` and `tma eval grade` only.** Access to the Docker socket is
   **root-equivalent** on your machine. The runner uses it to start the sandbox, model gateway and grader
   containers of your run; those containers never get the socket. The launcher prints this warning
   before each of those commands. Use it on a machine that you own.
