@@ -1,6 +1,6 @@
 import type { EvidenceManifest } from '../../evaluator/src/types.js';
 import type { AgentRunResult } from './agent-run.js';
-import type { FinalStatus } from './jobs.js';
+import type { FinalStatus, HostedGraderResult } from './jobs.js';
 
 /**
  * Final status for a graded run. Same rules as the legacy /evaluations dispatch
@@ -132,4 +132,42 @@ export function evalLogOf(manifest: EvidenceManifest, agent: AgentRunResult, sta
       ...(status === 'infra_error' ? { reason: 'grading did not measure the run' } : {}),
     },
   };
+}
+
+/** The id of the grader that decides a hosted run: the task's hidden tests, run by the evaluator. */
+export const HIDDEN_TESTS_GRADER_ID = 'hidden-tests';
+const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
+
+/**
+ * T4 (plan 20261112-tma-c4-result-store-trajectory-upload): the grader rows of a hosted run. The hidden-tests
+ * grader is `hidden-tests@<evaluator version>`, keyed by the digest of the evaluator source that graded the run
+ * (the same facts as the stored EvalLog). It decides the verdict, so it is a hard gate and decisive; the hosted
+ * run has no case to declare a weight, so the weight is 100.
+ *
+ * A run that was not measured (`infra_error`) gets NO grader row: a row would say pass = false about a grading
+ * that did not happen. Its `infra_ok = false` says why instead. A manifest that carries no evaluator version
+ * or digest also gets no row (an older manifest): the row's key would be invented.
+ */
+export function hostedGraders(
+  status: FinalStatus,
+  manifest: Pick<EvidenceManifest, 'evaluator_version' | 'evaluator_digest' | 'score'>,
+): HostedGraderResult[] {
+  if (status === 'infra_error') return [];
+  const semver = manifest.evaluator_version;
+  const digest = manifest.evaluator_digest;
+  if (!semver || !SEMVER.test(semver) || !digest || !SHA256.test(digest)) return [];
+  return [
+    {
+      id: HIDDEN_TESTS_GRADER_ID,
+      semver,
+      codeSha256: digest,
+      kind: 'code',
+      pass: status === 'pass',
+      score: runScore(status, manifest),
+      weight: 100,
+      hardGate: true,
+      decisive: true,
+    },
+  ];
 }

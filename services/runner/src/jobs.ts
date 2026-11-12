@@ -33,6 +33,23 @@ export interface RunJob extends ClaimedRun {
 /** Model usage written to runs.model_cost_usd / model_tokens_in / model_tokens_out (0006_run_cost.sql). */
 export type RunCost = Pick<ModelUsage, 'costUsd' | 'tokensIn' | 'tokensOut'>;
 
+/**
+ * One grader's result for a hosted run, written to grader_results when migration 0023 is applied (plan
+ * 20261112-tma-c4-result-store-trajectory-upload, T4). The grader is named by id@semver + the digest of the
+ * code that ran, the same key as an uploaded tma-local-result/2 grader.
+ */
+export interface HostedGraderResult {
+  id: string;
+  semver: string;
+  codeSha256: string;
+  kind: 'code' | 'judge' | 'human';
+  pass: boolean;
+  score: number | null;
+  weight: number;
+  hardGate: boolean;
+  decisive: boolean;
+}
+
 export interface RunOutcome {
   status: FinalStatus;
   phase: RunPhase;
@@ -52,6 +69,13 @@ export interface RunOutcome {
    * Absent or empty when the run failed before the agent started.
    */
   artifacts?: RunArtifact[];
+  /**
+   * T4: false = the run failed for an infrastructure reason, not for the agent (runs.infra_ok, 0023). Absent =
+   * not reported. Written only when migration 0023 is applied.
+   */
+  infraOk?: boolean;
+  /** T4: grader_results rows for the run (0023). Empty or absent when no grader measured the run. */
+  graders?: HostedGraderResult[];
 }
 
 export interface JobStore {
