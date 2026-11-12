@@ -1,12 +1,20 @@
-// `tma eval case|run|grade|diff` (plan 20261112-tma-c3-eval-repo-kit-docs T3, ADR-4): the eval kit.
+// `tma eval case|run|grade|diff|trajectory|upload` (plan 20261112-tma-c3-eval-repo-kit-docs T3, T4, ADR-4): the eval kit.
 // A case manifest (tma-case/1, from the private eval repo) becomes a case folder on the host; a variant
 // runs N times in the TMA sandbox; the case graders grade each run by id@version; diff compares a
-// variant with the baseline. Everything stays on the host; `tma eval upload` (T4) sends the numbers.
-import { readdir } from 'node:fs/promises';
+// variant with the baseline. Everything stays on the host until `tma eval upload` (T4) sends the numbers,
+// the digests and the structural trajectory (tma-local-result/2). `tma eval trajectory` reads a harness
+// trace into a tma-trajectory/1 record with redacted targets.
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { flag, flagList, has, numberFlag, parseArgs, required } from '../args.js';
 import type { Command, Io } from '../command.js';
-import { CliError } from '../env.js';
+import { apiUrl, CliError } from '../env.js';
+import { checkAgentId } from '../result.js';
+import { loadSessionFile, requireSession } from '../session.js';
+import { postResult } from './upload.js';
+import { agentSha, baseAgentFrom, buildEvalUpload, variantFolders } from '../eval/upload.js';
+import { readClaudeCodeSession, trajectoryFromActions, trajectoryLine } from '../eval/trajectory.js';
+import type { RunAction } from '../../types.js';
 import { buildCaseFolder, CASE_RUNS_DIR, loadCaseFolder } from '../eval/case.js';
 import { evalDiff } from '../eval/diff.js';
 import { gradeRecorded, regrade, runDirs, runVariant, summaryTable, type EvalDeps } from '../eval/runs.js';
@@ -36,8 +44,21 @@ const DIFF_USAGE = `usage: tma eval diff <baseline> <variant>
   Two variant folders (<case>/${CASE_RUNS_DIR}/<sha12>), two run folders, or two files.
   Files diff by type: .diff/.patch code, .json tree, .md sections + lines, other text lines.`;
 
+const TRAJECTORY_USAGE = `usage: tma eval trajectory --from claude-code <session.jsonl> [--out <file>] [--root <dir>]...
+       tma eval trajectory --from opencode <run dir | run.json> [--out <file>]
+  Reads a harness trace into tma-trajectory/1: one step per tool call, with the family, status, error class,
+  duration, target kind, a REDACTED target (at most 120 characters) and the sha256 of the arguments and the
+  result. No prompt, argument, output or file body is kept. --out <run dir>/trajectory.json attaches it to a run.
+  --root  a folder whose prefix is dropped from paths (the session cwd is one by default)`;
+
+const UPLOAD_USAGE = `usage: tma eval upload --case <case dir> --variant-dir <dir> --agent <agent id> [--base-agent <file>] [--dry-run]
+  Sends the runs of ONE variant as one tma-local-result/2 body (numbers, digests, grader rows, trajectory)
+  to POST /self-declared-results. --dry-run prints the body and asks the API with ?dry_run=1 when logged in.
+  --base-agent  the base agent version (the 8 fields of variant.agent, or a tma-pin/1). Default: the case pin,
+                else the agent folder of an agent variant.`;
+
 const USAGE = [
-  'usage: tma eval <case|run|grade|diff> ...   (the eval kit: plan C3)',
+  'usage: tma eval <case|run|grade|diff|trajectory|upload> ...   (the eval kit: plan C3)',
   '',
   CASE_USAGE,
   '',
@@ -46,6 +67,10 @@ const USAGE = [
   GRADE_USAGE,
   '',
   DIFF_USAGE,
+  '',
+  TRAJECTORY_USAGE,
+  '',
+  UPLOAD_USAGE,
 ].join('\n');
 
 /** The copy command of the next step, as the studio shows it (umbrella ADR-30, ADR-31). */
@@ -96,6 +121,79 @@ async function gradeMain(argv: string[], io: Io, deps: EvalDeps): Promise<number
   return summaries.every((s) => s.runs.every((r) => r.infra_ok)) ? 0 : 1;
 }
 
+async function trajectoryMain(argv: string[], io: Io): Promise<number> {
+  const a = parseArgs(argv, { from: {}, out: {}, root: { repeat: true } });
+  const from = required(a, 'from', TRAJECTORY_USAGE);
+  if (a.positionals.length !== 1) throw new CliError(TRAJECTORY_USAGE);
+  const input = resolve(a.positionals[0]!);
+  let trajectory;
+  if (from === 'claude-code') {
+    const text = await readFile(input, 'utf-8').catch(() => null);
+    if (text === null) throw new CliError(`cannot read ${input}`);
+    const r = readClaudeCodeSession(text, { redact: { roots: flagList(a, 'root').map((x) => resolve(x)) } });
+    trajectory = r.trajectory;
+    if (r.skipped > 0) io.err(`[tma eval] ${r.skipped} line(s) were not JSON and were skipped`);
+  } else if (from === 'opencode') {
+    const file = input.endsWith('.json') ? input : resolve(input, 'run.json');
+    const run = JSON.parse((await readFile(file, 'utf-8').catch(() => 'null')) ?? 'null') as { agent?: { actions?: RunAction[] } } | null;
+    if (!run?.agent?.actions) throw new CliError(`${file} is not the run.json of an agent run (no agent.actions)`);
+    trajectory = trajectoryFromActions(run.agent.actions);
+    if (!trajectory) throw new CliError(`${file}: the actions have no structural fields (a run of an older runner)`);
+  } else throw new CliError(`--from must be claude-code or opencode\n${TRAJECTORY_USAGE}`);
+  const out = flag(a, 'out');
+  const text = `${JSON.stringify(trajectory, null, 2)}\n`;
+  if (out) {
+    await writeFile(resolve(out), text, 'utf-8');
+    io.out(`${trajectoryLine(trajectory)}\nwritten to ${resolve(out)}`);
+  } else io.out(text.trimEnd());
+  return 0;
+}
+
+async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
+  const a = parseArgs(argv, { case: {}, 'variant-dir': {}, agent: {}, 'base-agent': {}, 'dry-run': { boolean: true } });
+  const c = await loadCaseFolder(required(a, 'case', UPLOAD_USAGE));
+  const agentId = checkAgentId(required(a, 'agent', UPLOAD_USAGE));
+  let dirs = flag(a, 'variant-dir') ? [resolve(flag(a, 'variant-dir')!)] : [];
+  if (dirs.length === 0) {
+    dirs = await variantFolders(c.dir);
+    if (dirs.length !== 1) throw new CliError(`give --variant-dir: the case has ${dirs.length} variant folders\n${UPLOAD_USAGE}`);
+  }
+  let baseAgent;
+  const baseFile = flag(a, 'base-agent');
+  if (baseFile) {
+    const raw = await readFile(resolve(baseFile), 'utf-8').catch(() => null);
+    if (raw === null) throw new CliError(`cannot read ${baseFile}`);
+    try {
+      baseAgent = baseAgentFrom(JSON.parse(raw), baseFile);
+    } catch (e) {
+      if (e instanceof SyntaxError) throw new CliError(`${baseFile} is not JSON`);
+      throw e;
+    }
+  }
+  const body = await buildEvalUpload({ c, variantDir: dirs[0]!, agentId, baseAgent });
+  const env = deps.env ?? process.env;
+  const base = apiUrl(env);
+  const nowMs = (deps.now ?? (() => new Date()))().getTime();
+  const dryRun = has(a, 'dry-run');
+  let token: string | undefined;
+  if (dryRun) {
+    const s = loadSessionFile(env);
+    token = s && s.api_url === base && Date.parse(s.expires_at) > nowMs ? s.session_token : undefined;
+  } else token = requireSession(base, nowMs, env).session_token;
+  const label = `${body.case.case_key} / ${body.variant.label}`;
+  io.err(`[tma eval] ${label}: ${body.runs.length} run(s), mean score ${body.summary.score}, agent ${agentSha(body).slice(0, 12)}, variant ${body.variant.variant_sha256.slice(0, 12)}`);
+  if (dryRun) {
+    io.err('dry run: this is exactly what tma eval upload sends:');
+    io.out(JSON.stringify(body, null, 2));
+    if (!token) {
+      io.err('You are not logged in, so the API checks are skipped. Run tma login, then tma eval upload --dry-run again.');
+      return 0;
+    }
+  }
+  const r = await postResult({ base, body, label, dryRun, token, fetchImpl: deps.fetchImpl, io });
+  return r.ok ? 0 : 1;
+}
+
 async function diffMain(argv: string[], io: Io): Promise<number> {
   const a = parseArgs(argv, {});
   if (a.positionals.length !== 2) throw new CliError(DIFF_USAGE);
@@ -106,7 +204,7 @@ async function diffMain(argv: string[], io: Io): Promise<number> {
 export function makeEvalCommand(deps: EvalDeps = {}): Command {
   return {
     name: 'eval',
-    summary: 'The eval kit: build a case folder, run a variant N times, grade by grader id@version, diff vs the baseline',
+    summary: 'The eval kit: case folder, run a variant N times, grade by id@version, diff, trajectory, upload',
     usage: USAGE,
     async main(argv, io) {
       const [sub, ...rest] = argv;
@@ -119,6 +217,10 @@ export function makeEvalCommand(deps: EvalDeps = {}): Command {
           return gradeMain(rest, io, deps);
         case 'diff':
           return diffMain(rest, io);
+        case 'trajectory':
+          return trajectoryMain(rest, io);
+        case 'upload':
+          return uploadMain(rest, io, deps);
         default:
           throw new CliError(`${sub ? `unknown eval command: ${sub}` : 'give an eval command'}\n${USAGE}`);
       }

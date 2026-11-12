@@ -135,18 +135,26 @@ export async function upload(argv: string[], io: Io, deps: UploadDeps = {}): Pro
 
   let failed = 0;
   for (const b of bodies) {
-    const r = await apiCall(base, `/self-declared-results${dryRun ? '?dry_run=1' : ''}`, { method: 'POST', body: b.body, token, fetchImpl: deps.fetchImpl });
-    const rb = r.body ?? {};
-    if ((r.status === 200 || r.status === 201) && typeof rb.evaluation_id === 'string') {
-      const verb = dryRun ? `dry run OK, it would be ${String(rb.action)}` : String(rb.action);
-      io.out(`${b.label}: ${verb}. Evaluation ${rb.evaluation_id} (self-declared)${dryRun ? '' : ` ${String(rb.url ?? '')}`}`.trimEnd());
-    } else {
+    const r = await postResult({ base, body: b.body, label: b.label, dryRun, token, fetchImpl: deps.fetchImpl, io });
+    if (!r.ok) {
       failed++;
-      io.err(`${b.label}: refused: ${describeRefusal(r)}`);
       if (r.status === 401) break;
     }
   }
   return failed === 0 ? 0 : 1;
+}
+
+/** POST one validated result body (v1 or v2) to /self-declared-results and print the answer. */
+export async function postResult(o: { base: string; body: unknown; label: string; dryRun: boolean; token?: string; fetchImpl?: Fetch; io: Io }): Promise<{ ok: boolean; status: number }> {
+  const r = await apiCall(o.base, `/self-declared-results${o.dryRun ? '?dry_run=1' : ''}`, { method: 'POST', body: o.body, token: o.token, fetchImpl: o.fetchImpl });
+  const rb = r.body ?? {};
+  if ((r.status === 200 || r.status === 201) && typeof rb.evaluation_id === 'string') {
+    const verb = o.dryRun ? `dry run OK, it would be ${String(rb.action)}` : String(rb.action);
+    o.io.out(`${o.label}: ${verb}. Evaluation ${rb.evaluation_id} (self-declared)${o.dryRun ? '' : ` ${String(rb.url ?? '')}`}`.trimEnd());
+    return { ok: true, status: r.status };
+  }
+  o.io.err(`${o.label}: refused: ${describeRefusal(r)}`);
+  return { ok: false, status: r.status };
 }
 
 export const uploadCommand: Command = {

@@ -18,6 +18,7 @@ import { runAgent as defaultRunAgent, type AgentRunResult } from '../../agent-ru
 import { routeOfModel } from '../../model-route.js';
 import { taskWallMs } from '../../provenance.js';
 import type { SandboxConfig } from '../../sandbox.js';
+import type { Fetch } from '../api.js';
 import { CliError, userModelKey } from '../env.js';
 import { defaultGrade, newRunId, prepareSandbox, redact, type LocalDeps } from '../local.js';
 import { REPO_ROOT } from '../tasks.js';
@@ -26,6 +27,12 @@ import { builtinProfiles, checkModelId } from '../commands/run.js';
 import { CASE_RECORDED_FILE, CASE_RUNS_DIR, sha256, type LoadedCase } from './case.js';
 import { BUILTIN_GRADERS, caseVerdict, needsSandbox, NO_FACTS, runGraders, type CaseVerdict, type Grader, type GraderResult, type RunFacts } from './graders.js';
 import type { ResolvedVariant } from './variant.js';
+import type { RunAction } from '../../types.js';
+import { trajectoryFromActions } from './trajectory.js';
+
+/** The structural trajectory of a run (tma-trajectory/1), next to run.json. Agent runs write it; for a
+ * recorded output, `tma eval trajectory --out <run dir>/trajectory.json` adds it. */
+export const TRAJECTORY_FILE = 'trajectory.json';
 
 export const RUN_FORMAT = 'tma-eval-run/1';
 export const GRADES_FORMAT = 'tma-eval-grades/1';
@@ -36,6 +43,8 @@ export const RECORDED_VARIANT_DIR = 'recorded';
 
 export interface EvalDeps extends LocalDeps {
   graders?: readonly Grader[];
+  /** tma eval upload: the HTTP client (a test passes a fake). */
+  fetchImpl?: Fetch;
 }
 
 export interface RunRecord {
@@ -50,6 +59,10 @@ export interface RunRecord {
   wall_s: number | null;
   facts: RunFacts;
   patch_sha256: string;
+  /** The run profile of an agent run; null for a patch or recorded output. */
+  profile?: string | null;
+  /** The docker image id of the sandbox that ran or graded the run. */
+  sandbox_image_id?: string | null;
   /** Agent runs: the model usage and the tool calls. Host only. */
   agent: null | { model: string; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; agent_errors: string[]; actions: unknown[] };
 }
@@ -131,9 +144,9 @@ export async function prepareVariantDir(c: LoadedCase, v: ResolvedVariant): Prom
   return dir;
 }
 
-async function sandboxFor(c: LoadedCase, deps: EvalDeps, profile: string, alsoAgent: boolean, log: (l: string) => void): Promise<SandboxConfig | null> {
+async function sandboxFor(c: LoadedCase, deps: EvalDeps, profile: string, alsoAgent: boolean, log: (l: string) => void): Promise<{ config: SandboxConfig; imageId: string | null } | null> {
   if (!alsoAgent && !needsSandbox(c.manifest.graders, deps.graders ?? BUILTIN_GRADERS)) return null;
-  return (await prepareSandbox(deps, profile, log)).config;
+  return prepareSandbox(deps, profile, log);
 }
 
 /** Grade one run folder with the case graders and ADD a grading entry. Returns the entry. */
@@ -229,7 +242,8 @@ export async function runVariant(input: { c: LoadedCase; v: ResolvedVariant; rep
   }
   const log = (line: string) => input.log(redact(line, modelKey));
   const variantDir = await prepareVariantDir(c, v);
-  const config = await sandboxFor(c, deps, profile, v.file.kind === 'agent', log);
+  const sandbox = await sandboxFor(c, deps, profile, v.file.kind === 'agent', log);
+  const config = sandbox?.config ?? null;
   const already = (await runDirs(variantDir)).length;
 
   for (let n = 1; n <= input.repeat; n++) {
@@ -292,8 +306,15 @@ export async function runVariant(input: { c: LoadedCase; v: ResolvedVariant; rep
       facts,
       patch_sha256: sha256(redact(patch, modelKey)),
       agent: agentInfo,
+      profile: v.file.kind === 'agent' ? profile : null,
+      sandbox_image_id: sandbox?.imageId ?? null,
     };
     await writeRun(runDir, record, patch, modelKey);
+    if (agentInfo) {
+      // The structural trajectory of the agent run (T4): redacted targets, digests, no text.
+      const trajectory = trajectoryFromActions(agentInfo.actions as RunAction[]);
+      if (trajectory) await writeFile(join(runDir, TRAJECTORY_FILE), redact(json(trajectory), modelKey));
+    }
     const entry = await gradeRunDir({ c, runDir, config, deps, log });
     log(`[tma eval] ${runId}: ${entry.case.infra_ok ? (entry.case.pass ? 'pass' : 'fail') : 'not measured'}, score ${entry.case.score ?? '-'}`);
   }
@@ -324,9 +345,11 @@ export async function gradeRecorded(input: { c: LoadedCase; deps: EvalDeps; log:
     facts: NO_FACTS,
     patch_sha256: sha256(body),
     agent: null,
+    profile: null,
+    sandbox_image_id: null,
   };
   await writeRun(join(variantDir, runId), record, body);
-  const config = await sandboxFor(c, deps, 'opencode', false, input.log);
+  const config = (await sandboxFor(c, deps, 'opencode', false, input.log))?.config ?? null;
   await gradeRunDir({ c, runDir: join(variantDir, runId), config, deps, log: input.log });
   const summary = await writeSummary(c, variantDir, { variantSha256, label: 'recorded output', isBaseline: true });
   return { variantDir, summary };
@@ -334,7 +357,7 @@ export async function gradeRecorded(input: { c: LoadedCase; deps: EvalDeps; log:
 
 /** Re-grade the given run folders (each gets a NEW grading entry) and refresh their variant summaries. */
 export async function regrade(input: { c: LoadedCase; runs: string[]; deps: EvalDeps; log: (line: string) => void }): Promise<VariantSummary[]> {
-  const config = await sandboxFor(input.c, input.deps, 'opencode', false, input.log);
+  const config = (await sandboxFor(input.c, input.deps, 'opencode', false, input.log))?.config ?? null;
   const variantDirs = new Set<string>();
   for (const dir of input.runs) {
     if (!(await stat(join(dir, 'run.json')).catch(() => null))) throw new CliError(`${dir} is not a run folder (no run.json)`);
