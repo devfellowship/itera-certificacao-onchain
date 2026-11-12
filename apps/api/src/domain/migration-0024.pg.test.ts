@@ -163,8 +163,17 @@ describe.skipIf(!URL_)("migration 0024 on Postgres", () => {
       [Object.keys(NEW_COLUMNS).map((t) => `public.${t}`)],
     );
     expect(triggers.rows).toEqual([]);
-    const upd = await pool.query(`select has_table_privilege('itera_api_service', 'public.grader_results', 'UPDATE') as upd`);
-    expect(upd.rows[0].upd).toBe(false);
+    // Every role granted INSERT on grader_results other than the owner (the API role) still has no UPDATE.
+    const grantees = await pool.query(
+      `select distinct grantee from information_schema.role_table_grants
+        where table_schema = 'public' and table_name = 'grader_results' and privilege_type = 'INSERT'
+          and grantee <> (select tableowner from pg_tables where schemaname = 'public' and tablename = 'grader_results')`,
+    );
+    expect(grantees.rows.length).toBeGreaterThan(0);
+    for (const { grantee } of grantees.rows) {
+      const upd = await pool.query(`select has_table_privilege($1, 'public.grader_results', 'UPDATE') as upd`, [grantee]);
+      expect(upd.rows[0].upd, grantee).toBe(false);
+    }
   });
 
   describe("eval_cases.task_summary (T9, Q-T16 = A)", () => {
