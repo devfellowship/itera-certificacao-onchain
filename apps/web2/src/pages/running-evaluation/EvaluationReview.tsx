@@ -12,6 +12,7 @@ import { JsonTree, PASS_LINE, ResultDot, ScoreBar, fmtScore, round1, wilson90 } 
 import { Segmented } from '../../tma/ui'
 import { VERDICT_MARK, compareRows, inputPreview, mostLost, navItemsOf, patchStats, sourceOf, verdictOf } from './review'
 import type { CompareRow, NavItem, ReviewDetail, ReviewTask } from './review'
+import { RunGraders, VariantStrip } from './ResultStore'
 import './review.css'
 
 export interface EvaluationReviewProps {
@@ -114,6 +115,7 @@ export function EvaluationReview({ detail: d, runs, profiles, runErrors = {}, on
   return (
     <section className="ev" data-testid="evaluation-review" data-source={source}>
       <ScoreHeader detail={d} rows={rows} items={items} current={current} onSelect={setItem} />
+      <VariantStrip detail={d} />
       <CompareCard task={task} run={run} runError={runError} onRetry={onRetry} profile={profile} rows={rows} publicCollapsed={publicCollapsed} onShowAll={() => setShowAllPublic(true)} prev={prev} next={next} onSelect={setItem} view={view} onView={setView} />
       <ArtifactsCard eid={d.id} task={task} run={run} runError={runError} onRetry={onRetry} source={source} onGraderReport={() => setView('json')} />
     </section>
@@ -280,6 +282,7 @@ function CompareCard({ task, run, runError, onRetry, profile, rows, publicCollap
                 Show all {publicCollapsed} public tests
               </button>
             )}
+            <RunGraders graders={run.graders ?? task.graders} trajectorySummary={run.trajectorySummary ?? task.trajectorySummary} />
           </>
         )}
       </div>
