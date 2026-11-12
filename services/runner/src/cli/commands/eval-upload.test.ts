@@ -110,6 +110,8 @@ describe('the redaction module', () => {
     expect(redactCommand('echo please rewrite the ledger')).toBe('echo');
     expect(redactCommand('bash x/run.sh set 24ad1930 done')).toBe('bash x/run.sh set');
     expect(redactCommand('npm test 2>&1 | tail -5')).toBe('npm test');
+    expect(redactCommand("sed 's/\\x1b\\[[0-9;]*m//g' log")).toBe('sed');
+    expect(redactCommand('cat $S/watch.log')).toBe('cat');
     expect(redactCommand(`curl https://api.example.test/v1/x?q=please+rewrite&token=${SECRET}`)).toBe('curl https://api.example.test/v1/x');
     expect(redactUrl(`https://u:p@h.test/a/${SECRET}?k=v#f`)).toBe('https://h.test/a/<redacted>');
     expect(redactTarget('pattern', PROMPT)).toBe('<pattern>');

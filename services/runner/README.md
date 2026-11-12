@@ -86,7 +86,7 @@ What to expect:
 
 `--task-dir <folder>` selects a private task folder on your disk instead of `--task` (it never leaves the machine; only its digests go into the result). MCP tasks run hosted only. The patch, the actions and the evidence manifest go to `./tma-runs/<run-id>/`, for you only. `src/run-once.ts` is an alias of `tma run` (`--scenario` works as `--task`). An agent that has the learn MCP can upload without `tma login`: the MCP tool `create_tma_local_result` takes the same file.
 
-### The eval kit: `tma eval case|run|grade|diff`
+### The eval kit: `tma eval case|run|grade|diff|trajectory|upload`
 
 Plan `20261112-tma-c3-eval-repo-kit-docs` T3. A case manifest (`tma-case/1`, from the private eval repo) becomes a case folder on your host. A variant runs N times in the same sandbox as `tma run`, and the case graders grade each run by `id@version` with the hosted grader. Everything stays on the host; `tma eval upload` (T4) sends the numbers.
 
@@ -102,6 +102,18 @@ tma eval diff  ./case/runs/<baseline sha12> ./case/runs/<variant sha12>         
 - **Integrity**: a case folder whose `case.json` or task bundle changed after `tma eval case` is refused, and so is a run folder whose `patch.diff` changed.
 - **A trace_review case** links its recorded output (`--recorded <patch>`) and `tma eval grade --case <dir>` grades it; it runs nothing.
 - Example: [`examples/eval/tsk_webhook_dup/`](examples/eval/tsk_webhook_dup/README.md).
+
+#### Trajectory and upload: `tma eval trajectory|upload` (T4)
+
+```bash
+tma eval trajectory --from claude-code ~/.claude/projects/<project>/<session>.jsonl --root ~/repos --out t.json
+tma eval trajectory --from opencode ./case/runs/<sha12>/<run-id>        # the run.json of an agent run
+tma eval upload --case ./case --variant-dir ./case/runs/<sha12> --agent <agent id> --dry-run
+```
+
+- **Trajectory** (`tma-trajectory/1`): one step per tool call: tool, family, status, error class, duration, target kind, a redacted target, and the sha256 of the arguments and of the result. The prompt, every model message, the arguments, the tool output and file bodies stay on the host. An agent run of `tma eval run` writes `trajectory.json` next to `run.json`.
+- **Redaction** (`src/cli/eval/redact.ts`, the only writer of `target_redacted`): a path is made relative to `--root` and the session folder (home becomes `~`); a command keeps its program and the sub-command words of a known tool (`git pr view`) or the script path of any other program (`bash x/run.sh set`), never a flag, a value or free text; a URL keeps scheme, host and path; a search pattern with a space is a sentence and becomes `<pattern>`; a sub-agent call keeps only its type. Any value that looks like a credential becomes `<redacted>`. At most 120 characters.
+- **Upload** sends one variant folder as one `tma-local-result/2` body (case, variant, comparison, every run with its graders and trajectory). The base agent comes from `--base-agent <file>`, else the case pin, else the agent folder of an agent variant. It refuses before any network call: a `case_key` with a dot or longer than 63, a replay case with no pin, a non-baseline variant with `change_kind: "none"` (a control output stays local), and any value that looks like a credential. `--dry-run` prints the exact body and, when you are logged in, asks the API to check it without a write.
 
 ## What one run does
 

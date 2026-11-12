@@ -52,8 +52,8 @@ export interface RedactContext {
 const SUBCOMMAND = /^[a-z][a-z0-9:_-]{0,24}$/;
 /** Programs whose first words name a sub-command. For any other program the words after it are free text. */
 const SUBCOMMAND_TOOLS = new Set(['git', 'gh', 'npm', 'npx', 'pnpm', 'yarn', 'bun', 'deno', 'docker', 'kubectl', 'helm', 'cargo', 'go', 'pip', 'pip3', 'uv', 'poetry', 'make', 'systemctl', 'journalctl', 'tma', 'supabase', 'terraform', 'aws', 'gcloud', 'az', 'brew', 'apt', 'apt-get', 'dokploy', 'vercel', 'wrangler', 'flyctl', 'tailscale', 'infisical', 'opencode', 'claude', 'codex']);
-/** A script or path argument: it has a slash and no space. */
-const PATH_WORD = /^[^\s-][^\s]*\/[^\s]*$/;
+/** A script or path argument: path characters only, with a slash (not a sed script, not $VAR/x). */
+const PATH_WORD = /^(?!-)[A-Za-z0-9._~@+-]*\/[A-Za-z0-9._~@+/-]*$/;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,63}$/;
 
 function finish(text: string): string | null {
