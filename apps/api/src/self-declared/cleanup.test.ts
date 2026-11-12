@@ -162,16 +162,17 @@ describe("planCleanup", () => {
   });
 
   it("a calibrated version: an admin deletes it only with allowCalibrated and only with no grader result", () => {
+    const withJudge: CleanupFacts = { ...facts, graders: [...facts.graders, { id: G_JUDGE, graderId: "j", semver: "1.0.0", resultCount: 0, calibrated: true }] };
     const judge = { caseIds: null, variantIds: null, graderVersionIds: [G_JUDGE, G_USED] };
-    expect(planCleanup(facts, judge, { graderAdmin: true }).refused.map((r) => `${r.id}:${r.reason}`))
+    expect(planCleanup(withJudge, judge, { graderAdmin: true }).refused.map((r) => `${r.id}:${r.reason}`))
       .toEqual([`${G_JUDGE}:grader_has_calibration`, `${G_USED}:referenced_by_grader_results`]);
-    const allowed = planCleanup(facts, judge, { graderAdmin: true, allowCalibrated: true });
+    const allowed = planCleanup(withJudge, judge, { graderAdmin: true, allowCalibrated: true });
     expect(allowed.graderVersions.map((g) => g.id)).toEqual([G_JUDGE]);
     expect(allowed.refused.map((r) => `${r.id}:${r.reason}`)).toEqual([`${G_USED}:referenced_by_grader_results`]);
-    const usedJudge: CleanupFacts = { ...facts, graders: facts.graders.map((g) => (g.id === G_JUDGE ? { ...g, resultCount: 2 } : g)) };
+    const usedJudge: CleanupFacts = { ...withJudge, graders: withJudge.graders.map((g) => (g.id === G_JUDGE ? { ...g, resultCount: 2 } : g)) };
     expect(planCleanup(usedJudge, judge, { graderAdmin: true, allowCalibrated: true }).refused.map((r) => `${r.id}:${r.reason}`))
       .toEqual([`${G_JUDGE}:referenced_by_grader_results`, `${G_USED}:referenced_by_grader_results`]);
-    expect(planCleanup(facts, judge, { allowCalibrated: true }).refused.map((r) => r.reason)).toEqual(["admin_only", "admin_only"]);
+    expect(planCleanup(withJudge, judge, { allowCalibrated: true }).refused.map((r) => r.reason)).toEqual(["admin_only", "admin_only"]);
   });
 
   it("a duplicated id is planned once", () => {
