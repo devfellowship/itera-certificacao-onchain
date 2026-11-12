@@ -65,7 +65,7 @@ const seed = (): Db => ({
 class MemStore implements EvalCleanupStore {
   db = seed();
   calls = 0;
-  async cleanup(owner: string, _tenant: string, sel: CleanupSelection, o: { dryRun: boolean; graderAdmin: boolean }): Promise<CleanupOutcome> {
+  async cleanup(owner: string, _tenant: string, sel: CleanupSelection, o: { dryRun: boolean; graderAdmin: boolean; allowCalibrated?: boolean }): Promise<CleanupOutcome> {
     this.calls += 1;
     const facts: CleanupFacts = {
       cases: this.db.cases.filter((c) => c.owner === owner).map((c) => ({ id: c.id, caseKey: c.caseKey, runCount: c.runs })),
@@ -74,7 +74,7 @@ class MemStore implements EvalCleanupStore {
         .map((v) => ({ id: v.id, label: v.label, runCount: v.runs, baselineOfCaseIds: this.db.cases.filter((c) => c.baseline === v.id).map((c) => c.id) })),
       graders: this.db.graders.map((g) => ({ id: g.id, graderId: g.graderId, semver: g.semver, resultCount: g.results, calibrated: g.calibrated })),
     };
-    const plan = planCleanup(facts, sel, { graderAdmin: o.graderAdmin });
+    const plan = planCleanup(facts, sel, { graderAdmin: o.graderAdmin, allowCalibrated: o.allowCalibrated });
     if (o.dryRun) return { plan, deleted: false };
     const gone = <T extends { id: string }>(rows: T[], ids: string[]) => rows.filter((r) => !ids.includes(r.id));
     this.db.cases = gone(this.db.cases, plan.cases.map((x) => x.id));
@@ -161,6 +161,19 @@ describe("planCleanup", () => {
     expect(planCleanup(facts, none3, { graderAdmin: true }).graderVersions.map((g) => g.id)).toEqual([G_FREE]);
   });
 
+  it("a calibrated version: an admin deletes it only with allowCalibrated and only with no grader result", () => {
+    const judge = { caseIds: null, variantIds: null, graderVersionIds: [G_JUDGE, G_USED] };
+    expect(planCleanup(facts, judge, { graderAdmin: true }).refused.map((r) => `${r.id}:${r.reason}`))
+      .toEqual([`${G_JUDGE}:grader_has_calibration`, `${G_USED}:referenced_by_grader_results`]);
+    const allowed = planCleanup(facts, judge, { graderAdmin: true, allowCalibrated: true });
+    expect(allowed.graderVersions.map((g) => g.id)).toEqual([G_JUDGE]);
+    expect(allowed.refused.map((r) => `${r.id}:${r.reason}`)).toEqual([`${G_USED}:referenced_by_grader_results`]);
+    const usedJudge: CleanupFacts = { ...facts, graders: facts.graders.map((g) => (g.id === G_JUDGE ? { ...g, resultCount: 2 } : g)) };
+    expect(planCleanup(usedJudge, judge, { graderAdmin: true, allowCalibrated: true }).refused.map((r) => `${r.id}:${r.reason}`))
+      .toEqual([`${G_JUDGE}:referenced_by_grader_results`, `${G_USED}:referenced_by_grader_results`]);
+    expect(planCleanup(facts, judge, { allowCalibrated: true }).refused.map((r) => r.reason)).toEqual(["admin_only", "admin_only"]);
+  });
+
   it("a duplicated id is planned once", () => {
     expect(planCleanup(facts, { caseIds: [C_FREE, C_FREE], variantIds: null, graderVersionIds: null }).cases).toHaveLength(1);
   });
@@ -211,6 +224,24 @@ describe("POST /eval-results/cleanup", () => {
     const alice = await post({ dry_run: false, grader_version_ids: [G_FREE] }, ALICE);
     expect(alice.json).toMatchObject({ deleted: true, selected: { grader_versions: [{ id: G_FREE }] }, refused: [] });
     expect(store.db.graders.map((g) => g.id)).not.toContain(G_FREE);
+  });
+
+  it("allow_calibrated: an admin deletes an unreferenced calibrated version; without the flag, or not an admin, it stays", async () => {
+    admins = [ALICE];
+    const without = await post({ dry_run: false, grader_version_ids: [G_JUDGE] }, ALICE);
+    expect(without.json.refused).toEqual([{ kind: "grader_version", id: G_JUDGE, reason: "grader_has_calibration", detail: {} }]);
+    const bob = await post({ dry_run: false, grader_version_ids: [G_JUDGE], allow_calibrated: true }, BOB);
+    expect(bob.json.refused).toEqual([{ kind: "grader_version", id: G_JUDGE, reason: "admin_only", detail: {} }]);
+    expect(store.db.graders.map((g) => g.id)).toContain(G_JUDGE);
+    for (const bad of ["true", 1, null]) {
+      const r = await post({ dry_run: false, grader_version_ids: [G_JUDGE], allow_calibrated: bad }, ALICE);
+      expect(r.status).toBe(400);
+      expect(r.json.error).toBe("invalid_allow_calibrated");
+    }
+    const ok = await post({ dry_run: false, grader_version_ids: [G_JUDGE, G_USED], allow_calibrated: true }, ALICE);
+    expect(ok.json).toMatchObject({ deleted: true, selected: { grader_versions: [{ id: G_JUDGE }] } });
+    expect(ok.json.refused).toEqual([{ kind: "grader_version", id: G_USED, reason: "referenced_by_grader_results", detail: { results: 4 } }]);
+    expect(store.db.graders.map((g) => g.id)).toEqual([G_FREE, G_USED]);
   });
 
   it("dry_run is the default: ids with no dry_run field delete nothing", async () => {

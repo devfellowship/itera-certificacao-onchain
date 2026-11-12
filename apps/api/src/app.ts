@@ -43,6 +43,7 @@ import { createSelfDeclaredRouter, type SelfDeclaredRouterDeps } from "./self-de
 import { createSelfDeclaredRunGuard, type RunOriginLookup } from "./self-declared/run-guard.js";
 import { createEvalResultsRouter, type EvalResultsReader } from "./self-declared/eval-results.js";
 import { createEvalCleanupRouter, type EvalCleanupRouterDeps } from "./self-declared/cleanup.js";
+import { createRecomputeRouter, type RecomputeRouterDeps } from "./self-declared/recompute.js";
 import { createCliAuthRouter, type CliAuthRouterDeps } from "./cli-auth/router.js";
 import { createCliSessionGuard } from "./cli-auth/guard.js";
 
@@ -222,6 +223,9 @@ export interface AppOptions {
    * cases, agent variants and grader versions that no run or grading references (dry_run by default). Needs 0023
    * (503 schema_not_ready before it). Mounted only when given. */
   evalCleanup?: EvalCleanupRouterDeps;
+  /** C4-T10: POST /eval-results/recompute, the back-fill of a derived column (step_kind) of the caller's own hosted rows
+   * (dry_run by default; scope all for a TMA admin). Needs 0024. Mounted only when given. */
+  recompute?: RecomputeRouterDeps;
   /** L4: GET /model-options, /me/models, POST /agents/local, GET|PATCH /agents/:id of a local agent. Needs 0021
    * for the writes (503 schema_not_ready before it). Mounted only when given, before the GitHub router. */
   localAgents?: LocalAgentsRouterDeps;
@@ -298,6 +302,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   if (options.evalResults) app.use(createEvalResultsRouter(options.evalResults));
   // C4-T13: after express.json() (a small JSON body), owner-only.
   if (options.evalCleanup) app.use(createEvalCleanupRouter(options.evalCleanup));
+  if (options.recompute) app.use(createRecomputeRouter(options.recompute));
   // L17a: the runs router reads the origin itself on GET /runs/:id/artifacts (a self-declared run lists nothing).
   if (options.runs) app.use(createRunsRouter({ repo, runOrigins: options.runOrigins, ...options.runs }));
   // Before the 410 router: both answer POST /evaluations (the v2 one falls through on a legacy

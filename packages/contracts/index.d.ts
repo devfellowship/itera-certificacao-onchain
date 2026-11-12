@@ -264,6 +264,11 @@ export declare const TRAJECTORY_V2_FORMAT: 'tma-trajectory/2';
 export declare const STEP_KINDS: readonly StepKind[];
 export declare const TURN_ORIGINS: readonly TurnOrigin[];
 export declare const TRAJECTORY_MAX_STARTED_MS: number;
+/** The step kind of one call (one mapping for the hosted runner and the API back-fill). */
+export declare function stepKindOf(tool: string, command: string | null, isMcp: boolean): StepKind;
+/** The step kind of a stored hosted row from its tool and target (an MCP tool is told by its `<server>_<tool>` name). */
+export declare function hostedStepKindOf(tool: string, target: string | null): StepKind;
+export declare const OPENCODE_TOOL_NAMES: readonly string[];
 export declare const trajectoryV2Schema: Record<string, unknown>;
 export interface TrajectoryIssue {
   code: 'unknown_key' | 'invalid' | 'inconsistent';

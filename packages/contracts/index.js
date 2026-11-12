@@ -179,6 +179,7 @@ export {
   trajectoryStepIssues,
   validateTrajectory,
 } from './trajectory.js';
+export { stepKindOf, hostedStepKindOf, OPENCODE_TOOL_NAMES } from './step-kind.js';
 export {
   PIN_FORMAT,
   PIN_MAX_BYTES,
