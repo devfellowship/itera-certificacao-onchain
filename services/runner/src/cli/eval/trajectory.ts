@@ -240,6 +240,8 @@ export function trajectoryFromActions(actions: RunAction[], opts: { redact?: Red
 export function checked(t: Trajectory): Trajectory {
   const v = validateTrajectory(t);
   if (!v.ok) throw new CliError(`the trajectory does not match ${TRAJECTORY_FORMAT}: ${v.errors.slice(0, 5).join('; ')}`);
+  // validateTrajectory also takes tma-trajectory/2; this reader writes /1 only.
+  if (v.value.format !== TRAJECTORY_FORMAT) throw new CliError(`the trajectory is ${v.value.format}, not ${TRAJECTORY_FORMAT}`);
   return v.value;
 }
 

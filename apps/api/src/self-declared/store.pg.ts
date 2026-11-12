@@ -4,14 +4,16 @@
  * 0021 column or table fails (42703 / 42P01), the transaction rolls back, and the router answers
  * 503 schema_not_ready: nothing is written on a database that is not migrated.
  */
-import type { LocalResult, LocalResultV2 } from "@itera/contracts";
+import type { LocalResult, LocalResultV2Plus } from "@itera/contracts";
 import { agentVersionSha256 } from "@itera/contracts";
 import type { Pool, PoolClient } from "pg";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
-import { hasEvalResultsSchema } from "../domain/schema-features.js";
+import { hasEvalMetaSchema, hasEvalResultsSchema } from "../domain/schema-features.js";
 import {
+  EVAL_META_MIGRATION,
   EVAL_RESULTS_MIGRATION,
   SELF_DECLARED_MIGRATION,
+  usesEvalMetaFields,
   SelfDeclaredError,
   runEvidenceV2,
   runIdV2,
@@ -46,7 +48,29 @@ class DryRunDone<T = ImportOutcome> extends Error {
   }
 }
 
-type RunV2 = LocalResultV2["runs"][number];
+type RunV2 = LocalResultV2Plus["runs"][number];
+type GraderV2 = RunV2["graders"][number];
+type TaskSummaryV2 = NonNullable<LocalResultV2Plus["case"]["task_summary"]>;
+
+/** JSON with sorted object keys (jsonb returns its own key order). */
+function canon(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v ?? null);
+}
+
+/** A task summary as stored (both keys, null kept), or null. */
+function summaryOf(t: Partial<TaskSummaryV2> | null | undefined): TaskSummaryV2 | null {
+  return t == null ? null : { before: t.before ?? null, expected: t.expected ?? null };
+}
+
+/** The grader-version fields of 0024 as the upload names them (an absent key = null). */
+function graderMetaOf(g: Partial<GraderV2>) {
+  return { proof: g.proof ?? null, calibration: g.calibration ?? null, note: g.note ?? null, author: g.author ?? null };
+}
 
 /** The evaluation numbers of a v2 evaluation, from ALL its runs (the stored ones and this upload's). */
 function evaluationNumbersV2(runs: Array<{ status: string; score: number }>) {
@@ -193,13 +217,16 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     return result;
   }
 
-  async importResultV2(principal: string, r: LocalResultV2, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
+  async importResultV2(principal: string, r: LocalResultV2Plus, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
     const c = await this.pool.connect();
     try {
       // Deploy safety: until 0023 is applied, nothing is written (503 schema_not_ready).
       if (!(await hasEvalResultsSchema(c))) throw new SchemaNotReadyError(EVAL_RESULTS_MIGRATION);
+      // Until 0024 is applied, a body that uses its fields writes nothing (503); any other body is written as before.
+      const meta = await hasEvalMetaSchema(c);
+      if (!meta && usesEvalMetaFields(r)) throw new SchemaNotReadyError(EVAL_META_MIGRATION);
       await c.query("begin");
-      const outcome = await this.writeV2(c, principal, r, options);
+      const outcome = await this.writeV2(c, principal, r, options, meta);
       if (options.dryRun) throw new DryRunDone(outcome);
       await c.query("commit");
       return outcome;
@@ -214,7 +241,7 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     }
   }
 
-  private async writeV2(c: PoolClient, principal: string, r: LocalResultV2, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
+  private async writeV2(c: PoolClient, principal: string, r: LocalResultV2Plus, options: ImportOptionsV2, meta: boolean): Promise<ImportOutcomeV2> {
     const tenant = options.tenant;
     const id = selfDeclaredIdV2(principal, r);
     // One lock per case (the baseline rule), taken before the evaluation lock: one order, no deadlock.
@@ -235,16 +262,27 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     if (!version) throw new SelfDeclaredError(409, "agent_has_no_version", "the agent has no version yet");
 
     // The test case: an upsert. The same manifest digest with another origin pin, mode or use case is a conflict.
+    // 0024: the task summary is set by the first upload that sends one; another summary for the same case is a
+    // conflict (the manifest digest covers the input and the expected output).
     const k = r.case;
     const caseRow = (await c.query(
-      `insert into public.eval_cases (tenant, owner_wallet, case_key, manifest_sha256, origin_pin_sha256, mode, use_case_key, task_id, task_version_id)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       on conflict on constraint eval_cases_key do update set case_key = excluded.case_key
-       returning id, origin_pin_sha256, mode, use_case_key, baseline_variant_id`,
-      [tenant, principal, k.case_key, k.manifest_sha256, k.origin_pin_sha256, k.mode, k.use_case_key, task.id, taskVersionId],
+      meta
+        ? `insert into public.eval_cases (tenant, owner_wallet, case_key, manifest_sha256, origin_pin_sha256, mode, use_case_key, task_id, task_version_id, task_summary)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+           on conflict on constraint eval_cases_key do update set task_summary = coalesce(public.eval_cases.task_summary, excluded.task_summary)
+           returning id, origin_pin_sha256, mode, use_case_key, baseline_variant_id, task_summary`
+        : `insert into public.eval_cases (tenant, owner_wallet, case_key, manifest_sha256, origin_pin_sha256, mode, use_case_key, task_id, task_version_id)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           on conflict on constraint eval_cases_key do update set case_key = excluded.case_key
+           returning id, origin_pin_sha256, mode, use_case_key, baseline_variant_id`,
+      [tenant, principal, k.case_key, k.manifest_sha256, k.origin_pin_sha256, k.mode, k.use_case_key, task.id, taskVersionId,
+        ...(meta ? [k.task_summary == null ? null : JSON.stringify(summaryOf(k.task_summary))] : [])],
     )).rows[0];
     if (caseRow.origin_pin_sha256 !== k.origin_pin_sha256 || caseRow.mode !== k.mode || caseRow.use_case_key !== k.use_case_key) {
       throw new SelfDeclaredError(409, "case_conflict", `case ${k.case_key} with this manifest exists with another origin pin, mode or use case`);
+    }
+    if (k.task_summary != null && canon(summaryOf(caseRow.task_summary)) !== canon(summaryOf(k.task_summary))) {
+      throw new SelfDeclaredError(409, "case_conflict", `case ${k.case_key} with this manifest exists with another task summary`);
     }
     const caseId = caseRow.id as string;
 
@@ -410,19 +448,22 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
         await c.query(`delete from public.run_actions where run_id = $1`, [p.id]);
       }
       for (const g of run.graders) {
-        const gv = await this.graderVersion(c, tenant, g, graderCache);
+        const gv = await this.graderVersion(c, tenant, g, graderCache, meta);
         await c.query(
-          `insert into public.grader_results (tenant, run_id, grader_version_id, pass, score, weight, hard_gate, decisive, infra_ok)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [tenant, p.id, gv, g.pass, g.score, g.weight, g.hard_gate, g.decisive, run.infra_ok],
+          meta
+            ? `insert into public.grader_results (tenant, run_id, grader_version_id, pass, score, weight, hard_gate, decisive, infra_ok, reason_code, labeler)
+               values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+            : `insert into public.grader_results (tenant, run_id, grader_version_id, pass, score, weight, hard_gate, decisive, infra_ok)
+               values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [tenant, p.id, gv, g.pass, g.score, g.weight, g.hard_gate, g.decisive, run.infra_ok, ...(meta ? [g.reason_code ?? null, g.labeler ?? null] : [])],
         );
       }
-      if (run.trajectory && run.trajectory.steps.length) await this.insertTrajectory(c, p.id, run.trajectory.steps);
+      if (run.trajectory && run.trajectory.steps.length) await this.insertTrajectory(c, p.id, run.trajectory.steps, meta);
     }
     return result;
   }
 
-  private provenanceV2(r: LocalResultV2, run: RunV2) {
+  private provenanceV2(r: LocalResultV2Plus, run: RunV2) {
     return {
       ...provenanceOf(r as unknown as LocalResult),
       runs: 1,
@@ -435,34 +476,66 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
     };
   }
 
-  /** grader_versions is a registry: (tenant, id, semver, code digest) → one row, created on first use. */
-  private async graderVersion(c: PoolClient, tenant: string, g: RunV2["graders"][number], cache: Map<string, string>): Promise<string> {
+  /**
+   * grader_versions is a registry: (tenant, id, semver, code digest) → one row, created on first use. 0024: the proof,
+   * calibration, note and author of the version are set by the first upload that sends each; another value for a
+   * field that is already set is a conflict (a new value is a new semver).
+   */
+  private async graderVersion(c: PoolClient, tenant: string, g: GraderV2, cache: Map<string, string>, meta: boolean): Promise<string> {
     const key = `${g.id}@${g.semver}#${g.code_sha256}`;
     const hit = cache.get(key);
     if (hit) return hit;
+    const m = graderMetaOf(g);
     const row = (await c.query(
-      `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256) values ($1, $2, $3, $4, $5)
-       on conflict on constraint grader_versions_key do update set kind = public.grader_versions.kind
-       returning id, kind`,
-      [tenant, g.id, g.semver, g.kind, g.code_sha256],
+      meta
+        ? `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256, proof_caught, proof_total, calibration, note, author)
+           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+           on conflict on constraint grader_versions_key do update set
+             proof_caught = case when public.grader_versions.proof_total is null then excluded.proof_caught else public.grader_versions.proof_caught end,
+             proof_total  = coalesce(public.grader_versions.proof_total, excluded.proof_total),
+             calibration  = coalesce(public.grader_versions.calibration, excluded.calibration),
+             note         = coalesce(public.grader_versions.note, excluded.note),
+             author       = coalesce(public.grader_versions.author, excluded.author)
+           returning id, kind, proof_caught, proof_total, calibration, note, author`
+        : `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256) values ($1, $2, $3, $4, $5)
+           on conflict on constraint grader_versions_key do update set kind = public.grader_versions.kind
+           returning id, kind`,
+      [tenant, g.id, g.semver, g.kind, g.code_sha256,
+        ...(meta ? [m.proof?.caught ?? null, m.proof?.total ?? null, m.calibration === null ? null : JSON.stringify(m.calibration), m.note, m.author] : [])],
     )).rows[0];
     if (row.kind !== g.kind) throw new SelfDeclaredError(409, "grader_conflict", `grader ${key} exists with kind ${row.kind}`);
+    if (meta) {
+      const stored = graderMetaOf({
+        proof: row.proof_total === null ? null : { caught: Number(row.proof_caught), total: Number(row.proof_total) },
+        calibration: row.calibration, note: row.note, author: row.author,
+      });
+      for (const f of ["proof", "calibration", "note", "author"] as const) {
+        if (m[f] !== null && canon(stored[f]) !== canon(m[f])) {
+          throw new SelfDeclaredError(409, "grader_conflict", `grader ${key} exists with another ${f}: a new value needs a new semver`);
+        }
+      }
+    }
     cache.set(key, row.id);
     return row.id as string;
   }
 
-  /** One run_actions row per step, in one statement. target = target_redacted (plan ADR-2). */
-  private async insertTrajectory(c: PoolClient, runId: string, steps: NonNullable<RunV2["trajectory"]>["steps"]): Promise<void> {
+  /**
+   * One run_actions row per step, in one statement. target = target_redacted (plan ADR-2). 0024: a tma-trajectory/2
+   * step also writes step_kind, started_ms and turn_origin (null for a tma-trajectory/1 step).
+   */
+  private async insertTrajectory(c: PoolClient, runId: string, steps: NonNullable<RunV2["trajectory"]>["steps"], meta: boolean): Promise<void> {
     const col = <K extends keyof (typeof steps)[number]>(k: K) => steps.map((s) => s[k]);
+    const v2 = (k: "step_kind" | "started_ms" | "turn_origin") => steps.map((s) => ((s as unknown as Record<string, unknown>)[k] ?? null));
     await c.query(
       `insert into public.run_actions (run_id, seq, tool, target, ok, parent_seq, turn, tool_family, status, error_class, duration_ms,
-         tokens_in, tokens_out, target_kind, args_sha256, result_sha256, retry_of)
+         tokens_in, tokens_out, target_kind, args_sha256, result_sha256, retry_of${meta ? ", step_kind, started_ms, turn_origin" : ""})
        select $1, * from unnest($2::int[], $3::text[], $4::text[], $5::boolean[], $6::int[], $7::int[], $8::text[], $9::text[], $10::text[],
-         $11::int[], $12::bigint[], $13::bigint[], $14::text[], $15::text[], $16::text[], $17::int[])`,
+         $11::int[], $12::bigint[], $13::bigint[], $14::text[], $15::text[], $16::text[], $17::int[]${meta ? ", $18::text[], $19::int[], $20::text[]" : ""})`,
       [
         runId, col("seq"), col("tool"), col("target_redacted"), steps.map((s) => s.status === "ok"), col("parent_seq"), col("turn"),
         col("tool_family"), col("status"), col("error_class"), col("duration_ms"), col("tokens_in"), col("tokens_out"), col("target_kind"),
         col("args_sha256"), col("result_sha256"), col("retry_of"),
+        ...(meta ? [v2("step_kind"), v2("started_ms"), v2("turn_origin")] : []),
       ],
     );
   }

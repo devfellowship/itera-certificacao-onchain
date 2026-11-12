@@ -9,11 +9,15 @@
 // prediction), per-grader results, infra_ok and the structural trajectory of each run; its closed schema is
 // schemas/local-result-v2.schema.json. The case and the variant are independent (parent plan ADR-26): an
 // upload is one crossing of the two. v1 stays accepted with its own key and limits.
+// tma-local-result/3 (same plan, T9, T10 and T11; ADR-3: "A new field needs a contract PR (/3)") is /2 plus the
+// optional case task summary, the grader version fields (proof, calibration, note, author), the label fields
+// (reason_code, labeler) and a run trajectory of tma-trajectory/1 or tma-trajectory/2; its closed schema is
+// schemas/local-result-v3.schema.json. /2 is unchanged and stays accepted; /3 has the /2 limits and rules.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isProviderKey, isRouteKey, PROVIDER_KEYS, ROUTE_KEYS } from './model-catalog.js';
-import { trajectorySchema, trajectoryStepIssues } from './trajectory.js';
+import { trajectorySchema, trajectoryStepIssues, trajectoryV2Schema } from './trajectory.js';
 
 const require = createRequire(import.meta.url);
 /** @type {typeof import('ajv/dist/2020.js').default} */
@@ -29,6 +33,8 @@ export const LOCAL_RESULT_V2_FORMAT = 'tma-local-result/2';
 export const LOCAL_RESULT_V2_MAX_BYTES = 4 * 1024 * 1024;
 /** The most runs in one v2 upload. */
 export const LOCAL_RESULT_V2_MAX_RUNS = 50;
+/** tma-local-result/3: /2 plus the task summary, grader version and label fields, and tma-trajectory/2 runs. Same limits as /2. */
+export const LOCAL_RESULT_V3_FORMAT = 'tma-local-result/3';
 /**
  * The kind of the ONE diff of an agent variant on its base agent version (parent plan ADR-26): the model, the
  * system prompt and what is injected into it (rules, skill, retrieval, memory), the configured tools (tools,
@@ -48,12 +54,17 @@ export const CASE_MODES = /** @type {const} */ (['replay', 'trace_review']);
 
 export const localResultSchema = JSON.parse(readFileSync(new URL('./schemas/local-result.schema.json', import.meta.url), 'utf-8'));
 export const localResultV2Schema = JSON.parse(readFileSync(new URL('./schemas/local-result-v2.schema.json', import.meta.url), 'utf-8'));
+export const localResultV3Schema = JSON.parse(readFileSync(new URL('./schemas/local-result-v3.schema.json', import.meta.url), 'utf-8'));
 
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictTypes: false, strictRequired: false });
 const validateFn = ajv.compile(localResultSchema);
-// The v2 schema refers to the trajectory schema by its $id (trajectory.schema.json, a sibling file).
+// The v2 and v3 schemas refer to the trajectory schemas by their $id (sibling files): /2 takes tma-trajectory/1
+// only (trajectory.schema.json); a /3 run's trajectory takes the one its `format` names (trajectory-v2.schema.json for
+// tma-trajectory/2).
 ajv.addSchema(trajectorySchema);
+ajv.addSchema(trajectoryV2Schema);
 const validateV2Fn = ajv.compile(localResultV2Schema);
+const validateV3Fn = ajv.compile(localResultV3Schema);
 
 /**
  * @typedef {{ code: 'unknown_key' | 'invalid' | 'too_large' | 'not_json' | 'unknown_provider' | 'unknown_route' | 'inconsistent', path: string, message: string }} LocalResultIssue
@@ -134,7 +145,27 @@ function commonIssues(v) {
  */
 export function validateLocalResultV2(value) {
   if (!validateV2Fn(value)) return failed(issuesOf(validateV2Fn.errors));
-  const v = /** @type {any} */ (value);
+  return checkedV2(/** @type {any} */ (value));
+}
+
+/**
+ * Validate a parsed tma-local-result/3: the closed schema (a run trajectory of tma-trajectory/1 or /2, the optional
+ * task summary, grader version and label fields), the /2 rules, and the /3 rules: a grader proof catches at most its
+ * planted bugs; calibration belongs to a judge and its 2x2 table adds up to n_test (at most n_labels); every run that
+ * names a grader version sends the same proof, calibration, note and author.
+ * @param {unknown} value
+ */
+export function validateLocalResultV3(value) {
+  if (!validateV3Fn(value)) return failed(issuesOf(validateV3Fn.errors));
+  return checkedV2(/** @type {any} */ (value));
+}
+
+/**
+ * The cross-field rules of /2 and /3 on a schema-valid body. The grader version rules find nothing on a /2 body,
+ * because its schema has none of those keys.
+ * @param {any} v
+ */
+function checkedV2(v) {
   const issues = commonIssues(v);
   if (v.comparison.is_baseline) {
     if (v.variant.change_kind !== 'none') issues.push({ code: 'inconsistent', path: '/variant/change_kind', message: 'must be none for the baseline' });
@@ -156,6 +187,9 @@ export function validateLocalResultV2(value) {
   }
   /** @type {Set<string>} */
   const runKeys = new Set();
+  /** The grader-version fields of the first run that names each version (id@semver#code digest). */
+  /** @type {Map<string, string>} */
+  const versionFields = new Map();
   v.runs.forEach((/** @type {any} */ run, /** @type {number} */ i) => {
     const key = `${run.item_sha256}:${run.kind ?? ''}:${run.repeat}`;
     if (runKeys.has(key)) issues.push({ code: 'inconsistent', path: `/runs/${i}/repeat`, message: 'repeats an earlier run (same item_sha256, kind and repeat)' });
@@ -165,6 +199,14 @@ export function validateLocalResultV2(value) {
     run.graders.forEach((/** @type {any} */ g, /** @type {number} */ j) => {
       if (graderIds.has(g.id)) issues.push({ code: 'inconsistent', path: `/runs/${i}/graders/${j}/id`, message: 'repeats an earlier grader of this run' });
       graderIds.add(g.id);
+      issues.push(...graderVersionIssues(g, `/runs/${i}/graders/${j}`));
+      const version = `${g.id}@${g.semver}#${g.code_sha256}`;
+      const fields = graderVersionFieldsKey(g);
+      const first = versionFields.get(version);
+      if (first === undefined) versionFields.set(version, fields);
+      else if (first !== fields) {
+        issues.push({ code: 'inconsistent', path: `/runs/${i}/graders/${j}`, message: `proof, calibration, note and author of grader version ${version} differ from an earlier run` });
+      }
     });
     if (run.status === 'infra_error' && run.infra_ok) {
       issues.push({ code: 'inconsistent', path: `/runs/${i}/infra_ok`, message: 'must be false when status is infra_error' });
@@ -173,6 +215,45 @@ export function validateLocalResultV2(value) {
   });
   if (issues.length > 0) return failed(issues);
   return { ok: /** @type {const} */ (true), value: v };
+}
+
+/** The keys of a grader entry that belong to the grader VERSION (grader_versions), not to one result. */
+export const GRADER_VERSION_FIELDS = /** @type {const} */ (['proof', 'calibration', 'note', 'author']);
+/** The closed reason of a label (grader_results.reason_code; the S13 chips). */
+export const GRADER_REASON_CODES = /** @type {const} */ (['wrong_sha', 'no_check', 'partial', 'other']);
+
+/**
+ * The cross-field rules of the optional grader-version fields of /3 (plan T11): a proof catches at most the planted bugs;
+ * calibration belongs to a judge, and its 2x2 table adds up to the test split, which is at most the labels.
+ * @param {any} g a schema-valid grader entry
+ * @param {string} at its JSON pointer
+ * @returns {LocalResultIssue[]}
+ */
+function graderVersionIssues(g, at) {
+  /** @type {LocalResultIssue[]} */
+  const issues = [];
+  if (g.proof != null && g.proof.caught > g.proof.total) {
+    issues.push({ code: 'inconsistent', path: `${at}/proof/caught`, message: `is ${g.proof.caught}, more than the ${g.proof.total} planted bugs` });
+  }
+  const c = g.calibration;
+  if (c != null) {
+    if (g.kind !== 'judge') issues.push({ code: 'inconsistent', path: `${at}/calibration`, message: 'is for a judge only (kind judge)' });
+    const sum = c.tp + c.fn + c.tn + c.fp;
+    if (sum !== c.n_test) issues.push({ code: 'inconsistent', path: `${at}/calibration/n_test`, message: `is ${c.n_test}; tp + fn + tn + fp is ${sum}` });
+    if (c.n_test > c.n_labels) issues.push({ code: 'inconsistent', path: `${at}/calibration/n_test`, message: `is ${c.n_test}, more than n_labels ${c.n_labels}` });
+  }
+  return issues;
+}
+
+/**
+ * The grader-version fields of a grader entry as one canonical string (an absent key = null), to compare two runs
+ * that name the same version.
+ * @param {any} g
+ */
+export function graderVersionFieldsKey(g) {
+  const canon = (/** @type {unknown} */ x) =>
+    x !== null && typeof x === 'object' ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, /** @type {any} */ (x)[k]])) : x;
+  return JSON.stringify(GRADER_VERSION_FIELDS.map((k) => [k, canon(g[k] ?? null)]));
 }
 
 /**
@@ -195,6 +276,7 @@ export function agentVersionSha256(agent) {
 export function validateAnyLocalResult(value) {
   const format = value !== null && typeof value === 'object' ? /** @type {any} */ (value).format : undefined;
   if (format === LOCAL_RESULT_V2_FORMAT) return { ...validateLocalResultV2(value), format: LOCAL_RESULT_V2_FORMAT };
+  if (format === LOCAL_RESULT_V3_FORMAT) return { ...validateLocalResultV3(value), format: LOCAL_RESULT_V3_FORMAT };
   return { ...validateLocalResult(value), format: LOCAL_RESULT_FORMAT };
 }
 

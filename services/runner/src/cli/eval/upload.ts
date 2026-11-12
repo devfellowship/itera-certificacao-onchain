@@ -198,6 +198,8 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
     if (t !== null) {
       const ok = validateTrajectory(t);
       if (!ok.ok) throw new CliError(`${join(rd, TRAJECTORY_FILE)} is not a valid tma-trajectory/1: ${ok.errors.slice(0, 3).join('; ')}`);
+      // This upload is tma-local-result/2, which takes tma-trajectory/1 only (/2 runs need tma-local-result/3).
+      if (ok.value.format !== 'tma-trajectory/1') throw new CliError(`${join(rd, TRAJECTORY_FILE)} is ${ok.value.format}; a tma-local-result/2 upload takes tma-trajectory/1 only`);
       trajectory = ok.value;
     }
     runs.push({

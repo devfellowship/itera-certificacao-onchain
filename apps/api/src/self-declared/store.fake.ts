@@ -1,5 +1,5 @@
 /** In-memory SelfDeclaredStore for router tests: the same checks, in the same order, as store.pg.ts. */
-import type { LocalResult, LocalResultV2 } from "@itera/contracts";
+import type { LocalResult, LocalResultV2Plus } from "@itera/contracts";
 import { agentVersionSha256 } from "@itera/contracts";
 import {
   SelfDeclaredError,
@@ -53,7 +53,7 @@ export class FakeSelfDeclaredStore implements SelfDeclaredStore {
   lastTenant: string | null = null;
 
   /** The same checks, in the same order, as PgSelfDeclaredStore.importResultV2 (the v1 checks first). */
-  async importResultV2(principal: string, r: LocalResultV2, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
+  async importResultV2(principal: string, r: LocalResultV2Plus, options: ImportOptionsV2): Promise<ImportOutcomeV2> {
     if (this.failWith) throw this.failWith;
     this.lastTenant = options.tenant;
     const v1 = await this.importResult(principal, r as unknown as LocalResult, { ...options, dryRun: true });

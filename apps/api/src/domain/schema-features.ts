@@ -68,10 +68,41 @@ export async function hasEvalResultsSchema(db: Queryable, now: number = Date.now
   return evalPresent;
 }
 
+/**
+ * 0024_eval_summary_steps_grader_meta.sql (plan 20261112-tma-c4-result-store-trajectory-upload, T9-T11) adds
+ * eval_cases.task_summary, the tma-trajectory/2 step columns of run_actions, the proof, calibration, note and author
+ * of grader_versions and the reason code and labeler of grader_results. Until it is applied, a v2 upload that uses
+ * one of those fields answers 503 schema_not_ready (nothing is written), every other v2 upload is written as before,
+ * and the read routes add none of those fields. Same cache rule as the probes above.
+ */
+let metaPresent = false;
+let metaCheckedAt = Number.NEGATIVE_INFINITY;
+
+export async function hasEvalMetaSchema(db: Queryable, now: number = Date.now()): Promise<boolean> {
+  if (metaPresent) return true;
+  if (now - metaCheckedAt < RECHECK_MS) return false;
+  metaCheckedAt = now;
+  try {
+    // The first and the last column of 0024 (the file is one transaction).
+    const { rows } = await db.query(
+      `select 1 from information_schema.columns
+        where table_schema = 'public'
+          and ((table_name = 'eval_cases' and column_name = 'task_summary')
+            or (table_name = 'grader_results' and column_name = 'labeler'))`,
+    );
+    metaPresent = rows.length === 2;
+  } catch {
+    metaPresent = false;
+  }
+  return metaPresent;
+}
+
 /** Test seam: forget the cached answers. */
 export function resetSchemaFeatures(): void {
   present = false;
   checkedAt = Number.NEGATIVE_INFINITY;
   evalPresent = false;
   evalCheckedAt = Number.NEGATIVE_INFINITY;
+  metaPresent = false;
+  metaCheckedAt = Number.NEGATIVE_INFINITY;
 }
