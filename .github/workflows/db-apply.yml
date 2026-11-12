@@ -23,8 +23,9 @@ name: DB apply
 #
 # CREDENTIAL: the environment secret TMA_DATABASE_URL of the GitHub environment `tma-production`,
 # whose deployment branch policy allows `main` only. A PR job cannot read it. The canonical value is
-# Infisical /apps/itera-agent-credentials DATABASE_URL_TESTMYAGENT_DEV_POOLER (it points at production
-# despite "DEV"; the role owns the TMA tables). The GitHub secret is a copy and a rotation destination.
+# Infisical /apps/itera-agent-credentials DATABASE_URL_TESTMYAGENT_PROD_POOLER (TMA production; renamed
+# from ..._DEV_POOLER on 2026-11-12, Q-C4-3 = A; the role owns the TMA tables). The GitHub secret is a
+# copy and a rotation destination.
 # The applier refuses a URL without the ref mkfnbsnyvfkkfcjfpkxz, and always refuses the DFL prod and
 # the ITERA projects.
 #
@@ -101,7 +102,7 @@ jobs:
         run: |
           if [ -z "$TMA_DB_URL" ]; then
             echo "::error::secret TMA_DATABASE_URL (environment tma-production) is empty. Nothing was applied."
-            echo "Value: Infisical /apps/itera-agent-credentials DATABASE_URL_TESTMYAGENT_DEV_POOLER. Never paste it into a log, a PR or a ticket."
+            echo "Value: Infisical /apps/itera-agent-credentials DATABASE_URL_TESTMYAGENT_PROD_POOLER. Never paste it into a log, a PR or a ticket."
             exit 1
           fi
       - name: Plan (read-only)
