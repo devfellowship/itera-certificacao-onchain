@@ -1,0 +1,154 @@
+name: DB apply
+
+# ------------------------------------------------------------------------------------------------
+# MERGING A MIGRATION NOW APPLIES IT TO THE TMA PRODUCTION DATABASE (mkfnbsnyvfkkfcjfpkxz).
+#
+# Until 0023, every production apply was by hand, one transaction per file (0017-0020, 0021, 0022),
+# and production held no record of which files it had. Tainan, Plans App Q-C4-1 (079d47f6) = C,
+# 2026-11-12: "first add an apply-on-merge workflow for TMA, then 0023 goes through it".
+# Plan: 20261112-tma-c4-result-store-trajectory-upload, task T7.
+# Model: iterahq/itera-player .github/workflows/db-apply.yml (the human merge is the gate, CI applies,
+# a ledger decides what is pending, stop at the first failure, no continue-on-error anywhere).
+#
+# JOBS
+#   rehearse  every PR that touches the migrations or the applier, and every push to main before the
+#             apply: db/scripts/test-apply-migrations.sh against a throwaway Postgres 17 (the production
+#             major). Fresh apply, production shape (the .baseline files by hand, then the applier),
+#             re-run = 0, a refused partial baseline, stop at the first error, checksum drift, a bad
+#             transaction shape, refused targets. No secret.
+#   apply     push to main (or a manual dispatch on main) only, after `rehearse`:
+#             plan (read-only) -> apply (one transaction per pending file, ledger row included) ->
+#             plan again, which must show 0 pending -> report (job summary + a comment on the PR).
+#             The \d diff of every table the applied files create or alter is in the job log.
+#
+# CREDENTIAL: the environment secret TMA_DATABASE_URL of the GitHub environment `tma-production`,
+# whose deployment branch policy allows `main` only. A PR job cannot read it. The canonical value is
+# Infisical /apps/itera-agent-credentials DATABASE_URL_TESTMYAGENT_DEV_POOLER (it points at production
+# despite "DEV"; the role owns the TMA tables). The GitHub secret is a copy and a rotation destination.
+# The applier refuses a URL without the ref mkfnbsnyvfkkfcjfpkxz, and always refuses the DFL prod and
+# the ITERA projects.
+#
+# psql runs in the postgres:17 image (Docker Hub through mirror.gcr.io): the client major equals the
+# production server major, with no apt step.
+# ------------------------------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'db/migrations/**'
+      - 'db/scripts/apply-migrations.sh'
+      - 'db/scripts/test-apply-migrations.sh'
+      - '.github/workflows/db-apply.yml'
+  pull_request:
+    paths:
+      - 'db/migrations/**'
+      - 'db/scripts/apply-migrations.sh'
+      - 'db/scripts/test-apply-migrations.sh'
+      - 'scripts/e2e/hermetic/db-pre.sql'
+      - '.github/workflows/db-apply.yml'
+  workflow_dispatch:
+
+# Two applies never overlap, and an apply in progress is never cancelled.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('db-apply-pr-{0}', github.event.pull_request.number) || 'db-apply-production' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PG_IMAGE: mirror.gcr.io/library/postgres:17
+
+jobs:
+  rehearse:
+    name: rehearse (throwaway Postgres 17)
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start a throwaway Postgres 17 (no network)
+        run: |
+          set -euo pipefail
+          docker run -d --name tma-rehearse --network none -e POSTGRES_PASSWORD=postgres \
+            -v "$GITHUB_WORKSPACE":/w:ro "$PG_IMAGE"
+          for i in $(seq 1 60); do docker exec tma-rehearse pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break; sleep 1; done
+          docker exec tma-rehearse pg_isready -h 127.0.0.1 -U postgres
+      - name: Applier scenarios (fresh, production shape, re-run, refusals)
+        run: |
+          docker exec -e PG_ADMIN_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres \
+            tma-rehearse bash /w/db/scripts/test-apply-migrations.sh
+
+  apply:
+    name: apply pending migrations (TMA production)
+    needs: rehearse
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # Public repo: self-hosted dfl-runner blocked (allows_public=false). Authorized Tainan TG 2026-06-06.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: tma-production
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull the psql image
+        run: docker pull --quiet "$PG_IMAGE"
+      - name: Check the secret
+        env:
+          TMA_DB_URL: ${{ secrets.TMA_DATABASE_URL }}
+        run: |
+          if [ -z "$TMA_DB_URL" ]; then
+            echo "::error::secret TMA_DATABASE_URL (environment tma-production) is empty. Nothing was applied."
+            echo "Value: Infisical /apps/itera-agent-credentials DATABASE_URL_TESTMYAGENT_DEV_POOLER. Never paste it into a log, a PR or a ticket."
+            exit 1
+          fi
+      - name: Plan (read-only)
+        env:
+          TMA_DB_URL: ${{ secrets.TMA_DATABASE_URL }}
+        run: |
+          docker run --rm -e TMA_DB_URL -e TMA_DB_EXPECT_REF=mkfnbsnyvfkkfcjfpkxz \
+            -v "$GITHUB_WORKSPACE":/w:ro -w /w "$PG_IMAGE" bash db/scripts/apply-migrations.sh plan
+      - name: Apply
+        id: apply
+        env:
+          TMA_DB_URL: ${{ secrets.TMA_DATABASE_URL }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/report" && : > "$RUNNER_TEMP/report/db-apply.txt"
+          docker run --rm -e TMA_DB_URL -e TMA_DB_EXPECT_REF=mkfnbsnyvfkkfcjfpkxz \
+            -e APPLIED_BY="ci:${GITHUB_REPOSITORY}@${GITHUB_SHA::12} run ${GITHUB_RUN_ID}" \
+            -e REPORT_FILE=/report/db-apply.txt \
+            -v "$GITHUB_WORKSPACE":/w:ro -v "$RUNNER_TEMP/report":/report -w /w "$PG_IMAGE" \
+            bash db/scripts/apply-migrations.sh apply
+      - name: Idempotent (a second plan shows 0 pending)
+        env:
+          TMA_DB_URL: ${{ secrets.TMA_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          docker run --rm -e TMA_DB_URL -e TMA_DB_EXPECT_REF=mkfnbsnyvfkkfcjfpkxz \
+            -v "$GITHUB_WORKSPACE":/w:ro -w /w "$PG_IMAGE" bash db/scripts/apply-migrations.sh status | tee "$RUNNER_TEMP/status.txt"
+          grep -q 'pending: none' "$RUNNER_TEMP/status.txt"
+      - name: Report
+        if: always()
+        env:
+          OUTCOME: ${{ steps.apply.outcome }}
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          set -u
+          if [ "$OUTCOME" = "success" ]; then
+            HEADER=":white_check_mark: **DB apply: TMA production (mkfnbsnyvfkkfcjfpkxz) is at \`main\`.**"
+          else
+            HEADER=":x: **DB apply FAILED (outcome: ${OUTCOME}). TMA production may be behind \`main\`.**"
+          fi
+          REPORT="$(cat "$RUNNER_TEMP/report/db-apply.txt" 2>/dev/null || echo '(no report: the run failed before the apply step)')"
+          BODY="$(printf '%s\n\n```diff\n%s\n```\n\n_run: %s/%s/actions/runs/%s_\n' "$HEADER" "$REPORT" \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+          printf '%s\n' "$BODY" >> "$GITHUB_STEP_SUMMARY"
+          PR="$(printf '%s' "$COMMIT_MSG" | head -1 | sed -n 's/.*(#\([0-9]\{1,\}\)).*/\1/p')"
+          if [ -n "$PR" ]; then
+            printf '%s\n' "$BODY" | head -c 60000 > "$RUNNER_TEMP/comment.md"
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md" || echo "::warning::could not comment on PR #$PR"
+          fi
+          [ "$OUTCOME" = "success" ] || exit 1
