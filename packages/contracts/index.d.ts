@@ -370,7 +370,8 @@ export interface LocalResultV2 extends Omit<LocalResult, 'format' | 'runs'> {
 export interface LocalResultV3 extends Omit<LocalResultV2, 'format' | 'case' | 'runs'> {
   format: 'tma-local-result/3';
   case: LocalResultV2['case'] & { task_summary?: TaskSummary | null };
-  runs: Array<Omit<LocalResultV2['runs'][number], 'graders' | 'trajectory'> & { graders: GraderResultV3[]; trajectory: AnyTrajectory | null }>;
+  /** Closed per shape, as in /2; the graders may carry the /3 fields and the trajectory may be tma-trajectory/2. */
+  runs: Array<LocalResult['runs'][number] & { infra_ok: boolean; graders: GraderResultV3[]; trajectory: AnyTrajectory | null }>;
 }
 
 /** A /2 or /3 body: both are assignable to it, so one writer stores both (a /2 body has none of the /3 fields). */
