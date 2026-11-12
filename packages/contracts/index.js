@@ -166,6 +166,19 @@ export {
   validateTrajectory,
 } from './trajectory.js';
 export {
+  PIN_FORMAT,
+  PIN_MAX_BYTES,
+  PIN_FIELDS,
+  PIN_COMPLETENESS,
+  pinSchema,
+  canonicalPinJson,
+  pinDigest,
+  sealPin,
+  pinReplayable,
+  validatePin,
+  parsePinText,
+} from './pin.js';
+export {
   FALLBACK_LAB,
   LABS,
   PROVIDER_KEYS,
