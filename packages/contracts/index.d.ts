@@ -269,6 +269,55 @@ export declare function stepKindOf(tool: string, command: string | null, isMcp: 
 /** The step kind of a stored hosted row from its tool and target (an MCP tool is told by its `<server>_<tool>` name). */
 export declare function hostedStepKindOf(tool: string, target: string | null): StepKind;
 export declare const OPENCODE_TOOL_NAMES: readonly string[];
+
+// --- trajectory-shapes/1 (plan 20261112-tma-c9-trajectory-analytics, T3): one rules spec (trajectory-shapes/spec.json)
+// for studio S9 and the fleet snapshot. While named_shapes is false a consumer MUST NOT label runs by shape.
+export type ShapeLetter = 'R' | 'S' | 'W' | 'T' | 'M' | 'X';
+export interface ShapeStep {
+  kind_source: 'step_kind' | 'intent';
+  /** A tma-trajectory/2 step_kind, or a layer-1 fleet intent. */
+  value: string;
+  tool?: string;
+  family?: string;
+  ok: boolean;
+}
+export interface FirstFailure {
+  first_fail_seq: number;
+  first_fail_kind: string;
+  /** The letter of the step before the failure, or 'START' when step 0 failed. */
+  last_good_kind: string;
+}
+export interface ShapeRule {
+  name: string;
+  description?: string;
+  letter?: string;
+  min_runs?: number;
+  between?: string;
+  min_run?: number;
+  window?: number;
+}
+export interface TrajectoryShapesSpec {
+  schema: 'trajectory-shapes/1';
+  alphabet: Record<ShapeLetter, string>;
+  step_kind_map: Record<StepKind, ShapeLetter>;
+  layer1_intents: string[];
+  intent_map: Record<string, ShapeLetter>;
+  tool_fallback: { applies_to: string[]; family: Record<string, ShapeLetter>; tool: Record<string, ShapeLetter>; default: ShapeLetter };
+  kind_string: { max_chars: number };
+  shape_rules: ShapeRule[];
+  empty_shape: string;
+  named_shapes: boolean;
+  fallback: string;
+  gate: { min_spread_points: number; min_n_per_shape: number; result: 'pass' | 'fail'; evidence: string };
+  path_map_prune: { collapse_repeats: boolean; min_runs: number; min_share_pct: number; max_depth: number };
+  first_failure: { start_token: string; known_limits: string[] };
+}
+export declare const TRAJECTORY_SHAPES_SPEC: Readonly<TrajectoryShapesSpec>;
+export declare function kindOfStep(step: ShapeStep): string;
+export declare function kindString(steps: readonly ShapeStep[]): { kind_string: string; truncated: boolean };
+export declare function shapeOf(kindString: string): string;
+export declare function firstFailure(steps: readonly ShapeStep[]): FirstFailure | null;
+export declare function pathMap(kindStrings: readonly string[]): { nodes: Array<{ path: string; n: number }> };
 export declare const trajectoryV2Schema: Record<string, unknown>;
 export interface TrajectoryIssue {
   code: 'unknown_key' | 'invalid' | 'inconsistent';

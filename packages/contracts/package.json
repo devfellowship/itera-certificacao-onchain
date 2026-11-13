@@ -29,7 +29,8 @@
       "default": "./compare.js"
     },
     "./model-catalog/*": "./model-catalog/*",
-    "./schemas/*": "./schemas/*"
+    "./schemas/*": "./schemas/*",
+    "./trajectory-shapes/*": "./trajectory-shapes/*"
   },
   "scripts": {
     "check": "tsc --noEmit -p tsconfig.json",
