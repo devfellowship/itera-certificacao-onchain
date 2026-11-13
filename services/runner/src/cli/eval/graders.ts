@@ -39,6 +39,8 @@ export interface GraderInput {
   /** Null when no grader of the case needs the sandbox. */
   config: SandboxConfig | null;
   log: (line: string) => void;
+  /** The model that produced the output (an agent run). A judge must differ from it. Null/absent: unknown. */
+  executorModel?: string | null;
 }
 
 export interface GraderOutcome {
@@ -46,6 +48,11 @@ export interface GraderOutcome {
   score: number | null;
   infra_ok: boolean;
   reason: string | null;
+  /**
+   * A judge only: its calibration gate allows a decisive result (TPR and TNR >= 0.90 on the test split).
+   * The case entry must also ask for `decisive: true`. Absent = not allowed.
+   */
+  calibrated?: boolean;
   /** Host-only evidence (for example the evaluator manifest). Never uploaded. */
   evidence?: Record<string, unknown>;
 }
@@ -137,8 +144,9 @@ export async function runGraders(
     const g = found.grader;
     const out: GraderOutcome = input.facts.noOutput ? { pass: false, score: null, infra_ok: false, reason: 'the run produced no output (sandbox failure)' } : await g.run(input);
     if (out.evidence) evidence[`${g.id}@${g.semver}`] = out.evidence;
-    // A judge decides only with a passing calibration record (C3 T5); until then every judge is a side signal.
-    const decisive = g.kind === 'code';
+    // A judge decides only when the case entry asks for it AND its calibration record passed (C3 T5);
+    // otherwise it is a side signal. A human grader is always a side signal here.
+    const decisive = g.kind === 'code' || (g.kind === 'judge' && e.decisive === true && out.calibrated === true && out.infra_ok);
     results.push({ ...base, code_sha256: await g.codeSha256(), kind: g.kind, pass: out.infra_ok && out.pass, score: out.score, decisive, infra_ok: out.infra_ok, reason: out.reason });
   }
   return { results, evidence };
@@ -159,7 +167,8 @@ export function caseVerdict(results: GraderResult[]): CaseVerdict {
   if (results.length === 0 || results.some((r) => !r.infra_ok)) return { infra_ok: false, pass: false, score: null };
   const decisive = results.filter((r) => r.decisive);
   if (decisive.length === 0) return { infra_ok: true, pass: false, score: null };
-  if (results.some((r) => r.hard_gate && !r.pass)) return { infra_ok: true, pass: false, score: 0 };
+  // A side signal (a non-decisive judge) never fails the run, even with hard_gate.
+  if (results.some((r) => r.decisive && r.hard_gate && !r.pass)) return { infra_ok: true, pass: false, score: 0 };
   const scored = decisive.filter((r) => r.score !== null);
   const weight = scored.reduce((s, r) => s + r.weight, 0);
   const score = weight > 0 ? Math.round(scored.reduce((s, r) => s + r.weight * r.score!, 0) / weight) : null;

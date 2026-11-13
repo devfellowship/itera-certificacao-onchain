@@ -159,7 +159,7 @@ export async function gradeRunDir(input: { c: LoadedCase; runDir: string; config
   const now = input.deps.now ?? (() => new Date());
   const { results, evidence } = await runGraders(
     input.c.manifest.graders,
-    { runId: run.run_id, task: input.c.task, patch, facts: run.facts, grade: input.deps.grade ?? defaultGrade, config: input.config, log: input.log },
+    { runId: run.run_id, task: input.c.task, patch, facts: run.facts, grade: input.deps.grade ?? defaultGrade, config: input.config, log: input.log, executorModel: run.agent?.model ?? null },
     input.deps.graders ?? BUILTIN_GRADERS,
   );
   const entry: GradingEntry = { graded_at: now().toISOString(), kit_version: CLI_VERSION, manifest_sha256: input.c.manifestSha256, graders: results, case: caseVerdict(results) };
