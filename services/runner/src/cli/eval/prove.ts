@@ -10,7 +10,7 @@
 //
 // proof.json holds ids, counts and digests only: no grader output, no fixture text.
 // Exit 0 only when every planted bug is caught (caught == total, total > 0).
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cp, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -172,18 +172,40 @@ export function parseAnswer(stdout: string): boolean | null {
   }
 }
 
-function runOnce(argv: string[], extra: string[], cwd: string, fixtureDir: string, timeoutMs: number): Promise<{ stdout: string; code: number | null; timedOut: boolean }> {
+/**
+ * The argv prefix that starts a grader in a new Linux user + network namespace: the child sees only a loopback
+ * that is down, so it has no route out (Q-C5-2b = A, "no network"). Used by the studio dry run (C5-T10).
+ */
+export const NETWORK_SANDBOX_PREFIX: readonly string[] = ['unshare', '-rn', '--'];
+
+/** The spawn function of a grader child (injectable for tests). */
+export type GraderSpawn = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+
+function runOnce(
+  argv: string[],
+  extra: string[],
+  cwd: string,
+  fixtureDir: string,
+  timeoutMs: number,
+  spawnImpl: GraderSpawn = spawn,
+): Promise<{ stdout: string; code: number | null; timedOut: boolean }> {
   return new Promise((res) => {
     // A minimal environment: no key of this host reaches the grader under test.
     const env: NodeJS.ProcessEnv = { ...childEnv(), PYTHONDONTWRITEBYTECODE: '1', TMA_FIXTURE_DIR: fixtureDir };
-    const child = spawn(argv[0]!, [...argv.slice(1), ...extra], { cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
+    let child: ChildProcess;
+    try {
+      child = spawnImpl(argv[0]!, [...argv.slice(1), ...extra], { cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      res({ stdout: '', code: null, timedOut: false });
+      return;
+    }
     let stdout = '';
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
     }, timeoutMs);
-    child.stdout.on('data', (d: Buffer) => {
+    child.stdout?.on('data', (d: Buffer) => {
       if (stdout.length < 1_000_000) stdout += d.toString('utf-8');
     });
     child.on('error', () => {
@@ -235,10 +257,10 @@ export async function proveGrader(input: { graderDir: string; argv?: string[]; o
 
 // ---- the tma-grader/1 library layout (graders/<id>/<semver>/) ----
 
-interface LibManifest { id: string; semver: string; entry: string }
+export interface LibManifest { id: string; semver: string; entry: string }
 
 /** grader.json of the library layout, or null when the folder uses the generic convention. */
-async function libraryManifest(graderDir: string): Promise<LibManifest | null> {
+export async function libraryManifest(graderDir: string): Promise<LibManifest | null> {
   const g = await readJsonFile(join(graderDir, 'grader.json'));
   if (!isObj(g) || g.schema !== LIBRARY_LAYOUT || typeof g.entry !== 'string' || g.entry === '') return null;
   const entry = g.entry;
@@ -272,25 +294,57 @@ async function libFixture(dir: string, kind: 'reference' | 'mutation'): Promise<
   return { expected: status as LibStatus };
 }
 
-/** Run the grader on a COPY of the fixture (spec + workdir) in a temp dir; the checkout is never written. */
-async function runLibraryFixture(argv: string[], graderDir: string, fixtureDir: string, timeoutMs: number) {
-  const tmp = await mkdtemp(join(tmpdir(), 'tma-grader-prove-'));
+/**
+ * Run a tma-grader/1 library grader once: `argv --spec <tmp>/spec.json --workdir <tmp>/workdir [--trajectory <file>]`,
+ * cwd = the grader folder, the minimal child environment (no key of this host), in a fresh temp dir that is
+ * removed in `finally`. `setup` fills the temp dir (spec.json, workdir/ and optionally trajectory.json).
+ * Shared by `tma eval grader prove` (a fixture copy) and the studio dry run (one output, C5-T10).
+ */
+export async function runLibraryGrader(input: {
+  argv: string[];
+  graderDir: string;
+  setup: (tmp: string) => Promise<void>;
+  timeoutMs: number;
+  /** TMA_FIXTURE_DIR of the child; default: the temp workdir. */
+  fixtureDir?: string;
+  /** Parent of the temp dir (default os.tmpdir()). */
+  tmpRoot?: string;
+  /**
+   * Start the child as `unshare -rn -- <argv...>` (a user + network namespace, no route out). Default false:
+   * `tma eval grader prove` keeps its behaviour. The studio dry run always sets it (C5-T10, Q-C5-2b = A).
+   */
+  isolateNetwork?: boolean;
+  /** The spawn function (tests capture the argv). Default node:child_process spawn. */
+  spawnImpl?: GraderSpawn;
+}): Promise<{ observed: LibStatus | null; exit_code: number | null; timed_out: boolean }> {
+  const tmp = await mkdtemp(join(input.tmpRoot ?? tmpdir(), 'tma-grader-prove-'));
   try {
-    await cp(join(fixtureDir, 'spec.json'), join(tmp, 'spec.json'));
-    await cp(join(fixtureDir, 'workdir'), join(tmp, 'workdir'), { recursive: true });
+    await input.setup(tmp);
     const args = ['--spec', join(tmp, 'spec.json'), '--workdir', join(tmp, 'workdir')];
     // The library keeps the trajectory beside spec.json (fixtures/<name>/trajectory.json); a copy inside workdir also counts.
-    if (await stat(join(fixtureDir, 'trajectory.json')).catch(() => null)) {
-      await cp(join(fixtureDir, 'trajectory.json'), join(tmp, 'trajectory.json'));
-      args.push('--trajectory', join(tmp, 'trajectory.json'));
-    } else if (await stat(join(tmp, 'workdir', 'trajectory.json')).catch(() => null)) {
-      args.push('--trajectory', join(tmp, 'workdir', 'trajectory.json'));
-    }
-    const r = await runOnce(argv, args, graderDir, fixtureDir, timeoutMs);
+    if (await stat(join(tmp, 'trajectory.json')).catch(() => null)) args.push('--trajectory', join(tmp, 'trajectory.json'));
+    else if (await stat(join(tmp, 'workdir', 'trajectory.json')).catch(() => null)) args.push('--trajectory', join(tmp, 'workdir', 'trajectory.json'));
+    const argv = input.isolateNetwork ? [...NETWORK_SANDBOX_PREFIX, ...input.argv] : input.argv;
+    const r = await runOnce(argv, args, input.graderDir, input.fixtureDir ?? join(tmp, 'workdir'), input.timeoutMs, input.spawnImpl);
     return { observed: r.timedOut ? null : parseLibraryStatus(r.stdout), exit_code: r.code, timed_out: r.timedOut };
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+/** Run the grader on a COPY of the fixture (spec + workdir) in a temp dir; the checkout is never written. */
+function runLibraryFixture(argv: string[], graderDir: string, fixtureDir: string, timeoutMs: number) {
+  return runLibraryGrader({
+    argv,
+    graderDir,
+    timeoutMs,
+    fixtureDir,
+    setup: async (tmp) => {
+      await cp(join(fixtureDir, 'spec.json'), join(tmp, 'spec.json'));
+      await cp(join(fixtureDir, 'workdir'), join(tmp, 'workdir'), { recursive: true });
+      if (await stat(join(fixtureDir, 'trajectory.json')).catch(() => null)) await cp(join(fixtureDir, 'trajectory.json'), join(tmp, 'trajectory.json'));
+    },
+  });
 }
 
 async function proveLibrary(input: { graderDir: string; lib: LibManifest; argv?: string[]; out?: string; timeoutMs?: number; now?: () => Date; log?: (line: string) => void }): Promise<{ proof: GraderProof; file: string }> {

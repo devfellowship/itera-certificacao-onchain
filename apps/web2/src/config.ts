@@ -26,6 +26,13 @@ export const HOSTED_RUNS_ENABLED = import.meta.env.VITE_TMA_WEB2_HOSTED === 'tru
 export const DEFAULT_FLEET_WALL_URL = 'https://decision-graph.devfellowship.com/analytics/trajectories'
 export const FLEET_WALL_URL = import.meta.env.VITE_TMA_FLEET_WALL_URL || DEFAULT_FLEET_WALL_URL
 
+/**
+ * Base URL of `tma studio serve` (plan 20261112-tma-c5-studio-area-web2, C5-T10, Q-C5-2b = A), no trailing slash.
+ * Set: S10a shows the "Try this grader (dry run)" panel, which calls POST <url>/grade/dry-run with the web2
+ * session bearer. Empty (the default): the panel is hidden and only the copy command shows.
+ */
+export const STUDIO_SERVE_URL = trimSlash(import.meta.env.VITE_TMA_STUDIO_SERVE_URL || '')
+
 /** Route of this app that receives the DFL redirect (`pages/DflCallbackPage.tsx`). */
 export const DFL_CALLBACK_PATH = '/auth/dfl/callback'
 

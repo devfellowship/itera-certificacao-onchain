@@ -16,9 +16,10 @@ export const STUDIO_DEFAULTS = {
 
 const USAGE = `usage: tma studio serve --allow-principal <id> [--allow-principal <id> ...] [--allow-origin <url> ...]
                         [--port ${STUDIO_DEFAULTS.port}] [--index <file>] [--select-dir <dir>] [--trajectory-root <dir>]
+                        [--grader-root <dir>]
   A read-only HTTP service for the studio trace screens (S2 picker, S3 trace view). It binds ${BIND_HOST} only.
   It reads the trace-select output, the trace index (SQLite, opened read-only) and the layer-1 trajectory
-  files. It never writes. GET only; any other method answers 405.
+  files. It never writes. GET only; any other method answers 405, except POST /grade/dry-run.
   Every content request needs a TMA web login (Authorization: Bearer <token>). The TMA API checks the token
   (GET /auth/me at TMA_API_URL); the service never holds the session signing key. Only the principal ids of
   --allow-principal (for example dfl:<uuid>) may read. A CLI session (tma login) is refused.
@@ -26,11 +27,17 @@ const USAGE = `usage: tma studio serve --allow-principal <id> [--allow-principal
   --index           default ${STUDIO_DEFAULTS.index}
   --select-dir      default ${STUDIO_DEFAULTS.selectDir}
   --trajectory-root default ${STUDIO_DEFAULTS.trajectoryRoot}
-  Routes: GET /v1/health, GET /v1/traces, GET /v1/traces/<session_id>[?agent_id=<id>]`;
+  --grader-root     the grader library (<dir>/<graderId>/<semver>/grader.json) of POST /grade/dry-run. No default:
+                    without it the dry run answers 503.
+  POST /grade/dry-run {"grader":"<graderId>@<semver>","output":"<text>","expected"?:"<text>"} (JSON, max 256 KB):
+    one grader grades one output with the code path of tma eval grade --dry-run and the answer comes back.
+    Nothing is stored (a temp dir, removed after). One at a time (429), 60 s (504). A judge grader runs only
+    with a model of A11 Q1 = B (fleet Claude, or a local ollama/ or local/ model); any other model is 422.
+  Routes: GET /v1/health, GET /v1/traces, GET /v1/traces/<session_id>[?agent_id=<id>], POST /grade/dry-run`;
 
 export const studioCommand: Command = {
   name: 'studio',
-  summary: 'studio serve: the read-only trace content API of the studio (127.0.0.1 only)',
+  summary: 'studio serve: the read-only trace content API of the studio and a no-store grader dry run (127.0.0.1 only)',
   usage: USAGE,
   async main(argv, io) {
     const [sub, ...rest] = argv;
@@ -40,6 +47,7 @@ export const studioCommand: Command = {
       index: {},
       'select-dir': {},
       'trajectory-root': {},
+      'grader-root': {},
       'allow-principal': { repeat: true },
       'allow-origin': { repeat: true },
     });
@@ -67,6 +75,7 @@ export const studioCommand: Command = {
       },
       auth: { introspect: apiIntrospect(api), allowPrincipals: new Set(principals) },
       allowOrigins: new Set(origins),
+      dryRun: { graderRoot: flag(a, 'grader-root') },
       log: (line) => io.err(`[studio] ${new Date().toISOString()} ${line}`),
     });
     const addr = server.address();

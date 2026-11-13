@@ -4,8 +4,10 @@ import { createRoot, type Root } from 'react-dom/client'
 import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { saveSession } from './auth/sessionStorage'
+import { setSessionToken } from './lib/api'
 import { routes } from './routes'
 import { GraderDetailView } from './studio/GraderDetailPage'
+import { GraderDryRunPanel } from './studio/GraderDryRunPanel'
 import { GraderLibraryView } from './studio/GraderLibraryPage'
 import type { GraderVersionDetail, GraderVersionItem } from './studio/graders'
 
@@ -124,5 +126,109 @@ describe('Graders in the app', () => {
       act(() => root?.unmount())
       document.body.innerHTML = ''
     }
+  })
+})
+
+describe('S10a dry-run panel (C5-T10)', () => {
+  const SERVE = 'http://127.0.0.1:8787/'
+  const TOKEN = 'web2-session-token-fixture'
+  const RESULT = { pass: true, score: 100, details: { format: 'tma-eval-dry-run/1', infra_ok: true, reason: null, grader: { id: 'rubric-judge', version: '1.0.0', kind: 'judge' }, output_sha256: SHA }, durationMs: 12, stored: false }
+  const CODE: GraderVersionDetail = { ...DETAIL, graderId: 'says-ok', kind: 'code', judgeModelId: null }
+
+  function type(el: HTMLTextAreaElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    act(() => {
+      setter.call(el, value)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  async function dryRun(c: HTMLElement, output: string, expected?: string) {
+    type(c.querySelector<HTMLTextAreaElement>('[data-testid="dry-run-output"]')!, output)
+    if (expected !== undefined) type(c.querySelector<HTMLTextAreaElement>('[data-testid="dry-run-expected"]')!, expected)
+    await act(async () => { c.querySelector<HTMLButtonElement>('[data-testid="dry-run-button"]')!.click() })
+    await flush()
+  }
+  const noWriteControl = (c: HTMLElement) => {
+    const names = [...c.querySelectorAll('button, a, [role="button"]')].map((el) => (el.textContent ?? '').trim())
+    for (const bad of ['Save', 'Save as', 'Duplicate', 'Plant another bug', 'Run']) expect(names).not.toContain(bad)
+    expect(c.textContent).not.toMatch(FORBIDDEN)
+  }
+
+  it('is hidden without VITE_TMA_STUDIO_SERVE_URL; the copy command stays', () => {
+    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} /></MemoryRouter>)
+    expect(c.querySelector('[data-testid="dry-run-panel"]')).toBeNull()
+    expect(c.querySelector('[data-copy-command]')).not.toBeNull()
+    const empty = mount(<MemoryRouter><GraderDetailView g={DETAIL} serveUrl="" /></MemoryRouter>)
+    expect(empty.querySelector('[data-testid="dry-run-panel"]')).toBeNull()
+  })
+
+  it('shows the result of a dry run; sends the session bearer and never logs it', async () => {
+    setSessionToken(TOKEN)
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(RESULT), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const logs = [vi.spyOn(console, 'log'), vi.spyOn(console, 'info'), vi.spyOn(console, 'warn'), vi.spyOn(console, 'error')]
+    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} serveUrl={SERVE} /></MemoryRouter>)
+    const panel = c.querySelector('[data-testid="dry-run-panel"]')!
+    expect(panel.textContent).toContain('Try this grader (dry run)')
+    expect(panel.textContent).toContain('Nothing is stored.')
+    expect(c.querySelector('[data-copy-command]')).not.toBeNull()
+    await dryRun(c, 'the answer is 42', '42')
+    const [url, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit]
+    expect(url).toBe('http://127.0.0.1:8787/grade/dry-run')
+    expect(init.method).toBe('POST')
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`)
+    expect(JSON.parse(init.body as string)).toEqual({ grader: 'rubric-judge@1.0.0', output: 'the answer is 42', expected: '42' })
+    const result = c.querySelector('[data-testid="dry-run-result"]')!
+    expect(result.getAttribute('data-outcome')).toBe('result')
+    expect(result.querySelector('[data-testid="dry-run-verdict"]')?.textContent).toBe('pass')
+    expect(result.textContent).toContain('100')
+    for (const spy of logs) for (const call of spy.mock.calls) expect(JSON.stringify(call)).not.toContain(TOKEN)
+    expect(c.textContent).not.toContain(TOKEN)
+    noWriteControl(c)
+    setSessionToken(null)
+  })
+
+  it('falls back to the stored session token when the API client has none', async () => {
+    setSessionToken(null)
+    saveSession({ token: TOKEN, user: { id: 'u-1', email: 'ana@example.com' } })
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(RESULT), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} serveUrl={SERVE} /></MemoryRouter>)
+    await dryRun(c, 'x')
+    const [, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit]
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`)
+  })
+
+  it('shows the refusal of the server for a judge model that is not allowed', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'judge_model_not_allowed', message: 'the judge model openrouter/zai/glm-5.3 is not allowed (A11 Q1 = B)', stored: false }), { status: 422 })))
+    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} serveUrl={SERVE} /></MemoryRouter>)
+    await dryRun(c, 'x', 'x')
+    const result = c.querySelector('[data-testid="dry-run-result"]')!
+    expect(result.getAttribute('data-outcome')).toBe('refused')
+    expect(result.getAttribute('role')).toBe('alert')
+    expect(result.textContent).toContain('judge_model_not_allowed')
+    expect(result.textContent).toContain('A11 Q1 = B')
+    noWriteControl(c)
+  })
+
+  it('shows a network error state', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    const c = mount(<MemoryRouter><GraderDryRunPanel grader="says-ok@1.0.0" kind="code" serveUrl={SERVE} getToken={() => null} /></MemoryRouter>)
+    await dryRun(c, 'ok')
+    const result = c.querySelector('[data-testid="dry-run-result"]')!
+    expect(result.getAttribute('data-outcome')).toBe('network')
+    expect(result.textContent).toMatch(/did not answer/)
+  })
+
+  it('a code grader shows the panel with no Save, Save as, Duplicate, Plant another bug or Run control', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...RESULT, pass: false, score: 0 }), { status: 200 })))
+    const c = mount(<MemoryRouter><GraderDetailView g={CODE} serveUrl={SERVE} /></MemoryRouter>)
+    expect(c.querySelector('[data-testid="dry-run-panel"]')).not.toBeNull()
+    const buttons = [...c.querySelectorAll('button')].map((b) => b.textContent)
+    expect(buttons).toContain('Dry run')
+    noWriteControl(c)
+    await dryRun(c, 'nope')
+    expect(c.querySelector('[data-testid="dry-run-verdict"]')?.textContent).toBe('fail')
+    noWriteControl(c)
   })
 })

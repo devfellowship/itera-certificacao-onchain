@@ -217,3 +217,8 @@ a.s9-row:hover { background: var(--tma-line); }
 .s9-tree--root { padding-left: 0; border-left: none; }
 .s9-node { padding: 2px 0; }
 .s9-node-label { font-size: 13px; }
+
+/* S10a/S11a dry-run panel (C5-T10) */
+.stu-dry { display: grid; gap: 8px; }
+.stu-dry textarea { width: 100%; min-height: 96px; font-family: var(--tma-font-mono, monospace); box-sizing: border-box; }
+.stu-dry__result { padding: 8px 12px; border: 1px solid var(--tma-border, #ddd); border-radius: 6px; }
