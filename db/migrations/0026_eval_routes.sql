@@ -159,7 +159,7 @@ comment on column public.eval_routes.picked_rule is
 comment on column public.eval_routes.verdict is
   'The cited verdict. Past proposed it must pass: absolute same or close; relative better or same (ADR-5).';
 comment on column public.eval_routes.n is
-  'The number of compared cases behind the verdict. Past proposed, at least 5 (ADR-5).';
+  'The number of runs per cell behind the verdict (C7 ADR-8). Past proposed, at least 5 (ADR-5).';
 comment on column public.eval_routes.evidence_run_ids is
   'The ids of the runs that the verdict cites (at most 500). Past proposed, at least one.';
 comment on column public.eval_routes.compare_profile_sha256 is
