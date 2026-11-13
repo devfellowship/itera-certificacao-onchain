@@ -98,7 +98,7 @@ describe('tma route pr: refusals (exit 2, one line, nothing written)', () => {
     ['target_value not allowed', { target_value: 'gpt-x' }, /not an allowed value/],
     ['file moved since approval', { rollback_value: 'sonnet', target_value: 'deepseek' }, /the file moved since approval, re-approve/],
     ['rollback_value null', { rollback_value: null }, /no rollback_value.*re-approve/],
-    ['not a valid route row', { note: 'free text' }, /not a valid tma-route\/1 row/],
+    ['not a valid route row', { note: 'free text' }, /not a valid route row \(tma-route\/1 or tma-route\/2\)/],
   ];
   for (const [name, over, re] of cases) {
     it(name, async () => {
@@ -282,6 +282,28 @@ describe('tma route --route <id> and mark (mocked API)', () => {
     expect(url).toBe(`${API}/routes/${ID}`);
     expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${TOKEN}`);
     expect(io.outText()).toContain(EXPECTED_DRY_DIFF);
+  });
+
+  it('accepts a tma-route/2 row from the API through the same path as a v1 row (pr and rollback)', async () => {
+    const v2 = (r: Record<string, unknown>, over: Record<string, unknown> = {}) => ({
+      ...r, format: 'tma-route/2', live_at: null, rollback_pr_url: null, rolled_back_at: null, ...over,
+    });
+    const w = workspace();
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(v2(APPROVED)), { status: 200 }));
+    const argv = ['pr', '--route', ID, '--targets', join(w.dir, 'targets.json'), '--repo-dir', w.repo, '--dry-run'];
+    const { code, io } = await runRoute(argv, fakeExec(), { env: loggedIn(), fetchImpl });
+    expect(io.errText()).not.toMatch(/not a valid/);
+    expect(code).toBe(0);
+    expect(io.outText()).toContain(EXPECTED_DRY_DIFF);
+    // A v2 file runs through --route-file too; a live v2 row rolls back like the v1 example.
+    expect((await runRoute(w.args('pr'))).code).toBe(0);
+    w.setRoute(v2(LIVE, { live_at: '2026-11-13T10:00:00Z' }));
+    expect((await runRoute(w.args('rollback', '--dry-run'))).code).toBe(0);
+    // A v2 live row without live_at is refused as an invalid row.
+    w.setRoute(v2(LIVE));
+    const bad = await runRoute(w.args('rollback', '--dry-run'));
+    expect(bad.code).toBe(2);
+    expect(bad.io.errText()).toMatch(/not a valid route row.*\/live_at is null/);
   });
 
   it('pr --route says clearly that GET /routes/:id is not there yet on 404', async () => {
