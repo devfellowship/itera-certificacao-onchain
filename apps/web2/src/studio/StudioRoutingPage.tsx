@@ -14,6 +14,10 @@
  *                    agent's variants from GET /eval-runs (an approximation).
  *   one action       "Pick rule and approve": POST /routes/approve. The row it writes is the verdict only (ADR-1); the
  *                    change itself goes by a PR that the kit command `tma route pr` opens (copy command).
+ *   swap pending     a route row in state approved with a pr_url (isSwapPending, Q d881e5df = C) shows the applied route
+ *                    it would replace, its PR, and "Approve swap" / "Reject swap" (POST /routes/:id/swap); after an
+ *                    answer the routes reload. Only a person's own login may decide (Q b5c4ba38 = B): a 403
+ *                    not_a_human_actor shows NOT_A_HUMAN_TEXT, also on the approve-route control.
  *
  * The compare request uses the agent of the live route as the current agent (so the relative rule compares with
  * what is live today), unless ?current=<agent key> names another one.
@@ -29,9 +33,14 @@ import { CopyCommand } from './CopyCommand'
 import { caseCommands } from './eval-command'
 import { studioHref } from './links'
 import {
+  appliedRouteFor,
   approveBlockers,
   approveBody,
   getRoutes,
+  isSwapPending,
+  NOT_A_HUMAN_TEXT,
+  postSwapDecision,
+  type SwapDecision,
   latestLive,
   passesUnder,
   postApproveRoute,
@@ -58,6 +67,17 @@ export interface RoutingData {
   routesError?: number | null
   /** The caller's runs (GET /eval-runs), for the evidence links; null when that call failed. */
   runs: EvalRun[] | null
+}
+
+/** The 403 of a login that is not a person's own (Q b5c4ba38 = B). */
+const isNotHuman = (e: unknown) => e instanceof ApiError && e.status === 403 && e.message === 'not_a_human_actor'
+
+/** One line for a failed POST: the human-login text for a 403 not_a_human_actor, else the API message (and code). */
+function postErrorText(e: unknown): string {
+  if (isNotHuman(e)) return NOT_A_HUMAN_TEXT
+  const msg = e instanceof ApiError ? ((e.body as { message?: string } | undefined)?.message ?? e.message) : 'The request failed. Try again.'
+  const code = e instanceof ApiError ? e.message : null
+  return code && code !== msg ? `${msg} (${code})` : msg
 }
 
 const isUnknownCurrent = (e: unknown) => e instanceof ApiError && e.status === 400 && e.message === 'unknown_current_agent'
@@ -267,7 +287,62 @@ function ApprovedRoute({ route }: { route: Route }) {
   )
 }
 
-function RouteList({ routes }: { routes: Route[] }) {
+/** A pending swap: the applied route it would replace, its PR, and the person's decision. */
+function SwapPending({ route, routes, onDecided }: { route: Route; routes: readonly Route[]; onDecided: () => Promise<void> }) {
+  const applied = appliedRouteFor(route, routes)
+  const [posting, setPosting] = useState<SwapDecision | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const decide = async (decision: SwapDecision) => {
+    setPosting(decision)
+    setError(null)
+    try {
+      await postSwapDecision(route.id, decision)
+      await onDecided()
+    } catch (e) {
+      setError(postErrorText(e))
+    } finally {
+      setPosting(null)
+    }
+  }
+  return (
+    <div className="s12-swap" data-testid="s12-swap-pending" data-route-id={route.id}>
+      <span className="tma-label">Swap pending</span>
+      <p className="tma-body-sm">
+        {applied ? (
+          <span data-testid="s12-swap-applied" data-route-id={applied.id}>
+            This route would replace <span className="tma-mono">{applied.id.slice(0, 8)}</span> · <span className="tma-mono">{applied.model_id}</span> · {applied.state} on{' '}
+            <span className="tma-mono">{route.route_target}</span>.
+          </span>
+        ) : (
+          <span data-testid="s12-swap-applied-missing">The route it would replace on {route.route_target} is not in this list.</span>
+        )}{' '}
+        Nothing changes until a person decides.
+      </p>
+      {route.pr_url && (
+        <p className="tma-body-sm">
+          <a href={route.pr_url} target="_blank" rel="noreferrer" data-testid="s12-swap-pr-link">
+            {route.pr_url}
+          </a>
+        </p>
+      )}
+      <div className="s12-swap-actions">
+        <button type="button" className="tma-btn tma-btn--primary" disabled={posting !== null} onClick={() => void decide('approve')} data-testid="s12-swap-approve">
+          Approve swap
+        </button>{' '}
+        <button type="button" className="tma-btn" disabled={posting !== null} onClick={() => void decide('reject')} data-testid="s12-swap-reject">
+          Reject swap
+        </button>
+      </div>
+      {error && (
+        <p className="tma-body-sm s12-error" role="alert" data-testid="s12-swap-error">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function RouteList({ routes, onReload }: { routes: Route[]; onReload: () => Promise<void> }) {
   if (!routes.length) return null
   return (
     <Card data-testid="s12-routes">
@@ -285,6 +360,7 @@ function RouteList({ routes }: { routes: Route[] }) {
                 </a>
               </>
             )}
+            {isSwapPending(r) && <SwapPending route={r} routes={routes} onDecided={onReload} />}
           </li>
         ))}
       </ul>
@@ -332,9 +408,7 @@ function ApprovePanel({
       const body = approveBody({ useCase, agent: agent.agent_key, currentAgent: data.current_agent, rule, target, fallbackAgent: fallback && fallback !== agent.agent_key ? fallback : null })
       onApproved(await postApproveRoute(body))
     } catch (e) {
-      const msg = e instanceof ApiError ? ((e.body as { message?: string } | undefined)?.message ?? e.message) : 'The request failed. Try again.'
-      const code = e instanceof ApiError ? e.message : null
-      setError(code && code !== msg ? `${msg} (${code})` : msg)
+      setError(postErrorText(e))
     } finally {
       setPosting(false)
     }
@@ -407,14 +481,23 @@ function ApprovePanel({
 export function RoutingView({ data, useCase }: { data: RoutingData; useCase: string }) {
   const { compare } = data
   const rec = useMemo(() => recommendAgent(compare.agents), [compare])
-  const live = data.routes ? latestLive(data.routes) : null
+  // The routes as loaded, replaced by a fresh GET /routes after a swap decision.
+  const [loadedRoutes, setLoadedRoutes] = useState<Route[] | null>(data.routes)
+  const reloadRoutes = async () => {
+    try {
+      setLoadedRoutes((await getRoutes(useCase)).routes)
+    } catch {
+      // Keep the list as it was; the decision itself already answered.
+    }
+  }
+  const live = loadedRoutes ? latestLive(loadedRoutes) : null
   const [picked, setPicked] = useState<string>(rec?.agent.agent_key ?? sortAgents(compare.agents)[0]?.agent_key ?? '')
   const [approved, setApproved] = useState<Route | null>(null)
   // The rule picked in the approve panel; the evidence list follows it (relative adds the current agent's runs).
   const [rule, setRule] = useState<RouteRule>('absolute')
   const agent = compare.agents.find((a) => a.agent_key === picked) ?? null
   const selectId = useId()
-  const routes = [...(approved ? [approved] : []), ...(data.routes ?? []).filter((r) => r.id !== approved?.id)]
+  const routes = [...(approved ? [approved] : []), ...(loadedRoutes ?? []).filter((r) => r.id !== approved?.id)]
   const cost = agent ? formatCost(agent.cost_per_task, agent.cost_label) : null
 
   return (
@@ -490,7 +573,7 @@ export function RoutingView({ data, useCase }: { data: RoutingData; useCase: str
           {approved ? <ApprovedRoute route={approved} /> : <ApprovePanel data={compare} useCase={useCase} agent={agent} live={live} rule={rule} setRule={setRule} onApproved={setApproved} />}
         </>
       )}
-      <RouteList routes={routes} />
+      <RouteList routes={routes} onReload={reloadRoutes} />
     </div>
   )
 }

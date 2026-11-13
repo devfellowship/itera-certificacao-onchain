@@ -181,3 +181,24 @@ export const getRoutes = (useCase: string) => request<{ routes: Route[] }>('/rou
 
 /** POST /routes/approve: 201 with the new row in state `approved`. */
 export const postApproveRoute = (body: ApproveBody) => request<Route>('/routes/approve', { method: 'POST', body: JSON.stringify(body) })
+
+/**
+ * isSwapPending of packages/contracts/route.js (Q d881e5df = C): the route waits for a person to approve a swap
+ * (state approved AND a pr_url). Mirrored because route.js cannot load in the browser; a test keeps the copy equal.
+ */
+export function isSwapPending(route: { state?: unknown; pr_url?: unknown } | null | undefined): boolean {
+  return !!route && route.state === 'approved' && typeof route.pr_url === 'string' && route.pr_url.length > 0
+}
+
+/** The applied route (live or needs_check) on the same target that a pending swap would replace, or null. */
+export const appliedRouteFor = (pending: Route, routes: readonly Route[]): Route | null =>
+  routes.find((r) => r.id !== pending.id && r.route_target === pending.route_target && (r.state === 'live' || r.state === 'needs_check')) ?? null
+
+/** The text of a 403 not_a_human_actor (Q b5c4ba38 = B: only a person's own login approves). */
+export const NOT_A_HUMAN_TEXT = "Only a person's own login can approve. Sign in again."
+
+export type SwapDecision = 'approve' | 'reject'
+
+/** POST /routes/:id/swap: a person approves (old route rolled back, this one live) or rejects a pending swap. */
+export const postSwapDecision = (id: string, decision: SwapDecision) =>
+  request<{ status: string; route: Route; retired?: Route[] }>(`/routes/${encodeURIComponent(id)}/swap`, { method: 'POST', body: JSON.stringify({ decision }) })
