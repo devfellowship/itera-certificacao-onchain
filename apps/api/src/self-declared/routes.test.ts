@@ -6,23 +6,27 @@
  * Proves: approve with n = 4 → 400 n_too_small; a NOT YET cell (absolute) and a worse cell (relative) → 400
  * verdict_not_passing; another principal's or tenant's agent → 400 unknown_agent, refs the caller does not own → 403,
  * and no row is written in each case; an unknown key or a free-text value → 400; a good approve → 201 with the frozen
- * verdict, n, evidence, refs and approver; PATCH only for TMA_ROUTE_APPLY_ACTORS (unset → 403); approved → live and
- * live → rolled_back → 200; approved → rolled_back → 409; a second live route on the same target → 409 with the live id
- * (the other row unchanged); GET filters and query refusals; 503 before 0026.
+ * verdict, n, evidence, refs and approver; approve only for actor type human (agent, unknown → 403, no reader or store
+ * call); PATCH for any DFL login (an agent login included), a siws login → 403; approved → live and
+ * live → rolled_back → 200; approved → rolled_back → 409; GET filters and query refusals; 503 before 0026.
+ * Supersede (Q d881e5df = C): approved → live on a held target → 202 swap_pending, the applied row unchanged; POST
+ * /routes/:id/swap only for actor type human; approve retires the applied row (rolled_back, rollback_pr_url = the new
+ * pr_url) and moves the new row live atomically; reject clears pr_url; 409 no_pending_swap; 400 for a bad body.
  * T5 (needs_check, ADR-7): live → needs_check with a body of exactly {state} keeps pr_url and live_at; needs_check →
- * rolled_back; every other pair into or out of needs_check → 409; a needs_check row blocks approved → live on its target
- * like a live row (409 live_route_exists naming it); a pr_url in the needs_check body → 400; not an apply actor → 403.
+ * rolled_back; every other pair into or out of needs_check → 409; a needs_check row holds its target like a live row
+ * (202 swap_pending naming it); a pr_url in the needs_check body → 400; a siws login → 403.
  */
 import express from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { validateRoute } from "@itera/contracts";
+import { isSwapPending, validateRoute } from "@itera/contracts";
+import type { ActorType } from "../auth/adapters/types.js";
 import { issueSessionToken } from "../auth/session.js";
 import {
-  applyActorsFromEnv, compareProfileSha256, createRoutesRouter, parseApproveBody, type NewApprovedRoute, type PatchTarget, type RouteFilter, type RouteRecord,
-  type RoutesStore, type VariantRef,
+  compareProfileSha256, createRoutesRouter, parseApproveBody, type NewApprovedRoute, type PatchTarget, type RouteFilter, type RouteRecord,
+  type RoutesStore, type SwapResult, type VariantRef,
 } from "./routes.js";
 import {
   agentKeyOf, compareView, type CompareGraderRow, type CompareRunRow, type UseCaseCompareReader, type UseCaseRows,
@@ -37,7 +41,10 @@ const WALLET = "So11111111111111111111111111111111111111112";
 const TENANT = "devfellowship";
 const UC = "fix/prod-bug";
 const UC2 = "content/report-html";
-const dfl = (id: string) => issueSessionToken(id, Date.now(), "dfl").token;
+/** A DFL session; a person's own login (act human) unless `act` says otherwise. */
+const dfl = (id: string, act: ActorType = "human") => issueSessionToken(id, Date.now(), "dfl", undefined, act).token;
+/** The apply path: an agent login (no allow-list; any DFL login records the apply facts). */
+const applier = () => dfl(APPLIER, "agent");
 const H = (c: string) => c.repeat(64);
 const uuid = (n: number, tag = "a") => `${tag.repeat(8)}-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -97,6 +104,30 @@ class FakeStore implements RoutesStore {
     else Object.assign(r, { state: "rolled_back", rollback_pr_url: prUrl, rolled_back_at: now, updated_at: now });
     return r;
   }
+  async setPending(id: string, tenant: string, prUrl: string) {
+    const r = this.rows.find((x) => x.id === id && x.tenant === tenant && x.state === "approved");
+    if (!r) return null;
+    Object.assign(r, { pr_url: prUrl, updated_at: new Date() });
+    return r;
+  }
+  async clearPending(id: string, tenant: string, prUrl: string) {
+    const r = this.rows.find((x) => x.id === id && x.tenant === tenant && x.state === "approved" && x.pr_url === prUrl);
+    if (!r) return null;
+    Object.assign(r, { pr_url: null, updated_at: new Date() });
+    return r;
+  }
+  /** Atomic in memory: every check runs before the first write. */
+  async swap(id: string, tenant: string): Promise<SwapResult | null> {
+    const r = this.rows.find((x) => x.id === id && x.tenant === tenant);
+    if (!r || r.state !== "approved" || r.pr_url === null) return null;
+    const applied = this.rows.filter(
+      (x) => x.tenant === tenant && x.route_target === r.route_target && x.id !== id && (x.state === "live" || x.state === "needs_check"),
+    );
+    const now = new Date();
+    for (const a of applied) Object.assign(a, { state: "rolled_back", rollback_pr_url: r.pr_url, rolled_back_at: now, updated_at: now });
+    Object.assign(r, { state: "live", live_at: now, updated_at: now });
+    return { route: r, retired: applied };
+  }
 }
 
 interface AgentSpec { sha: string; model: string; variant: string; lintPass: boolean }
@@ -135,10 +166,11 @@ let base = "";
 let reader: FakeReader;
 let store: FakeStore;
 
-async function start(applyActors: string[] = [APPLIER]) {
+const logLines: string[] = [];
+async function start() {
   const app = express();
   app.use(express.json());
-  app.use(createRoutesRouter({ store, reader, tenant: TENANT, applyActors }));
+  app.use(createRoutesRouter({ store, reader, tenant: TENANT, log: (l) => logLines.push(l) }));
   server = app.listen(0);
   await new Promise<void>((r) => server.once("listening", r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -170,9 +202,9 @@ const goodBody = (over: Record<string, unknown> = {}) => ({
   target_value: "sonnet", rollback_value: "deepseek", ...over,
 });
 const approve = (over: Record<string, unknown> = {}, token?: string | null) => call("POST", "/routes/approve", goodBody(over), token);
-const mark = (id: string, state: string, n = 101, token = dfl(APPLIER)) =>
+const mark = (id: string, state: string, n = 101, token = applier()) =>
   call("PATCH", `/routes/${id}/state`, { state, pr_url: `https://github.com/example-org/infra/pull/${n}` }, token);
-const markCheck = (id: string, token = dfl(APPLIER)) => call("PATCH", `/routes/${id}/state`, { state: "needs_check" }, token);
+const markCheck = (id: string, token = applier()) => call("PATCH", `/routes/${id}/state`, { state: "needs_check" }, token);
 const expectValid = (row: unknown) => {
   const v = validateRoute(row);
   expect(v.ok ? [] : v.errors).toEqual([]);
@@ -306,16 +338,19 @@ describe("POST /routes/approve", () => {
 describe("PATCH /routes/:id/state", () => {
   const approved = async (over: Record<string, unknown> = {}) => (await approve(over)).json.id as string;
 
-  it("refuses a principal not in TMA_ROUTE_APPLY_ACTORS → 403, and everybody when it is unset", async () => {
+  it("refuses a siws login → 403 not_a_dfl_login; any DFL login (an agent login, no allow-list) marks live", async () => {
     const id = await approved();
-    const r = await mark(id, "live", 101, dfl(ALICE));
+    const r = await mark(id, "live", 101, issueSessionToken(WALLET, Date.now(), "siws").token);
     expect(r.status).toBe(403);
-    expect(r.json.error).toBe("not_an_apply_actor");
-    await new Promise<void>((res) => server.close(() => res()));
-    await start(applyActorsFromEnv({}));
-    expect((await mark(id, "live")).status).toBe(403);
+    expect(r.json.error).toBe("not_a_dfl_login");
     expect(store.rows[0]!.state).toBe("approved");
-    expect(applyActorsFromEnv({ TMA_ROUTE_APPLY_ACTORS: ` ${APPLIER}, dfl:x ,` })).toEqual([APPLIER, "dfl:x"]);
+    // A DFL agent login, never listed anywhere, records the apply fact.
+    const live = await mark(id, "live", 101, dfl(BOB, "agent"));
+    expect(live.status).toBe(200);
+    expect(live.json.state).toBe("live");
+    // And an unknown-actor DFL login (a CLI device session) records needs_check.
+    expect((await markCheck(id, dfl(ALICE, "unknown"))).status).toBe(200);
+    expect(store.rows[0]!.state).toBe("needs_check");
   });
 
   it("approved → live → rolled_back: 200 each, a valid row, the PR URLs stored", async () => {
@@ -353,21 +388,36 @@ describe("PATCH /routes/:id/state", () => {
     expect(store.rows[0]!.state).toBe("approved");
   });
 
-  it("refuses a second live route on the same target → 409 live_route_exists; the live row is unchanged", async () => {
+  it("supersede WITHOUT a person: a second live route on the target → 202 swap_pending; the live row is unchanged", async () => {
     const first = await approved();
     const second = await approved({ target_value: "opus" });
     expect((await mark(first, "live", 101)).status).toBe(200);
+    const liveBefore = { ...store.rows.find((x) => x.id === first)! };
     const r = await mark(second, "live", 102);
-    expect(r.status).toBe(409);
-    expect(r.json).toMatchObject({ error: "live_route_exists", live_route_id: first });
-    expect(store.rows.find((x) => x.id === first)).toMatchObject({ state: "live", pr_url: "https://github.com/example-org/infra/pull/101" });
-    expect(store.rows.find((x) => x.id === second)!.state).toBe("approved");
+    expect(r.status).toBe(202);
+    expect(r.json).toMatchObject({ status: "swap_pending", live_route_id: first, live_route_state: "live" });
+    expect(r.json.message).toContain(first);
+    expectValid(r.json.route);
+    expect(r.json.route).toMatchObject({ id: second, state: "approved", pr_url: "https://github.com/example-org/infra/pull/102", live_at: null });
+    expect(store.rows.find((x) => x.id === first)).toEqual(liveBefore);
+    expect(store.rows.find((x) => x.id === second)).toMatchObject({ state: "approved", pr_url: "https://github.com/example-org/infra/pull/102", live_at: null });
+    expect(isSwapPending(r.json.route)).toBe(true);
+    // A second PATCH live while still held replaces pr_url (202 again).
+    const again = await mark(second, "live", 107);
+    expect(again.status).toBe(202);
+    expect(store.rows.find((x) => x.id === second)).toMatchObject({ state: "approved", pr_url: "https://github.com/example-org/infra/pull/107", live_at: null });
+    expect(store.rows.find((x) => x.id === first)!.state).toBe("live");
+    // Once the target is free, a PATCH live on the pending row goes live as before.
+    expect((await mark(first, "rolled_back", 108)).status).toBe(200);
+    const live = await mark(second, "live", 109);
+    expect(live.status).toBe(200);
+    expect(live.json).toMatchObject({ state: "live", pr_url: "https://github.com/example-org/infra/pull/109" });
     // Another target is free.
     const other = await approved({ route_target: "claude-md:fix-prod-bug" });
     expect((await mark(other, "live", 103)).status).toBe(200);
   });
 
-  it("maps a lost race on the one-live index (23505) to 409 live_route_exists", async () => {
+  it("maps a lost race on the one-live index (23505) to 202 swap_pending", async () => {
     const first = await approved();
     const second = await approved();
     store.transition = async () => {
@@ -376,13 +426,14 @@ describe("PATCH /routes/:id/state", () => {
       throw Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" });
     };
     const r = await mark(second, "live");
-    expect(r.status).toBe(409);
-    expect(r.json).toMatchObject({ error: "live_route_exists", live_route_id: first });
+    expect(r.status).toBe(202);
+    expect(r.json).toMatchObject({ status: "swap_pending", live_route_id: first, live_route_state: "live" });
+    expect(store.rows.find((x) => x.id === second)).toMatchObject({ state: "approved", pr_url: "https://github.com/example-org/infra/pull/101", live_at: null });
   });
 
   it("refuses a bad body, a bad id, a bad PR URL → 400; a route of another tenant → 404", async () => {
     const id = await approved();
-    const t = dfl(APPLIER);
+    const t = applier();
     expect((await call("PATCH", `/routes/${id}/state`, { state: "live" }, t)).json.error).toBe("invalid_body");
     expect((await call("PATCH", `/routes/${id}/state`, { state: "live", pr_url: "https://github.com/o/r/pull/1", note: "x" }, t)).json.error).toBe("invalid_body");
     expect((await call("PATCH", `/routes/${id}/state`, { state: "live", pr_url: "https://gitlab.com/o/r/pull/1" }, t)).json.error).toBe("invalid_body");
@@ -417,7 +468,7 @@ describe("PATCH /routes/:id/state: needs_check (T5, ADR-7)", () => {
 
   it("refuses a pr_url (or any other key) in the needs_check body → 400 invalid_body; the row stays live", async () => {
     const id = await liveRoute();
-    const t = dfl(APPLIER);
+    const t = applier();
     for (const body of [
       { state: "needs_check", pr_url: "https://github.com/example-org/infra/pull/7" },
       { state: "needs_check", pr_url: null },
@@ -471,30 +522,160 @@ describe("PATCH /routes/:id/state: needs_check (T5, ADR-7)", () => {
     expect(store.rows[0]).toMatchObject({ state: "needs_check", pr_url: "https://github.com/example-org/infra/pull/101" });
   });
 
-  it("approved → live while another route on the target is needs_check → 409 live_route_exists naming that row", async () => {
+  it("approved → live while another route on the target is needs_check → 202 swap_pending naming that row", async () => {
     const first = await liveRoute();
     expect((await markCheck(first)).status).toBe(200);
     const second = await approved({ target_value: "opus" });
     const r = await mark(second, "live", 105);
-    expect(r.status).toBe(409);
-    expect(r.json).toMatchObject({ error: "live_route_exists", live_route_id: first, live_route_state: "needs_check" });
+    expect(r.status).toBe(202);
+    expect(r.json).toMatchObject({ status: "swap_pending", live_route_id: first, live_route_state: "needs_check" });
     expect(r.json.message).toContain("needs_check");
     expect(store.rows.find((x) => x.id === first)!.state).toBe("needs_check");
-    expect(store.rows.find((x) => x.id === second)!.state).toBe("approved");
+    expect(store.rows.find((x) => x.id === second)).toMatchObject({ state: "approved", live_at: null });
     // Once the marked route is rolled back, the target is free.
     expect((await mark(first, "rolled_back", 106)).status).toBe(200);
     expect((await mark(second, "live", 105)).status).toBe(200);
   });
 
-  it("refuses needs_check from a principal not in TMA_ROUTE_APPLY_ACTORS → 403, and everybody when it is unset", async () => {
+  it("refuses needs_check from a siws login → 403 not_a_dfl_login; the row stays live", async () => {
     const id = await liveRoute();
-    const r = await markCheck(id, dfl(ALICE));
+    const r = await markCheck(id, issueSessionToken(WALLET, Date.now(), "siws").token);
     expect(r.status).toBe(403);
-    expect(r.json.error).toBe("not_an_apply_actor");
-    await new Promise<void>((res) => server.close(() => res()));
-    await start([]);
-    expect((await markCheck(id)).status).toBe(403);
+    expect(r.json.error).toBe("not_a_dfl_login");
     expect(store.rows[0]!.state).toBe("live");
+  });
+});
+
+describe("POST /routes/approve: the actor-type claim (Q b5c4ba38 = B)", () => {
+  it("refuses an agent login and an unknown-actor login → 403 not_a_human_actor, with no reader or store call", async () => {
+    let readerCalls = 0;
+    let storeCalls = 0;
+    const rowsOf = reader.rowsOf.bind(reader);
+    reader.rowsOf = async (...a) => (readerCalls++, rowsOf(...a));
+    const ready = store.ready.bind(store);
+    store.ready = async () => (storeCalls++, ready());
+    for (const act of ["agent", "unknown"] as const) {
+      const r = await approve({}, dfl(ALICE, act));
+      expect(r.status, act).toBe(403);
+      expect(r.json).toEqual({
+        error: "not_a_human_actor", message: "only a person's login may approve a route; sign in again with your own DFL login",
+      });
+    }
+    expect(readerCalls).toBe(0);
+    expect(storeCalls).toBe(0);
+    expect(store.rows).toHaveLength(0);
+    const ok = await approve({}, dfl(ALICE, "human"));
+    expect(ok.status).toBe(201);
+    expect(store.rows).toHaveLength(1);
+  });
+});
+
+describe("POST /routes/:id/swap (Q d881e5df = C)", () => {
+  const PR = (n: number) => `https://github.com/example-org/infra/pull/${n}`;
+  const approved = async (over: Record<string, unknown> = {}) => (await approve(over)).json.id as string;
+  const swap = (id: string, body: unknown, token: string | null = dfl(ALICE, "human")) => call("POST", `/routes/${id}/swap`, body, token);
+  const rowOf = (id: string) => store.rows.find((x) => x.id === id)!;
+  /** A live on the target, B pending a swap with A. */
+  const pendingPair = async (aState: "live" | "needs_check" = "live") => {
+    const a = await approved();
+    expect((await mark(a, "live", 101)).status).toBe(200);
+    if (aState === "needs_check") expect((await markCheck(a)).status).toBe(200);
+    const b = await approved({ target_value: "opus" });
+    expect((await mark(b, "live", 102)).status).toBe(202);
+    return { a, b };
+  };
+
+  it("refuses an agent login and an unknown login → 403 not_a_human_actor; A stays live, B stays pending; no store call", async () => {
+    const { a, b } = await pendingPair();
+    let storeCalls = 0;
+    const get = store.get.bind(store);
+    store.get = async (...x) => (storeCalls++, get(...x));
+    const ready = store.ready.bind(store);
+    store.ready = async () => (storeCalls++, ready());
+    for (const act of ["agent", "unknown"] as const) {
+      const r = await swap(b, { decision: "approve" }, dfl(BOB, act));
+      expect(r.status, act).toBe(403);
+      expect(r.json.error).toBe("not_a_human_actor");
+    }
+    expect((await swap(b, { decision: "approve" }, issueSessionToken(WALLET, Date.now(), "siws").token)).status).toBe(403);
+    expect((await swap(b, { decision: "approve" }, null)).status).toBe(401);
+    expect(storeCalls).toBe(0);
+    expect(rowOf(a)).toMatchObject({ state: "live", rollback_pr_url: null, rolled_back_at: null });
+    expect(rowOf(b)).toMatchObject({ state: "approved", pr_url: PR(102), live_at: null });
+  });
+
+  it("approve by a person: A → rolled_back (rollback_pr_url = B.pr_url, rolled_back_at set), B → live (live_at set)", async () => {
+    const { a, b } = await pendingPair();
+    const r = await swap(b, { decision: "approve" });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(r.json.status).toBe("swapped");
+    expectValid(r.json.route);
+    expect(r.json.route).toMatchObject({ id: b, state: "live", pr_url: PR(102) });
+    expect(r.json.route.live_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(r.json.retired).toHaveLength(1);
+    r.json.retired.forEach(expectValid);
+    expect(r.json.retired[0]).toMatchObject({ id: a, state: "rolled_back", rollback_pr_url: PR(102), pr_url: PR(101) });
+    expect(rowOf(a)).toMatchObject({ state: "rolled_back", rollback_pr_url: PR(102) });
+    expect(rowOf(a).rolled_back_at).not.toBeNull();
+    expect(rowOf(b)).toMatchObject({ state: "live", pr_url: PR(102) });
+    expect(rowOf(b).live_at).not.toBeNull();
+    expect(logLines.at(-1)).toContain(a);
+    expect(logLines.at(-1)).toContain(b);
+    expect(logLines.at(-1)).toContain(ALICE);
+    // The swap is done: a second decision → 409.
+    expect((await swap(b, { decision: "approve" })).json.error).toBe("no_pending_swap");
+  });
+
+  it("approve when A is needs_check: A → rolled_back, B → live", async () => {
+    const { a, b } = await pendingPair("needs_check");
+    const r = await swap(b, { decision: "approve" });
+    expect(r.status).toBe(200);
+    expect(rowOf(a)).toMatchObject({ state: "rolled_back", rollback_pr_url: PR(102) });
+    expect(rowOf(b).state).toBe("live");
+    expect(r.json.retired.map((x: any) => x.id)).toEqual([a]);
+  });
+
+  it("reject by a person: B stays approved with pr_url null, A stays live", async () => {
+    const { a, b } = await pendingPair();
+    const liveBefore = { ...rowOf(a) };
+    const r = await swap(b, { decision: "reject" });
+    expect(r.status).toBe(200);
+    expect(r.json.status).toBe("swap_rejected");
+    expectValid(r.json.route);
+    expect(r.json.route).toMatchObject({ id: b, state: "approved", pr_url: null, live_at: null });
+    expect(rowOf(b)).toMatchObject({ state: "approved", pr_url: null, live_at: null });
+    expect(rowOf(a)).toEqual(liveBefore);
+    expect(isSwapPending(rowOf(b))).toBe(false);
+    expect((await swap(b, { decision: "reject" })).status).toBe(409);
+  });
+
+  it("a row that is not a pending swap → 409 no_pending_swap; an unknown id → 404; a bad body or id → 400", async () => {
+    const { a, b } = await pendingPair();
+    const plain = await approved({ route_target: "claude-md:fix-prod-bug" });
+    for (const id of [a, plain]) {
+      const r = await swap(id, { decision: "approve" });
+      expect(r.status).toBe(409);
+      expect(r.json.error).toBe("no_pending_swap");
+    }
+    expect((await swap(randomUUID(), { decision: "approve" })).status).toBe(404);
+    expect((await swap("not-a-uuid", { decision: "approve" })).json.error).toBe("invalid_id");
+    for (const body of [{}, { decision: "maybe" }, { decision: "approve", note: "x" }, { decision: true }, ["approve"], { Decision: "approve" }]) {
+      const r = await swap(b, body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect(r.json.error).toBe("invalid_body");
+    }
+    expect(rowOf(a).state).toBe("live");
+    expect(rowOf(b)).toMatchObject({ state: "approved", pr_url: PR(102) });
+  });
+
+  it("approve after A was rolled back meanwhile: B goes live, retired []", async () => {
+    const { a, b } = await pendingPair();
+    expect((await mark(a, "rolled_back", 110)).status).toBe(200);
+    const r = await swap(b, { decision: "approve" });
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ status: "swapped", retired: [] });
+    expect(rowOf(b).state).toBe("live");
+    expect(rowOf(a)).toMatchObject({ state: "rolled_back", rollback_pr_url: PR(110) });
   });
 });
 

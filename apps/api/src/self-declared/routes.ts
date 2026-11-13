@@ -1,7 +1,10 @@
 /**
  * Model routes on eval_routes (plan 20261112-tma-c8-routing-from-evals, task C8-T2; ADR-2, ADR-4, ADR-5).
  *
- *   POST  /routes/approve      a person approves ONE agent for ONE use case under a picked rule. The API reads the
+ *   POST  /routes/approve      a person approves ONE agent for ONE use case under a picked rule. Only a session whose
+ *                              actor-type claim is `human` (Q b5c4ba38 = B; the `act` claim that POST /auth/dfl/exchange
+ *                              proves with iam.current_human_actor) may call it; else 403 not_a_human_actor, before any
+ *                              store or reader call. No allow-list. The API reads the
  *                              caller's rows of the use case with the compare reader (GET /use-cases/:key/compare),
  *                              re-computes both verdicts with `compareUseCase` of `@itera/contracts/compare` (through
  *                              `compareView`; no second verdict implementation), and freezes the verdict on a new row
@@ -18,13 +21,23 @@
  *                                                                 rolled_back_at (the CLI sends the rollback PR URL as
  *                                                                 `pr_url`; a needs_check route is still applied in the
  *                                                                 file, so it rolls back like a live one).
- *                              Only the principals of env TMA_ROUTE_APPLY_ACTORS (comma-separated ids) may call it;
- *                              unset or not listed → 403 (fail closed). Every other transition → 409
- *                              invalid_transition. A route in live OR needs_check holds its value in the file: a second
- *                              approved → live on the same (tenant, route_target) → 409 live_route_exists with the id
- *                              and the state of that row; the other row is NOT changed (the supersede rule is an open
- *                              design question). The DB index eval_routes_one_live_idx covers only `live`, so for a
- *                              needs_check row this API check is the only guard.
+ *                              Any DFL login may call it (an agent login records the apply facts: PR merged,
+ *                              needs_check); a siws login → 403 not_a_dfl_login. Every other transition → 409
+ *                              invalid_transition. A route in live OR needs_check holds its value in the file. When
+ *                              approved → live meets such a route on the same (tenant, route_target) (or loses the race
+ *                              on eval_routes_one_live_idx, 23505), the new route does NOT go live (Q d881e5df = C, "ask
+ *                              a person each time"): the API stores its pr_url and answers 202 swap_pending with the id
+ *                              and state of the applied row; the applied row is NOT touched. "Pending swap" = state
+ *                              approved AND pr_url set, live_at null (isSwapPending of @itera/contracts). A second
+ *                              PATCH live while the target is still held replaces pr_url (202 again); a PATCH live when
+ *                              the target is free goes live as before (also for a pending row).
+ *   POST  /routes/:id/swap     body EXACTLY {decision: "approve" | "reject"}. Only actor type `human` (403
+ *                              not_a_human_actor, before any store call). 404 unknown id; 409 no_pending_swap when the
+ *                              row is not a pending swap. reject → pr_url = null, the row stays approved, the applied
+ *                              route is untouched (200 swap_rejected). approve → ONE transaction: every applied route on
+ *                              the target (live or needs_check) → rolled_back with rollback_pr_url = the new route's
+ *                              pr_url, then the new route → live (200 swapped, with the retired rows). Retire first,
+ *                              then go live, so eval_routes_one_live_idx holds at every statement.
  *   GET   /routes              the routes of the result tenant, newest first, at most 200. Query: only `use_case`
  *                              and `state`, each at most once (else 400 invalid_query).
  *   GET   /routes/:id          one route of the result tenant, or 404. A malformed id → 400.
@@ -45,7 +58,7 @@ import { createHash } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import type { Pool } from "pg";
 import {
-  ROUTE_FORMAT_V2, ROUTE_MIN_N, ROUTE_RULES, ROUTE_STATES, routeVerdictPasses, type RouteRule, type RouteState, type RouteV2,
+  isSwapPending, ROUTE_FORMAT_V2, ROUTE_MIN_N, ROUTE_RULES, ROUTE_STATES, routeVerdictPasses, type RouteRule, type RouteState, type RouteV2,
 } from "@itera/contracts";
 import { requirePrincipal } from "../auth/middleware.js";
 import { hasEvalRoutesSchema } from "../domain/schema-features.js";
@@ -140,6 +153,12 @@ export interface RouteFilter {
   state?: RouteState;
 }
 
+/** The outcome of an approved swap: the new live route and the routes it retired (rolled_back). */
+export interface SwapResult {
+  route: RouteRecord;
+  retired: RouteRecord[];
+}
+
 export interface RoutesStore {
   /** False before 0026 (the routes answer 503). */
   ready(): Promise<boolean>;
@@ -162,6 +181,16 @@ export interface RoutesStore {
    * one-live index is thrown with code 23505.
    */
   transition(id: string, tenant: string, from: RouteState, to: PatchTarget, prUrl: string | null): Promise<RouteRecord | null>;
+  /** Mark a pending swap: set pr_url (and updated_at) on a route that is still `approved`; null when it is not. */
+  setPending(id: string, tenant: string, prUrl: string): Promise<RouteRecord | null>;
+  /** Reject a pending swap: pr_url = null on a route that is still `approved` with exactly this pr_url; else null. */
+  clearPending(id: string, tenant: string, prUrl: string): Promise<RouteRecord | null>;
+  /**
+   * Approve a pending swap in ONE transaction: lock the route and re-check approved + pr_url set (null when not); lock
+   * the applied routes of (tenant, route_target) other than it; each → rolled_back (rollback_pr_url = the route's
+   * pr_url, rolled_back_at = now()); then the route → live (live_at = now()). Any error rolls back everything.
+   */
+  swap(id: string, tenant: string): Promise<SwapResult | null>;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -314,9 +343,15 @@ export function parseApproveBody(body: unknown): Parsed<ApproveBody> {
   };
 }
 
-/** The principal ids of TMA_ROUTE_APPLY_ACTORS. Empty when unset (nobody may mark a route). */
-export function applyActorsFromEnv(env: NodeJS.ProcessEnv = process.env): string[] {
-  return (env.TMA_ROUTE_APPLY_ACTORS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+export type SwapDecision = "approve" | "reject";
+
+/** The closed swap body: exactly {decision: "approve" | "reject"}. */
+export function parseSwapBody(body: unknown): Parsed<SwapDecision> {
+  if (!isPlainObject(body)) return { ok: false, message: "the body must be a JSON object" };
+  const keys = Object.keys(body);
+  if (keys.length !== 1 || keys[0] !== "decision") return { ok: false, message: "the body is exactly {decision}" };
+  if (body.decision !== "approve" && body.decision !== "reject") return { ok: false, message: "decision must be approve or reject" };
+  return { ok: true, value: body.decision };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -409,6 +444,79 @@ export class PgRoutesStore implements RoutesStore {
     );
     return (rows[0] as RouteRecord | undefined) ?? null;
   }
+
+  async setPending(id: string, tenant: string, prUrl: string): Promise<RouteRecord | null> {
+    const { rows } = await this.pool().query(
+      `update public.eval_routes set pr_url = $3, updated_at = now()
+        where id = $1 and tenant = $2 and state = 'approved'
+        returning *`,
+      [id, tenant, prUrl],
+    );
+    return (rows[0] as RouteRecord | undefined) ?? null;
+  }
+
+  async clearPending(id: string, tenant: string, prUrl: string): Promise<RouteRecord | null> {
+    const { rows } = await this.pool().query(
+      `update public.eval_routes set pr_url = null, updated_at = now()
+        where id = $1 and tenant = $2 and state = 'approved' and pr_url = $3
+        returning *`,
+      [id, tenant, prUrl],
+    );
+    return (rows[0] as RouteRecord | undefined) ?? null;
+  }
+
+  async swap(id: string, tenant: string): Promise<SwapResult | null> {
+    const client = await this.pool().connect();
+    try {
+      await client.query("begin");
+      const head = await client.query(
+        `select * from public.eval_routes where id = $1 and tenant = $2 for update`,
+        [id, tenant],
+      );
+      const route = head.rows[0] as RouteRecord | undefined;
+      if (!route || route.state !== "approved" || route.pr_url === null) {
+        await client.query("rollback");
+        return null;
+      }
+      const applied = await client.query(
+        `select id from public.eval_routes
+          where tenant = $1 and route_target = $2 and id <> $3 and state in ('live', 'needs_check')
+          order by id
+          for update`,
+        [tenant, route.route_target, id],
+      );
+      const retired: RouteRecord[] = [];
+      for (const r of applied.rows as { id: string }[]) {
+        // Retire first, then go live: eval_routes_one_live_idx holds at every statement.
+        const out = await client.query(
+          `update public.eval_routes
+              set state = 'rolled_back', rollback_pr_url = $3, rolled_back_at = now(), updated_at = now()
+            where id = $1 and tenant = $2 and state in ('live', 'needs_check')
+            returning *`,
+          [r.id, tenant, route.pr_url],
+        );
+        if (out.rows[0]) retired.push(out.rows[0] as RouteRecord);
+      }
+      const live = await client.query(
+        `update public.eval_routes set state = 'live', live_at = now(), updated_at = now()
+          where id = $1 and tenant = $2 and state = 'approved' and pr_url is not null
+          returning *`,
+        [id, tenant],
+      );
+      const moved = live.rows[0] as RouteRecord | undefined;
+      if (!moved) {
+        await client.query("rollback");
+        return null;
+      }
+      await client.query("commit");
+      return { route: moved, retired };
+    } catch (e) {
+      await client.query("rollback").catch(() => undefined);
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -420,8 +528,8 @@ export interface RoutesRouterDeps {
   reader: UseCaseCompareReader;
   /** TMA_RESULT_TENANT (default devfellowship). */
   tenant?: string;
-  /** TMA_ROUTE_APPLY_ACTORS (default: read from the environment). */
-  applyActors?: string[];
+  /** Defaults to `console.info`. One line per approved swap (both ids and the approver principal id). */
+  log?: (line: string) => void;
 }
 
 /** PATCH transitions: the target state → the states it may come from. Every other pair → 409 invalid_transition. */
@@ -433,13 +541,18 @@ const TRANSITIONS: Readonly<Record<PatchTarget, readonly RouteState[]>> = {
 };
 const isPatchTarget = (s: string): s is PatchTarget => Object.prototype.hasOwnProperty.call(TRANSITIONS, s);
 
+const NOT_A_HUMAN = {
+  error: "not_a_human_actor",
+  message: "only a person's login may approve a route; sign in again with your own DFL login",
+} as const;
+
 const pgCode = (e: unknown): string | undefined =>
   typeof e === "object" && e !== null && "code" in e ? String((e as { code: unknown }).code) : undefined;
 
 export function createRoutesRouter(deps: RoutesRouterDeps): Router {
   const router = Router();
   const tenant = deps.tenant ?? resultTenantFromEnv();
-  const applyActors = new Set(deps.applyActors ?? applyActorsFromEnv());
+  const log = deps.log ?? ((line: string) => console.info(line));
 
   const notReady = (res: Response) =>
     res.status(503).json({ error: "schema_not_ready", message: `database schema is not migrated yet (needs db/migrations/${EVAL_ROUTES_MIGRATION})` });
@@ -455,6 +568,11 @@ export function createRoutesRouter(deps: RoutesRouterDeps): Router {
     if (!ACTOR_RE.test(actor)) {
       // approved_by_actor is a lower-case actor key (0026): a principal id outside it (a base58 wallet) cannot approve.
       res.status(403).json({ error: "approver_not_supported", message: "this login cannot approve a route (use a DFL login)" });
+      return;
+    }
+    // Q b5c4ba38 = B: only a person's own login (actor-type claim human) approves. Before any store or reader call.
+    if (req.principal!.actorType !== "human") {
+      res.status(403).json(NOT_A_HUMAN);
       return;
     }
     try {
@@ -551,8 +669,9 @@ export function createRoutesRouter(deps: RoutesRouterDeps): Router {
   });
 
   router.patch("/routes/:id/state", requirePrincipal, async (req: Request, res: Response, next: NextFunction) => {
-    if (!applyActors.has(req.principal!.id)) {
-      res.status(403).json({ error: "not_an_apply_actor", message: "only the apply path (TMA_ROUTE_APPLY_ACTORS) may change a route state" });
+    // Any DFL login records the apply facts (an agent login included); a wallet login does not.
+    if (req.principal!.kind !== "dfl") {
+      res.status(403).json({ error: "not_a_dfl_login", message: "only a DFL login may change a route state" });
       return;
     }
     const id = String(req.params.id);
@@ -604,26 +723,34 @@ export function createRoutesRouter(deps: RoutesRouterDeps): Router {
         return;
       }
       const from = route.state;
-      // A live OR needs_check route on the same target still holds its value in the file: refuse a second apply.
-      const conflict = async (): Promise<boolean> => {
+      // A live OR needs_check route on the same target still holds its value in the file: the new route does not go
+      // live; it waits for a person (Q d881e5df = C). Its pr_url is stored; the applied row is NOT touched.
+      const pending = async (): Promise<boolean> => {
         if (to !== "live") return false;
         const applied = await deps.store.appliedOnTarget(tenant, route.route_target, id);
         if (applied === null) return false;
-        res.status(409).json({
-          error: "live_route_exists",
-          message: `route ${applied.id} (state ${applied.state}) is already applied on ${route.route_target}`,
+        const row = await deps.store.setPending(id, tenant, prUrl as string);
+        if (!row) {
+          const now = await deps.store.get(id, tenant);
+          res.status(409).json({ error: "invalid_transition", message: `the route state changed meanwhile`, state: now?.state ?? null });
+          return true;
+        }
+        res.status(202).json({
+          status: "swap_pending",
+          route: routeView(row),
           live_route_id: applied.id,
           live_route_state: applied.state,
+          message: `route ${applied.id} (state ${applied.state}) stays applied on ${route.route_target}; a person approves or rejects the swap`,
         });
         return true;
       };
-      if (await conflict()) return;
+      if (await pending()) return;
       let moved: RouteRecord | null;
       try {
         moved = await deps.store.transition(id, tenant, from, to, prUrl);
       } catch (e) {
-        // A concurrent mark won the one-live index (eval_routes_one_live_idx).
-        if (pgCode(e) === "23505" && (await conflict())) return;
+        // A concurrent mark won the one-live index (eval_routes_one_live_idx): this route waits for a person too.
+        if (pgCode(e) === "23505" && (await pending())) return;
         throw e;
       }
       if (!moved) {
@@ -632,6 +759,71 @@ export function createRoutesRouter(deps: RoutesRouterDeps): Router {
         return;
       }
       res.json(routeView(moved));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post("/routes/:id/swap", requirePrincipal, async (req: Request, res: Response, next: NextFunction) => {
+    // Q b5c4ba38 = B: only a person's own login decides a swap. Before any store call.
+    if (req.principal!.actorType !== "human") {
+      res.status(403).json(NOT_A_HUMAN);
+      return;
+    }
+    const id = String(req.params.id);
+    if (!UUID_RE.test(id)) {
+      res.status(400).json({ error: "invalid_id", message: "the route id must be a uuid" });
+      return;
+    }
+    const parsed = parseSwapBody(req.body);
+    if (!parsed.ok) {
+      res.status(400).json({ error: "invalid_body", message: parsed.message });
+      return;
+    }
+    const noPending = (state: RouteState | null) =>
+      res.status(409).json({ error: "no_pending_swap", message: "this route does not wait for a swap", state });
+    try {
+      if (!(await deps.store.ready())) {
+        notReady(res);
+        return;
+      }
+      const route = await deps.store.get(id, tenant);
+      if (!route) {
+        res.status(404).json({ error: "not_found", message: "no route with this id in this tenant" });
+        return;
+      }
+      if (!isSwapPending(route)) {
+        noPending(route.state);
+        return;
+      }
+      if (parsed.value === "reject") {
+        const row = await deps.store.clearPending(id, tenant, route.pr_url as string);
+        if (!row) {
+          noPending((await deps.store.get(id, tenant))?.state ?? null);
+          return;
+        }
+        res.json({ status: "swap_rejected", route: routeView(row) });
+        return;
+      }
+      let out: SwapResult | null;
+      try {
+        out = await deps.store.swap(id, tenant);
+      } catch (e) {
+        // Another route went live on the target between the locks (eval_routes_one_live_idx): nothing changed.
+        if (pgCode(e) === "23505") {
+          res.status(409).json({ error: "swap_conflict", message: "another route went live on this target meanwhile; reload and decide again" });
+          return;
+        }
+        throw e;
+      }
+      if (!out) {
+        noPending((await deps.store.get(id, tenant))?.state ?? null);
+        return;
+      }
+      log(
+        `[routes] swap approved: route ${out.route.id} live on ${out.route.route_target}; retired ${out.retired.map((r) => r.id).join(", ") || "none"}; approver ${req.principal!.id}`,
+      );
+      res.json({ status: "swapped", route: routeView(out.route), retired: out.retired.map(routeView) });
     } catch (e) {
       next(e);
     }

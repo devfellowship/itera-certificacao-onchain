@@ -612,6 +612,8 @@ export declare const ROUTE_MIN_N: number;
 export declare const routeSchema: Record<string, unknown>;
 export declare const routeSchemaV2: Record<string, unknown>;
 export declare function routeVerdictPasses(rule: string, verdict: string): boolean;
+/** True when the route waits for a person to approve a swap: state approved AND pr_url set (Q d881e5df = C). */
+export declare function isSwapPending(route: { state?: unknown; pr_url?: unknown } | null | undefined): boolean;
 export declare function validateRoute(value: unknown): RouteValidation;
 export declare function parseRouteText(text: string): RouteValidation;
 

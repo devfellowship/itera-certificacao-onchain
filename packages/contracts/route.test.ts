@@ -2,6 +2,7 @@
 // Copyright 2026 Itera / DevFellowship
 import { describe, expect, it } from 'vitest';
 import {
+  isSwapPending,
   ROUTE_FORMAT, ROUTE_FORMAT_V1, ROUTE_FORMAT_V2, ROUTE_MAX_BYTES, parseRouteText, routeSchema, routeSchemaV2, routeVerdictPasses, validateRoute,
 } from './index.js';
 
@@ -169,5 +170,17 @@ describe('tma-route/2', () => {
 
   it('parseRouteText reads a v2 row', () => {
     expect(parseRouteText(JSON.stringify(v2())).ok).toBe(true);
+  });
+});
+
+describe('isSwapPending (Q d881e5df = C)', () => {
+  it('is true only for state approved with a pr_url', () => {
+    const pr = 'https://github.com/example-org/infra/pull/7';
+    expect(isSwapPending({ state: 'approved', pr_url: pr })).toBe(true);
+    expect(isSwapPending({ state: 'approved', pr_url: null })).toBe(false);
+    expect(isSwapPending({ state: 'approved', pr_url: '' })).toBe(false);
+    for (const state of ['proposed', 'live', 'needs_check', 'rolled_back']) expect(isSwapPending({ state, pr_url: pr })).toBe(false);
+    expect(isSwapPending(null)).toBe(false);
+    expect(isSwapPending(undefined)).toBe(false);
   });
 });

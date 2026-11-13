@@ -7,11 +7,14 @@
  * Proves: approve goes through the real SQL (PgUseCaseCompareReader + PgRoutesStore) and the row satisfies every
  * eval_routes CHECK, with the frozen verdict, n, evidence, refs and approver; n < 5 is refused by the API (and the DB
  * CHECK would refuse it too); a NOT YET cell and another principal's agent write no row; approved → live → rolled_back
- * through the real UPDATE; a second live route on the same target → 409 live_route_exists, and the one-live index
- * refuses the same UPDATE when the API's pre-check is skipped (23505); GET /routes reads the rows. T5: live →
- * needs_check → rolled_back through the real UPDATE passes every CHECK (pr_url and live_at kept), and while the first
- * route is needs_check a second approved → live on that target is refused (409 live_route_exists): the one-live index
- * covers only `live`, so this API check is the only guard.
+ * through the real UPDATE; a second live route on the same target → 202 swap_pending (the live row untouched, the new
+ * row approved with pr_url), and the one-live index refuses the same UPDATE when the API's pre-check is skipped
+ * (23505); GET /routes reads the rows. T5: live → needs_check → rolled_back through the real UPDATE passes every CHECK
+ * (pr_url and live_at kept), and while the first route is needs_check a second approved → live on that target waits
+ * (202 swap_pending): the one-live index covers only `live`, so this API check is the only guard.
+ * Swap (Q d881e5df = C, Q b5c4ba38 = B): an agent login cannot approve the swap (403); a person's approve runs the one
+ * transaction (A rolled_back with rollback_pr_url = B's pr_url, B live, the one-live index holds); a reject clears
+ * pr_url and leaves the applied route live.
  *
  * CI: no step runs this file yet (the step goes in .github/workflows/web3-e2e-guard.yml, a human-merge path).
  */
@@ -23,6 +26,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { LocalResultV2 } from "@itera/contracts";
 import { validateLocalResultV2, validateRoute } from "@itera/contracts";
+import type { ActorType } from "../auth/adapters/types.js";
 import { issueSessionToken } from "../auth/session.js";
 import { resetSchemaFeatures } from "../domain/schema-features.js";
 import { createRoutesRouter, PgRoutesStore } from "./routes.js";
@@ -106,8 +110,13 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
   const runs = (n: number, lintPass: boolean) => Array.from({ length: n }, (_, i) => run(i + 1, lintPass));
   const keys: Record<string, string> = {};
 
-  const call = async (method: string, path: string, body?: unknown, who: string = ALICE) => {
-    const headers: Record<string, string> = { authorization: `Bearer ${issueSessionToken(who, Date.now(), "dfl").token}` };
+  const WALLET = "So11111111111111111111111111111111111111112";
+  // A person's own login unless `act` says otherwise; the apply path (APPLIER) is an agent login (no allow-list).
+  const call = async (method: string, path: string, body?: unknown, who: string = ALICE, act?: ActorType) => {
+    const token = who.startsWith("dfl:")
+      ? issueSessionToken(who, Date.now(), "dfl", undefined, act ?? (who === APPLIER ? "agent" : "human")).token
+      : issueSessionToken(who, Date.now(), "siws").token;
+    const headers: Record<string, string> = { authorization: `Bearer ${token}` };
     if (body !== undefined) headers["content-type"] = "application/json";
     const res = await fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: res.status, json: (await res.json()) as any };
@@ -153,7 +162,7 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
 
     const app = express();
     app.use(express.json());
-    app.use(createRoutesRouter({ store: routes, reader, tenant: TENANT, applyActors: [APPLIER] }));
+    app.use(createRoutesRouter({ store: routes, reader, tenant: TENANT, log: () => {} }));
     server = app.listen(0);
     await new Promise<void>((r) => server.once("listening", r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -226,7 +235,7 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
     expect(pgCode(err)).toBe("23514");
   });
 
-  it("approved → live; a second live route on the target → 409; the one-live index refuses it too; live → rolled_back", async () => {
+  it("approved → live; a second live route on the target → 202 swap_pending; the one-live index refuses it too; live → rolled_back", async () => {
     const pr = (n: number) => `https://github.com/example-org/infra/pull/${n}`;
     const live = await call("PATCH", `/routes/${firstId}/state`, { state: "live", pr_url: pr(1) }, APPLIER);
     expect(live.status, JSON.stringify(live.json)).toBe(200);
@@ -236,14 +245,19 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
 
     const second = (await call("POST", "/routes/approve", approveBody({ target_value: "deepseek-pro" }))).json.id as string;
     const r = await call("PATCH", `/routes/${second}/state`, { state: "live", pr_url: pr(2) }, APPLIER);
-    expect(r.status).toBe(409);
-    expect(r.json).toMatchObject({ error: "live_route_exists", live_route_id: firstId });
+    expect(r.status, JSON.stringify(r.json)).toBe(202);
+    expect(r.json).toMatchObject({ status: "swap_pending", live_route_id: firstId, live_route_state: "live" });
+    expect(validateRoute(r.json.route).ok).toBe(true);
+    expect((await pool.query(`select state, pr_url, live_at from public.eval_routes where id = $1`, [second])).rows[0]).toEqual({
+      state: "approved", pr_url: pr(2), live_at: null,
+    });
+    expect((await pool.query(`select state, pr_url from public.eval_routes where id = $1`, [firstId])).rows[0]).toEqual({ state: "live", pr_url: pr(1) });
     // Without the API pre-check, the index refuses the same UPDATE.
     const err = await routes.transition(second, TENANT, "approved", "live", pr(2)).catch((e: unknown) => e);
     expect(pgCode(err)).toBe("23505");
     expect((await pool.query(`select state from public.eval_routes where id = $1`, [second])).rows[0].state).toBe("approved");
-    // Non-listed principal; wrong transition.
-    expect((await call("PATCH", `/routes/${second}/state`, { state: "live", pr_url: pr(2) }, ALICE)).status).toBe(403);
+    // A siws login; wrong transition.
+    expect((await call("PATCH", `/routes/${second}/state`, { state: "live", pr_url: pr(2) }, WALLET)).json.error).toBe("not_a_dfl_login");
     expect((await call("PATCH", `/routes/${second}/state`, { state: "rolled_back", pr_url: pr(2) }, APPLIER)).json.error).toBe("invalid_transition");
 
     const back = await call("PATCH", `/routes/${firstId}/state`, { state: "rolled_back", pr_url: pr(3) }, APPLIER);
@@ -291,10 +305,10 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
     // A pr_url in the needs_check body is refused; nothing changes.
     expect((await call("PATCH", `/routes/${first}/state`, { state: "needs_check", pr_url: pr(12) }, APPLIER)).status).toBe(400);
 
-    // The one-live index does not see a needs_check row: the API refuses the second live route.
+    // The one-live index does not see a needs_check row: the API holds the second route as a pending swap.
     const r = await call("PATCH", `/routes/${second}/state`, { state: "live", pr_url: pr(13) }, APPLIER);
-    expect(r.status).toBe(409);
-    expect(r.json).toMatchObject({ error: "live_route_exists", live_route_id: first, live_route_state: "needs_check" });
+    expect(r.status).toBe(202);
+    expect(r.json).toMatchObject({ status: "swap_pending", live_route_id: first, live_route_state: "needs_check" });
     expect((await pool.query(`select state from public.eval_routes where id = $1`, [second])).rows[0].state).toBe("approved");
     expect(await routes.appliedOnTarget(TENANT, target, second)).toEqual({ id: first, state: "needs_check" });
 
@@ -307,5 +321,61 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
     expect(db2.rolled_back_at).toBeInstanceOf(Date);
     // The target is free again.
     expect((await call("PATCH", `/routes/${second}/state`, { state: "live", pr_url: pr(13) }, APPLIER)).status).toBe(200);
+  });
+
+  it("swap: an agent cannot approve; a person's approve retires A and moves B live in one transaction (one-live index holds)", async () => {
+    const pr = (n: number) => `https://github.com/example-org/infra/pull/${n}`;
+    const target = "env:DFL_ROUTE_FIX_PROD_BUG_SWAP";
+    const a = (await call("POST", "/routes/approve", approveBody({ route_target: target }))).json.id as string;
+    const b = (await call("POST", "/routes/approve", approveBody({ route_target: target, target_value: "deepseek-pro" }))).json.id as string;
+    expect((await call("PATCH", `/routes/${a}/state`, { state: "live", pr_url: pr(21) }, APPLIER)).status).toBe(200);
+    expect((await call("PATCH", `/routes/${b}/state`, { state: "live", pr_url: pr(22) }, APPLIER)).status).toBe(202);
+
+    // The apply path (an agent login) cannot decide the swap.
+    const denied = await call("POST", `/routes/${b}/swap`, { decision: "approve" }, APPLIER);
+    expect(denied.status).toBe(403);
+    expect(denied.json.error).toBe("not_a_human_actor");
+    expect((await pool.query(`select state from public.eval_routes where id = $1`, [a])).rows[0].state).toBe("live");
+
+    const r = await call("POST", `/routes/${b}/swap`, { decision: "approve" }, BOB);
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(r.json).toMatchObject({ status: "swapped", route: { id: b, state: "live", pr_url: pr(22) } });
+    expect(validateRoute(r.json.route).ok).toBe(true);
+    expect(r.json.retired.map((x: any) => x.id)).toEqual([a]);
+    expect(validateRoute(r.json.retired[0]).ok).toBe(true);
+    const rowA = (await pool.query(`select * from public.eval_routes where id = $1`, [a])).rows[0];
+    expect(rowA).toMatchObject({ state: "rolled_back", pr_url: pr(21), rollback_pr_url: pr(22) });
+    expect(rowA.rolled_back_at).toBeInstanceOf(Date);
+    const rowB = (await pool.query(`select * from public.eval_routes where id = $1`, [b])).rows[0];
+    expect(rowB).toMatchObject({ state: "live", pr_url: pr(22) });
+    expect(rowB.live_at).toBeInstanceOf(Date);
+    const live = await pool.query(
+      `select count(*) from public.eval_routes where tenant = $1 and use_case_key = $2 and route_target = $3 and state = 'live'`,
+      [TENANT, UC, target],
+    );
+    expect(Number(live.rows[0].count)).toBe(1);
+    // A second decision on the same row → 409; a direct second live row is still refused by the index.
+    expect((await call("POST", `/routes/${b}/swap`, { decision: "approve" }, BOB)).json.error).toBe("no_pending_swap");
+    expect(await routes.swap(b, TENANT)).toBeNull();
+  });
+
+  it("swap reject: B stays approved with pr_url null; A stays live", async () => {
+    const pr = (n: number) => `https://github.com/example-org/infra/pull/${n}`;
+    const target = "env:DFL_ROUTE_FIX_PROD_BUG_REJECT";
+    const a = (await call("POST", "/routes/approve", approveBody({ route_target: target }))).json.id as string;
+    const b = (await call("POST", "/routes/approve", approveBody({ route_target: target, target_value: "deepseek-pro" }))).json.id as string;
+    expect((await call("PATCH", `/routes/${a}/state`, { state: "live", pr_url: pr(31) }, APPLIER)).status).toBe(200);
+    expect((await call("PATCH", `/routes/${b}/state`, { state: "live", pr_url: pr(32) }, APPLIER)).status).toBe(202);
+    const r = await call("POST", `/routes/${b}/swap`, { decision: "reject" });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(r.json).toMatchObject({ status: "swap_rejected", route: { id: b, state: "approved", pr_url: null, live_at: null } });
+    expect(validateRoute(r.json.route).ok).toBe(true);
+    expect((await pool.query(`select state, pr_url, live_at from public.eval_routes where id = $1`, [b])).rows[0]).toEqual({
+      state: "approved", pr_url: null, live_at: null,
+    });
+    expect((await pool.query(`select state, pr_url, rollback_pr_url from public.eval_routes where id = $1`, [a])).rows[0]).toEqual({
+      state: "live", pr_url: pr(31), rollback_pr_url: null,
+    });
+    expect((await call("POST", `/routes/${b}/swap`, { decision: "approve" })).json.error).toBe("no_pending_swap");
   });
 });
