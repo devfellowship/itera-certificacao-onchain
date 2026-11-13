@@ -42,6 +42,10 @@ export function StudioHomePage({ cases }: { cases?: StudioCase[] }) {
           <Link to="/studio/trajectories" data-testid="studio-trajectories-link">
             Trajectories
           </Link>
+          {' · '}
+          <Link to="/studio/compare" data-testid="studio-compare-link">
+            Compare
+          </Link>
         </p>
         {task && (
           <p className="tma-body-sm" data-testid="studio-task-filter">

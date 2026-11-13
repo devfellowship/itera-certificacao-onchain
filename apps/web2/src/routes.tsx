@@ -32,6 +32,7 @@ import { UserPage } from './pages/UserPage'
 import { GraderDetailPage } from './studio/GraderDetailPage'
 import { GraderLibraryPage } from './studio/GraderLibraryPage'
 import { StudioCasePage } from './studio/StudioCasePage'
+import { StudioComparePage } from './studio/StudioComparePage'
 import { StudioDiffPage } from './studio/StudioDiffPage'
 import { StudioExperimentPage } from './studio/StudioExperimentPage'
 import { StudioExperimentsPage } from './studio/StudioExperimentsPage'
@@ -110,6 +111,8 @@ export const routes: RouteObject[] = [
           { path: '/studio/diff', element: <StudioDiffPage /> },
           // C5-T9: S9 trajectory wall and path map on TMA runs (read only; plan C9 ADR-6, Q-T20 = A).
           { path: '/studio/trajectories', element: <StudioTrajectoriesPage /> },
+          // C7-T4: S8 agent compare per use case (plan 20261112-tma-c7-model-comparison-per-use-case). Read only.
+          { path: '/studio/compare', element: <StudioComparePage /> },
         ],
       },
       {

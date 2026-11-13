@@ -222,3 +222,47 @@ a.s9-row:hover { background: var(--tma-line); }
 .stu-dry { display: grid; gap: 8px; }
 .stu-dry textarea { width: 100%; min-height: 96px; font-family: var(--tma-font-mono, monospace); box-sizing: border-box; }
 .stu-dry__result { padding: 8px 12px; border: 1px solid var(--tma-border, #ddd); border-radius: 6px; }
+
+/* S8 agent compare per use case (C7-T4). Prefix s8-. Colour is never the only signal: front = filled diamond, dominated = hollow dashed circle. */
+.s8-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--tma-line);
+  border-radius: 8px;
+  background: var(--tma-surface-raised);
+}
+.s8-current select {
+  max-width: 100%;
+  background: var(--tma-surface);
+  color: var(--tma-text);
+  border: 1px solid var(--tma-line);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+.s8-chart-wrap { width: 100%; overflow-x: auto; }
+.s8-chart { width: 100%; max-width: 640px; height: auto; display: block; }
+.s8-axis { stroke: var(--tma-line-strong); stroke-width: 1; }
+.s8-tick, .s8-axis-label { fill: var(--tma-text-muted); font-size: 11px; }
+.s8-point-label { fill: var(--tma-text); font-size: 11px; font-family: var(--tma-font-mono, ui-monospace, monospace); }
+.s8-front-line { fill: none; stroke: var(--tma-primary); stroke-width: 1.5; }
+.s8-point rect, .s8-point circle { stroke-width: 2; }
+.s8-point--front rect { fill: var(--tma-primary); stroke: var(--tma-text); }
+.s8-point--dominated circle { fill: none; stroke: var(--tma-text-muted); stroke-dasharray: 3 2; }
+.s8-point--other circle { fill: none; stroke: var(--tma-text); }
+.s8-legend, .s8-skipped { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.s8-legend svg { vertical-align: middle; }
+.s8-table-wrap { width: 100%; max-width: 100%; overflow-x: auto; }
+.s8-table { min-width: 960px; }
+.s8-table th[scope='row'] { font-weight: 400; white-space: nowrap; }
+.s8-table td, .s8-table th { vertical-align: top; }
+.s8-agent { display: inline-flex; gap: 6px; align-items: flex-start; }
+.s8-provider { font-family: var(--tma-font-mono, ui-monospace, monospace); }
+.s8-sub { display: block; font-size: 12px; }
+.s8-verdict { font-weight: 600; }
+.s8-verdict--same, .s8-verdict--better { color: var(--tma-success-text); }
+.s8-verdict--close, .s8-verdict--tie { color: var(--tma-warning-text); }
+.s8-verdict--not-yet, .s8-verdict--worse { color: var(--tma-danger-text); }
+.s8-verdict--refused { color: var(--tma-text-muted); font-weight: 400; }
+.s8-info { cursor: help; border-radius: 4px; padding: 0 2px; }
+.s8-info:focus-visible { outline: none; box-shadow: var(--tma-focus-ring); }
+.s8-rules p { margin: 8px 0 0; }

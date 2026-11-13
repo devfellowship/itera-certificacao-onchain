@@ -17,7 +17,7 @@ export const STUDIO_SCREENS: Record<StudioScreen, { path: string; built: boolean
   S5: { path: '/studio/experiments/new', built: true },
   S6: { path: '/studio/experiments', built: true },
   S7: { path: '/studio/diff', built: true },
-  S8: { path: '/studio/compare', built: false },
+  S8: { path: '/studio/compare', built: true },
   S9: { path: '/studio/trajectories', built: true },
   S10: { path: '/studio/graders', built: true },
 }
