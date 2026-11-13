@@ -121,12 +121,12 @@ describe('tma route recheck: dry run, refusals, bad input', () => {
     expect(readdirSync(w.dir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
   });
 
-  it('a 403 not_an_apply_actor: exit 3, the line says NOT marked, the state is written', async () => {
+  it('a 403 not_a_dfl_login: exit 3, the line says NOT marked, the state is written', async () => {
     const w = workspace({ ...OBS, models: { digest: 'e'.repeat(64) } });
-    const api = fakeApi(403, { error: 'not_an_apply_actor', message: 'x' });
+    const api = fakeApi(403, { error: 'not_a_dfl_login', message: 'x' });
     const { code, io } = await run(w.args(), api);
     expect(code).toBe(3);
-    expect(io.outText()).toBe(`route ${ID} ${PAIR}: needs_check (model_or_price: models ${'d'.repeat(12)} -> ${'e'.repeat(12)}) NOT marked: 403 not_an_apply_actor`);
+    expect(io.outText()).toBe(`route ${ID} ${PAIR}: needs_check (model_or_price: models ${'d'.repeat(12)} -> ${'e'.repeat(12)}) NOT marked: 403 not_a_dfl_login`);
     expect(patches(api)).toHaveLength(1);
     expect(existsSync(w.stateFile)).toBe(true);
   });
@@ -191,7 +191,7 @@ describe('tma route recheck: dry run, refusals, bad input', () => {
       await run(w.args(...extra), fakeApi(), exec);
     }
     const bad = workspace({ ...OBS, models: { digest: 'e'.repeat(64) } });
-    await run(bad.args(), fakeApi(403, { error: 'not_an_apply_actor' }), exec);
+    await run(bad.args(), fakeApi(403, { error: 'not_a_dfl_login' }), exec);
     expect(exec).not.toHaveBeenCalled();
   });
 });

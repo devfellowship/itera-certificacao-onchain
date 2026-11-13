@@ -271,10 +271,30 @@ function loggedIn() {
   return env;
 }
 
+/**
+ * A fake API by URL: GET /routes/:id answers `row`; GET /routes?state=live|needs_check answers `applied[state]`;
+ * PATCH /routes/:id/state answers `patch` (status, body).
+ */
+function fakeApi(
+  row: Record<string, unknown>,
+  applied: { live?: unknown[]; needs_check?: unknown[] } = {},
+  patch: { status: number; body: unknown } = { status: 200, body: {} },
+) {
+  return vi.fn(async (url: string, init?: RequestInit) => {
+    const u = new URL(url);
+    if (init?.method === 'PATCH') return new Response(JSON.stringify(patch.body), { status: patch.status });
+    if (u.pathname === '/routes') {
+      const st = u.searchParams.get('state') as 'live' | 'needs_check';
+      return new Response(JSON.stringify({ routes: applied[st] ?? [] }), { status: 200 });
+    }
+    return new Response(JSON.stringify(row), { status: 200 });
+  });
+}
+
 describe('tma route --route <id> and mark (mocked API)', () => {
   it('pr --route reads GET /routes/:id with the session', async () => {
     const w = workspace();
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(APPROVED), { status: 200 }));
+    const fetchImpl = fakeApi(APPROVED);
     const argv = ['pr', '--route', ID, '--targets', join(w.dir, 'targets.json'), '--repo-dir', w.repo, '--dry-run'];
     const { code, io } = await runRoute(argv, fakeExec(), { env: loggedIn(), fetchImpl });
     expect(code).toBe(0);
@@ -289,7 +309,7 @@ describe('tma route --route <id> and mark (mocked API)', () => {
       ...r, format: 'tma-route/2', live_at: null, rollback_pr_url: null, rolled_back_at: null, ...over,
     });
     const w = workspace();
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(v2(APPROVED)), { status: 200 }));
+    const fetchImpl = fakeApi(v2(APPROVED));
     const argv = ['pr', '--route', ID, '--targets', join(w.dir, 'targets.json'), '--repo-dir', w.repo, '--dry-run'];
     const { code, io } = await runRoute(argv, fakeExec(), { env: loggedIn(), fetchImpl });
     expect(io.errText()).not.toMatch(/not a valid/);
@@ -337,6 +357,92 @@ describe('tma route --route <id> and mark (mocked API)', () => {
     await expect(runRoute(['mark', '--route', ID, '--state', 'approved', '--pr', 'https://github.com/a/b/pull/1'], fakeExec(), { env: loggedIn(), fetchImpl })).rejects.toThrow(/live, rolled_back or needs_check/);
     await expect(runRoute(['mark', '--route', ID, '--state', 'live', '--pr', 'http://x'], fakeExec(), { env: loggedIn(), fetchImpl })).rejects.toThrow(/pull request URL/);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('tma route: swap pending (Q d881e5df = C)', () => {
+  const OLD = '5a5a5a5a-1111-4222-8333-444455556666';
+  const v2 = (r: Record<string, unknown>, over: Record<string, unknown> = {}) => ({
+    ...r, format: 'tma-route/2', live_at: null, rollback_pr_url: null, rolled_back_at: null, ...over,
+  });
+  const OLD_LIVE = v2(LIVE, { id: OLD, live_at: '2026-11-13T10:00:00.000Z' });
+  const PR = 'https://github.com/devfellowship/dfl-infra/pull/4242';
+  const pending = {
+    status: 202,
+    body: { status: 'swap_pending', route: v2(APPROVED, { pr_url: PR }), live_route_id: OLD, live_route_state: 'live', message: 'x' },
+  };
+  const swapLine = `route ${ID}: swap pending — route ${OLD} (live) stays applied on env:DFL_ROUTE_HTML_REPORT; a person approves or rejects the swap on S12`;
+
+  it('mark: a 202 swap_pending answer prints the swap line and exits 0', async () => {
+    const fetchImpl = fakeApi(APPROVED, {}, pending);
+    const { code, io } = await runRoute(['mark', '--route', ID, '--state', 'live', '--pr', PR], fakeExec(), { env: loggedIn(), fetchImpl });
+    expect(code).toBe(0);
+    expect(io.outText()).toBe(swapLine);
+  });
+
+  it('pr --route in swap mode: gh pr create --draft, a Swap pending section, then PATCH live with the PR URL', async () => {
+    const w = workspace();
+    const fetchImpl = fakeApi(APPROVED, { live: [OLD_LIVE] }, pending);
+    const argv = ['pr', '--route', ID, '--targets', join(w.dir, 'targets.json'), '--repo-dir', w.repo];
+    const { code, io, exec } = await runRoute(argv, fakeExec(), { env: loggedIn(), fetchImpl });
+    expect(code, io.errText()).toBe(0);
+    const gh = exec.calls.find((c) => c.startsWith('gh '))!;
+    expect(gh.startsWith('gh pr create --draft ')).toBe(true);
+    expect(gh).toContain(`Swap pending: route ${OLD} is applied on this target. Do not merge until a person approves the swap on S12.`);
+    // The applied-route reads ran before any git.
+    const urls = fetchImpl.mock.calls.map(([u, i]) => `${(i as RequestInit | undefined)?.method ?? 'GET'} ${String(u).replace(API, '')}`);
+    // The live row answers the check, so the needs_check read is not needed.
+    expect(urls).toEqual([`GET /routes/${ID}`, 'GET /routes?state=live', `PATCH /routes/${ID}/state`]);
+    const patch = fetchImpl.mock.calls.find(([, i]) => (i as RequestInit | undefined)?.method === 'PATCH')!;
+    expect(JSON.parse(String((patch[1] as RequestInit).body))).toEqual({ state: 'live', pr_url: PR });
+    expect(io.outText().split('\n')).toEqual([PR, swapLine]);
+  });
+
+  it('pr --route finds a needs_check route too; a free target opens a normal PR and sends no PATCH', async () => {
+    const w = workspace();
+    const marked = v2(LIVE, { id: OLD, state: 'needs_check', live_at: '2026-11-13T10:00:00.000Z' });
+    const dry = await runRoute(['pr', '--route', ID, '--targets', join(w.dir, 'targets.json'), '--repo-dir', w.repo, '--dry-run'], fakeExec(), {
+      env: loggedIn(), fetchImpl: fakeApi(APPROVED, { needs_check: [marked] }),
+    });
+    expect(dry.io.outText()).toContain(`swap mode: would open a DRAFT PR and register a pending swap with route ${OLD}`);
+    const free = fakeApi(APPROVED, { live: [v2(APPROVED, { id: OLD, route_target: 'env:DFL_ROUTE_UI_COMPARISON', state: 'live', pr_url: PR, live_at: '2026-11-13T10:00:00.000Z' })] });
+    const { code, exec } = await runRoute(['pr', '--route', ID, '--targets', join(w.dir, 'targets.json'), '--repo-dir', w.repo], fakeExec(), { env: loggedIn(), fetchImpl: free });
+    expect(code).toBe(0);
+    const gh = exec.calls.find((c) => c.startsWith('gh '))!;
+    expect(gh).not.toContain('--draft');
+    expect(gh).not.toContain('Swap pending');
+    expect(free.mock.calls.some(([, i]) => (i as RequestInit | undefined)?.method === 'PATCH')).toBe(false);
+  });
+
+  it('pr --route --dry-run in swap mode prints the swap line and runs nothing', async () => {
+    const w = workspace();
+    const fetchImpl = fakeApi(APPROVED, { live: [OLD_LIVE] });
+    const argv = ['pr', '--route', ID, '--targets', join(w.dir, 'targets.json'), '--repo-dir', w.repo, '--dry-run'];
+    const { code, io, exec } = await runRoute(argv, fakeExec(), { env: loggedIn(), fetchImpl });
+    expect(code).toBe(0);
+    expect(exec.calls).toEqual([]);
+    expect(io.outText()).toContain(`swap mode: would open a DRAFT PR and register a pending swap with route ${OLD}`);
+    expect(io.outText()).toContain('Swap pending: route');
+    expect(fetchImpl.mock.calls.some(([, i]) => (i as RequestInit | undefined)?.method === 'PATCH')).toBe(false);
+    expect(w.read(ENV_FILE)).toBe(ORIGINAL_ENV);
+  });
+
+  it('pr --route-file makes no GET (offline, no swap check)', async () => {
+    const w = workspace();
+    const fetchImpl = vi.fn();
+    const { code, exec } = await runRoute(w.args('pr'), fakeExec(), { env: loggedIn(), fetchImpl });
+    expect(code).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(exec.calls.find((c) => c.startsWith('gh '))).not.toContain('--draft');
+  });
+
+  it('the usage text names the swap flow and the offline --route-file', async () => {
+    // An unknown sub-command throws the full usage text.
+    const { code, io } = await runRoute(['nope'], fakeExec()).catch((e: Error) => ({ code: -1, io: { errText: () => e.message } as any }));
+    expect(code).toBe(-1);
+    expect(io.errText()).toContain('swap mode: gh pr create --draft');
+    expect(io.errText()).toContain('offline: no API read, so no swap check');
+    expect(io.errText()).toContain('202 swap_pending');
   });
 });
 
