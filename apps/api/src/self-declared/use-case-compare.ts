@@ -40,7 +40,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** An L1 pair `type/subtype` (eval_cases.use_case_key with the subtype required). */
 export const USE_CASE_PAIR_RE = /^[a-z0-9][a-z0-9-]{0,30}\/[a-z0-9][a-z0-9-]{0,30}$/;
 /** `<model_id>#<agent_sha256>` (model_id: the eval_variants.model_id pattern). */
-const AGENT_KEY_RE =
+export const AGENT_KEY_RE =
   /^[a-z0-9][a-z0-9.-]{0,31}(\/[a-z0-9][a-z0-9.-]{0,31})?\/[A-Za-z0-9][A-Za-z0-9._:-]{0,63}#[0-9a-f]{64}$/;
 const ALLOWED_QUERY = new Set(["current_agent"]);
 

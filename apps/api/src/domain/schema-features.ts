@@ -120,6 +120,32 @@ export async function hasEvalMetaSchema(db: Queryable, now: number = Date.now())
   return metaPresent;
 }
 
+/**
+ * 0026_eval_routes.sql (plan 20261112-tma-c8-routing-from-evals, T1) adds eval_routes. Until it is applied, the route
+ * endpoints (T2) answer 503 schema_not_ready. Same cache rule as the probes above.
+ */
+let routesPresent = false;
+let routesCheckedAt = Number.NEGATIVE_INFINITY;
+
+export async function hasEvalRoutesSchema(db: Queryable, now: number = Date.now()): Promise<boolean> {
+  if (routesPresent) return true;
+  if (now - routesCheckedAt < RECHECK_MS) return false;
+  routesCheckedAt = now;
+  try {
+    // The last column of the table (the file is one transaction) and the one-live index.
+    const { rows } = await db.query(
+      `select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'eval_routes' and column_name = 'updated_at'
+       union all
+       select 1 from pg_indexes where schemaname = 'public' and indexname = 'eval_routes_one_live_idx'`,
+    );
+    routesPresent = rows.length === 2;
+  } catch {
+    routesPresent = false;
+  }
+  return routesPresent;
+}
+
 /** Test seam: forget the cached answers. */
 export function resetSchemaFeatures(): void {
   present = false;
@@ -130,4 +156,6 @@ export function resetSchemaFeatures(): void {
   graderCreatedByCheckedAt = Number.NEGATIVE_INFINITY;
   metaPresent = false;
   metaCheckedAt = Number.NEGATIVE_INFINITY;
+  routesPresent = false;
+  routesCheckedAt = Number.NEGATIVE_INFINITY;
 }
