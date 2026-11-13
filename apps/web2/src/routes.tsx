@@ -31,6 +31,8 @@ import { TasksPage } from './pages/TasksPage'
 import { UserPage } from './pages/UserPage'
 import { GraderDetailPage } from './studio/GraderDetailPage'
 import { GraderLibraryPage } from './studio/GraderLibraryPage'
+import { StudioCasePage } from './studio/StudioCasePage'
+import { StudioExperimentPage } from './studio/StudioExperimentPage'
 import { StudioHomePage } from './studio/StudioHomePage'
 
 /** App routes: App Nav + session gate. */
@@ -96,6 +98,10 @@ export const routes: RouteObject[] = [
           { path: '/studio', element: <StudioHomePage /> },
           { path: '/studio/graders', element: <GraderLibraryPage /> },
           { path: '/studio/graders/:id', element: <GraderDetailPage /> },
+          // C5-T3: S4 test case (the list at /studio/cases, ?task=<slug>) and S5 experiment builder. Read only (ADR-5).
+          { path: '/studio/cases', element: <StudioHomePage /> },
+          { path: '/studio/cases/:caseId', element: <StudioCasePage /> },
+          { path: '/studio/experiments/new', element: <StudioExperimentPage /> },
         ],
       },
       {

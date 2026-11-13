@@ -9,7 +9,10 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueSessionToken } from "../auth/session.js";
-import { createEvalResultsRouter, graderSummaries, type EvalCaseDetail, type EvalResultsReader, type RunEvalResults } from "./eval-results.js";
+import {
+  createEvalResultsRouter, EVAL_CASES_LIMIT, EVAL_RUNS_LIMIT, graderSummaries, type EvalCaseDetail, type EvalCaseListItem, type EvalResultsReader,
+  type EvalRunRow, type EvalRunsFilter, type RunEvalResults,
+} from "./eval-results.js";
 import { trajectorySummaryOf } from "./store.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -24,6 +27,7 @@ const H = (c: string) => c.repeat(64);
 const dfl = (id: string) => issueSessionToken(id, Date.now(), "dfl").token;
 
 const VARIANT = "9b6f3c2e-1d4a-4c8e-9f00-123456789abc";
+const AGENT = "ab6f3c2e-1d4a-4c8e-9f00-123456789abc";
 const kase = {
   id: CASE, caseKey: "webhook-dup-001", manifestSha256: H("1"), originPinSha256: H("2"), mode: "replay" as const, useCaseKey: "fix/prod-bug",
   taskId: null, baselineVariantId: VARIANT, taskSummary: null, createdAt: "2026-11-12T12:00:00.000Z",
@@ -62,7 +66,32 @@ class FakeReader implements EvalResultsReader {
   }
   async caseDetail(id: string, owner: string): Promise<EvalCaseDetail | null> {
     if (id !== CASE || owner !== ALICE) return null;
-    return { ...kase, variants: [{ ...variant, predictionSha256: null, n: 2, pass: 2, fail: 0, infraErrors: 0, passRate: 1, meanScore: 100, evaluationIds: [EVAL] }] };
+    return {
+      ...kase, taskSlug: "webhook-dup", graders: [{ id: "hidden-tests", semver: "2.0.0", kind: "code" }],
+      variants: [{ ...variant, predictionSha256: null, n: 2, pass: 2, fail: 0, infraErrors: 0, passRate: 1, meanScore: 100, evaluationIds: [EVAL] }],
+    };
+  }
+  /** Every case of every owner; listCases filters by owner as the pg reader does. */
+  cases: Array<EvalCaseListItem & { owner: string }> = [
+    { ...kase, taskSlug: "webhook-dup", variantCount: 1, runCount: 2, lastRunAt: "2026-11-12T12:01:00.000Z", owner: ALICE },
+  ];
+  runs: Array<EvalRunRow & { owner: string }> = [RUN1, RUN2].map((id, i) => ({
+    id, evaluationId: EVAL, agentId: AGENT, agentName: "alpha", seq: i + 1, status: "pass", score: 100, infraOk: true,
+    startedAt: "2026-11-12T12:01:00.000Z", caseId: CASE, caseKey: kase.caseKey, useCaseKey: kase.useCaseKey, variant, predictionSha256: null, owner: ALICE,
+  }));
+  lastLimit = 0;
+  lastFilter: EvalRunsFilter | null = null;
+  async listCases(owner: string, limit: number) {
+    this.lastLimit = limit;
+    return this.cases.filter((c) => c.owner === owner).slice(0, limit).map(({ owner: _o, ...c }) => c);
+  }
+  async listRuns(owner: string, filter: EvalRunsFilter, limit: number) {
+    this.lastLimit = limit;
+    this.lastFilter = filter;
+    return this.runs
+      .filter((r) => r.owner === owner && (!filter.agentId || r.agentId === filter.agentId) && (!filter.caseId || r.caseId === filter.caseId))
+      .slice(0, limit)
+      .map(({ owner: _o, ...r }) => r);
   }
 }
 
@@ -132,12 +161,76 @@ describe("GET /eval-cases/:id", () => {
     const r = await get(`/eval-cases/${CASE}`, dfl(ALICE));
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ id: CASE, baselineVariantId: variant.id, variants: [{ id: variant.id, n: 2, passRate: 1, isBaseline: true, evaluationIds: [EVAL] }] });
+    expect(r.json).toMatchObject({ taskSlug: "webhook-dup", graders: [{ id: "hidden-tests", semver: "2.0.0", kind: "code" }] });
   });
 
   it("answers 401 without a session, and the same 404 for another principal and an unknown id", async () => {
     expect((await get(`/eval-cases/${CASE}`)).status).toBe(401);
     expect(await get(`/eval-cases/${CASE}`, dfl(BOB))).toEqual({ status: 404, json: { error: "eval case not found" } });
     expect(await get("/eval-cases/not-a-uuid", dfl(ALICE))).toEqual({ status: 404, json: { error: "eval case not found" } });
+  });
+});
+
+describe("GET /eval-cases (C5-T3)", () => {
+  it("lists the caller's cases with counts and the cap", async () => {
+    const r = await get("/eval-cases", dfl(ALICE));
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual({
+      cases: [{ ...kase, taskSlug: "webhook-dup", variantCount: 1, runCount: 2, lastRunAt: "2026-11-12T12:01:00.000Z" }],
+      limit: EVAL_CASES_LIMIT,
+      truncated: false,
+    });
+    // One row more than the cap is asked for, to know whether the list is truncated.
+    expect(reader.lastLimit).toBe(EVAL_CASES_LIMIT + 1);
+  });
+
+  it("answers 401 without a session, an empty list to another principal, and 503 before 0023", async () => {
+    expect((await get("/eval-cases")).status).toBe(401);
+    expect(await get("/eval-cases", dfl(BOB))).toEqual({ status: 200, json: { cases: [], limit: EVAL_CASES_LIMIT, truncated: false } });
+    reader.isReady = false;
+    expect(await get("/eval-cases", dfl(ALICE))).toMatchObject({ status: 503, json: { error: "schema_not_ready" } });
+  });
+
+  it("says truncated when there are more cases than the cap", async () => {
+    reader.cases = Array.from({ length: EVAL_CASES_LIMIT + 5 }, (_, i) => ({ ...reader.cases[0]!, id: `${i}`, caseKey: `c-${i}` }));
+    const r = await get("/eval-cases", dfl(ALICE));
+    expect(r.json.cases).toHaveLength(EVAL_CASES_LIMIT);
+    expect(r.json.truncated).toBe(true);
+  });
+
+  it("is GET only: no write route on /eval-cases", async () => {
+    const res = await fetch(`${base}/eval-cases`, { method: "POST", headers: { authorization: `Bearer ${dfl(ALICE)}` } });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /eval-runs (C5-T3)", () => {
+  it("lists the caller's uploaded runs with case, variant, evaluation and agent", async () => {
+    const r = await get("/eval-runs", dfl(ALICE));
+    expect(r.status).toBe(200);
+    expect(r.json.limit).toBe(EVAL_RUNS_LIMIT);
+    expect(r.json.truncated).toBe(false);
+    expect(r.json.runs).toHaveLength(2);
+    expect(r.json.runs[0]).toMatchObject({ id: RUN1, evaluationId: EVAL, agentId: AGENT, caseId: CASE, caseKey: kase.caseKey, variant: { id: VARIANT, isBaseline: true } });
+    expect(reader.lastLimit).toBe(EVAL_RUNS_LIMIT + 1);
+  });
+
+  it("passes the agent and case filters to the reader", async () => {
+    expect((await get(`/eval-runs?agent=${AGENT}&case=${CASE}`, dfl(ALICE))).json.runs).toHaveLength(2);
+    expect(reader.lastFilter).toEqual({ agentId: AGENT, caseId: CASE });
+    expect((await get(`/eval-runs?case=${EVAL}`, dfl(ALICE))).json.runs).toEqual([]);
+  });
+
+  it("answers 400 for a filter that is not a uuid", async () => {
+    expect(await get("/eval-runs?agent=nope", dfl(ALICE))).toMatchObject({ status: 400, json: { error: "invalid_query" } });
+    expect(await get("/eval-runs?case=1", dfl(ALICE))).toMatchObject({ status: 400, json: { error: "invalid_query" } });
+  });
+
+  it("answers 401 without a session, an empty list to another principal, and 503 before 0023", async () => {
+    expect((await get("/eval-runs")).status).toBe(401);
+    expect((await get(`/eval-runs?case=${CASE}`, dfl(BOB))).json).toEqual({ runs: [], limit: EVAL_RUNS_LIMIT, truncated: false });
+    reader.isReady = false;
+    expect(await get("/eval-runs", dfl(ALICE))).toMatchObject({ status: 503, json: { error: "schema_not_ready" } });
   });
 });
 

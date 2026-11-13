@@ -159,6 +159,11 @@ export const api = {
   cancelEvaluation: (id: string) => request<{ status: string }>(`/evaluations/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
 
   // Runs [EXISTING]
+  // Studio eval results (C5-T3): read only, owner-scoped. 503 schema_not_ready before migration 0023.
+  evalCases: () => request<T.EvalCasesResponse>('/eval-cases'),
+  evalCase: (id: string) => request<T.EvalCaseDetail>(`/eval-cases/${encodeURIComponent(id)}`),
+  evalRuns: (filter: { agent?: string | null; case?: string | null } = {}) =>
+    request<T.EvalRunsResponse>('/eval-runs', { query: { agent: filter.agent, case: filter.case } }),
   run: (id: string) => request<T.Run>(`/runs/${encodeURIComponent(id)}`),
   /** Tool calls of the agent, public read. `afterSeq` is the cursor (rows with seq > afterSeq). */
   runActions: (id: string, afterSeq = 0) => request<T.RunActionsResponse>(`/runs/${encodeURIComponent(id)}/actions`, { query: { after_seq: afterSeq || undefined }, auth: false }),

@@ -77,7 +77,9 @@ const ROUTES = [
   "POST /agents/local",
   "GET /runs?mine=1",
   "GET /runs/:id",
+  "GET /eval-cases",
   "GET /eval-cases/:id",
+  "GET /eval-runs?agent=&case=",
   "GET /runs/:id/actions",
   "GET /runs/:id/artifacts",
   "GET /runs/:id/artifacts/file?path=",
@@ -217,8 +219,8 @@ export interface AppOptions {
   /** L3, Q4 = C: owner-only guard of the run routes for self-declared runs. Mounted only when given. */
   runOrigins?: RunOriginLookup;
   /** C4-T3 (plan 20261112-tma-c4-result-store-trajectory-upload): case, variant, graders and trajectory summary on
-   * GET /evaluations/:id and GET /runs/:id, and GET /eval-cases/:id. Needs 0023: before it, the bodies are
-   * unchanged and GET /eval-cases/:id answers 503 schema_not_ready. Mounted only when given. */
+   * GET /evaluations/:id and GET /runs/:id, and GET /eval-cases/:id, GET /eval-cases and GET /eval-runs (C5-T3). Needs 0023: before it, the bodies are
+   * unchanged and the three eval routes answer 503 schema_not_ready. Mounted only when given. */
   evalResults?: EvalResultsReader;
   /** C5-T5: GET /grader-versions, GET /grader-versions/:id (read only, tenant scoped). */
   graderVersions?: GraderVersionsReader;

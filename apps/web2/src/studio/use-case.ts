@@ -3,7 +3,17 @@
  * The key is the layer-1 pair "type/subtype" (for example "fix/prod-bug"), or a bare "type" when the
  * case has no subtype. It is the column eval_cases.use_case_key of migration 0023.
  */
-export type StudioCase = { caseKey: string; useCaseKey: string; mode?: string; /** L2 cluster, shown as a tag. */ cluster?: string | null }
+export type StudioCase = {
+  caseKey: string
+  useCaseKey: string
+  mode?: string
+  /** L2 cluster, shown as a tag. */
+  cluster?: string | null
+  /** C5-T3: the case id (the S4 link), and the slug of its task (the ?task= filter of /studio/cases). */
+  id?: string
+  taskSlug?: string | null
+  runCount?: number
+}
 
 /**
  * The 33 L1 pairs of taxonomy v4 that hold an L2 cluster.
