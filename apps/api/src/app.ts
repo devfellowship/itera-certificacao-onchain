@@ -42,6 +42,7 @@ import { createLocalAgentsRouter, localAgentJson, type LocalAgentsRouterDeps } f
 import { createSelfDeclaredRouter, type SelfDeclaredRouterDeps } from "./self-declared/router.js";
 import { createSelfDeclaredRunGuard, type RunOriginLookup } from "./self-declared/run-guard.js";
 import { createEvalResultsRouter, type EvalResultsReader } from "./self-declared/eval-results.js";
+import { createUseCaseCompareRouter, type UseCaseCompareRouterDeps } from "./self-declared/use-case-compare.js";
 import { createGraderVersionsRouter, type GraderVersionsReader } from "./self-declared/grader-versions.js";
 import { createEvalCleanupRouter, type EvalCleanupRouterDeps } from "./self-declared/cleanup.js";
 import { createRecomputeRouter, type RecomputeRouterDeps } from "./self-declared/recompute.js";
@@ -222,6 +223,9 @@ export interface AppOptions {
    * GET /evaluations/:id and GET /runs/:id, and GET /eval-cases/:id, GET /eval-cases and GET /eval-runs (C5-T3). Needs 0023: before it, the bodies are
    * unchanged and the three eval routes answer 503 schema_not_ready. Mounted only when given. */
   evalResults?: EvalResultsReader;
+  /** C7-T3 (plan 20261112-tma-c7-model-comparison-per-use-case): GET /use-cases/:key/compare, the per-use-case
+   * comparison derived on read from @itera/contracts/compare (owner + tenant scoped; 503 before 0023). Mounted only when given. */
+  useCaseCompare?: UseCaseCompareRouterDeps;
   /** C5-T5: GET /grader-versions, GET /grader-versions/:id (read only, tenant scoped). */
   graderVersions?: GraderVersionsReader;
   /** C4-T13 (plan 20261112-tma-c4-result-store-trajectory-upload): POST /eval-results/cleanup, the owner deletes eval
@@ -305,6 +309,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   if (options.runOrigins) app.use(createSelfDeclaredRunGuard(options.runOrigins));
   // C4-T3: after the guard (its 404 is never decorated), before the routers whose bodies it extends.
   if (options.evalResults) app.use(createEvalResultsRouter(options.evalResults));
+  if (options.useCaseCompare) app.use(createUseCaseCompareRouter(options.useCaseCompare));
   if (options.graderVersions) app.use(createGraderVersionsRouter(options.graderVersions));
   // C4-T13: after express.json() (a small JSON body), owner-only.
   if (options.evalCleanup) app.use(createEvalCleanupRouter(options.evalCleanup));

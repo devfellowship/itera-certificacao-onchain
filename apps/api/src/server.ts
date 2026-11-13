@@ -2,6 +2,7 @@ import { PgSelfDeclaredStore } from "./self-declared/store.pg.js";
 import { selfDeclaredPerDayFromEnv } from "./self-declared/router.js";
 import { PgRunOriginLookup } from "./self-declared/run-guard.js";
 import { PgEvalResultsReader } from "./self-declared/eval-results.js";
+import { PgUseCaseCompareReader } from "./self-declared/use-case-compare.js";
 import { PgGraderVersionsReader } from "./self-declared/grader-versions.js";
 import { PgEvalCleanupStore } from "./self-declared/cleanup.pg.js";
 import { PgRecomputeStore } from "./self-declared/recompute.pg.js";
@@ -133,6 +134,8 @@ createApp(repo, {
   runOrigins: new PgRunOriginLookup(getPool),
   // C4-T3: case, variant, graders, trajectory summary on the read routes + GET /eval-cases/:id (no-op before 0023).
   evalResults: new PgEvalResultsReader(getPool),
+  // C7-T3: GET /use-cases/:key/compare (derived on read; 503 before 0023).
+  useCaseCompare: { reader: new PgUseCaseCompareReader(getPool) },
   // C5-T5: read only grader library (503 before 0023).
   graderVersions: new PgGraderVersionsReader(getPool),
   // C4-T13: POST /eval-results/cleanup (owner-only delete of unreferenced cases, variants, grader versions; dry_run default).
