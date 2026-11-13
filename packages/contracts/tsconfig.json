@@ -18,6 +18,7 @@
     "local-result.js",
     "trajectory.js",
     "pin.js",
+    "route.js",
     "run-artifacts.js",
     "index.d.ts",
     "model-catalog.d.ts",

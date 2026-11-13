@@ -194,6 +194,18 @@ export {
   parsePinText,
 } from './pin.js';
 export {
+  ROUTE_FORMAT,
+  ROUTE_MAX_BYTES,
+  ROUTE_STATES,
+  ROUTE_RULES,
+  ROUTE_PASSING_VERDICTS,
+  ROUTE_MIN_N,
+  routeSchema,
+  routeVerdictPasses,
+  validateRoute,
+  parseRouteText,
+} from './route.js';
+export {
   FALLBACK_LAB,
   LABS,
   PROVIDER_KEYS,
