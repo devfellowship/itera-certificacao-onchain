@@ -12,6 +12,7 @@ import { defineConfig } from '@playwright/test'
  *   E2E_MODEL           model id for the free run (default deepseek/deepseek-v4.1-flash, the cheapest in /models)
  *   E2E_TASK_NAME       task name to pick (default "Duplicate settlement webhook")
  *   E2E_CHROME          path of a Chrome binary (default: Playwright's Chromium)
+ *   E2E_API_URL         optional TMA API base for studio.spec.ts (default: read from the bundle's GET /eval-cases)
  */
 export default defineConfig({
   testDir: '.',
