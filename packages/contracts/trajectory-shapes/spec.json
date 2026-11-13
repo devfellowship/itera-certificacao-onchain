@@ -1,0 +1,131 @@
+{
+  "schema": "trajectory-shapes/1",
+  "description": "One rules spec for trajectory shapes (plan 20261112-tma-c9-trajectory-analytics, T3, ADR-3, ADR-6). Consumers: studio S9 (C5-T9, TypeScript, on tma-trajectory/2 runs) and the fleet snapshot (C9-T4, Python, on layer-1 fleet intents). A rule change = a schema version bump + new fixtures; both consumers follow.",
+  "alphabet": {
+    "R": "read",
+    "S": "search",
+    "W": "write",
+    "T": "test",
+    "M": "mcp or agent",
+    "X": "other or shell"
+  },
+  "step_kind_map": {
+    "read": "R",
+    "search": "S",
+    "write": "W",
+    "test": "T",
+    "mcp": "M",
+    "agent": "M",
+    "shell": "X",
+    "other": "X"
+  },
+  "layer1_intents": [
+    "file-read", "git-read", "pr-read", "ci-read", "ops-inspect", "github-api",
+    "search", "web-research",
+    "file-edit", "git-write",
+    "build/test", "ci-watch/poll", "browser-check",
+    "plan-mcp", "spawn-subagent", "message-agent", "mcp-read", "mcp-write", "skill-run",
+    "pr-write/merge", "credential-fetch", "deploy", "ops-change", "reply-human", "media-generate", "wait/sleep",
+    "other", "unlabeled"
+  ],
+  "intent_map": {
+    "file-read": "R",
+    "git-read": "R",
+    "pr-read": "R",
+    "ci-read": "R",
+    "ops-inspect": "R",
+    "github-api": "R",
+    "search": "S",
+    "web-research": "S",
+    "file-edit": "W",
+    "git-write": "W",
+    "build/test": "T",
+    "ci-watch/poll": "T",
+    "browser-check": "T",
+    "plan-mcp": "M",
+    "spawn-subagent": "M",
+    "message-agent": "M",
+    "mcp-read": "M",
+    "mcp-write": "M",
+    "skill-run": "M",
+    "pr-write/merge": "X",
+    "credential-fetch": "X",
+    "deploy": "X",
+    "ops-change": "X",
+    "reply-human": "X",
+    "media-generate": "X",
+    "wait/sleep": "X"
+  },
+  "tool_fallback": {
+    "description": "For the intents in applies_to: the family table first, then the tool table (exact, case-sensitive tool name), else default.",
+    "applies_to": ["other", "unlabeled"],
+    "family": { "mcp": "M" },
+    "tool": {
+      "Agent": "M",
+      "Task": "M",
+      "Workflow": "M",
+      "ListAgents": "M",
+      "Read": "R",
+      "Grep": "S",
+      "Glob": "S",
+      "Edit": "W",
+      "Write": "W",
+      "NotebookEdit": "W"
+    },
+    "default": "X"
+  },
+  "kind_string": {
+    "description": "One letter per step, in step order, repeats kept. Longer than max_chars: keep the first max_chars letters and set truncated: true.",
+    "max_chars": 400
+  },
+  "shape_rules": [
+    {
+      "name": "test-loop",
+      "description": "At least min_runs maximal runs of letter, and at least one pair of consecutive runs with a between letter in the gap (test, fix, test). Two T-runs with only R between are not a loop.",
+      "letter": "T",
+      "min_runs": 2,
+      "between": "W"
+    },
+    {
+      "name": "tool-storm",
+      "description": "min_run or more of letter in a row inside the first window letters (only the first window letters are read: M at positions 3-5 is a storm, M at positions 4-6 is not).",
+      "letter": "M",
+      "min_run": 3,
+      "window": 5
+    },
+    {
+      "name": "search-first",
+      "description": "The first letter is letter.",
+      "letter": "S"
+    },
+    {
+      "name": "straight",
+      "description": "Every non-empty kind string that no earlier rule matched."
+    }
+  ],
+  "empty_shape": "other",
+  "shape_input": "The (possibly truncated) kind string. The rules apply in the order above; the first match wins.",
+  "named_shapes": false,
+  "fallback": "wall-only",
+  "consumer_rule": "While named_shapes is false a consumer MUST NOT label runs by shape on a screen. The shape rules stay here for a later re-run of the gate when a richer outcome exists.",
+  "gate": {
+    "min_spread_points": 15,
+    "min_n_per_shape": 20,
+    "result": "fail",
+    "evidence": "C9-T2 2026-11-13: 0 fail labels in 269 labeled fleet runs; tool-storm n=3, search-first n=2"
+  },
+  "path_map_prune": {
+    "description": "Collapse consecutive repeats of a letter into one node, then count each run once for every prefix of its collapsed string up to max_depth. A node is kept only when n >= min_runs AND n * 100 >= min_share_pct * total_runs (integer test; empty kind strings count in total_runs). Nodes sort by path ascending.",
+    "collapse_repeats": true,
+    "min_runs": 5,
+    "min_share_pct": 3,
+    "max_depth": 8
+  },
+  "first_failure": {
+    "description": "The first step with ok = false, over all steps (also past the kind_string truncation). first_fail_seq is 0-based, first_fail_kind is its letter, last_good_kind is the letter of the step before it, or start_token when step 0 failed. null when no step failed.",
+    "start_token": "START",
+    "known_limits": [
+      "ok misses MCP error payloads that return success: such a step counts as ok."
+    ]
+  }
+}
