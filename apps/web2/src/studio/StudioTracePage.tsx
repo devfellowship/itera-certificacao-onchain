@@ -47,7 +47,8 @@ function SummaryCard({ t }: { t: Trace }) {
           <dd>{s?.models.length ? s.models.join(', ') : '—'}</dd>
           <dt>Runs</dt>
           <dd data-field="runs">
-            {dash(s?.n_runs)} ({dash(s?.n_subagent_runs)} subagent)
+            {dash(s?.n_runs)}
+            {s?.n_subagent_runs != null ? ` (${s.n_subagent_runs} subagent)` : ''}
           </dd>
           <dt>Tool calls</dt>
           <dd data-field="tool_calls">{dash(s?.n_tool_calls)}</dd>
