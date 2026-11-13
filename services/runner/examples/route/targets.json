@@ -1,0 +1,24 @@
+{
+  "schema": "dfl-route-targets/1",
+  "targets": [
+    {
+      "use_case": "content/report-html",
+      "target": "env:DFL_ROUTE_HTML_REPORT",
+      "file": "vps/openclaw-tainan/model-routing/model-routing.env",
+      "values": ["deepseek", "sonnet"],
+      "default": "deepseek",
+      "consumers": ["skill:html-report"],
+      "note": "Fixture copy of dfl-evals routes/targets.json."
+    },
+    {
+      "use_case": "plan/write-plan",
+      "target": "claude-md:planning",
+      "file": "vps/openclaw-tainan/CLAUDE.md",
+      "values": ["opus", "sonnet"],
+      "default": "opus",
+      "row_prefix": "| Planning: plans, analysis, briefs, strategy, ADRs |",
+      "consumers": ["claude-main subagent model table"],
+      "note": "Fixture copy of dfl-evals routes/targets.json."
+    }
+  ]
+}

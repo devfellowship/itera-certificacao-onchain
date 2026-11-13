@@ -475,6 +475,63 @@ export declare function pinReplayable(pin: { completeness: Record<string, string
 export declare function validatePin(value: unknown): PinValidation;
 export declare function parsePinText(text: string): PinValidation;
 
+// --- Route row (plan 20261112-tma-c8-routing-from-evals, T1, T2, T4; ADR-4, ADR-5).
+// Schema: schemas/route-v1.schema.json (the source of truth); validator: route.js.
+
+export type RouteState = 'proposed' | 'approved' | 'live' | 'needs_check' | 'rolled_back';
+export type RouteRule = 'absolute' | 'relative';
+
+export interface Route {
+  format?: 'tma-route/1';
+  id: string;
+  tenant: string;
+  /** The L1 pair type/subtype. */
+  use_case_key: string;
+  /** env:<FLAG> or claude-md:<row>. */
+  route_target: string;
+  target_value: string;
+  /** The value in the file at approval time; null = not known. */
+  rollback_value: string | null;
+  model_id: string;
+  agent_sha256: string;
+  harness?: 'claude-code' | 'codex' | 'opencode' | null;
+  harness_repo_sha?: string | null;
+  rules_sha256?: string | null;
+  skills_sha256?: string[] | null;
+  fallback_model_id?: string | null;
+  fallback_agent_sha256?: string | null;
+  picked_rule: RouteRule;
+  verdict: string;
+  n: number;
+  evidence_run_ids: string[];
+  compare_profile_sha256: string;
+  policy_version: string;
+  state: RouteState;
+  pr_url?: string | null;
+  approved_by_actor: string | null;
+  approved_at: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RouteIssue {
+  code: 'unknown_key' | 'invalid' | 'too_large' | 'not_json' | 'inconsistent';
+  path: string;
+  message: string;
+}
+export type RouteValidation = { ok: true; value: Route } | { ok: false; issues: RouteIssue[]; errors: string[] };
+
+export declare const ROUTE_FORMAT: 'tma-route/1';
+export declare const ROUTE_MAX_BYTES: number;
+export declare const ROUTE_STATES: readonly RouteState[];
+export declare const ROUTE_RULES: readonly RouteRule[];
+export declare const ROUTE_PASSING_VERDICTS: Readonly<Record<RouteRule, readonly string[]>>;
+export declare const ROUTE_MIN_N: number;
+export declare const routeSchema: Record<string, unknown>;
+export declare function routeVerdictPasses(rule: string, verdict: string): boolean;
+export declare function validateRoute(value: unknown): RouteValidation;
+export declare function parseRouteText(text: string): RouteValidation;
+
 export {
   FALLBACK_LAB,
   LABS,

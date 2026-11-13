@@ -116,6 +116,28 @@ tma eval upload --case ./case --variant-dir ./case/runs/<sha12> --agent <agent i
 - **Upload** sends one variant folder as one `tma-local-result/2` body (case, variant, comparison, every run with its graders and trajectory). The base agent comes from `--base-agent <file>`, else the case pin, else the agent folder of an agent variant. It refuses before any network call: a `case_key` with a dot or longer than 63, a replay case with no pin, a non-baseline variant with `change_kind: "none"` (a control output stays local), and any value that looks like a credential. `--dry-run` prints the exact body and, when you are logged in, asks the API to check it without a write.
 - **Through `tools/tma-launcher`**: the container sees only the current folder (and the config folder). Run `tma eval trajectory` from a folder that holds the session file (for example `cd ~/.claude/projects/<project>`), and give `--root` folders under it.
 
+### Apply an approved model route: `tma route pr|rollback|mark`
+
+Plan `20261112-tma-c8-routing-from-evals` T4 (ADR-1, ADR-2). A person approves a route in the studio (the studio writes only the verdict). claude-main or a person then runs `tma route pr`: it edits ONE file of a local `dfl-infra` checkout, keeps the old value as the rollback line, and opens the PR. The studio never runs this.
+
+```bash
+# What the PR would change, with nothing written and no git or gh run:
+tma route pr --route-file examples/route/route.approved.json --targets examples/route/targets.json \
+  --repo-dir examples/route/infra --dry-run
+# The real run, on a clean checkout of dfl-infra on an up-to-date master:
+tma route pr --route <route id> --targets ../dfl-evals/routes/targets.json --repo-dir ../dfl-infra
+# After the merge and the README apply step (install -D -m 0644 + sha256sum compare):
+tma route mark --route <route id> --state live --pr https://github.com/devfellowship/dfl-infra/pull/<n>
+# Undo a live route: a PR that writes rollback_value back, then mark it rolled_back:
+tma route rollback --route <route id> --targets ../dfl-evals/routes/targets.json --repo-dir ../dfl-infra
+```
+
+- **Inputs.** The route row is `tma-route/1` (closed schema `packages/contracts/schemas/route-v1.schema.json`, the columns of `eval_routes`): `--route-file <json>`, or `--route <id>` that reads `GET /routes/:id` with your `tma login` (task T2; 404 until it ships). `--targets` is the flag map `dfl-route-targets/1` (`dfl-evals` `routes/targets.json`); its `file` paths are relative to `--repo-dir`.
+- **Targets.** `env:<FLAG>` replaces the single `FLAG=<old>` line and writes above it `# route <id> (<use case>): <old> -> <new>; verdict ... under the <rule> rule, n=..., policy ...; approved by <actor> <date>` and `# rollback: <FLAG>=<old>  (tma route rollback <id>)`. A later route for the same flag replaces that block; every other comment stays. `claude-md:<row>` replaces the model cell (`` **`value`** ``) of the one table row that starts with `row_prefix`.
+- **Refusals (exit 2, one line, nothing written).** `pr`: the state is not `approved`; `n < 5`; the verdict does not pass under the picked rule (absolute: `same`|`close`, relative: `better`|`same`); the use case has no target, or another target, in the map; the value is not allowed by the map; the file value is not `rollback_value` (the file moved since approval: re-approve); the new value equals the current one; 0 or 2+ matching lines or rows; a dirty checkout. `rollback`: the state is not `live` or `needs_check`; `rollback_value` is null; the file does not hold the route value.
+- **Without `--dry-run`**: `git checkout -b route/<use case with / as ->/<id8>` (`-rollback` for a rollback), commit, `git push -u origin`, `gh pr create --base <base>` (default `master`). It prints the PR URL and the `tma route mark` line. The PR body names the route id, the use case, the rule, the verdict, `n`, the evidence run ids, the policy version, the approver, the rollback line and the apply step.
+- Fixtures: [`examples/route/`](examples/route/) (a copy of the flag map, an approved and a live route, and a fixture infra tree).
+
 ## What one run does
 
 1. **Workspace (trusted side).** The runner reads the task contract (`benchmarks/<scenario>/task.json`, or any task bundle, see `services/evaluator/README.md`) and copies ONLY its `environment/` plus the public tests (`tests/public/`) to a temp dir. It does not copy the monorepo, the evaluator, the hidden tests or `solution/`. It copies the agent's `AGENTS.md`, `CLAUDE.md` and `skills/` (to `.opencode/skills/`, where opencode finds project skills). Nothing else from the agent directory goes in. It runs `npm ci --ignore-scripts`, so the agent can run the public tests without network. A baseline git commit records the start state.
