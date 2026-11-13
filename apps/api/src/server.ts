@@ -3,6 +3,7 @@ import { selfDeclaredPerDayFromEnv } from "./self-declared/router.js";
 import { PgRunOriginLookup } from "./self-declared/run-guard.js";
 import { PgEvalResultsReader } from "./self-declared/eval-results.js";
 import { PgUseCaseCompareReader } from "./self-declared/use-case-compare.js";
+import { PgRoutesStore } from "./self-declared/routes.js";
 import { PgGraderVersionsReader } from "./self-declared/grader-versions.js";
 import { PgTrajectoriesReader } from "./self-declared/trajectories.js";
 import { PgEvalCleanupStore } from "./self-declared/cleanup.pg.js";
@@ -137,6 +138,8 @@ createApp(repo, {
   evalResults: new PgEvalResultsReader(getPool),
   // C7-T3: GET /use-cases/:key/compare (derived on read; 503 before 0023).
   useCaseCompare: { reader: new PgUseCaseCompareReader(getPool) },
+  // C8-T2: model routes on eval_routes (503 before 0026). PATCH /routes/:id/state only for TMA_ROUTE_APPLY_ACTORS.
+  routes: { store: new PgRoutesStore(getPool), reader: new PgUseCaseCompareReader(getPool) },
   // C5-T5: read only grader library (503 before 0023).
   graderVersions: new PgGraderVersionsReader(getPool),
   // C5-T9: studio S9 trajectory wall and path map (read only, 503 before 0024).
