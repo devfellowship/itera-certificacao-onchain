@@ -29,6 +29,8 @@ import { TaskEditorPage } from './pages/TaskEditorPage'
 import { TaskProfilePage } from './pages/TaskProfilePage'
 import { TasksPage } from './pages/TasksPage'
 import { UserPage } from './pages/UserPage'
+import { GraderDetailPage } from './studio/GraderDetailPage'
+import { GraderLibraryPage } from './studio/GraderLibraryPage'
 import { StudioHomePage } from './studio/StudioHomePage'
 
 /** App routes: App Nav + session gate. */
@@ -92,6 +94,8 @@ export const routes: RouteObject[] = [
           { path: '/cli', element: <CliLoginPage /> },
           // Studio area (plan 20261112-tma-c5-studio-area-web2, ADR-1): new routes only, no existing route is touched.
           { path: '/studio', element: <StudioHomePage /> },
+          { path: '/studio/graders', element: <GraderLibraryPage /> },
+          { path: '/studio/graders/:id', element: <GraderDetailPage /> },
         ],
       },
       {
