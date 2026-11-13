@@ -201,7 +201,8 @@ describe("POST /routes/approve", () => {
 
   it("freezes exactly the evidence_run_ids that the compare response lists (one helper, Q4 = A)", async () => {
     // An infra-fault run and a no-score run of A: neither is counted, neither is frozen.
-    const infra = row(A, "case-0", { run: { ...row(A, "case-0").run, infraOk: false } });
+    const infra = row(A, "case-0");
+    infra.run.infraOk = false;
     const noScore = row(A, "case-1");
     noScore.graders = [];
     reader.rows.push(infra, noScore);
