@@ -1,0 +1,60 @@
+{
+  "answers": [
+    {
+      "id": "q1",
+      "file": "src/auth/session.ts",
+      "function": "isSessionExpired",
+      "start": 21,
+      "end": 24
+    },
+    {
+      "id": "q2",
+      "file": "src/util/retry.ts",
+      "function": "backoffDelayMs",
+      "start": 1,
+      "end": 3
+    },
+    {
+      "id": "q3",
+      "file": "src/orders/pricing.ts",
+      "function": "applyCoupon",
+      "start": 19,
+      "end": 24
+    },
+    {
+      "id": "q4",
+      "file": "src/orders/pricing.ts",
+      "function": "calculateTax",
+      "start": 28,
+      "end": 31
+    },
+    {
+      "id": "q5",
+      "file": "src/orders/checkout.ts",
+      "function": "validateCart",
+      "start": 10,
+      "end": 19
+    },
+    {
+      "id": "q6",
+      "file": "src/http/rate-limit.ts",
+      "function": "rejectTooManyRequests",
+      "start": 5,
+      "end": 11
+    },
+    {
+      "id": "q7",
+      "file": "src/config/env.ts",
+      "function": "parsePort",
+      "start": 7,
+      "end": 14
+    },
+    {
+      "id": "q8",
+      "file": "src/inventory/stock.ts",
+      "function": "releaseStock",
+      "start": 13,
+      "end": 16
+    }
+  ]
+}

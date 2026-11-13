@@ -1,0 +1,100 @@
+{
+  "$schema": "../../packages/contracts/schemas/task.schema.json",
+  "schema_version": "1.0",
+  "task": {
+    "name": "itera/research-codebase",
+    "version": "1",
+    "description": "Answer questions about a small fixture repo: for each described function, give the file and a line inside it as path:line. Graded by exact file match and a line within the function span.",
+    "authors": [
+      {
+        "name": "ITERA"
+      }
+    ],
+    "keywords": [
+      "research",
+      "codebase-search",
+      "deterministic-grader"
+    ]
+  },
+  "metadata": {
+    "title": "Locate functions in a codebase",
+    "tags": {
+      "tools": [],
+      "concepts": [
+        "code-search",
+        "precision"
+      ]
+    }
+  },
+  "instruction": "instruction.md",
+  "environment": {
+    "dir": "environment",
+    "install": [
+      "npm",
+      "ci",
+      "--include=dev",
+      "--no-audit",
+      "--no-fund",
+      "--ignore-scripts"
+    ],
+    "allow_internet": false,
+    "cpus": 2,
+    "memory_mb": 2048,
+    "tools": {
+      "builtin": [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "search",
+        "list",
+        "todo"
+      ],
+      "mcp": []
+    },
+    "run_egress": [
+      "model-gateway"
+    ],
+    "secrets": [],
+    "resources": {
+      "cpus": 2,
+      "memory_mb": 2048,
+      "pids": 512
+    }
+  },
+  "tests": {
+    "public": "tests/public",
+    "hidden": "tests/hidden"
+  },
+  "solution": {
+    "patch": "solution/solution.patch"
+  },
+  "editable_paths": [
+    "out/**"
+  ],
+  "protected_paths": [
+    "tests/**",
+    "data/**",
+    "repo/**",
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "vitest.config.*"
+  ],
+  "verifier": {
+    "cmd": [
+      "npx",
+      "vitest",
+      "run",
+      "{tests}",
+      "--reporter=json",
+      "--outputFile={report}"
+    ],
+    "report": "vitest-json",
+    "timeout_sec": 120
+  },
+  "agent": {
+    "timeout_sec": 300
+  },
+  "est_minutes": 4
+}
