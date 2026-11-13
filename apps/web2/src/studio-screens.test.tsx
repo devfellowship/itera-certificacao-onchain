@@ -269,7 +269,7 @@ describe('S5 experiment', () => {
     // Add the trace_review case to the dataset.
     const sso = [...c.querySelectorAll('[data-testid="experiment-dataset-case"]')].find((li) => li.textContent!.includes('add-sso-001'))!
     act(() => sso.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click())
-    expect(pre()).toContain('tma eval case --case cases/build/new-feature/add-sso-001/case.json --dest eval/add-sso-001 --recorded <recorded.patch>')
+    expect(pre()).toContain('tma eval case --case cases/build/feature/add-sso-001/case.json --dest eval/add-sso-001 --recorded <recorded.patch>')
     expect(pre()).toContain(`tma eval upload --case eval/add-sso-001 --variant-dir eval/add-sso-001/runs/recorded --agent ${AGENT}`)
     // Pick the baseline variant: its folder is a placeholder (the uploaded digest is the empty diff).
     const base = [...c.querySelectorAll('[data-testid="experiment-variant"]')].find((l) => l.textContent!.includes('base agent unchanged'))!
