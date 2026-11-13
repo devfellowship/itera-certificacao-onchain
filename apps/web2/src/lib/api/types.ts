@@ -1316,6 +1316,10 @@ export interface EvalRun {
   status: string
   score: number | null
   infraOk: boolean | null
+  /** C5-T4: hosted = run by TMA (verified); self_declared = uploaded. Absent on an API before C5-T4. */
+  resultOrigin?: ResultOrigin
+  /** C5-T4: false when a hard-gate grader failed (latest grading), null without a grading. Absent before C5-T4. */
+  hardGatesOk?: boolean | null
   startedAt: string
   caseId: string
   caseKey: string

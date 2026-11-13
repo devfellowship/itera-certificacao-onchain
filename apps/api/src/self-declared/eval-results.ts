@@ -20,7 +20,9 @@
  *                          evaluation and the TMA agent of that evaluation. Filters: ?agent=<agent uuid> and
  *                          ?case=<case uuid> (another principal's id matches nothing: an empty list). Capped at
  *                          EVAL_RUNS_LIMIT (500): `{ runs, limit, truncated }`. There is no experiment table: the
- *                          studio derives an experiment from these rows (case x variant).
+ *                          studio derives an experiment from these rows (case x variant). C5-T4 (S6) adds
+ *                          `resultOrigin` (hosted = verified, self_declared = uploaded) and `hardGatesOk` (latest
+ *                          grading per grader version; null when the run has no grading).
  *
  * The first two decorate the JSON body that their own routers send (as the 0021 run guard does with
  * `resultOrigin`): those routers keep their files, their owner checks and their 404s. A body with an `error`
@@ -175,6 +177,16 @@ export interface EvalRunRow {
   status: string;
   score: number | null;
   infraOk: boolean | null;
+  /**
+   * C5-T4 (studio S6): `hosted` = run by TMA (verified), `self_declared` = uploaded from the user's host
+   * (runs.result_origin, migration 0021).
+   */
+  resultOrigin: "hosted" | "self_declared";
+  /**
+   * C5-T4 (studio S6, the case-compare rule): false when the latest grading of any hard-gate grader version
+   * failed, true when every one held, null when the run has no grading row.
+   */
+  hardGatesOk: boolean | null;
   startedAt: string;
   caseId: string;
   caseKey: string;
@@ -462,13 +474,21 @@ export class PgEvalResultsReader implements EvalResultsReader {
     const { rows } = await this.pool().query(
       `select r.id as run_id, r.evaluation_id, e.agent_id, a.name as agent_name, r.seq, r.status,
               coalesce((r.evidence_manifest -> 'item' ->> 'score')::numeric, r.score_total) as score,
-              r.infra_ok, r.started_at, r.prediction_sha256,
+              r.infra_ok, r.result_origin, r.started_at, r.prediction_sha256, g.graded, g.hard_ok,
               c.id as case_id, c.case_key, c.use_case_key, c.baseline_variant_id, ${VARIANT_COLUMNS}
          from public.runs r
          join public.eval_cases c on c.id = r.case_id and c.owner_wallet = $1
          join public.eval_variants v on v.id = r.variant_id
          left join public.evaluations e on e.id = r.evaluation_id
          left join public.agents a on a.id = e.agent_id
+         -- C5-T4: the latest grading row of each grader version of the run (a re-grade adds a row).
+         left join lateral (
+           select count(*)::int as graded, bool_and(x.pass) filter (where x.hard_gate) as hard_ok
+             from (select distinct on (gr.grader_version_id) gr.pass, gr.hard_gate
+                     from public.grader_results gr
+                    where gr.run_id = r.id
+                    order by gr.grader_version_id, gr.graded_at desc, gr.id desc) x
+         ) g on true
         where r.owner_wallet = $1
           and ($2::uuid is null or e.agent_id = $2::uuid)
           and ($3::uuid is null or r.case_id = $3::uuid)
@@ -476,23 +496,37 @@ export class PgEvalResultsReader implements EvalResultsReader {
         limit $4`,
       [owner, filter.agentId ?? null, filter.caseId ?? null, limit],
     );
-    return rows.map((r: Record<string, unknown>) => ({
-      id: String(r.run_id),
-      evaluationId: orNull(r.evaluation_id),
-      agentId: orNull(r.agent_id),
-      agentName: orNull(r.agent_name),
-      seq: num(r.seq),
-      status: String(r.status),
-      score: num(r.score),
-      infraOk: (r.infra_ok as boolean | null) ?? null,
-      startedAt: iso(r.started_at),
-      caseId: String(r.case_id),
-      caseKey: String(r.case_key),
-      useCaseKey: String(r.use_case_key),
-      variant: variantView(r, orNull(r.baseline_variant_id)),
-      predictionSha256: orNull(r.prediction_sha256),
-    }));
+    return rows.map(evalRunRowView);
   }
+}
+
+/** C5-T4: the hard-gate state of a run from its grading summary (count of graded versions, AND of hard gates). */
+export function hardGatesOkOf(graded: unknown, hardOk: unknown): boolean | null {
+  if (!Number(graded ?? 0)) return null;
+  // No hard-gate grader among the gradings: nothing failed a hard gate.
+  return hardOk === null || hardOk === undefined ? true : Boolean(hardOk);
+}
+
+/** One GET /eval-runs row from the listRuns SQL row. Exported for the unit test. */
+export function evalRunRowView(r: Record<string, unknown>): EvalRunRow {
+  return {
+    id: String(r.run_id),
+    evaluationId: orNull(r.evaluation_id),
+    agentId: orNull(r.agent_id),
+    agentName: orNull(r.agent_name),
+    seq: num(r.seq),
+    status: String(r.status),
+    score: num(r.score),
+    infraOk: (r.infra_ok as boolean | null) ?? null,
+    resultOrigin: r.result_origin === "hosted" ? "hosted" : "self_declared",
+    hardGatesOk: hardGatesOkOf(r.graded, r.hard_ok),
+    startedAt: iso(r.started_at),
+    caseId: String(r.case_id),
+    caseKey: String(r.case_key),
+    useCaseKey: String(r.use_case_key),
+    variant: variantView(r, orNull(r.baseline_variant_id)),
+    predictionSha256: orNull(r.prediction_sha256),
+  };
 }
 
 /** The latest row of each grader version per run, summed over the runs. */

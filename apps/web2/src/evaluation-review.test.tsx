@@ -549,6 +549,8 @@ describe('evaluation page: result-store fields', () => {
     expect(q(c, 'variant-n')!.textContent).toBe('n 2')
     expect(q(c, 'variant-case')!.textContent).toBe('case checkout-refund · replay')
     expect(q(c, 'baseline-badge')).toBeNull()
+    // C5-T4: S7 is built, so a non-baseline variant links to the result diff with the evaluation id (S7 accepts it).
+    expect(q(c, 'studio-compare-baseline')!.getAttribute('href')).toBe(`/studio/diff?evaluation=${EVAL_ID}`)
     expect(q(c, 'grader-summary')!.dataset.grader).toBe('hidden-tests@1.2.0')
     expect(q(c, 'grader-summary')!.textContent).toContain('1/2 pass')
     expect(q(c, 'grader-summary')!.textContent).toContain('mean 50.0')
@@ -571,6 +573,8 @@ describe('evaluation page: result-store fields', () => {
     expect(q(c, 'variant-strip')!.dataset.baseline).toBe('true')
     expect(q(c, 'baseline-badge')!.textContent).toBe('baseline')
     expect(q(c, 'variant-change')).toBeNull()
+    // The baseline has nothing to compare with: no "Compare with baseline" link.
+    expect(q(c, 'studio-compare-baseline')).toBeNull()
   })
 
   it('old shape (the v2 fields are absent): the page renders and adds nothing for them', async () => {

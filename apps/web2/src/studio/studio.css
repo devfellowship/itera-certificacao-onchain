@@ -131,3 +131,66 @@
   user-select: all;
   overflow-x: auto;
 }
+
+/* C5-T4: S6 experiment result matrix and S7 result diff. */
+.stu-matrix-wrap {
+  overflow-x: auto;
+}
+.stu-matrix th[scope='row'] {
+  text-align: left;
+  vertical-align: top;
+  min-width: 180px;
+}
+.stu-cell {
+  vertical-align: top;
+  min-width: 200px;
+}
+.stu-cell__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.stu-cell__rate {
+  font-weight: 600;
+}
+.stu-cell__nums {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  gap: 2px 10px;
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+.stu-cell__nums dt {
+  color: var(--tma-text-muted);
+}
+.stu-cell__nums dd {
+  margin: 0;
+}
+.stu-warn {
+  color: var(--tma-warning, var(--tma-text));
+  font-weight: 600;
+}
+.stu-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.stu-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stu-diff td,
+.stu-diff th {
+  vertical-align: top;
+}
+.stu-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 280px;
+}
+.stu-expected {
+  min-width: 240px;
+}

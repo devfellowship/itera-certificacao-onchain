@@ -32,7 +32,9 @@ import { UserPage } from './pages/UserPage'
 import { GraderDetailPage } from './studio/GraderDetailPage'
 import { GraderLibraryPage } from './studio/GraderLibraryPage'
 import { StudioCasePage } from './studio/StudioCasePage'
+import { StudioDiffPage } from './studio/StudioDiffPage'
 import { StudioExperimentPage } from './studio/StudioExperimentPage'
+import { StudioExperimentsPage } from './studio/StudioExperimentsPage'
 import { StudioHomePage } from './studio/StudioHomePage'
 
 /** App routes: App Nav + session gate. */
@@ -102,6 +104,9 @@ export const routes: RouteObject[] = [
           { path: '/studio/cases', element: <StudioHomePage /> },
           { path: '/studio/cases/:caseId', element: <StudioCasePage /> },
           { path: '/studio/experiments/new', element: <StudioExperimentPage /> },
+          // C5-T4: S6 experiment result (the canonical page of an experiment, ADR-2) and S7 result diff. Read only (ADR-5).
+          { path: '/studio/experiments', element: <StudioExperimentsPage /> },
+          { path: '/studio/diff', element: <StudioDiffPage /> },
         ],
       },
       {

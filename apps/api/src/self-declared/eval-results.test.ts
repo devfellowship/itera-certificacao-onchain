@@ -10,7 +10,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueSessionToken } from "../auth/session.js";
 import {
-  createEvalResultsRouter, EVAL_CASES_LIMIT, EVAL_RUNS_LIMIT, graderSummaries, type EvalCaseDetail, type EvalCaseListItem, type EvalResultsReader,
+  createEvalResultsRouter, EVAL_CASES_LIMIT, EVAL_RUNS_LIMIT, evalRunRowView, graderSummaries, hardGatesOkOf, type EvalCaseDetail, type EvalCaseListItem, type EvalResultsReader,
   type EvalRunRow, type EvalRunsFilter, type RunEvalResults,
 } from "./eval-results.js";
 import { trajectorySummaryOf } from "./store.js";
@@ -77,7 +77,7 @@ class FakeReader implements EvalResultsReader {
   ];
   runs: Array<EvalRunRow & { owner: string }> = [RUN1, RUN2].map((id, i) => ({
     id, evaluationId: EVAL, agentId: AGENT, agentName: "alpha", seq: i + 1, status: "pass", score: 100, infraOk: true,
-    startedAt: "2026-11-12T12:01:00.000Z", caseId: CASE, caseKey: kase.caseKey, useCaseKey: kase.useCaseKey, variant, predictionSha256: null, owner: ALICE,
+    resultOrigin: "self_declared" as const, hardGatesOk: true, startedAt: "2026-11-12T12:01:00.000Z", caseId: CASE, caseKey: kase.caseKey, useCaseKey: kase.useCaseKey, variant, predictionSha256: null, owner: ALICE,
   }));
   lastLimit = 0;
   lastFilter: EvalRunsFilter | null = null;
@@ -212,6 +212,7 @@ describe("GET /eval-runs (C5-T3)", () => {
     expect(r.json.truncated).toBe(false);
     expect(r.json.runs).toHaveLength(2);
     expect(r.json.runs[0]).toMatchObject({ id: RUN1, evaluationId: EVAL, agentId: AGENT, caseId: CASE, caseKey: kase.caseKey, variant: { id: VARIANT, isBaseline: true } });
+    expect(r.json.runs[0]).toMatchObject({ resultOrigin: "self_declared", hardGatesOk: true });
     expect(reader.lastLimit).toBe(EVAL_RUNS_LIMIT + 1);
   });
 
@@ -235,6 +236,31 @@ describe("GET /eval-runs (C5-T3)", () => {
 });
 
 describe("pure helpers", () => {
+  it("C5-T4: hardGatesOkOf is null without a grading, false when a hard gate failed, true otherwise", () => {
+    expect(hardGatesOkOf(0, null)).toBeNull();
+    expect(hardGatesOkOf(null, null)).toBeNull();
+    expect(hardGatesOkOf(2, false)).toBe(false);
+    expect(hardGatesOkOf(2, true)).toBe(true);
+    // Graded, but no grader version is a hard gate: nothing failed a hard gate.
+    expect(hardGatesOkOf(1, null)).toBe(true);
+  });
+
+  it("C5-T4: evalRunRowView maps the origin and the hard-gate state of a listRuns row", () => {
+    const row = {
+      run_id: RUN1, evaluation_id: EVAL, agent_id: AGENT, agent_name: "alpha", seq: 2, status: "fail", score: "40.5", infra_ok: false,
+      result_origin: "hosted", graded: 3, hard_ok: false, started_at: new Date("2026-11-12T12:01:00.000Z"), prediction_sha256: null,
+      case_id: CASE, case_key: kase.caseKey, use_case_key: kase.useCaseKey, baseline_variant_id: VARIANT,
+      variant_id: VARIANT, agent_sha256: H("8"), harness: "claude-code", harness_version: "2.1.87", harness_repo_sha: "0".repeat(40),
+      variant_model_id: "zai/glm-5.3", rules_sha256: H("6"), skills_sha256: H("7"), mcp_manifest_sha256: null, tools_sha256: null,
+      variant_sha256: H("5"), label: "baseline", change_kind: "none",
+    };
+    expect(evalRunRowView(row)).toMatchObject({
+      id: RUN1, seq: 2, status: "fail", score: 40.5, infraOk: false, resultOrigin: "hosted", hardGatesOk: false,
+      startedAt: "2026-11-12T12:01:00.000Z", variant: { id: VARIANT, isBaseline: true },
+    });
+    expect(evalRunRowView({ ...row, result_origin: "self_declared", graded: 0, hard_ok: null })).toMatchObject({ resultOrigin: "self_declared", hardGatesOk: null });
+  });
+
   it("graderSummaries counts the latest row of each grader version per run", () => {
     const s = graderSummaries([{ graders: [grade(false, 0, "a"), grade(true, 90, "b")], trajectorySummary: null }, { graders: [], trajectorySummary: null }]);
     expect(s).toEqual([{
