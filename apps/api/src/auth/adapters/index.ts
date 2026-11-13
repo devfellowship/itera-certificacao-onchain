@@ -2,7 +2,7 @@ import { dflAdapter } from "./dfl.js";
 import { siwsAdapter } from "./siws.js";
 import type { AuthAdapter, PrincipalKind } from "./types.js";
 
-export type { AuthAdapter, Principal, PrincipalKind } from "./types.js";
+export type { ActorType, AuthAdapter, Principal, PrincipalKind } from "./types.js";
 export { dflAdapter, siwsAdapter };
 
 /** Every auth adapter the API mounts, by kind. */

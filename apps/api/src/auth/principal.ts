@@ -9,12 +9,15 @@ import { verifySessionClaims } from "./session.js";
  *   and the principal is `siws`. Live web3 sessions stay valid across the deploy.
  * - `amr` = `siws` | `dfl`: the adapter of that kind must accept the `sub`.
  * - Anything else (unknown `amr`, a `sub` that does not match its kind) is rejected.
+ *
+ * `actorType` comes from the `act` claim (`unknown` when absent or not one of the three values); a siws principal is
+ * always `unknown`.
  */
 export function verifyPrincipalToken(token: string, nowMs: number = Date.now()): Principal | null {
   const claims = verifySessionClaims(token, nowMs);
   if (!claims) return null;
   if (!("amr" in claims)) return AUTH_ADAPTERS.siws.principalFromSubject(claims.sub);
-  if (claims.amr === "siws" || claims.amr === "dfl") return AUTH_ADAPTERS[claims.amr].principalFromSubject(claims.sub);
+  if (claims.amr === "siws" || claims.amr === "dfl") return AUTH_ADAPTERS[claims.amr].principalFromSubject(claims.sub, claims.act);
   return null;
 }
 

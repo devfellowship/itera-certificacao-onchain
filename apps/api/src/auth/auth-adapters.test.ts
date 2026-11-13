@@ -8,7 +8,7 @@ import { createApp } from "../app.js";
 import { FakeRepository } from "../domain/repository.fake.js";
 import { optionalPrincipal, requirePrincipal } from "./middleware.js";
 import { verifyPrincipalToken, verifySessionToken } from "./principal.js";
-import { issueSessionToken } from "./session.js";
+import { issueSessionToken, verifySessionClaims } from "./session.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
 
@@ -27,11 +27,41 @@ function signClaims(claims: Record<string, unknown>): string {
 
 const future = () => Math.floor(Date.now() / 1000) + 3600;
 
+describe("session token: the act claim (Q b5c4ba38 = B)", () => {
+  const id = "dfl:00000000-0000-4000-8000-0000000000aa";
+  it("round-trips act on a dfl session: human, agent, unknown", () => {
+    for (const act of ["human", "agent", "unknown"] as const) {
+      const { token } = issueSessionToken(id, Date.now(), "dfl", undefined, act);
+      expect(verifySessionClaims(token)?.act).toBe(act);
+      expect(verifyPrincipalToken(token)).toEqual({ id, kind: "dfl", actorType: act });
+    }
+  });
+  it("a token without act reads as unknown (a session minted before the claim is not human)", () => {
+    const { token } = issueSessionToken(id, Date.now(), "dfl");
+    expect(verifySessionClaims(token)?.act).toBe("unknown");
+    expect(verifyPrincipalToken(token)?.actorType).toBe("unknown");
+    expect(verifyPrincipalToken(signClaims({ sub: id, amr: "dfl", exp: future() }))?.actorType).toBe("unknown");
+  });
+  it("an unknown string act → unknown; a non-string act → malformed (null)", () => {
+    expect(verifyPrincipalToken(signClaims({ sub: id, amr: "dfl", act: "HUMAN", exp: future() }))?.actorType).toBe("unknown");
+    for (const act of [true, 1, null, { t: "human" }, ["human"]]) {
+      const token = signClaims({ sub: id, amr: "dfl", act, exp: future() });
+      expect(verifySessionClaims(token), JSON.stringify(act)).toBeNull();
+      expect(verifyPrincipalToken(token)).toBeNull();
+    }
+  });
+  it("a siws principal is always unknown, even with act human; a CLI session (sid, no act) is unknown", () => {
+    const wallet = newAddress();
+    expect(verifyPrincipalToken(issueSessionToken(wallet, Date.now(), "siws", undefined, "human").token)?.actorType).toBe("unknown");
+    expect(verifyPrincipalToken(issueSessionToken(id, Date.now(), "dfl", randomUUID()).token)?.actorType).toBe("unknown");
+  });
+});
+
 describe("session token → principal", () => {
   it("reads a legacy token (no amr, base58 sub) as a siws principal", () => {
     const wallet = newAddress();
     const legacy = signClaims({ sub: wallet, iat: future() - 7200, exp: future(), iss: "itera-api" });
-    expect(verifyPrincipalToken(legacy)).toEqual({ id: wallet, kind: "siws" });
+    expect(verifyPrincipalToken(legacy)).toEqual({ id: wallet, kind: "siws", actorType: "unknown" });
     expect(verifySessionToken(legacy)).toBe(wallet);
   });
 
@@ -40,13 +70,13 @@ describe("session token → principal", () => {
     const { token } = issueSessionToken(wallet);
     const claims = JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString("utf8"));
     expect(claims.amr).toBe("siws");
-    expect(verifyPrincipalToken(token)).toEqual({ id: wallet, kind: "siws" });
+    expect(verifyPrincipalToken(token)).toEqual({ id: wallet, kind: "siws", actorType: "unknown" });
   });
 
   it("reads a dfl:<uuid> sub with amr=dfl as a dfl principal", () => {
     const id = `dfl:${randomUUID()}`;
     const { token } = issueSessionToken(id, Date.now(), "dfl");
-    expect(verifyPrincipalToken(token)).toEqual({ id, kind: "dfl" });
+    expect(verifyPrincipalToken(token)).toEqual({ id, kind: "dfl", actorType: "unknown" });
     expect(verifySessionToken(token)).toBe(id);
   });
 
@@ -80,10 +110,10 @@ describe("session token → principal", () => {
     try {
       const id = `dfl:${randomUUID()}`;
       const auth = { Authorization: `Bearer ${issueSessionToken(id, Date.now(), "dfl").token}` };
-      expect(await (await fetch(`${base}/r`, { headers: auth })).json()).toEqual({ principal: { id, kind: "dfl" }, wallet: id });
+      expect(await (await fetch(`${base}/r`, { headers: auth })).json()).toEqual({ principal: { id, kind: "dfl", actorType: "unknown" }, wallet: id });
       expect((await fetch(`${base}/r`)).status).toBe(401);
       expect(await (await fetch(`${base}/o`)).json()).toEqual({ principal: null, wallet: null });
-      expect(await (await fetch(`${base}/o`, { headers: auth })).json()).toEqual({ principal: { id, kind: "dfl" }, wallet: id });
+      expect(await (await fetch(`${base}/o`, { headers: auth })).json()).toEqual({ principal: { id, kind: "dfl", actorType: "unknown" }, wallet: id });
     } finally {
       await new Promise<void>((r) => s.close(() => r()));
     }

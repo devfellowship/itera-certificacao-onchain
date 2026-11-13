@@ -16,7 +16,8 @@ export interface AuthRouterOptions {
 /**
  * The login routes of every adapter, plus `GET /auth/me`.
  *
- * `GET /auth/me` → `{id, kind, wallet, email?}`. `wallet` equals `id` (ADR-3 alias, kept for the web3
+ * `GET /auth/me` → `{id, kind, wallet, actor_type, email?}`. `actor_type` is the session's `act` claim
+ * (`human` | `agent` | `unknown`; only `human` may approve a route). `wallet` equals `id` (ADR-3 alias, kept for the web3
  * client). For a `dfl` principal with a `users` row: `email`, and `403 account_disabled` when the row
  * is disabled, `403 iam_level_too_low` when `TMA_MIN_IAM_LEVEL` is above the level stored at login.
  */
@@ -29,7 +30,7 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
 
   router.get("/auth/me", requirePrincipal, async (req, res) => {
     const principal = req.principal!;
-    const base = { id: principal.id, kind: principal.kind, wallet: principal.id };
+    const base = { id: principal.id, kind: principal.kind, wallet: principal.id, actor_type: principal.actorType };
     if (principal.kind !== "dfl" || !users) {
       res.json(base);
       return;

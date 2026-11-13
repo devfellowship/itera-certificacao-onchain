@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { requiredSecret } from "../config.js";
-import type { PrincipalKind } from "./adapters/types.js";
+import { ACTOR_TYPES, type ActorType, type PrincipalKind } from "./adapters/types.js";
 
 /**
  * Session tokens: an HS256 JWT signed with `ITERA_SESSION_SECRET`, 24h, sent as
@@ -13,6 +13,10 @@ import type { PrincipalKind } from "./adapters/types.js";
  * A CLI session (the device login of `tma login`, cli-auth/) also has `sid`: the uuid of its
  * `cli_device_codes` row. The CLI session guard (cli-auth/guard.ts) refuses a token whose `sid` row is
  * revoked or gone. A web session has no `sid`.
+ *
+ * `act` (optional): `human` | `agent` | `unknown`, the actor type that POST /auth/dfl/exchange proved for the DFL login
+ * (Q b5c4ba38 = B). A token without `act`, or with another string, reads as `unknown`: a session minted before the
+ * claim is NOT human, the person signs in again. A non-string `act` is a malformed token (null), like `sid`.
  */
 
 export const SESSION_TTL_SECONDS = 24 * 60 * 60;
@@ -34,11 +38,15 @@ export function issueSessionToken(
   nowMs: number = Date.now(),
   amr: PrincipalKind = "siws",
   sid?: string,
+  act?: ActorType,
 ): { token: string; expiresAt: string } {
   const iat = Math.floor(nowMs / 1000);
   const exp = iat + SESSION_TTL_SECONDS;
   const header = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const claims = sid ? { sub: subject, amr, sid, iat, exp, iss: "itera-api" } : { sub: subject, amr, iat, exp, iss: "itera-api" };
+  const claims: Record<string, unknown> = { sub: subject, amr };
+  if (sid) claims.sid = sid;
+  if (act) claims.act = act;
+  Object.assign(claims, { iat, exp, iss: "itera-api" });
   const payload = b64url(JSON.stringify(claims));
   const signature = b64url(hmac(`${header}.${payload}`, sessionSecret()));
   return { token: `${header}.${payload}.${signature}`, expiresAt: new Date(exp * 1000).toISOString() };
@@ -50,6 +58,8 @@ export interface SessionClaims {
   amr?: unknown;
   /** The CLI session id (cli_device_codes.session_id). Present only on a CLI session. */
   sid?: string;
+  /** The `act` claim; `unknown` when the token has none or an unknown value. */
+  act: ActorType;
 }
 
 /** Returns the claims of a token with a valid signature that has not expired, else null. Does not
@@ -74,12 +84,16 @@ export function verifySessionClaims(token: string, nowMs: number = Date.now()): 
       exp?: unknown;
       amr?: unknown;
       sid?: unknown;
+      act?: unknown;
     };
     if (typeof claims.sub !== "string" || typeof claims.exp !== "number") return null;
     if (claims.exp * 1000 <= nowMs) return null;
     // A `sid` that is present but not a string is a malformed token, not a web session.
     if ("sid" in claims && typeof claims.sid !== "string") return null;
-    const out: SessionClaims = "amr" in claims ? { sub: claims.sub, amr: claims.amr } : { sub: claims.sub };
+    // The same for `act`: present but not a string → malformed. An unknown string → `unknown` (fail closed).
+    if ("act" in claims && typeof claims.act !== "string") return null;
+    const act: ActorType = (ACTOR_TYPES as readonly unknown[]).includes(claims.act) ? (claims.act as ActorType) : "unknown";
+    const out: SessionClaims = "amr" in claims ? { sub: claims.sub, amr: claims.amr, act } : { sub: claims.sub, act };
     if (typeof claims.sid === "string") out.sid = claims.sid;
     return out;
   } catch {
