@@ -9,6 +9,7 @@
  * Each case links to its S4 page /studio/cases/:caseId.
  */
 import { Link, useSearchParams } from 'react-router-dom'
+import { STUDIO_SERVE_URL } from '../config'
 import { api } from '../lib/api'
 import { Card, CardHeader } from '../tma/ui'
 import { groupByUseCase, isL1Pair, type StudioCase } from './use-case'
@@ -46,6 +47,15 @@ export function StudioHomePage({ cases }: { cases?: StudioCase[] }) {
           <Link to="/studio/compare" data-testid="studio-compare-link">
             Compare
           </Link>
+          {/* C5-T6: S2 reads from `tma studio serve`; the link shows only when its URL is set. */}
+          {STUDIO_SERVE_URL && (
+            <>
+              {' · '}
+              <Link to="/studio/traces" data-testid="studio-traces-link">
+                Traces
+              </Link>
+            </>
+          )}
         </p>
         {task && (
           <p className="tma-body-sm" data-testid="studio-task-filter">

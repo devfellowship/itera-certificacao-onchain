@@ -10,9 +10,11 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
-export type StudioScreen = 'S4' | 'S5' | 'S6' | 'S7' | 'S8' | 'S9' | 'S10'
+export type StudioScreen = 'S2' | 'S4' | 'S5' | 'S6' | 'S7' | 'S8' | 'S9' | 'S10'
 
+// S2 (C5-T6) is the trace picker. S3 (/studio/traces/:sessionId) is parametric and not listed: S2 rows link to it.
 export const STUDIO_SCREENS: Record<StudioScreen, { path: string; built: boolean }> = {
+  S2: { path: '/studio/traces', built: true },
   S4: { path: '/studio/cases', built: true },
   S5: { path: '/studio/experiments/new', built: true },
   S6: { path: '/studio/experiments', built: true },
