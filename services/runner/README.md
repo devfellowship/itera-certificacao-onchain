@@ -333,3 +333,13 @@ tma studio serve --allow-principal dfl:<uuid> --allow-origin https://testmyagent
   only when its real path is inside the trajectory root. Fields are copied by name; an unknown source
   field is not served.
 - One request at a time. Tests run on a synthetic fixture (`src/cli/studio/*.test.ts`).
+
+**`POST /grade/dry-run` (C5-T10, Q-C5-2b = A: dry run only, no network, nothing stored).** With
+`--grader-root <dir>`, one grader of the library grades one posted output and the answer goes back; nothing
+is stored and the temp dir is removed after each call. A code grader always runs in a new Linux user +
+network namespace (`unshare -rn -- python3 <entry> ...`): the child sees only a loopback that is down, so it
+has no route out. At start the service probes `unshare -rn -- true` once (cached). When the probe fails
+(not Linux, no `unshare`, user namespaces off — for example `kernel.apparmor_restrict_unprivileged_userns=1`),
+a dry run with a code grader answers **503 `network_sandbox_unavailable`** and runs nothing (fail closed).
+A judge grader starts no child process and is not affected. `tma eval grader prove` keeps its behaviour (no
+namespace) unless a caller passes `isolateNetwork: true` to `runLibraryGrader`.

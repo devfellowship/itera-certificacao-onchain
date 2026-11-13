@@ -1,6 +1,7 @@
 // `POST /grade/dry-run` of `tma studio serve` (task C5-T10, Q-C5-2b = A): login, 405 elsewhere, 413, 415, 429,
 // 504, the judge model gate (A11 Q1 = B), a code grader that passes and one that fails, the TMA API sees only
 // GET /auth/me, the temp dir is gone after every call (also after a throw), and the grader root is not written.
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -9,7 +10,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { apiIntrospect } from './auth.js';
-import { DRY_RUN_MAX_BODY } from './dry-run.js';
+import { DRY_RUN_MAX_BODY, DryRunRefused, runDryRun } from './dry-run.js';
+import type { GraderSpawn } from '../eval/prove.js';
 import type { JudgeFn } from '../eval/judge.js';
 import { startStudioServer } from './server.js';
 import { ALLOWED, buildFixture, fakeApi, OTHER, signToken, webToken } from './fixture.test-helpers.js';
@@ -79,6 +81,19 @@ const judgeFn: JudgeFn = async (input) => {
 };
 let before = '';
 
+// The network namespace (Q-C5-2b = A). Can this host start one? (Not on a host where user namespaces are off.)
+const NS_OK = spawnSync('unshare', ['-rn', '--', 'true'], { stdio: 'ignore' }).status === 0;
+const PREFIX = ['unshare', '-rn', '--'];
+// Every argv the route spawns. On a host without namespaces the spy drops the prefix AFTER recording it, so the
+// other tests still run the real grader; test (b) asserts the recorded argv.
+const spawned: string[][] = [];
+const spySpawn: GraderSpawn = (cmd, args, options) => {
+  const argv = [cmd, ...args];
+  spawned.push(argv);
+  const run = NS_OK || argv.slice(0, 3).join(' ') !== PREFIX.join(' ') ? argv : argv.slice(3);
+  return spawn(run[0]!, run.slice(1), options);
+};
+
 beforeAll(async () => {
   mkdirSync(tmpRoot, { recursive: true });
   mkdirSync(join(outside, '1.0.0'), { recursive: true });
@@ -112,7 +127,7 @@ beforeAll(async () => {
     sources: fx,
     auth: { introspect: apiIntrospect(apiBase), allowPrincipals: new Set([ALLOWED]) },
     allowOrigins: new Set([ORIGIN]),
-    dryRun: { graderRoot, judgeFn, timeoutMs: 2_000, tmpRoot },
+    dryRun: { graderRoot, judgeFn, timeoutMs: 2_000, tmpRoot, networkSandbox: { probe: async () => true, spawnImpl: spySpawn } },
   });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -257,6 +272,20 @@ describe('POST /grade/dry-run', () => {
     expect(ok.headers.get('access-control-allow-origin')).toBe(ORIGIN);
   });
 
+  it('(b) a code grader starts as unshare -rn -- <argv>', async () => {
+    const n = spawned.length;
+    expect((await post({ grader: 'says-ok@1.0.0', output: 'ok' })).status).toBe(200);
+    expect(spawned.length).toBe(n + 1);
+    expect(spawned.at(-1)!.slice(0, 5)).toEqual(['unshare', '-rn', '--', 'python3', 'grade.py']);
+    expect(spawned.at(-1)).toContain('--spec');
+  });
+
+  it('a judge grader spawns no child', async () => {
+    const n = spawned.length;
+    await post({ grader: 'judge-ok@1.0.0', output: '42', expected: '42' });
+    expect(spawned.length).toBe(n);
+  });
+
   it('the TMA API received only GET /auth/me', () => {
     expect(apiLog.length).toBeGreaterThan(0);
     expect(new Set(apiLog)).toEqual(new Set(['GET /auth/me']));
@@ -280,4 +309,76 @@ describe('POST /grade/dry-run without a grader library', () => {
     expect(await r.json()).toMatchObject({ error: 'grader_library_not_configured' });
     await new Promise((res) => s.close(res));
   });
+});
+
+describe('POST /grade/dry-run: the network namespace (Q-C5-2b = A, "no network")', () => {
+  it('(a) 503 network_sandbox_unavailable when the probe fails; the child is never spawned', async () => {
+    const calls: string[][] = [];
+    const never: GraderSpawn = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      throw new Error('must not spawn');
+    };
+    let probes = 0;
+    const s = await startStudioServer(0, {
+      sources: fx,
+      auth: { introspect: fakeApi(), allowPrincipals: new Set([ALLOWED]) },
+      allowOrigins: new Set(),
+      dryRun: { graderRoot, judgeFn, timeoutMs: 2_000, tmpRoot, networkSandbox: { probe: async () => (probes++, false), spawnImpl: never } },
+    });
+    try {
+      const r = await fetch(`http://127.0.0.1:${(s.address() as AddressInfo).port}/grade/dry-run`, {
+        method: 'POST',
+        headers: { ...auth(), 'content-type': 'application/json' },
+        body: JSON.stringify({ grader: 'says-ok@1.0.0', output: 'ok' }),
+      });
+      expect(r.status).toBe(503);
+      expect(await r.json()).toMatchObject({ error: 'network_sandbox_unavailable', stored: false });
+      expect(probes).toBe(1);
+      expect(calls).toEqual([]);
+      tmpEmpty();
+    } finally {
+      await new Promise((res) => s.close(res));
+    }
+  });
+
+  it('(a) a probe that throws also refuses (fail closed)', async () => {
+    const err = await runDryRun(
+      { graderId: 'says-ok', semver: '1.0.0', output: 'ok' },
+      { graderRoot, tmpRoot, networkSandbox: { probe: async () => { throw new Error('boom'); } } },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DryRunRefused);
+    expect(err).toMatchObject({ status: 503, code: 'network_sandbox_unavailable' });
+    tmpEmpty();
+  });
+
+  // (c) The real namespace. Skipped where this host cannot start one (user namespaces off).
+  it.skipIf(!NS_OK)('(c) inside the namespace the grader has no network (TCP 1.1.1.1:53 and DNS both fail)', async () => {
+    const NET = `import argparse, json, socket
+ap = argparse.ArgumentParser()
+ap.add_argument('--spec'); ap.add_argument('--workdir'); ap.add_argument('--trajectory')
+ap.parse_args()
+seen = []
+try:
+    socket.create_connection(('1.1.1.1', 53), timeout=3).close(); seen.append('tcp')
+except OSError:
+    pass
+try:
+    socket.getaddrinfo('example.com', 443); seen.append('dns')
+except OSError:
+    pass
+print(json.dumps({'schema': 'tma-grader-result/1', 'status': 'fail' if seen else 'pass'}))
+`;
+    const root = mkdtempSync(join(tmpdir(), 'tma-studio-ns-'));
+    try {
+      mkdirSync(join(root, 'net-probe', '1.0.0'), { recursive: true });
+      writeJson(join(root, 'net-probe', '1.0.0', 'grader.json'), { schema: 'tma-grader/1', id: 'net-probe', semver: '1.0.0', kind: 'code', entry: 'grade.py' });
+      writeFileSync(join(root, 'net-probe', '1.0.0', 'grade.py'), NET);
+      // The default probe and the default spawn: the real `unshare -rn --`.
+      const a = await runDryRun({ graderId: 'net-probe', semver: '1.0.0', output: 'x' }, { graderRoot: root, timeoutMs: 15_000 });
+      expect(a.details.infra_ok).toBe(true);
+      expect(a.pass).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

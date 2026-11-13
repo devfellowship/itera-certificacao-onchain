@@ -11,11 +11,12 @@
 //   GET /v1/traces?limit&offset&l2_class&why&mode     S2: candidate traces with pin status and task summary
 //   GET /v1/traces/:session_id[?agent_id=...]          S3: session summary, runs with steps, first failure
 //   POST /grade/dry-run                                S10a/S11a: one grader grades one output; nothing stored.
-//        Same login as the GET routes; JSON body <= 256 KB (413); one dry run at a time (429); 504 after the timeout.
+//        Same login as the GET routes; JSON body <= 256 KB (413); one dry run at a time (429); 504 after the timeout;
+//        a code grader runs in a network namespace (unshare -rn), 503 network_sandbox_unavailable when there is none.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { checkLogin, type AuthDeps } from './auth.js';
 import { getTrace, listTraces, NotFound, type StudioSources } from './content.js';
-import { DRY_RUN_MAX_BODY, DRY_RUN_PATH, DRY_RUN_TIMEOUT_MS, DryRunRefused, parseDryRunBody, runDryRun, type DryRunOptions } from './dry-run.js';
+import { DRY_RUN_MAX_BODY, DRY_RUN_PATH, DRY_RUN_TIMEOUT_MS, DryRunRefused, parseDryRunBody, probeNetworkSandbox, runDryRun, type DryRunOptions } from './dry-run.js';
 
 /** The only address the service binds. A wider bind needs a code change and a review, not a flag. */
 export const BIND_HOST = '127.0.0.1';
@@ -225,6 +226,8 @@ export function handler(opts: StudioServerOptions): (req: IncomingMessage, res: 
 
 /** Start the service on 127.0.0.1:<port>. Resolves when it listens. Port 0 picks a free port (tests). */
 export function startStudioServer(port: number, opts: StudioServerOptions): Promise<Server> {
+  // Probe the network namespace of POST /grade/dry-run at start (cached); a dry run reads the cached answer.
+  if (opts.dryRun?.graderRoot && !opts.dryRun.networkSandbox?.probe) void probeNetworkSandbox();
   const server = createServer(handler(opts));
   return new Promise((resolve, reject) => {
     server.once('error', reject);

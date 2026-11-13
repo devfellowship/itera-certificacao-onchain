@@ -10,7 +10,7 @@
 //
 // proof.json holds ids, counts and digests only: no grader output, no fixture text.
 // Exit 0 only when every planted bug is caught (caught == total, total > 0).
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cp, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -172,18 +172,40 @@ export function parseAnswer(stdout: string): boolean | null {
   }
 }
 
-function runOnce(argv: string[], extra: string[], cwd: string, fixtureDir: string, timeoutMs: number): Promise<{ stdout: string; code: number | null; timedOut: boolean }> {
+/**
+ * The argv prefix that starts a grader in a new Linux user + network namespace: the child sees only a loopback
+ * that is down, so it has no route out (Q-C5-2b = A, "no network"). Used by the studio dry run (C5-T10).
+ */
+export const NETWORK_SANDBOX_PREFIX: readonly string[] = ['unshare', '-rn', '--'];
+
+/** The spawn function of a grader child (injectable for tests). */
+export type GraderSpawn = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+
+function runOnce(
+  argv: string[],
+  extra: string[],
+  cwd: string,
+  fixtureDir: string,
+  timeoutMs: number,
+  spawnImpl: GraderSpawn = spawn,
+): Promise<{ stdout: string; code: number | null; timedOut: boolean }> {
   return new Promise((res) => {
     // A minimal environment: no key of this host reaches the grader under test.
     const env: NodeJS.ProcessEnv = { ...childEnv(), PYTHONDONTWRITEBYTECODE: '1', TMA_FIXTURE_DIR: fixtureDir };
-    const child = spawn(argv[0]!, [...argv.slice(1), ...extra], { cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
+    let child: ChildProcess;
+    try {
+      child = spawnImpl(argv[0]!, [...argv.slice(1), ...extra], { cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      res({ stdout: '', code: null, timedOut: false });
+      return;
+    }
     let stdout = '';
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
     }, timeoutMs);
-    child.stdout.on('data', (d: Buffer) => {
+    child.stdout?.on('data', (d: Buffer) => {
       if (stdout.length < 1_000_000) stdout += d.toString('utf-8');
     });
     child.on('error', () => {
@@ -287,6 +309,13 @@ export async function runLibraryGrader(input: {
   fixtureDir?: string;
   /** Parent of the temp dir (default os.tmpdir()). */
   tmpRoot?: string;
+  /**
+   * Start the child as `unshare -rn -- <argv...>` (a user + network namespace, no route out). Default false:
+   * `tma eval grader prove` keeps its behaviour. The studio dry run always sets it (C5-T10, Q-C5-2b = A).
+   */
+  isolateNetwork?: boolean;
+  /** The spawn function (tests capture the argv). Default node:child_process spawn. */
+  spawnImpl?: GraderSpawn;
 }): Promise<{ observed: LibStatus | null; exit_code: number | null; timed_out: boolean }> {
   const tmp = await mkdtemp(join(input.tmpRoot ?? tmpdir(), 'tma-grader-prove-'));
   try {
@@ -295,7 +324,8 @@ export async function runLibraryGrader(input: {
     // The library keeps the trajectory beside spec.json (fixtures/<name>/trajectory.json); a copy inside workdir also counts.
     if (await stat(join(tmp, 'trajectory.json')).catch(() => null)) args.push('--trajectory', join(tmp, 'trajectory.json'));
     else if (await stat(join(tmp, 'workdir', 'trajectory.json')).catch(() => null)) args.push('--trajectory', join(tmp, 'workdir', 'trajectory.json'));
-    const r = await runOnce(input.argv, args, input.graderDir, input.fixtureDir ?? join(tmp, 'workdir'), input.timeoutMs);
+    const argv = input.isolateNetwork ? [...NETWORK_SANDBOX_PREFIX, ...input.argv] : input.argv;
+    const r = await runOnce(argv, args, input.graderDir, input.fixtureDir ?? join(tmp, 'workdir'), input.timeoutMs, input.spawnImpl);
     return { observed: r.timedOut ? null : parseLibraryStatus(r.stdout), exit_code: r.code, timed_out: r.timedOut };
   } finally {
     await rm(tmp, { recursive: true, force: true });

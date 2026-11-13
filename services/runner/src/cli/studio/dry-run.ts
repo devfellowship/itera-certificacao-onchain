@@ -8,7 +8,9 @@
 // The grading runs through the SAME code path as `tma eval grade --dry-run` (C3-T11, eval/dry-run.ts
 // `dryRunGrade` -> graders.ts `runGraders` + `caseVerdict`): the request becomes a one-grader in-memory case and
 // the output a `--trace` file. A code grader is a tma-grader/1 library grader run by eval/prove.ts
-// `runLibraryGrader` (the runner of `tma eval grader prove`: argv, no shell, minimal child env). A judge grader
+// `runLibraryGrader` (the runner of `tma eval grader prove`: argv, no shell, minimal child env), here always in
+// a Linux user + network namespace (`unshare -rn --`, no route out); when the host cannot start one, the route
+// answers 503 network_sandbox_unavailable and runs nothing (fail closed). A judge grader
 // is eval/judge.ts `makeJudgeGrader` with the kit's JudgeFn; its model must pass `privateTextModelAllowed`
 // (A11 Q1 = B) and is checked here BEFORE any temp dir, process or judge call.
 //
@@ -31,8 +33,10 @@ import type { LoadedCase } from '../eval/case.js';
 import { dryRunGrade, DRY_RUN_FORMAT } from '../eval/dry-run.js';
 import type { Grader, GraderOutcome } from '../eval/graders.js';
 import { makeJudgeGrader, privateTextModelAllowed, unconfiguredJudgeFn, type JudgeFn } from '../eval/judge.js';
-import { libraryManifest, runLibraryGrader } from '../eval/prove.js';
+import { spawn } from 'node:child_process';
+import { libraryManifest, NETWORK_SANDBOX_PREFIX, runLibraryGrader, type GraderSpawn } from '../eval/prove.js';
 import { catalogModelId } from '../eval/upload.js';
+import { childEnv } from '../env.js';
 
 export const DRY_RUN_PATH = '/grade/dry-run';
 export const DRY_RUN_MAX_BODY = 256 * 1024;
@@ -47,6 +51,47 @@ export interface DryRunOptions {
   timeoutMs?: number;
   /** Parent of the temp dirs (default os.tmpdir()). Tests point it at an empty dir to see it stays empty. */
   tmpRoot?: string;
+  /**
+   * The network namespace of a code grader (Q-C5-2b = A, "no network"). A code grader always runs as
+   * `unshare -rn -- <argv>`. `probe` says whether such a namespace can start on this host (default: run
+   * `unshare -rn -- true` once, cached); when it says no, the route answers 503 network_sandbox_unavailable and
+   * runs nothing. Tests inject `probe` and `spawnImpl` (argv capture).
+   */
+  networkSandbox?: { probe?: () => Promise<boolean>; spawnImpl?: GraderSpawn };
+}
+
+const PROBE_TIMEOUT_MS = 5_000;
+let probeCache: Promise<boolean> | null = null;
+
+/** Run `unshare -rn -- true` once: true when it exits 0 (Linux, unshare present, user namespaces on). */
+export function probeNetworkSandboxOnce(): Promise<boolean> {
+  return new Promise((res) => {
+    let child;
+    try {
+      child = spawn(NETWORK_SANDBOX_PREFIX[0]!, [...NETWORK_SANDBOX_PREFIX.slice(1), 'true'], { stdio: 'ignore', env: childEnv() });
+    } catch {
+      res(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      res(false);
+    }, PROBE_TIMEOUT_MS);
+    child.on('error', () => {
+      clearTimeout(timer);
+      res(false);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      res(code === 0);
+    });
+  });
+}
+
+/** The default probe: `probeNetworkSandboxOnce`, run once per process and cached. */
+export function probeNetworkSandbox(): Promise<boolean> {
+  probeCache ??= probeNetworkSandboxOnce();
+  return probeCache;
 }
 
 export interface DryRunRequest {
@@ -214,6 +259,9 @@ async function loadGrader(dir: string, req: DryRunRequest, opts: DryRunOptions, 
         graderDir: dir,
         timeoutMs,
         ...(opts.tmpRoot ? { tmpRoot: opts.tmpRoot } : {}),
+        // Q-C5-2b = A: no network. runDryRun refused already (503) when the namespace cannot start.
+        isolateNetwork: true,
+        ...(opts.networkSandbox?.spawnImpl ? { spawnImpl: opts.networkSandbox.spawnImpl } : {}),
         setup: async (tmp) => {
           const spec = specPath ? await readFile(specPath, 'utf-8').catch(() => null) : null;
           await writeFile(join(tmp, 'spec.json'), spec ?? '{}\n', 'utf-8');
@@ -267,6 +315,10 @@ export async function runDryRun(req: DryRunRequest, opts: DryRunOptions): Promis
   const timeoutMs = opts.timeoutMs ?? DRY_RUN_TIMEOUT_MS;
   let outputFile = '';
   const { grader, kind } = await loadGrader(dir, req, opts, timeoutMs, () => outputFile);
+  // Fail closed: a code grader runs only inside a network namespace. No namespace: 503, nothing runs.
+  if (kind === 'code' && !(await (opts.networkSandbox?.probe ?? probeNetworkSandbox)().catch(() => false))) {
+    throw new DryRunRefused(503, 'network_sandbox_unavailable', 'this host cannot start a network namespace (unshare -rn) for the code grader; nothing ran');
+  }
   const tmp = await mkdtemp(join(opts.tmpRoot ?? tmpdir(), 'tma-studio-dry-run-'));
   try {
     outputFile = join(tmp, 'output.txt');
