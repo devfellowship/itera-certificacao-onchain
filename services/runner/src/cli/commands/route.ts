@@ -1,16 +1,18 @@
-// `tma route pr|rollback|mark` (plan 20261112-tma-c8-routing-from-evals, T4, ADR-1, ADR-2): the apply path
+// `tma route pr|rollback|mark|list` (plan 20261112-tma-c8-routing-from-evals, T4, ADR-1, ADR-2): the apply path
 // of an approved model route. The studio never runs this; claude-main or a person does.
 //
 //   pr        an approved route row -> a PR to the infra repo that edits ONE flag line (or one model cell
 //             of the CLAUDE.md table) and keeps the old value as the rollback line;
 //   rollback  a live route -> a PR that writes the old value back;
-//   mark      PATCH /routes/:id/state after the merge (live or rolled_back, with the PR URL).
+//   mark      PATCH /routes/:id/state after the merge (live or rolled_back, with the PR URL), or the T5 mark
+//             needs_check (no PR: ADR-7, a trigger marks a route, it never changes it);
+//   list      GET /routes (filters state, use case), each row checked with validateRoute (the T5 trigger job reads it).
 //
 // A refusal prints one line and exits 2. --dry-run prints the exact diff and the PR text and runs nothing.
 // git and gh run through an injectable exec, so the tests never touch a real repository or GitHub.
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { validateRoute, type Route } from '@itera/contracts';
+import { ROUTE_STATES, validateRoute, type Route } from '@itera/contracts';
 import { exec as realExec, type ExecResult } from '../../exec.js';
 import { apiCall, describeRefusal, type Fetch } from '../api.js';
 import { flag, has, parseArgs, required } from '../args.js';
@@ -57,11 +59,23 @@ const ROLLBACK_USAGE = `usage: tma route rollback (--route-file <route.json> | -
   becomes one line "# route <id> rolled back: <new> -> <old>". Refuses when rollback_value is null.`;
 
 const MARK_USAGE = `usage: tma route mark --route <id> --state live|rolled_back --pr <PR URL>
-  After the merge: PATCH <api>/routes/<id>/state with {state, pr_url} (task T2; 404 until T2 ships).`;
+       tma route mark --route <id> --state needs_check
+  After the merge: PATCH <api>/routes/<id>/state with {state, pr_url} (task T2; 404 until T2 ships).
+  needs_check (task T5): a trigger marks a live route for a check; the body is {state} only, so --pr is refused.
+  The route keeps its value in the file; roll it back with tma route rollback, then mark rolled_back.`;
 
-const USAGE = ['usage: tma route <pr|rollback|mark> ...   (apply an approved model route by a PR: plan C8)', '', PR_USAGE, '', ROLLBACK_USAGE, '', MARK_USAGE].join('\n');
+const LIST_USAGE = `usage: tma route list [--state <state>] [--use-case <type/subtype>] [--json]
+  GET <api>/routes (newest first, at most 200) with your tma login. Every row is checked as a route row
+  (tma-route/1 or tma-route/2); a row that fails stops the command (exit 1).
+  Prints one line per route: id, use case, target, state, model (tab-separated); --json prints the JSON array.
+  --state     one of ${ROUTE_STATES.join(', ')}`;
+
+const USAGE = [
+  'usage: tma route <pr|rollback|mark|list> ...   (apply an approved model route by a PR: plan C8)', '', PR_USAGE, '', ROLLBACK_USAGE, '', MARK_USAGE, '', LIST_USAGE,
+].join('\n');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const USE_CASE_RE = /^[a-z0-9][a-z0-9_-]{0,31}\/[a-z0-9][a-z0-9_-]{0,31}$/;
 const PR_RE = /^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}\/pull\/[0-9]{1,9}$/;
 
 function checkRouteRow(value: unknown, label: string): Route {
@@ -164,25 +178,73 @@ async function markMain(argv: string[], io: Io, deps: RouteDeps): Promise<number
   const a = parseArgs(argv, { route: {}, state: {}, pr: {} });
   const id = required(a, 'route', MARK_USAGE);
   const state = required(a, 'state', MARK_USAGE);
-  const pr = required(a, 'pr', MARK_USAGE);
   if (!UUID_RE.test(id)) throw new CliError(`not a route id: ${id.slice(0, 60)}`);
-  if (state !== 'live' && state !== 'rolled_back') throw new CliError(`--state must be live or rolled_back\n${MARK_USAGE}`);
-  if (!PR_RE.test(pr)) throw new CliError(`--pr must be a GitHub pull request URL (https://github.com/<owner>/<repo>/pull/<n>)`);
+  if (state !== 'live' && state !== 'rolled_back' && state !== 'needs_check') {
+    throw new CliError(`--state must be live, rolled_back or needs_check\n${MARK_USAGE}`);
+  }
+  let pr: string | null = null;
+  if (state === 'needs_check') {
+    // ADR-7: a trigger marks the route; the mark carries no PR (the API refuses a pr_url key).
+    if (has(a, 'pr')) throw new CliError(`--state needs_check takes no --pr (the route is marked, not changed)\n${MARK_USAGE}`);
+  } else {
+    pr = required(a, 'pr', MARK_USAGE);
+    if (!PR_RE.test(pr)) throw new CliError(`--pr must be a GitHub pull request URL (https://github.com/<owner>/<repo>/pull/<n>)`);
+  }
+  const body = pr === null ? { state } : { state, pr_url: pr };
   const { base, token } = session(deps);
-  const r = await apiCall(base, `/routes/${id}/state`, { method: 'PATCH', body: { state, pr_url: pr }, token, fetchImpl: deps.fetchImpl });
+  const r = await apiCall(base, `/routes/${id}/state`, { method: 'PATCH', body, token, fetchImpl: deps.fetchImpl });
   if (r.status === 404) {
     io.err(`tma route mark: 404 from PATCH /routes/${id}/state: the route is not found, or the API does not have this endpoint yet (task T2 of plan 20261112-tma-c8-routing-from-evals). Nothing was changed.`);
     return 1;
   }
   if (r.status < 200 || r.status >= 300) throw new CliError(`cannot set the route state: ${describeRefusal(r)}`);
-  io.out(`route ${id} -> ${state} (${pr})`);
+  io.out(pr === null ? `route ${id} -> ${state}` : `route ${id} -> ${state} (${pr})`);
+  return 0;
+}
+
+async function listMain(argv: string[], io: Io, deps: RouteDeps): Promise<number> {
+  const a = parseArgs(argv, { state: {}, 'use-case': {}, json: { boolean: true } });
+  if (a.positionals.length) throw new CliError(`unexpected argument: ${a.positionals[0]!.slice(0, 60)}\n${LIST_USAGE}`);
+  const state = flag(a, 'state');
+  const useCase = flag(a, 'use-case');
+  if (state !== undefined && !(ROUTE_STATES as readonly string[]).includes(state)) {
+    throw new CliError(`--state must be one of ${ROUTE_STATES.join(', ')}\n${LIST_USAGE}`);
+  }
+  if (useCase !== undefined && !USE_CASE_RE.test(useCase)) throw new CliError(`--use-case must be one L1 pair type/subtype\n${LIST_USAGE}`);
+  const query = new URLSearchParams();
+  if (useCase !== undefined) query.set('use_case', useCase);
+  if (state !== undefined) query.set('state', state);
+  const qs = query.toString();
+  const { base, token } = session(deps);
+  const r = await apiCall(base, `/routes${qs ? `?${qs}` : ''}`, { token, fetchImpl: deps.fetchImpl });
+  if (r.status !== 200) throw new CliError(`cannot list the routes: ${describeRefusal(r)}`);
+  const rows = r.body?.routes;
+  if (!Array.isArray(rows)) {
+    io.err('tma route list: the API answer has no routes array');
+    return 1;
+  }
+  const routes: Route[] = [];
+  for (const [i, row] of rows.entries()) {
+    const v = validateRoute(row);
+    if (!v.ok) {
+      const id = row && typeof row === 'object' && typeof (row as { id?: unknown }).id === 'string' ? (row as { id: string }).id.slice(0, 60) : `#${i}`;
+      io.err(`tma route list: route ${id} is not a valid route row (tma-route/1 or tma-route/2): ${v.errors.slice(0, 3).join('; ')}`);
+      return 1;
+    }
+    routes.push(v.value);
+  }
+  if (has(a, 'json')) {
+    io.out(JSON.stringify(routes, null, 2));
+    return 0;
+  }
+  for (const x of routes) io.out([x.id, x.use_case_key, x.route_target, x.state, x.model_id].join('\t'));
   return 0;
 }
 
 export function makeRouteCommand(deps: RouteDeps = {}): Command {
   return {
     name: 'route',
-    summary: 'Apply an approved model route by a PR (pr), roll it back by a PR (rollback), record the state (mark)',
+    summary: 'Apply an approved model route by a PR (pr), roll it back by a PR (rollback), record the state (mark), list routes (list)',
     usage: USAGE,
     async main(argv, io) {
       const [sub, ...rest] = argv;
@@ -194,6 +256,8 @@ export function makeRouteCommand(deps: RouteDeps = {}): Command {
             return await applyMain('rollback', rest, io, deps);
           case 'mark':
             return await markMain(rest, io, deps);
+          case 'list':
+            return await listMain(rest, io, deps);
           default:
             throw new CliError(`${sub ? `unknown route command: ${sub}` : 'give a route command'}\n${USAGE}`);
         }

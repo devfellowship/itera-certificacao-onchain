@@ -9,13 +9,22 @@
  *                              picked rule (verdict_not_passing), an agent that is not in the caller's comparison
  *                              (unknown_agent). The body is closed: an unknown key, a free-text value or a value
  *                              outside the table's CHECK patterns → 400 invalid_body.
- *   PATCH /routes/:id/state    the apply path (`tma route mark`, T4) records `approved → live` (pr_url, live_at) or
- *                              `live → rolled_back` (rollback_pr_url, rolled_back_at; the CLI sends the rollback PR URL
- *                              as `pr_url`). Only the principals of env TMA_ROUTE_APPLY_ACTORS (comma-separated ids)
- *                              may call it; unset or not listed → 403 (fail closed). Every other transition → 409
- *                              invalid_transition. A second live route on the same (tenant, route_target) → 409
- *                              live_route_exists with the id of the live row; the other row is NOT changed (the
- *                              supersede rule is an open design question).
+ *   PATCH /routes/:id/state    the apply path (`tma route mark`, T4) and the trigger job (T5) record a transition:
+ *                                approved → live                  body {state, pr_url}: sets pr_url, live_at;
+ *                                live → needs_check               body EXACTLY {state} (T5, ADR-7: a trigger MARKS a
+ *                                                                 route, it never changes it): sets only state and
+ *                                                                 updated_at; pr_url and live_at stay (the apply record);
+ *                                live | needs_check → rolled_back body {state, pr_url}: sets rollback_pr_url,
+ *                                                                 rolled_back_at (the CLI sends the rollback PR URL as
+ *                                                                 `pr_url`; a needs_check route is still applied in the
+ *                                                                 file, so it rolls back like a live one).
+ *                              Only the principals of env TMA_ROUTE_APPLY_ACTORS (comma-separated ids) may call it;
+ *                              unset or not listed → 403 (fail closed). Every other transition → 409
+ *                              invalid_transition. A route in live OR needs_check holds its value in the file: a second
+ *                              approved → live on the same (tenant, route_target) → 409 live_route_exists with the id
+ *                              and the state of that row; the other row is NOT changed (the supersede rule is an open
+ *                              design question). The DB index eval_routes_one_live_idx covers only `live`, so for a
+ *                              needs_check row this API check is the only guard.
  *   GET   /routes              the routes of the result tenant, newest first, at most 200. Query: only `use_case`
  *                              and `state`, each at most once (else 400 invalid_query).
  *   GET   /routes/:id          one route of the result tenant, or 404. A malformed id → 400.
@@ -117,6 +126,15 @@ export type NewApprovedRoute = Omit<
   "id" | "state" | "pr_url" | "rollback_pr_url" | "created_at" | "approved_at" | "live_at" | "rolled_back_at" | "updated_at"
 >;
 
+/** A route that holds its value in the file (live or needs_check). */
+export interface AppliedRoute {
+  id: string;
+  state: "live" | "needs_check";
+}
+
+/** The states that PATCH /routes/:id/state may set. */
+export type PatchTarget = "live" | "needs_check" | "rolled_back";
+
 export interface RouteFilter {
   useCase?: string;
   state?: RouteState;
@@ -130,14 +148,20 @@ export interface RoutesStore {
   insertApproved(route: NewApprovedRoute): Promise<RouteRecord>;
   get(id: string, tenant: string): Promise<RouteRecord | null>;
   list(tenant: string, filter: RouteFilter, limit: number): Promise<RouteRecord[]>;
-  /** The id of a live route of `tenant` on `routeTarget`, other than `exceptId`, or null. */
-  liveOnTarget(tenant: string, routeTarget: string, exceptId: string): Promise<string | null>;
   /**
-   * Move the route from `from` to `to` (live: pr_url + live_at; rolled_back: rollback_pr_url + rolled_back_at), only
-   * when it is still in `from`. Null when no row matched (the state moved meanwhile). A unique violation of the
+   * A route of `tenant` on `routeTarget` that is applied in the file (state live OR needs_check), other than
+   * `exceptId`, or null. One query; the newest live_at first.
+   */
+  appliedOnTarget(tenant: string, routeTarget: string, exceptId: string): Promise<AppliedRoute | null>;
+  /**
+   * Move the route from `from` to `to`, only when it is still in `from`:
+   *   live         sets pr_url = prUrl, live_at = now();
+   *   needs_check  sets only the state (prUrl must be null; pr_url and live_at stay);
+   *   rolled_back  sets rollback_pr_url = prUrl, rolled_back_at = now().
+   * updated_at = now() in every case. Null when no row matched (the state moved meanwhile). A unique violation of the
    * one-live index is thrown with code 23505.
    */
-  transition(id: string, tenant: string, from: RouteState, to: "live" | "rolled_back", prUrl: string): Promise<RouteRecord | null>;
+  transition(id: string, tenant: string, from: RouteState, to: PatchTarget, prUrl: string | null): Promise<RouteRecord | null>;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -362,22 +386,26 @@ export class PgRoutesStore implements RoutesStore {
     return rows as RouteRecord[];
   }
 
-  async liveOnTarget(tenant: string, routeTarget: string, exceptId: string): Promise<string | null> {
+  async appliedOnTarget(tenant: string, routeTarget: string, exceptId: string): Promise<AppliedRoute | null> {
     const { rows } = await this.pool().query(
-      `select id from public.eval_routes where tenant = $1 and route_target = $2 and state = 'live' and id <> $3
-        order by live_at desc limit 1`,
+      `select id, state from public.eval_routes
+        where tenant = $1 and route_target = $2 and state in ('live', 'needs_check') and id <> $3
+        order by live_at desc nulls last, id limit 1`,
       [tenant, routeTarget, exceptId],
     );
-    return rows[0] ? String((rows[0] as { id: string }).id) : null;
+    const r = rows[0] as { id: string; state: AppliedRoute["state"] } | undefined;
+    return r ? { id: String(r.id), state: r.state } : null;
   }
 
-  async transition(id: string, tenant: string, from: RouteState, to: "live" | "rolled_back", prUrl: string): Promise<RouteRecord | null> {
-    const set = to === "live" ? "pr_url = $4, live_at = now()" : "rollback_pr_url = $4, rolled_back_at = now()";
+  async transition(id: string, tenant: string, from: RouteState, to: PatchTarget, prUrl: string | null): Promise<RouteRecord | null> {
+    if ((to === "needs_check") !== (prUrl === null)) throw new Error(`transition to ${to}: pr_url must be ${to === "needs_check" ? "null" : "set"}`);
+    const set =
+      to === "live" ? ", pr_url = $5, live_at = now()" : to === "rolled_back" ? ", rollback_pr_url = $5, rolled_back_at = now()" : "";
     const { rows } = await this.pool().query(
-      `update public.eval_routes set state = $5, ${set}, updated_at = now()
+      `update public.eval_routes set state = $4${set}, updated_at = now()
         where id = $1 and tenant = $2 and state = $3
         returning *`,
-      [id, tenant, from, prUrl, to],
+      prUrl === null ? [id, tenant, from, to] : [id, tenant, from, to, prUrl],
     );
     return (rows[0] as RouteRecord | undefined) ?? null;
   }
@@ -396,8 +424,14 @@ export interface RoutesRouterDeps {
   applyActors?: string[];
 }
 
-/** PATCH transitions: the target state → the only state it may come from. */
-const TRANSITIONS: Record<string, RouteState> = { live: "approved", rolled_back: "live" };
+/** PATCH transitions: the target state → the states it may come from. Every other pair → 409 invalid_transition. */
+const TRANSITIONS: Readonly<Record<PatchTarget, readonly RouteState[]>> = {
+  live: ["approved"],
+  needs_check: ["live"],
+  // A needs_check route is still applied in the file: it rolls back like a live one.
+  rolled_back: ["live", "needs_check"],
+};
+const isPatchTarget = (s: string): s is PatchTarget => Object.prototype.hasOwnProperty.call(TRANSITIONS, s);
 
 const pgCode = (e: unknown): string | undefined =>
   typeof e === "object" && e !== null && "code" in e ? String((e as { code: unknown }).code) : undefined;
@@ -527,20 +561,34 @@ export function createRoutesRouter(deps: RoutesRouterDeps): Router {
       return;
     }
     const body: unknown = req.body;
-    if (!isPlainObject(body) || Object.keys(body).length !== 2 || !("state" in body) || !("pr_url" in body)) {
-      res.status(400).json({ error: "invalid_body", message: "the body is exactly {state, pr_url}" });
+    if (!isPlainObject(body) || !("state" in body)) {
+      res.status(400).json({ error: "invalid_body", message: "the body is {state, pr_url}, or exactly {state} for needs_check" });
       return;
     }
     if (typeof body.state !== "string" || !(ROUTE_STATES as readonly string[]).includes(body.state)) {
       res.status(400).json({ error: "invalid_body", message: `state must be one of ${ROUTE_STATES.join(", ")}` });
       return;
     }
-    if (typeof body.pr_url !== "string" || !PR_URL_RE.test(body.pr_url)) {
-      res.status(400).json({ error: "invalid_body", message: "pr_url must be https://github.com/<owner>/<repo>/pull/<n>" });
-      return;
+    const keys = Object.keys(body);
+    let prUrl: string | null = null;
+    if (body.state === "needs_check") {
+      // A trigger marks the route; it carries no PR (ADR-7). Closed body: any other key → 400.
+      if (keys.length !== 1) {
+        res.status(400).json({ error: "invalid_body", message: "the body for needs_check is exactly {state}" });
+        return;
+      }
+    } else {
+      if (keys.length !== 2 || !("pr_url" in body)) {
+        res.status(400).json({ error: "invalid_body", message: "the body is exactly {state, pr_url}" });
+        return;
+      }
+      if (typeof body.pr_url !== "string" || !PR_URL_RE.test(body.pr_url)) {
+        res.status(400).json({ error: "invalid_body", message: "pr_url must be https://github.com/<owner>/<repo>/pull/<n>" });
+        return;
+      }
+      prUrl = body.pr_url;
     }
     const to = body.state as RouteState;
-    const prUrl = body.pr_url;
     try {
       if (!(await deps.store.ready())) {
         notReady(res);
@@ -551,22 +599,28 @@ export function createRoutesRouter(deps: RoutesRouterDeps): Router {
         res.status(404).json({ error: "not_found", message: "no route with this id in this tenant" });
         return;
       }
-      const from = TRANSITIONS[to];
-      if (from === undefined || route.state !== from) {
+      if (!isPatchTarget(to) || !TRANSITIONS[to].includes(route.state)) {
         res.status(409).json({ error: "invalid_transition", message: `a route in state ${route.state} cannot move to ${to}`, state: route.state });
         return;
       }
+      const from = route.state;
+      // A live OR needs_check route on the same target still holds its value in the file: refuse a second apply.
       const conflict = async (): Promise<boolean> => {
         if (to !== "live") return false;
-        const live = await deps.store.liveOnTarget(tenant, route.route_target, id);
-        if (live === null) return false;
-        res.status(409).json({ error: "live_route_exists", message: `route ${live} is already live on ${route.route_target}`, live_route_id: live });
+        const applied = await deps.store.appliedOnTarget(tenant, route.route_target, id);
+        if (applied === null) return false;
+        res.status(409).json({
+          error: "live_route_exists",
+          message: `route ${applied.id} (state ${applied.state}) is already applied on ${route.route_target}`,
+          live_route_id: applied.id,
+          live_route_state: applied.state,
+        });
         return true;
       };
       if (await conflict()) return;
       let moved: RouteRecord | null;
       try {
-        moved = await deps.store.transition(id, tenant, from, to as "live" | "rolled_back", prUrl);
+        moved = await deps.store.transition(id, tenant, from, to, prUrl);
       } catch (e) {
         // A concurrent mark won the one-live index (eval_routes_one_live_idx).
         if (pgCode(e) === "23505" && (await conflict())) return;

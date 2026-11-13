@@ -8,7 +8,10 @@
  * eval_routes CHECK, with the frozen verdict, n, evidence, refs and approver; n < 5 is refused by the API (and the DB
  * CHECK would refuse it too); a NOT YET cell and another principal's agent write no row; approved → live → rolled_back
  * through the real UPDATE; a second live route on the same target → 409 live_route_exists, and the one-live index
- * refuses the same UPDATE when the API's pre-check is skipped (23505); GET /routes reads the rows.
+ * refuses the same UPDATE when the API's pre-check is skipped (23505); GET /routes reads the rows. T5: live →
+ * needs_check → rolled_back through the real UPDATE passes every CHECK (pr_url and live_at kept), and while the first
+ * route is needs_check a second approved → live on that target is refused (409 live_route_exists): the one-live index
+ * covers only `live`, so this API check is the only guard.
  *
  * CI: no step runs this file yet (the step goes in .github/workflows/web3-e2e-guard.yml, a human-merge path).
  */
@@ -267,5 +270,42 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
     expect(one.status).toBe(200);
     expect(one.json).toMatchObject({ id: firstId, state: "rolled_back" });
     expect((await call("GET", `/routes/${randomUUID()}`)).status).toBe(404);
+  });
+  it("T5: live → needs_check → rolled_back passes every CHECK; a needs_check route blocks a second live on its target", async () => {
+    const pr = (n: number) => `https://github.com/example-org/infra/pull/${n}`;
+    const target = "env:DFL_ROUTE_FIX_PROD_BUG_T5";
+    const first = (await call("POST", "/routes/approve", approveBody({ route_target: target }))).json.id as string;
+    const second = (await call("POST", "/routes/approve", approveBody({ route_target: target, target_value: "deepseek-pro" }))).json.id as string;
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+    expect(second).toMatch(/^[0-9a-f-]{36}$/);
+    const live = await call("PATCH", `/routes/${first}/state`, { state: "live", pr_url: pr(11) }, APPLIER);
+    expect(live.status, JSON.stringify(live.json)).toBe(200);
+
+    const marked = await call("PATCH", `/routes/${first}/state`, { state: "needs_check" }, APPLIER);
+    expect(marked.status, JSON.stringify(marked.json)).toBe(200);
+    expect(marked.json).toMatchObject({ state: "needs_check", pr_url: pr(11), live_at: live.json.live_at, rollback_pr_url: null, rolled_back_at: null });
+    expect(validateRoute(marked.json).ok).toBe(true);
+    const db = (await pool.query(`select * from public.eval_routes where id = $1`, [first])).rows[0];
+    expect(db).toMatchObject({ state: "needs_check", pr_url: pr(11), rollback_pr_url: null, rolled_back_at: null });
+    expect(db.live_at).toBeInstanceOf(Date);
+    // A pr_url in the needs_check body is refused; nothing changes.
+    expect((await call("PATCH", `/routes/${first}/state`, { state: "needs_check", pr_url: pr(12) }, APPLIER)).status).toBe(400);
+
+    // The one-live index does not see a needs_check row: the API refuses the second live route.
+    const r = await call("PATCH", `/routes/${second}/state`, { state: "live", pr_url: pr(13) }, APPLIER);
+    expect(r.status).toBe(409);
+    expect(r.json).toMatchObject({ error: "live_route_exists", live_route_id: first, live_route_state: "needs_check" });
+    expect((await pool.query(`select state from public.eval_routes where id = $1`, [second])).rows[0].state).toBe("approved");
+    expect(await routes.appliedOnTarget(TENANT, target, second)).toEqual({ id: first, state: "needs_check" });
+
+    const back = await call("PATCH", `/routes/${first}/state`, { state: "rolled_back", pr_url: pr(14) }, APPLIER);
+    expect(back.status, JSON.stringify(back.json)).toBe(200);
+    expect(back.json).toMatchObject({ state: "rolled_back", pr_url: pr(11), rollback_pr_url: pr(14), live_at: live.json.live_at });
+    expect(validateRoute(back.json).ok).toBe(true);
+    const db2 = (await pool.query(`select * from public.eval_routes where id = $1`, [first])).rows[0];
+    expect(db2).toMatchObject({ state: "rolled_back", pr_url: pr(11), rollback_pr_url: pr(14) });
+    expect(db2.rolled_back_at).toBeInstanceOf(Date);
+    // The target is free again.
+    expect((await call("PATCH", `/routes/${second}/state`, { state: "live", pr_url: pr(13) }, APPLIER)).status).toBe(200);
   });
 });

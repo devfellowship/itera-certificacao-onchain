@@ -334,9 +334,104 @@ describe('tma route --route <id> and mark (mocked API)', () => {
 
   it('mark refuses a bad state or PR URL before any call', async () => {
     const fetchImpl = vi.fn();
-    await expect(runRoute(['mark', '--route', ID, '--state', 'approved', '--pr', 'https://github.com/a/b/pull/1'], fakeExec(), { env: loggedIn(), fetchImpl })).rejects.toThrow(/live or rolled_back/);
+    await expect(runRoute(['mark', '--route', ID, '--state', 'approved', '--pr', 'https://github.com/a/b/pull/1'], fakeExec(), { env: loggedIn(), fetchImpl })).rejects.toThrow(/live, rolled_back or needs_check/);
     await expect(runRoute(['mark', '--route', ID, '--state', 'live', '--pr', 'http://x'], fakeExec(), { env: loggedIn(), fetchImpl })).rejects.toThrow(/pull request URL/);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('tma route mark --state needs_check (T5, ADR-7)', () => {
+  it('sends PATCH /routes/:id/state with exactly {state: "needs_check"}', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ id: ID, state: 'needs_check' }), { status: 200 }));
+    const { code, io } = await runRoute(['mark', '--route', ID, '--state', 'needs_check'], fakeExec(), { env: loggedIn(), fetchImpl });
+    expect(code).toBe(0);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`${API}/routes/${ID}/state`);
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(String(init.body))).toEqual({ state: 'needs_check' });
+    expect(io.outText()).toBe(`route ${ID} -> needs_check`);
+  });
+
+  it('refuses --pr with needs_check, and live|rolled_back without --pr, before any call', async () => {
+    const fetchImpl = vi.fn();
+    const env = loggedIn();
+    await expect(
+      runRoute(['mark', '--route', ID, '--state', 'needs_check', '--pr', 'https://github.com/a/b/pull/1'], fakeExec(), { env, fetchImpl }),
+    ).rejects.toThrow(/needs_check takes no --pr/);
+    await expect(runRoute(['mark', '--route', ID, '--state', 'live'], fakeExec(), { env, fetchImpl })).rejects.toThrow(/--pr/);
+    await expect(runRoute(['mark', '--route', ID, '--state', 'rolled_back'], fakeExec(), { env, fetchImpl })).rejects.toThrow(/--pr/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('prints the API refusal (409 invalid_transition)', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: 'invalid_transition', message: 'a route in state approved cannot move to needs_check' }), { status: 409 }));
+    await expect(runRoute(['mark', '--route', ID, '--state', 'needs_check'], fakeExec(), { env: loggedIn(), fetchImpl })).rejects.toThrow(/invalid_transition/);
+  });
+});
+
+describe('tma route list (mocked API)', () => {
+  const v2 = (r: Record<string, unknown>, over: Record<string, unknown> = {}) => ({
+    ...r, format: 'tma-route/2', live_at: null, rollback_pr_url: null, rolled_back_at: null, ...over,
+  });
+  const ID2 = '9d8e7f60-1111-4222-8333-444455556666';
+  const ROWS = [
+    v2(LIVE, { id: ID2, state: 'needs_check', live_at: '2026-11-13T10:00:00.000Z' }),
+    v2(APPROVED),
+  ];
+  const answer = (routes: unknown) => vi.fn(async () => new Response(JSON.stringify({ routes }), { status: 200 }));
+
+  it('GET /routes with no filter prints one tab-separated line per route', async () => {
+    const fetchImpl = answer(ROWS);
+    const { code, io } = await runRoute(['list'], fakeExec(), { env: loggedIn(), fetchImpl });
+    expect(code).toBe(0);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`${API}/routes`);
+    expect(init.method).toBe('GET');
+    expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${TOKEN}`);
+    expect(io.outText().split('\n')).toEqual([
+      [ID2, LIVE.use_case_key, LIVE.route_target, 'needs_check', LIVE.model_id].join('\t'),
+      [ID, APPROVED.use_case_key, APPROVED.route_target, 'approved', APPROVED.model_id].join('\t'),
+    ]);
+  });
+
+  it('builds the query from --state and --use-case', async () => {
+    const fetchImpl = answer([ROWS[0]]);
+    const { code } = await runRoute(['list', '--state', 'needs_check', '--use-case', 'content/report-html'], fakeExec(), { env: loggedIn(), fetchImpl });
+    expect(code).toBe(0);
+    const url = new URL((fetchImpl.mock.calls[0] as unknown as [string])[0]);
+    expect(url.pathname).toBe('/routes');
+    expect([...url.searchParams.entries()]).toEqual([['use_case', 'content/report-html'], ['state', 'needs_check']]);
+    const only = answer([]);
+    await runRoute(['list', '--state', 'live'], fakeExec(), { env: loggedIn(), fetchImpl: only });
+    expect((only.mock.calls[0] as unknown as [string])[0]).toBe(`${API}/routes?state=live`);
+  });
+
+  it('refuses a bad --state or --use-case before any call', async () => {
+    const fetchImpl = vi.fn();
+    await expect(runRoute(['list', '--state', 'done'], fakeExec(), { env: loggedIn(), fetchImpl })).rejects.toThrow(/--state must be one of/);
+    await expect(runRoute(['list', '--use-case', 'fix'], fakeExec(), { env: loggedIn(), fetchImpl })).rejects.toThrow(/--use-case/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('refuses a row that fails validateRoute: error line, exit 1, nothing printed', async () => {
+    const fetchImpl = answer([ROWS[1], v2(LIVE, { id: ID2, live_at: null })]);
+    const { code, io } = await runRoute(['list'], fakeExec(), { env: loggedIn(), fetchImpl });
+    expect(code).toBe(1);
+    expect(io.errText()).toMatch(new RegExp(`route ${ID2} is not a valid route row.*live_at`));
+    expect(io.outText()).toBe('');
+  });
+
+  it('--json prints a parseable JSON array of the checked rows', async () => {
+    const { code, io } = await runRoute(['list', '--json'], fakeExec(), { env: loggedIn(), fetchImpl: answer(ROWS) });
+    expect(code).toBe(0);
+    const parsed = JSON.parse(io.outText());
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.map((r: { id: string; state: string }) => [r.id, r.state])).toEqual([[ID2, 'needs_check'], [ID, 'approved']]);
+  });
+
+  it('an API refusal is an error', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: 'schema_not_ready', message: 'not migrated' }), { status: 503 }));
+    await expect(runRoute(['list'], fakeExec(), { env: loggedIn(), fetchImpl })).rejects.toThrow(/schema_not_ready/);
   });
 });
 
