@@ -235,10 +235,10 @@ export async function proveGrader(input: { graderDir: string; argv?: string[]; o
 
 // ---- the tma-grader/1 library layout (graders/<id>/<semver>/) ----
 
-interface LibManifest { id: string; semver: string; entry: string }
+export interface LibManifest { id: string; semver: string; entry: string }
 
 /** grader.json of the library layout, or null when the folder uses the generic convention. */
-async function libraryManifest(graderDir: string): Promise<LibManifest | null> {
+export async function libraryManifest(graderDir: string): Promise<LibManifest | null> {
   const g = await readJsonFile(join(graderDir, 'grader.json'));
   if (!isObj(g) || g.schema !== LIBRARY_LAYOUT || typeof g.entry !== 'string' || g.entry === '') return null;
   const entry = g.entry;
@@ -272,25 +272,49 @@ async function libFixture(dir: string, kind: 'reference' | 'mutation'): Promise<
   return { expected: status as LibStatus };
 }
 
-/** Run the grader on a COPY of the fixture (spec + workdir) in a temp dir; the checkout is never written. */
-async function runLibraryFixture(argv: string[], graderDir: string, fixtureDir: string, timeoutMs: number) {
-  const tmp = await mkdtemp(join(tmpdir(), 'tma-grader-prove-'));
+/**
+ * Run a tma-grader/1 library grader once: `argv --spec <tmp>/spec.json --workdir <tmp>/workdir [--trajectory <file>]`,
+ * cwd = the grader folder, the minimal child environment (no key of this host), in a fresh temp dir that is
+ * removed in `finally`. `setup` fills the temp dir (spec.json, workdir/ and optionally trajectory.json).
+ * Shared by `tma eval grader prove` (a fixture copy) and the studio dry run (one output, C5-T10).
+ */
+export async function runLibraryGrader(input: {
+  argv: string[];
+  graderDir: string;
+  setup: (tmp: string) => Promise<void>;
+  timeoutMs: number;
+  /** TMA_FIXTURE_DIR of the child; default: the temp workdir. */
+  fixtureDir?: string;
+  /** Parent of the temp dir (default os.tmpdir()). */
+  tmpRoot?: string;
+}): Promise<{ observed: LibStatus | null; exit_code: number | null; timed_out: boolean }> {
+  const tmp = await mkdtemp(join(input.tmpRoot ?? tmpdir(), 'tma-grader-prove-'));
   try {
-    await cp(join(fixtureDir, 'spec.json'), join(tmp, 'spec.json'));
-    await cp(join(fixtureDir, 'workdir'), join(tmp, 'workdir'), { recursive: true });
+    await input.setup(tmp);
     const args = ['--spec', join(tmp, 'spec.json'), '--workdir', join(tmp, 'workdir')];
     // The library keeps the trajectory beside spec.json (fixtures/<name>/trajectory.json); a copy inside workdir also counts.
-    if (await stat(join(fixtureDir, 'trajectory.json')).catch(() => null)) {
-      await cp(join(fixtureDir, 'trajectory.json'), join(tmp, 'trajectory.json'));
-      args.push('--trajectory', join(tmp, 'trajectory.json'));
-    } else if (await stat(join(tmp, 'workdir', 'trajectory.json')).catch(() => null)) {
-      args.push('--trajectory', join(tmp, 'workdir', 'trajectory.json'));
-    }
-    const r = await runOnce(argv, args, graderDir, fixtureDir, timeoutMs);
+    if (await stat(join(tmp, 'trajectory.json')).catch(() => null)) args.push('--trajectory', join(tmp, 'trajectory.json'));
+    else if (await stat(join(tmp, 'workdir', 'trajectory.json')).catch(() => null)) args.push('--trajectory', join(tmp, 'workdir', 'trajectory.json'));
+    const r = await runOnce(input.argv, args, input.graderDir, input.fixtureDir ?? join(tmp, 'workdir'), input.timeoutMs);
     return { observed: r.timedOut ? null : parseLibraryStatus(r.stdout), exit_code: r.code, timed_out: r.timedOut };
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+/** Run the grader on a COPY of the fixture (spec + workdir) in a temp dir; the checkout is never written. */
+function runLibraryFixture(argv: string[], graderDir: string, fixtureDir: string, timeoutMs: number) {
+  return runLibraryGrader({
+    argv,
+    graderDir,
+    timeoutMs,
+    fixtureDir,
+    setup: async (tmp) => {
+      await cp(join(fixtureDir, 'spec.json'), join(tmp, 'spec.json'));
+      await cp(join(fixtureDir, 'workdir'), join(tmp, 'workdir'), { recursive: true });
+      if (await stat(join(fixtureDir, 'trajectory.json')).catch(() => null)) await cp(join(fixtureDir, 'trajectory.json'), join(tmp, 'trajectory.json'));
+    },
+  });
 }
 
 async function proveLibrary(input: { graderDir: string; lib: LibManifest; argv?: string[]; out?: string; timeoutMs?: number; now?: () => Date; log?: (line: string) => void }): Promise<{ proof: GraderProof; file: string }> {
