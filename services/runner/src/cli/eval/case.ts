@@ -55,6 +55,8 @@ export interface CaseGrader {
   version: string;
   weight: number;
   hard_gate: boolean;
+  /** Kind judge only: ask for a decisive result. Counts only with a passing calibration record. Default false. */
+  decisive?: boolean;
 }
 
 export interface CaseManifest {
@@ -147,13 +149,14 @@ export function caseErrors(v: unknown): string[] {
       const seen = new Set<string>();
       g.forEach((x, i) => {
         if (!isObject(x)) return errors.push(`/graders/${i}: {id, version, weight, hard_gate}`);
-        closedKeys(`/graders/${i}`, x, ['id', 'version', 'weight', 'hard_gate'], errors);
+        closedKeys(`/graders/${i}`, x, ['id', 'version', 'weight', 'hard_gate', 'decisive'], errors);
         if (typeof x.id !== 'string' || !GRADER_ID.test(x.id)) errors.push(`/graders/${i}/id: a grader id`);
         else if (seen.has(x.id)) errors.push(`/graders/${i}/id: ${x.id} is listed twice (one version per grader per case)`);
         else seen.add(x.id);
         if (typeof x.version !== 'string' || !SEMVER.test(x.version)) errors.push(`/graders/${i}/version: a semver x.y.z`);
         if (typeof x.weight !== 'number' || !Number.isFinite(x.weight) || x.weight <= 0) errors.push(`/graders/${i}/weight: a number above 0`);
         if (typeof x.hard_gate !== 'boolean') errors.push(`/graders/${i}/hard_gate: true or false`);
+        if ('decisive' in x && typeof x.decisive !== 'boolean') errors.push(`/graders/${i}/decisive: true or false`);
       });
     }
   }
