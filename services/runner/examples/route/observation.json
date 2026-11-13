@@ -1,0 +1,14 @@
+{
+  "format": "tma-route-observation/1",
+  "observed_at": "2026-11-14T06:00:00Z",
+  "models": { "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+  "mix": { "window_days": 14, "total": 120, "shares": { "content/report-html": 30, "plan/write-plan": 12.5 } },
+  "graders": { "content/report-html": { "html-structure": "1.2.0" } },
+  "agents": {
+    "claude-code": {
+      "harness_repo_sha": "1111111111111111111111111111111111111111",
+      "rules_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "skills_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  }
+}

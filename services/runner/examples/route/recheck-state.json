@@ -1,0 +1,12 @@
+{
+  "format": "tma-route-recheck-state/1",
+  "routes": {
+    "7c1e2a90-4b3d-4f6e-9a8b-0c1d2e3f4a5b": {
+      "models_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "mix_share": 30,
+      "mix_total": 120,
+      "graders": { "html-structure": "1.2.0" },
+      "first_seen_at": "2026-11-13T06:00:00Z"
+    }
+  }
+}
