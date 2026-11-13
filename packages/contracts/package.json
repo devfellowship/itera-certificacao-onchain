@@ -24,6 +24,10 @@
       "types": "./model-catalog.d.ts",
       "default": "./model-catalog.js"
     },
+    "./compare": {
+      "types": "./compare.d.ts",
+      "default": "./compare.js"
+    },
     "./model-catalog/*": "./model-catalog/*",
     "./schemas/*": "./schemas/*"
   },

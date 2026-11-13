@@ -19,8 +19,10 @@
     "trajectory.js",
     "pin.js",
     "run-artifacts.js",
+    "compare.js",
     "index.d.ts",
     "model-catalog.d.ts",
+    "compare.d.ts",
     "*.test.ts"
   ]
 }
