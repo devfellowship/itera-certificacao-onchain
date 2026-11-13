@@ -36,6 +36,7 @@ import { StudioDiffPage } from './studio/StudioDiffPage'
 import { StudioExperimentPage } from './studio/StudioExperimentPage'
 import { StudioExperimentsPage } from './studio/StudioExperimentsPage'
 import { StudioHomePage } from './studio/StudioHomePage'
+import { StudioTrajectoriesPage } from './studio/StudioTrajectoriesPage'
 
 /** App routes: App Nav + session gate. */
 function AppLayout() {
@@ -107,6 +108,8 @@ export const routes: RouteObject[] = [
           // C5-T4: S6 experiment result (the canonical page of an experiment, ADR-2) and S7 result diff. Read only (ADR-5).
           { path: '/studio/experiments', element: <StudioExperimentsPage /> },
           { path: '/studio/diff', element: <StudioDiffPage /> },
+          // C5-T9: S9 trajectory wall and path map on TMA runs (read only; plan C9 ADR-6, Q-T20 = A).
+          { path: '/studio/trajectories', element: <StudioTrajectoriesPage /> },
         ],
       },
       {

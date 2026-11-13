@@ -318,6 +318,8 @@ export declare function kindString(steps: readonly ShapeStep[]): { kind_string: 
 export declare function shapeOf(kindString: string): string;
 export declare function firstFailure(steps: readonly ShapeStep[]): FirstFailure | null;
 export declare function pathMap(kindStrings: readonly string[]): { nodes: Array<{ path: string; n: number }> };
+/** The collapsed, max_depth-cut path of one kind string (the prefixes that pathMap counts). */
+export declare function pathOf(kindString: string): string;
 export declare const trajectoryV2Schema: Record<string, unknown>;
 export interface TrajectoryIssue {
   code: 'unknown_key' | 'invalid' | 'inconsistent';

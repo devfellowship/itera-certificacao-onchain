@@ -126,6 +126,18 @@ function byCodeUnit(a, b) {
 }
 
 /**
+ * The path of one kind string in the path map: repeats collapsed (spec.path_map_prune.collapse_repeats), cut at
+ * max_depth. pathMap counts a run once for every prefix of this string. A consumer that needs a per-node figure
+ * besides n (studio S9: the pass rate) walks the same prefixes, so the rule stays here.
+ * @param {string} ks
+ * @returns {string}
+ */
+export function pathOf(ks) {
+  const p = SPEC.path_map_prune;
+  return (p.collapse_repeats ? collapse(ks) : ks).slice(0, p.max_depth);
+}
+
+/**
  * The pruned prefix tree of many kind strings (spec.path_map_prune).
  * @param {readonly string[]} kindStrings
  * @returns {{ nodes: Array<{ path: string, n: number }> }}
@@ -135,8 +147,8 @@ export function pathMap(kindStrings) {
   /** @type {Map<string, number>} */
   const counts = new Map();
   for (const ks of kindStrings) {
-    const path = p.collapse_repeats ? collapse(ks) : ks;
-    for (let d = 1; d <= Math.min(path.length, p.max_depth); d += 1) {
+    const path = pathOf(ks);
+    for (let d = 1; d <= path.length; d += 1) {
       const key = path.slice(0, d);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }

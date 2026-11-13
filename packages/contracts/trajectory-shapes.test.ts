@@ -13,6 +13,7 @@ import {
   kindOfStep,
   kindString,
   pathMap,
+  pathOf,
   shapeOf,
   type FirstFailure,
   type ShapeStep,
@@ -51,6 +52,16 @@ describe('trajectory-shapes/1 golden fixtures', () => {
       expect(pathMap(c.kind_strings)).toEqual(c.expect);
     });
   }
+  it('pathOf gives the collapsed, max_depth-cut path whose prefixes pathMap counts (S9 pass rate per node)', () => {
+    expect(pathOf('RRSSRWWT')).toBe('RSRWT');
+    expect(pathOf('')).toBe('');
+    expect(pathOf('RSRSRSRSRSRS')).toHaveLength(SPEC.path_map_prune.max_depth);
+    for (const c of fixtures.path_map_cases) {
+      for (const node of pathMap(c.kind_strings).nodes) {
+        expect(c.kind_strings.filter((ks) => pathOf(ks).startsWith(node.path)).length, node.path).toBe(node.n);
+      }
+    }
+  });
 });
 
 describe('trajectory-shapes/1 spec tables', () => {

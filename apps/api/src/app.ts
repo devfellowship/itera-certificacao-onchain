@@ -43,6 +43,7 @@ import { createSelfDeclaredRouter, type SelfDeclaredRouterDeps } from "./self-de
 import { createSelfDeclaredRunGuard, type RunOriginLookup } from "./self-declared/run-guard.js";
 import { createEvalResultsRouter, type EvalResultsReader } from "./self-declared/eval-results.js";
 import { createGraderVersionsRouter, type GraderVersionsReader } from "./self-declared/grader-versions.js";
+import { createTrajectoriesRouter, type TrajectoriesReader } from "./self-declared/trajectories.js";
 import { createEvalCleanupRouter, type EvalCleanupRouterDeps } from "./self-declared/cleanup.js";
 import { createRecomputeRouter, type RecomputeRouterDeps } from "./self-declared/recompute.js";
 import { createCliAuthRouter, type CliAuthRouterDeps } from "./cli-auth/router.js";
@@ -80,6 +81,7 @@ const ROUTES = [
   "GET /eval-cases",
   "GET /eval-cases/:id",
   "GET /eval-runs?agent=&case=",
+  "GET /trajectories?agent=&task=&origin=&limit=",
   "GET /runs/:id/actions",
   "GET /runs/:id/artifacts",
   "GET /runs/:id/artifacts/file?path=",
@@ -224,6 +226,8 @@ export interface AppOptions {
   evalResults?: EvalResultsReader;
   /** C5-T5: GET /grader-versions, GET /grader-versions/:id (read only, tenant scoped). */
   graderVersions?: GraderVersionsReader;
+  /** C5-T9: GET /trajectories, studio S9 (read only; public hosted runs + the caller's own runs; 503 before 0024). */
+  trajectories?: TrajectoriesReader;
   /** C4-T13 (plan 20261112-tma-c4-result-store-trajectory-upload): POST /eval-results/cleanup, the owner deletes eval
    * cases, agent variants and grader versions that no run or grading references (dry_run by default). Needs 0023
    * (503 schema_not_ready before it). Mounted only when given. */
@@ -306,6 +310,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   // C4-T3: after the guard (its 404 is never decorated), before the routers whose bodies it extends.
   if (options.evalResults) app.use(createEvalResultsRouter(options.evalResults));
   if (options.graderVersions) app.use(createGraderVersionsRouter(options.graderVersions));
+  if (options.trajectories) app.use(createTrajectoriesRouter(options.trajectories));
   // C4-T13: after express.json() (a small JSON body), owner-only.
   if (options.evalCleanup) app.use(createEvalCleanupRouter(options.evalCleanup));
   if (options.recompute) app.use(createRecomputeRouter(options.recompute));
