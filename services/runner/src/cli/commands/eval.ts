@@ -1,4 +1,4 @@
-// `tma eval case|run|grade|diff|trajectory|upload` (plan 20261112-tma-c3-eval-repo-kit-docs T3, T4, ADR-4): the eval kit.
+// `tma eval case|run|grade|diff|trajectory|upload|grader prove|judge calibrate` (plan 20261112-tma-c3-eval-repo-kit-docs T3, T4, ADR-4): the eval kit.
 // A case manifest (tma-case/1, from the private eval repo) becomes a case folder on the host; a variant
 // runs N times in the TMA sandbox; the case graders grade each run by id@version; diff compares a
 // variant with the baseline. Everything stays on the host until `tma eval upload` (T4) sends the numbers,
@@ -21,6 +21,16 @@ import { buildCaseFolder, CASE_RUNS_DIR, loadCaseFolder } from '../eval/case.js'
 import { evalDiff } from '../eval/diff.js';
 import { gradeRecorded, regrade, runDirs, runVariant, summaryTable, type EvalDeps } from '../eval/runs.js';
 import { readVariant } from '../eval/variant.js';
+import { dryRunGrade } from '../eval/dry-run.js';
+import { proveGrader } from '../eval/prove.js';
+import { calibrateJudge } from '../eval/calibrate.js';
+import type { JudgeFn } from '../eval/judge.js';
+
+/** The deps of the eval command: the run deps plus the judge of `tma eval judge calibrate`. */
+export interface EvalCommandDeps extends EvalDeps {
+  /** The JudgeFn of `tma eval judge calibrate` (a test passes a fake; the default does not measure). */
+  judgeFn?: JudgeFn;
+}
 
 const CASE_USAGE = `usage: tma eval case --case <case.json> --dest <dir> [--task-dir <bundle>] [--recorded <patch>] [--clone]
   Builds a case folder on this host from a tma-case/1 manifest (dfl-evals cases/<type>/<subtype>/<key>/case.json):
@@ -38,9 +48,25 @@ const RUN_USAGE = `usage: tma eval run --case <case dir> --variant <variant.json
      "change_kind":"rules","is_baseline":false,"prediction":"what you expect against the baseline"}
   kind patch needs no key ("patch": null = no change). kind agent needs your key, as tma run.`;
 
-const GRADE_USAGE = `usage: tma eval grade --case <case dir> [--run <run dir>]... [--variant-dir <dir>]
+const GRADE_USAGE = `usage: tma eval grade --case <case dir> [--run <run dir>]... [--variant-dir <dir>] [--dry-run [--trace <file>]]
   Grades again with the case graders and ADDS a grading to each run (the old ones stay).
-  No --run and no --variant-dir: a trace_review case grades its recorded output; a replay case re-grades every run.`;
+  No --run and no --variant-dir: a trace_review case grades its recorded output; a replay case re-grades every run.
+  --dry-run  prints the verdict as JSON (tma-eval-dry-run/1) and writes nothing: no file in the case folder,
+             no network call. --trace <file> grades one output file instead of the recorded output or the runs.`;
+
+const GRADER_PROVE_USAGE = `usage: tma eval grader prove <grader dir> [--out <proof.json>] [--timeout <seconds>] [-- <grader argv>...]
+  Proves that a library grader (graders/<id>/<semver>/) catches its planted bugs: runs the grader command once per
+  fixture (fixtures/mutation-*/, or the list in fixtures/code-mutations.json) as <argv> <fixture dir>, no shell,
+  cwd = the grader folder. The grader prints {"pass": true|false} on its last stdout line; a planted bug must not
+  pass. A crash, a timeout or no answer is a miss. Writes proof.json (ids, counts, digests): caught, total.
+  The command: the argv after --, else "command" in grader.json, else python3 grade.py. Exit 0 only when caught = total.`;
+
+const JUDGE_CALIBRATE_USAGE = `usage: tma eval judge calibrate --judge <id> --version <semver> --model <model id> [--repo <eval repo>]
+                                [--labels-dir <dir>] [--judges-dir <dir>] [--public-set]
+  Measures the judge against the human labels sets/calibration/<id>/{train,dev,test}.jsonl ({"id","label"} lines)
+  and writes judges/<id>/<semver>/calibration.json {n_labels, n_test, tp, fn, tn, fp, realigned_at}.
+  The judge answers the test split; the rubric is judges/<id>/<semver>/rubric.md. The case set is private by
+  default: a judge model outside the private-text list (A11 Q1 = B) is refused. --public-set lifts that.`;
 
 const DIFF_USAGE = `usage: tma eval diff <baseline> <variant>
   Two variant folders (<case>/${CASE_RUNS_DIR}/<sha12>), two run folders, or two files.
@@ -69,7 +95,7 @@ const UPLOAD_USAGE = `usage: tma eval upload --case <case dir> --variant-dir <di
   --label-only  send the human grader only (add a label to a run already uploaded: the API adds one grader row).`;
 
 const USAGE = [
-  'usage: tma eval <case|run|grade|diff|trajectory|upload> ...   (the eval kit: plan C3)',
+  'usage: tma eval <case|run|grade|diff|trajectory|upload|grader prove|judge calibrate> ...   (the eval kit: plan C3)',
   '',
   CASE_USAGE,
   '',
@@ -82,6 +108,10 @@ const USAGE = [
   TRAJECTORY_USAGE,
   '',
   UPLOAD_USAGE,
+  '',
+  GRADER_PROVE_USAGE,
+  '',
+  JUDGE_CALIBRATE_USAGE,
 ].join('\n');
 
 /** The copy command of the next step, as the studio shows it (umbrella ADR-30, ADR-31). */
@@ -114,12 +144,21 @@ async function runMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> 
 }
 
 async function gradeMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
-  const a = parseArgs(argv, { case: {}, run: { repeat: true }, 'variant-dir': {} });
+  const a = parseArgs(argv, { case: {}, run: { repeat: true }, 'variant-dir': {}, 'dry-run': { boolean: true }, trace: {} });
   const c = await loadCaseFolder(required(a, 'case', GRADE_USAGE));
   const log = (l: string) => io.err(l);
   let runs = flagList(a, 'run').map((r) => resolve(r));
   const variantDir = flag(a, 'variant-dir');
   if (variantDir) runs.push(...(await runDirs(resolve(variantDir))));
+  const trace = flag(a, 'trace');
+  if (trace && !has(a, 'dry-run')) throw new CliError(`--trace needs --dry-run\n${GRADE_USAGE}`);
+  if (has(a, 'dry-run')) {
+    if (trace && runs.length > 0) throw new CliError(`give --trace or --run/--variant-dir, not both\n${GRADE_USAGE}`);
+    io.err('[tma eval] dry run: nothing is written and nothing is sent');
+    const verdict = await dryRunGrade({ c, runs, trace, deps, log });
+    io.out(JSON.stringify(verdict, null, 2));
+    return verdict.outputs.every((o) => o.case.infra_ok) ? 0 : 1;
+  }
   if (runs.length === 0 && c.manifest.mode === 'trace_review') {
     const { summary } = await gradeRecorded({ c, deps, log });
     io.out(summaryTable(summary));
@@ -244,6 +283,42 @@ async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<numbe
   return r.ok ? 0 : 1;
 }
 
+async function graderMain(argv: string[], io: Io): Promise<number> {
+  const [sub, ...rest] = argv;
+  if (sub !== 'prove') throw new CliError(`${sub ? `unknown eval grader command: ${sub}` : 'give an eval grader command'}\n${GRADER_PROVE_USAGE}`);
+  const a = parseArgs(rest, { out: {}, timeout: {} });
+  const [dir, ...cmd] = a.positionals;
+  if (!dir) throw new CliError(GRADER_PROVE_USAGE);
+  const timeout = numberFlag(a, 'timeout', { min: 1, max: 3600 });
+  const { proof, file } = await proveGrader({ graderDir: dir, argv: cmd, out: flag(a, 'out'), timeoutMs: timeout === undefined ? undefined : timeout * 1000, log: (l) => io.err(l) });
+  io.out(`grader ${proof.grader.id}@${proof.grader.version} (code ${proof.grader.code_sha256.slice(0, 12)}): caught ${proof.caught} of ${proof.total} planted bugs`);
+  io.out(`proof: ${file}`);
+  if (proof.reason) io.out(`proof is red: ${proof.reason}`);
+  return proof.ok ? 0 : 1;
+}
+
+async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise<number> {
+  const [sub, ...rest] = argv;
+  if (sub !== 'calibrate') throw new CliError(`${sub ? `unknown eval judge command: ${sub}` : 'give an eval judge command'}\n${JUDGE_CALIBRATE_USAGE}`);
+  const a = parseArgs(rest, { judge: {}, version: {}, model: {}, repo: {}, 'labels-dir': {}, 'judges-dir': {}, 'public-set': { boolean: true } });
+  const r = await calibrateJudge({
+    repo: flag(a, 'repo') ?? process.cwd(),
+    judgeId: required(a, 'judge', JUDGE_CALIBRATE_USAGE),
+    version: required(a, 'version', JUDGE_CALIBRATE_USAGE),
+    model: required(a, 'model', JUDGE_CALIBRATE_USAGE),
+    publicSet: has(a, 'public-set'),
+    labelsDir: flag(a, 'labels-dir'),
+    judgesDir: flag(a, 'judges-dir'),
+    judgeFn: deps.judgeFn,
+    now: deps.now,
+  });
+  const k = r.calibration;
+  io.out(`judge calibration: n_labels ${k.n_labels}, n_test ${k.n_test}, tp ${k.tp} fn ${k.fn} tn ${k.tn} fp ${k.fp}`);
+  io.out(r.gate === null ? 'gate: decisive allowed (TPR and TNR >= 0.90)' : `gate: side signal only (${r.gate})`);
+  io.out(`written to ${r.file}`);
+  return 0;
+}
+
 async function diffMain(argv: string[], io: Io): Promise<number> {
   const a = parseArgs(argv, {});
   if (a.positionals.length !== 2) throw new CliError(DIFF_USAGE);
@@ -251,10 +326,10 @@ async function diffMain(argv: string[], io: Io): Promise<number> {
   return 0;
 }
 
-export function makeEvalCommand(deps: EvalDeps = {}): Command {
+export function makeEvalCommand(deps: EvalCommandDeps = {}): Command {
   return {
     name: 'eval',
-    summary: 'The eval kit: case folder, run a variant N times, grade by id@version, diff, trajectory, upload',
+    summary: 'The eval kit: case folder, run a variant N times, grade by id@version, diff, trajectory, upload, grader prove, judge calibrate',
     usage: USAGE,
     async main(argv, io) {
       const [sub, ...rest] = argv;
@@ -271,6 +346,10 @@ export function makeEvalCommand(deps: EvalDeps = {}): Command {
           return trajectoryMain(rest, io);
         case 'upload':
           return uploadMain(rest, io, deps);
+        case 'grader':
+          return graderMain(rest, io);
+        case 'judge':
+          return judgeMain(rest, io, deps);
         default:
           throw new CliError(`${sub ? `unknown eval command: ${sub}` : 'give an eval command'}\n${USAGE}`);
       }
