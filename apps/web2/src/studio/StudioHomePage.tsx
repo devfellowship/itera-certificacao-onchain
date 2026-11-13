@@ -8,11 +8,13 @@
  */
 import { Link } from 'react-router-dom'
 import { Card, CardHeader } from '../tma/ui'
-import { groupByUseCase, type StudioCase } from './use-case'
+import { groupByUseCase, isL1Pair, type StudioCase } from './use-case'
 import './studio.css'
 
 export function StudioHomePage({ cases = [] }: { cases?: StudioCase[] }) {
-  const groups = groupByUseCase(cases)
+  const groups = groupByUseCase(cases.filter((c) => isL1Pair(c.useCaseKey)))
+  // A name that is not one of the 33 pairs never gets its own use case group (Q-T17 = A).
+  const unclassified = cases.filter((c) => !isL1Pair(c.useCaseKey)).sort((a, b) => a.caseKey.localeCompare(b.caseKey))
   return (
     <main className="tma-page" data-testid="studio-home">
       <div className="stu-head">
@@ -20,7 +22,7 @@ export function StudioHomePage({ cases = [] }: { cases?: StudioCase[] }) {
         <p className="stu-sub">Test cases from real agent work, grouped by use case. Read only.</p>
       </div>
 
-      {groups.length === 0 ? (
+      {groups.length === 0 && unclassified.length === 0 ? (
         <Card pad data-testid="studio-empty">
           <span className="tma-label">No test cases yet</span>
           <p className="tma-body-sm tma-muted">
@@ -43,6 +45,12 @@ export function StudioHomePage({ cases = [] }: { cases?: StudioCase[] }) {
                     {s.cases.map((c) => (
                       <li key={c.caseKey} className="tma-mono" data-testid="studio-case">
                         {c.caseKey}
+                        {c.cluster ? (
+                          <span className="tma-label" data-testid="l2-tag">
+                            {' '}
+                            {c.cluster}
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -50,6 +58,18 @@ export function StudioHomePage({ cases = [] }: { cases?: StudioCase[] }) {
               ))}
             </Card>
           ))}
+          {unclassified.length > 0 ? (
+            <Card data-testid="use-case-unclassified">
+              <CardHeader title="Not a taxonomy pair" meta={`${unclassified.length} ${unclassified.length === 1 ? 'case' : 'cases'}`} />
+              <ul className="stu-cases">
+                {unclassified.map((c) => (
+                  <li key={c.caseKey} className="tma-mono" data-testid="studio-case">
+                    {c.caseKey} <span className="tma-muted">({c.useCaseKey})</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
           <p className="tma-body-sm tma-muted">
             Code tasks are on the{' '}
             <Link to="/tasks" data-testid="studio-tasks-link">
