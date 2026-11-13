@@ -69,6 +69,30 @@ export const routeAgentKey = (r: Pick<Route, 'model_id' | 'agent_sha256'>) => `$
 /** The latest live route (GET /routes answers newest first), or null. */
 export const latestLive = (routes: readonly Route[]): Route | null => routes.find((r) => r.state === 'live') ?? null
 
+export interface EvidenceIds {
+  /** The run ids the API would freeze for this agent and rule (as far as the compare response lists them). */
+  ids: string[]
+  /** The full count of counted runs behind `ids` (the sum of evidence_run_count of the sides). */
+  total: number
+}
+
+/**
+ * The evidence run ids of `agent` under `rule`, as POST /routes/approve freezes them: the agent's counted runs, and
+ * under the relative rule also those of the current agent it is compared with (when that is another agent). Null when
+ * the compare response has no evidence_run_ids (an older API): the screen then falls back to GET /eval-runs.
+ */
+export function evidenceIdsOf(agent: CompareAgent, agents: readonly CompareAgent[], currentAgent: string | null, rule: RouteRule): EvidenceIds | null {
+  if (!agent.evidence_run_ids) return null
+  const sides = [agent]
+  if (rule === 'relative' && currentAgent && currentAgent !== agent.agent_key) {
+    const cur = agents.find((a) => a.agent_key === currentAgent)
+    if (cur?.evidence_run_ids) sides.push(cur)
+  }
+  const ids = [...new Set(sides.flatMap((a) => a.evidence_run_ids ?? []))]
+  const total = sides.reduce((sum, a) => sum + (a.evidence_run_count ?? a.evidence_run_ids?.length ?? 0), 0)
+  return { ids, total: Math.max(total, ids.length) }
+}
+
 /** The kit command that opens the PR of an approved route (services/runner/src/cli/commands/route.ts, `tma route pr`). */
 export const routePrCommand = (id: string) => `tma route pr --route ${id} --targets <targets.json> --repo-dir <infra checkout>`
 
