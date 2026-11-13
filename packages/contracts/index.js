@@ -196,12 +196,15 @@ export {
 } from './pin.js';
 export {
   ROUTE_FORMAT,
+  ROUTE_FORMAT_V1,
+  ROUTE_FORMAT_V2,
   ROUTE_MAX_BYTES,
   ROUTE_STATES,
   ROUTE_RULES,
   ROUTE_PASSING_VERDICTS,
   ROUTE_MIN_N,
   routeSchema,
+  routeSchemaV2,
   routeVerdictPasses,
   validateRoute,
   parseRouteText,

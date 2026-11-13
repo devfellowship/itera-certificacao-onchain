@@ -526,14 +526,15 @@ export declare function pinReplayable(pin: { completeness: Record<string, string
 export declare function validatePin(value: unknown): PinValidation;
 export declare function parsePinText(text: string): PinValidation;
 
-// --- Route row (plan 20261112-tma-c8-routing-from-evals, T1, T2, T4; ADR-4, ADR-5).
-// Schema: schemas/route-v1.schema.json (the source of truth); validator: route.js.
+// --- Route row (plan 20261112-tma-c8-routing-from-evals, T1, T2, T4; ADR-4, ADR-5; Q3 = A).
+// Schemas: schemas/route-v1.schema.json (tma-route/1) and schemas/route-v2.schema.json (tma-route/2), the source of
+// truth; validator: route.js (it picks the schema by `format`).
 
 export type RouteState = 'proposed' | 'approved' | 'live' | 'needs_check' | 'rolled_back';
 export type RouteRule = 'absolute' | 'relative';
 
-export interface Route {
-  format?: 'tma-route/1';
+/** The keys that tma-route/1 and tma-route/2 share. */
+export interface RouteBase {
   id: string;
   tenant: string;
   /** The L1 pair type/subtype. */
@@ -565,6 +566,33 @@ export interface Route {
   updated_at?: string;
 }
 
+/** A tma-route/1 row (a route file; format optional). */
+export interface RouteV1 extends RouteBase {
+  format?: 'tma-route/1';
+}
+
+/** A tma-route/2 row (what the API answers): /1 plus the apply-path columns, each present and null until set. */
+export interface RouteV2 extends RouteBase {
+  format: 'tma-route/2';
+  /** When the route went live; non-null in state live. */
+  live_at: string | null;
+  /** The rollback PR; non-null in state rolled_back. */
+  rollback_pr_url: string | null;
+  /** When the route was rolled back; non-null in state rolled_back. */
+  rolled_back_at: string | null;
+}
+
+/**
+ * A route row as a reader sees it: either format. Every RouteV1 and every RouteV2 is a Route; the v2 keys are
+ * optional here (absent on a /1 row), so a reader can read `live_at` without narrowing first.
+ */
+export interface Route extends RouteBase {
+  format?: 'tma-route/1' | 'tma-route/2';
+  live_at?: string | null;
+  rollback_pr_url?: string | null;
+  rolled_back_at?: string | null;
+}
+
 export interface RouteIssue {
   code: 'unknown_key' | 'invalid' | 'too_large' | 'not_json' | 'inconsistent';
   path: string;
@@ -572,13 +600,17 @@ export interface RouteIssue {
 }
 export type RouteValidation = { ok: true; value: Route } | { ok: false; issues: RouteIssue[]; errors: string[] };
 
-export declare const ROUTE_FORMAT: 'tma-route/1';
+export declare const ROUTE_FORMAT_V1: 'tma-route/1';
+export declare const ROUTE_FORMAT_V2: 'tma-route/2';
+/** The current route format (= ROUTE_FORMAT_V2). */
+export declare const ROUTE_FORMAT: 'tma-route/2';
 export declare const ROUTE_MAX_BYTES: number;
 export declare const ROUTE_STATES: readonly RouteState[];
 export declare const ROUTE_RULES: readonly RouteRule[];
 export declare const ROUTE_PASSING_VERDICTS: Readonly<Record<RouteRule, readonly string[]>>;
 export declare const ROUTE_MIN_N: number;
 export declare const routeSchema: Record<string, unknown>;
+export declare const routeSchemaV2: Record<string, unknown>;
 export declare function routeVerdictPasses(rule: string, verdict: string): boolean;
 export declare function validateRoute(value: unknown): RouteValidation;
 export declare function parseRouteText(text: string): RouteValidation;

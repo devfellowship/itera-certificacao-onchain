@@ -1,0 +1,295 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/route-v2.schema.json",
+  "title": "TestMyAgent route row (tma-route/2)",
+  "description": "tma-route/2 = tma-route/1 plus the apply-path columns live_at, rollback_pr_url and rolled_back_at (each required, null until set), and a required format (plan 20261112-tma-c8-routing-from-evals, Q3 = A). One route decision: a use case (the L1 pair type/subtype) goes to an agent, with the verdict that a person cited when they approved it (plan 20261112-tma-c8-routing-from-evals, ADR-1, ADR-2, ADR-4, ADR-5). The field names are the columns of the TMA table eval_routes (task T1); GET /routes/:id (task T2) answers this shape. Identifiers, digests, numbers and short tokens only: every string has a pattern or an enum and a length limit, and there is no free text. target_value and rollback_value are flag values or model cell values; their pattern has no space, newline, quote or backtick, so the apply path (tma route pr) can write them into a .env line or a Markdown cell as they are. The validator in route.js adds the check a schema cannot say: a route in state approved, live, needs_check or rolled_back names its approver and its approval time; a live route names pr_url and live_at; a rolled_back route names rollback_pr_url and rolled_back_at (the eval_routes CHECKs of 0026).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "id",
+    "tenant",
+    "use_case_key",
+    "route_target",
+    "target_value",
+    "rollback_value",
+    "model_id",
+    "agent_sha256",
+    "picked_rule",
+    "verdict",
+    "n",
+    "evidence_run_ids",
+    "compare_profile_sha256",
+    "policy_version",
+    "state",
+    "approved_by_actor",
+    "approved_at",
+    "live_at",
+    "rollback_pr_url",
+    "rolled_back_at"
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "maxLength": 36
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "maxLength": 64
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+      "maxLength": 64
+    },
+    "value": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:@+-]{0,99}$",
+      "maxLength": 100
+    },
+    "modelId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:@+-]{0,199}$",
+      "maxLength": 200
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})$",
+      "maxLength": 35
+    }
+  },
+  "properties": {
+    "format": {
+      "const": "tma-route/2",
+      "description": "Required. The shape of this row."
+    },
+    "id": {
+      "$ref": "#/$defs/uuid",
+      "description": "The route id (eval_routes.id)."
+    },
+    "tenant": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+      "maxLength": 100
+    },
+    "use_case_key": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}/[a-z0-9][a-z0-9_-]{0,63}$",
+      "maxLength": 129,
+      "description": "The L1 pair type/subtype (Q-T17 = A), for example content/report-html."
+    },
+    "route_target": {
+      "type": "string",
+      "pattern": "^(env:[A-Z][A-Z0-9_]{0,63}|claude-md:[a-z0-9][a-z0-9_-]{0,63})$",
+      "maxLength": 74,
+      "description": "env:<FLAG> (one FLAG=value line of a .env file) or claude-md:<row> (the model cell of one row of the CLAUDE.md model table). The flag map dfl-evals routes/targets.json names the file."
+    },
+    "target_value": {
+      "$ref": "#/$defs/value",
+      "description": "The value the route writes."
+    },
+    "rollback_value": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/value"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The value in the file at approval time; the rollback restores it. Null: no old value is known."
+    },
+    "model_id": {
+      "$ref": "#/$defs/modelId"
+    },
+    "agent_sha256": {
+      "$ref": "#/$defs/sha256",
+      "description": "The agent the route points to: harness + model + rules + skills (parent ADR-25)."
+    },
+    "harness": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "claude-code",
+        "codex",
+        "opencode",
+        null
+      ]
+    },
+    "harness_repo_sha": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/gitSha"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rules_sha256": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "skills_sha256": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "maxItems": 512,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/sha256"
+      }
+    },
+    "fallback_model_id": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/modelId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fallback_agent_sha256": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "picked_rule": {
+      "enum": [
+        "absolute",
+        "relative"
+      ],
+      "description": "The verdict rule the approver picked (Q-T22 = C, ADR-5)."
+    },
+    "verdict": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z_ -]{0,31}$",
+      "maxLength": 32,
+      "description": "The verdict under the picked rule, frozen at approval (C7): absolute same | close | NOT YET, relative better | same | worse."
+    },
+    "n": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000,
+      "description": "Runs per cell behind the verdict. The API and the apply path refuse n < 5 (C7 ADR-8)."
+    },
+    "evidence_run_ids": {
+      "type": "array",
+      "maxItems": 1000,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/uuid"
+      }
+    },
+    "compare_profile_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "policy_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+      "maxLength": 64
+    },
+    "state": {
+      "enum": [
+        "proposed",
+        "approved",
+        "live",
+        "needs_check",
+        "rolled_back"
+      ]
+    },
+    "pr_url": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}/pull/[0-9]{1,9}$",
+          "maxLength": 200
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rollback_pr_url": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}/pull/[0-9]{1,9}$",
+          "maxLength": 200
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The PR that rolled the route back. Null until the route is rolled_back."
+    },
+    "approved_by_actor": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,99}$",
+          "maxLength": 100
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The human actor who approved the route (an actor id or slug)."
+    },
+    "approved_at": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "live_at": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When the apply path marked the route live. Null until then."
+    },
+    "rolled_back_at": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When the apply path marked the route rolled_back. Null until then."
+    },
+    "created_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/timestamp"
+    }
+  }
+}
