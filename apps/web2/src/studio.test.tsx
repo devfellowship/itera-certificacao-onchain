@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
 import { StudioHomePage } from './studio/StudioHomePage'
-import { groupByUseCase, splitUseCaseKey } from './studio/use-case'
+import { groupByUseCase, isL1Pair, L1_PAIRS_V4, splitUseCaseKey } from './studio/use-case'
 import { sectionFor } from './tma/nav/AppNav'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -41,7 +41,7 @@ describe('use case key (L1 pair, Q-T17 = A)', () => {
       { caseKey: 'b-case', useCaseKey: 'fix/prod-bug' },
       { caseKey: 'a-case', useCaseKey: 'fix/prod-bug' },
       { caseKey: 'c-case', useCaseKey: 'fix' },
-      { caseKey: 'd-case', useCaseKey: 'build/new-feature' },
+      { caseKey: 'd-case', useCaseKey: 'build/feature' },
     ])
     expect(g.map((x) => x.type)).toEqual(['build', 'fix'])
     expect(g[1]!.total).toBe(3)
@@ -50,17 +50,51 @@ describe('use case key (L1 pair, Q-T17 = A)', () => {
   })
 })
 
+describe('L1 pairs of taxonomy v4 (Q-T17 = A)', () => {
+  it('holds 33 distinct pairs', () => {
+    expect(L1_PAIRS_V4).toHaveLength(33)
+    expect(new Set(L1_PAIRS_V4).size).toBe(33)
+  })
+  it('accepts a pair and refuses other names', () => {
+    expect(isL1Pair('fix/red-ci')).toBe(true)
+    expect(isL1Pair('review/pr-review')).toBe(false)
+    expect(isL1Pair('fix')).toBe(false)
+  })
+})
+
 describe('S1 Studio home', () => {
+  it('renders a pair in its group and a non-pair in the unclassified group, with the L2 tag', () => {
+    const c = mount(
+      <MemoryRouter>
+        <StudioHomePage
+          cases={[
+            { caseKey: 'ci-001', useCaseKey: 'fix/red-ci', cluster: 'lint-failure' },
+            { caseKey: 'rev-001', useCaseKey: 'review/pr-review' },
+            { caseKey: 'bare-001', useCaseKey: 'fix' },
+          ]}
+        />
+      </MemoryRouter>,
+    )
+    expect(c.querySelectorAll('[data-testid="use-case-fix/red-ci"] [data-testid="studio-case"]')).toHaveLength(1)
+    expect(c.querySelector('[data-testid="use-case-fix"]')?.textContent).toContain('1 case')
+    expect(c.querySelector('[data-testid="use-case-review"]')).toBeNull()
+    const u = c.querySelector('[data-testid="use-case-unclassified"]')
+    expect(u?.textContent).toContain('Not a taxonomy pair')
+    expect(u?.textContent).toContain('rev-001')
+    expect(u?.textContent).toContain('bare-001')
+    expect(c.querySelector('[data-testid="use-case-fix/red-ci"] [data-testid="l2-tag"]')?.textContent).toContain('lint-failure')
+  })
+
   it('shows the cases grouped by the L1 pair, with a Tasks link, read only', () => {
     const c = mount(
       <MemoryRouter>
-        <StudioHomePage cases={[{ caseKey: 'webhook-dup-001', useCaseKey: 'fix/prod-bug' }, { caseKey: 'webhook-dup-002', useCaseKey: 'fix/prod-bug' }, { caseKey: 'add-sso', useCaseKey: 'build/new-feature' }]} />
+        <StudioHomePage cases={[{ caseKey: 'webhook-dup-001', useCaseKey: 'fix/prod-bug' }, { caseKey: 'webhook-dup-002', useCaseKey: 'fix/prod-bug' }, { caseKey: 'add-sso', useCaseKey: 'build/feature' }]} />
       </MemoryRouter>,
     )
     expect(c.querySelector('[data-testid="studio-home"]')?.innerHTML).not.toBe('')
     expect(c.querySelector('[data-testid="use-case-fix"]')?.textContent).toContain('2 cases')
     expect(c.querySelectorAll('[data-testid="use-case-fix/prod-bug"] [data-testid="studio-case"]')).toHaveLength(2)
-    expect(c.querySelectorAll('[data-testid="use-case-build/new-feature"] [data-testid="studio-case"]')).toHaveLength(1)
+    expect(c.querySelectorAll('[data-testid="use-case-build/feature"] [data-testid="studio-case"]')).toHaveLength(1)
     expect(c.querySelector<HTMLAnchorElement>('[data-testid="studio-tasks-link"]')?.getAttribute('href')).toBe('/tasks')
     // Q-T18 = A and Q-T19 = A: no Save button and no Run button in studio v1.
     expect(c.querySelectorAll('button')).toHaveLength(0)

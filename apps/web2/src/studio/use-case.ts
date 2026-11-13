@@ -3,7 +3,27 @@
  * The key is the layer-1 pair "type/subtype" (for example "fix/prod-bug"), or a bare "type" when the
  * case has no subtype. It is the column eval_cases.use_case_key of migration 0023.
  */
-export type StudioCase = { caseKey: string; useCaseKey: string; mode?: string }
+export type StudioCase = { caseKey: string; useCaseKey: string; mode?: string; /** L2 cluster, shown as a tag. */ cluster?: string | null }
+
+/**
+ * The 33 L1 pairs of taxonomy v4 that hold an L2 cluster.
+ * Source: dfl-harness skills/task-classify/taxonomy/v4.json. Decision: Q-T17 = A (parent ADR-29).
+ */
+export const L1_PAIRS_V4: readonly string[] = Object.freeze([
+  'build/automation', 'build/feature', 'build/infra', 'build/mcp-tool', 'build/refactor', 'build/schema-migration',
+  'build/service', 'build/skill', 'build/test', 'build/ui-component',
+  'content/brief', 'content/campaign', 'content/doc-deck', 'content/lesson', 'content/media', 'content/report-html', 'content/ui-design',
+  'fix/config', 'fix/prod-bug', 'fix/red-ci', 'fix/ui',
+  'ops/admin', 'ops/cleanup', 'ops/data-repair', 'ops/deploy', 'ops/vps-config',
+  'plan/epic', 'plan/questions', 'plan/write-plan',
+  'research/measure-audit', 'research/prod-investigation',
+  'verify/pr-review', 'verify/prod-verify',
+])
+
+/** True only for one of the 33 pairs. A bare type, or any other name, is not a pair. */
+export function isL1Pair(key: string): boolean {
+  return L1_PAIRS_V4.includes(key)
+}
 
 export type UseCaseGroup = {
   type: string
