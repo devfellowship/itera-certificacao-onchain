@@ -24,13 +24,18 @@
  *                  derived, `unpriced` / `none` / no value → no cost.
  *   profile        v1: the stored per-result weight and hard gate (the weight the run used, ADR-3) and the library
  *                  defaults (min runs per cell 5, margin 5 points, bars 95/85): `profile.source = "defaults"`.
+ *   evidence       each agent carries `evidence_run_ids`: its counted runs (sorted, unique; an infra-fault run and a
+ *                  no-score run are not counted), the exact list POST /routes/approve freezes for that agent
+ *                  (plan 20261112-tma-c8-routing-from-evals, Q4 = A; one helper, countedRunIdsOf, serves both). The
+ *                  list is capped at ROUTE_MAX_EVIDENCE (500); `evidence_run_count` is the full count, so a reader
+ *                  sees a cut.
  *   performance    two queries (runs ⋈ cases ⋈ variants; grader_results ⋈ grader_versions), no N+1.
  *   not ready      503 schema_not_ready before 0023.
  */
 import { Router, type NextFunction, type Request, type Response } from "express";
 import type { Pool } from "pg";
 import {
-  compareUseCase, RELATIVE_ALPHA, type GraderRow, type UseCaseAgentCell, type UseCaseComparison, type UseCaseProfile, type UseCaseRun,
+  compareUseCase, RELATIVE_ALPHA, runScore, type GraderRow, type UseCaseAgentCell, type UseCaseComparison, type UseCaseProfile, type UseCaseRun,
 } from "@itera/contracts/compare";
 import { requirePrincipal } from "../auth/middleware.js";
 import { hasEvalResultsSchema } from "../domain/schema-features.js";
@@ -43,6 +48,8 @@ export const USE_CASE_PAIR_RE = /^[a-z0-9][a-z0-9-]{0,30}\/[a-z0-9][a-z0-9-]{0,3
 export const AGENT_KEY_RE =
   /^[a-z0-9][a-z0-9.-]{0,31}(\/[a-z0-9][a-z0-9.-]{0,31})?\/[A-Za-z0-9][A-Za-z0-9._:-]{0,63}#[0-9a-f]{64}$/;
 const ALLOWED_QUERY = new Set(["current_agent"]);
+/** The most evidence run ids one route may cite (eval_routes_evidence_max_check, 0026); also the cap of the compare list. */
+export const ROUTE_MAX_EVIDENCE = 500;
 
 /** One run of the use case (one row of runs ⋈ eval_cases ⋈ eval_variants). */
 export interface CompareRunRow {
@@ -121,6 +128,17 @@ export function useCaseRunsOf(rows: UseCaseRows): UseCaseRun[] {
 }
 
 /**
+ * The counted runs of one agent (sorted, unique): not an infra fault, and with a score under the v1 profile (the
+ * library's runScore). The ONE filter behind both the compare response's `evidence_run_ids` and the evidence that
+ * POST /routes/approve freezes, so the two cannot drift.
+ */
+export function countedRunIdsOf(runs: readonly UseCaseRun[], agentKey: string, useCase: string): string[] {
+  const profile: UseCaseProfile = { useCase, graders: [] };
+  const ids = runs.filter((r) => r.agentKey === agentKey && r.infraOk !== false && runScore(r, profile).score !== null).map((r) => r.runId);
+  return [...new Set(ids)].sort();
+}
+
+/**
  * Output rounding only (every rule ran on the full values): scores, means, gaps and quantiles to 2 decimals, a USD
  * cost to 6 decimals (runs.model_cost_usd is numeric(12,6)), a p value to 4 significant digits.
  */
@@ -169,6 +187,10 @@ export interface CompareAgentView {
   cost_per_task: number | null;
   cost_label: "metered" | "derived" | null;
   median_wall_ms: number | null;
+  /** The counted run ids of this agent (countedRunIdsOf), at most ROUTE_MAX_EVIDENCE. */
+  evidence_run_ids: string[];
+  /** The full number of counted runs; larger than evidence_run_ids.length when the list is cut. */
+  evidence_run_count: number;
   absolute: ReturnType<typeof absoluteView>;
   relative: ReturnType<typeof relativeView>;
   pareto: { ineligible_reason: UseCaseAgentCell["pareto"]["ineligibleReason"]; on_front: boolean | null; dominated: boolean | null };
@@ -195,7 +217,8 @@ export interface UseCaseCompareView {
 export function compareView(useCase: string, rows: UseCaseRows, currentAgentKey: string | null): UseCaseCompareView {
   // v1 profile: no grader list; every counted row carries its stored weight and hard gate (ADR-3).
   const profile: UseCaseProfile = { useCase, graders: [] };
-  const result: UseCaseComparison = compareUseCase(useCaseRunsOf(rows), profile, { currentAgentKey });
+  const runs = useCaseRunsOf(rows);
+  const result: UseCaseComparison = compareUseCase(runs, profile, { currentAgentKey });
   const meta = new Map<string, { variantIds: Set<string>; modelId: string; harness: string }>();
   for (const r of rows.runs) {
     const k = agentKeyOf(r);
@@ -219,6 +242,7 @@ export function compareView(useCase: string, rows: UseCaseRows, currentAgentKey:
     current_agent: currentAgentKey,
     agents: result.agents.map((a) => {
       const m = meta.get(a.agentKey)!;
+      const evidence = countedRunIdsOf(runs, a.agentKey, useCase);
       return {
         agent_key: a.agentKey,
         variant_ids: [...m.variantIds].sort(),
@@ -233,6 +257,8 @@ export function compareView(useCase: string, rows: UseCaseRows, currentAgentKey:
         cost_per_task: r6(a.costPerTask),
         cost_label: a.costLabel,
         median_wall_ms: a.medianWallMs,
+        evidence_run_ids: evidence.slice(0, ROUTE_MAX_EVIDENCE),
+        evidence_run_count: evidence.length,
         absolute: absoluteView(a.absolute),
         relative: relativeView(a.relative),
         pareto: { ineligible_reason: a.pareto.ineligibleReason, on_front: a.pareto.onFront, dominated: a.pareto.dominated },

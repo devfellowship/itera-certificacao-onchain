@@ -1,7 +1,7 @@
 /**
  * The route endpoints over a fake compare reader and an in-memory route store (plan 20261112-tma-c8-routing-from-evals,
  * C8-T2). The fake reader filters by owner, tenant and use case as PgUseCaseCompareReader does; every verdict comes
- * from @itera/contracts/compare (through compareView). Every answered row is checked with validateRoute (tma-route/1).
+ * from @itera/contracts/compare (through compareView). Every answered row is checked with validateRoute (tma-route/2).
  *
  * Proves: approve with n = 4 → 400 n_too_small; a NOT YET cell (absolute) and a worse cell (relative) → 400
  * verdict_not_passing; another principal's or tenant's agent → 400 unknown_agent, refs the caller does not own → 403,
@@ -22,7 +22,7 @@ import {
   type RoutesStore, type VariantRef,
 } from "./routes.js";
 import {
-  agentKeyOf, type CompareGraderRow, type CompareRunRow, type UseCaseCompareReader, type UseCaseRows,
+  agentKeyOf, compareView, type CompareGraderRow, type CompareRunRow, type UseCaseCompareReader, type UseCaseRows,
 } from "./use-case-compare.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -171,7 +171,7 @@ const expectValid = (row: unknown) => {
 };
 
 describe("POST /routes/approve", () => {
-  it("approves a SAME cell (absolute): 201, the frozen verdict, a valid tma-route/1 row", async () => {
+  it("approves a SAME cell (absolute): 201, the frozen verdict, a valid tma-route/2 row", async () => {
     const r = await approve({ fallback_agent: keyOf(D) });
     expect(r.status).toBe(201);
     expectValid(r.json);
@@ -180,6 +180,7 @@ describe("POST /routes/approve", () => {
       model_id: A.model, agent_sha256: A.sha, harness: "opencode", harness_repo_sha: "0".repeat(40), rules_sha256: H("6"),
       skills_sha256: [H("7")], fallback_model_id: D.model, fallback_agent_sha256: D.sha, picked_rule: "absolute", verdict: "same", n: 10,
       policy_version: "c8-1", state: "approved", pr_url: null, approved_by_actor: ALICE,
+      format: "tma-route/2", live_at: null, rollback_pr_url: null, rolled_back_at: null,
     });
     expect(r.json.compare_profile_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(r.json.approved_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -196,6 +197,25 @@ describe("POST /routes/approve", () => {
     expectValid(r.json);
     expect(r.json).toMatchObject({ picked_rule: "relative", verdict: "better", n: 10, policy_version: "c8-2" });
     expect(r.json.evidence_run_ids).toHaveLength(20);
+  });
+
+  it("freezes exactly the evidence_run_ids that the compare response lists (one helper, Q4 = A)", async () => {
+    // An infra-fault run and a no-score run of A: neither is counted, neither is frozen.
+    const infra = row(A, "case-0", { run: { ...row(A, "case-0").run, infraOk: false } });
+    const noScore = row(A, "case-1");
+    noScore.graders = [];
+    reader.rows.push(infra, noScore);
+    const rows = await reader.rowsOf(UC, ALICE, TENANT);
+    const view = compareView(UC, rows, keyOf(B));
+    const ids = (s: AgentSpec) => view.agents.find((a) => a.agent_key === keyOf(s))!.evidence_run_ids;
+    const abs = await approve();
+    expect(abs.status).toBe(201);
+    expect(abs.json.evidence_run_ids).toEqual(ids(A));
+    expect(abs.json.evidence_run_ids).not.toContain(infra.run.runId);
+    expect(abs.json.evidence_run_ids).not.toContain(noScore.run.runId);
+    const rel = await approve({ picked_rule: "relative", current_agent: keyOf(B) });
+    expect(rel.status).toBe(201);
+    expect(rel.json.evidence_run_ids).toEqual([...ids(A), ...ids(B)]);
   });
 
   it("refuses n = 4 → 400 n_too_small, nothing written", async () => {
@@ -294,14 +314,21 @@ describe("PATCH /routes/:id/state", () => {
     const live = await mark(id, "live", 101);
     expect(live.status).toBe(200);
     expectValid(live.json);
-    expect(live.json).toMatchObject({ id, state: "live", pr_url: "https://github.com/example-org/infra/pull/101" });
+    expect(live.json).toMatchObject({
+      id, format: "tma-route/2", state: "live", pr_url: "https://github.com/example-org/infra/pull/101", rollback_pr_url: null, rolled_back_at: null,
+    });
     expect(store.rows[0]!.live_at).not.toBeNull();
+    expect(live.json.live_at).toBe((store.rows[0]!.live_at as Date).toISOString());
     const back = await mark(id, "rolled_back", 102);
     expect(back.status).toBe(200);
     expectValid(back.json);
     expect(back.json).toMatchObject({ state: "rolled_back", pr_url: "https://github.com/example-org/infra/pull/101" });
     expect(store.rows[0]).toMatchObject({ rollback_pr_url: "https://github.com/example-org/infra/pull/102" });
     expect(store.rows[0]!.rolled_back_at).not.toBeNull();
+    expect(back.json).toMatchObject({ rollback_pr_url: "https://github.com/example-org/infra/pull/102", live_at: live.json.live_at });
+    expect(back.json.rolled_back_at).toBe((store.rows[0]!.rolled_back_at as Date).toISOString());
+    // The same row through GET answers the same v2 keys.
+    expect((await call("GET", `/routes/${id}`)).json).toMatchObject({ format: "tma-route/2", rollback_pr_url: back.json.rollback_pr_url, rolled_back_at: back.json.rolled_back_at });
     // rolled_back is final.
     expect((await mark(id, "live", 103)).json).toMatchObject({ error: "invalid_transition", state: "rolled_back" });
   });

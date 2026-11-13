@@ -13,7 +13,7 @@ import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueSessionToken } from "../auth/session.js";
 import {
-  agentKeyOf, createUseCaseCompareRouter, useCaseRunsOf, type CompareGraderRow, type CompareRunRow, type UseCaseCompareReader,
+  agentKeyOf, compareView, countedRunIdsOf, createUseCaseCompareRouter, ROUTE_MAX_EVIDENCE, useCaseRunsOf, type CompareGraderRow, type CompareRunRow, type UseCaseCompareReader,
   type UseCaseRows,
 } from "./use-case-compare.js";
 
@@ -220,9 +220,50 @@ describe("GET /use-cases/:key/compare", () => {
     expect(r.json.agents.every((a: any) => a.n === 25)).toBe(true);
     // The budget: 33 use cases x 10 agents in 200 KB on the wire. The rule texts of the library alone are ~1.1 KB and
     // a row with every field of the brief is ~700 B, so the raw JSON is ~8 KB: the gzip body meets the budget, and
-    // the raw body has a regression cap of 300 KB / 33 (see report.md).
+    // the raw body has a regression cap of 300 KB / 33 (see report.md). The evidence run ids (Q4 = A, plan C8) add
+    // 39 B per counted run on top (a quoted uuid and a comma, at most ROUTE_MAX_EVIDENCE per agent); the cap holds
+    // for the body without them, and the gzip budget holds for the full body.
     expect(gzipSync(r.text).length).toBeLessThan((200 * 1024) / 33);
-    expect(r.bytes).toBeLessThan((300 * 1024) / 33);
+    const idBytes = r.json.agents.reduce((sum: number, a: any) => sum + Buffer.byteLength(JSON.stringify(a.evidence_run_ids)), 0);
+    expect(idBytes).toBeLessThanOrEqual(10 * (25 * 39 + 1));
+    expect(r.bytes - idBytes).toBeLessThan((300 * 1024) / 33);
+  });
+});
+
+describe("evidence_run_ids (Q4 = A)", () => {
+  it("lists each agent's counted runs, sorted: an infra-fault run and a no-score run are not in the list", async () => {
+    const infra = row(A, "case-1", 7, { infraOk: false });
+    const noScore = row(A, "case-2", 8);
+    noScore.graders = [];
+    reader.rows.push(infra, noScore);
+    const r = await compare();
+    const a = agentOf(r.json, A);
+    const counted = reader.rows
+      .filter((x) => x.run.agentSha256 === A.sha && x !== infra && x !== noScore)
+      .map((x) => x.run.runId)
+      .sort();
+    expect(a.evidence_run_ids).toEqual(counted);
+    expect(a.evidence_run_count).toBe(10);
+    expect(a.evidence_run_ids).not.toContain(infra.run.runId);
+    expect(a.evidence_run_ids).not.toContain(noScore.run.runId);
+    expect(a.no_score_runs).toBe(1);
+    for (const s of [B, C]) expect(agentOf(r.json, s).evidence_run_count).toBe(10);
+  });
+
+  it("caps the list at ROUTE_MAX_EVIDENCE and still answers the full count", () => {
+    const many: Row[] = Array.from({ length: ROUTE_MAX_EVIDENCE + 3 }, (_, i) => row(A, `case-${i % 2}`, i));
+    const rows = { runs: many.map((x) => x.run), graders: many.flatMap((x) => x.graders) };
+    const view = compareView(UC, rows, null);
+    expect(view.agents[0]!.evidence_run_ids).toHaveLength(ROUTE_MAX_EVIDENCE);
+    expect(view.agents[0]!.evidence_run_count).toBe(ROUTE_MAX_EVIDENCE + 3);
+    expect(view.agents[0]!.evidence_run_ids).toEqual(countedRunIdsOf(useCaseRunsOf(rows), keyOf(A), UC).slice(0, ROUTE_MAX_EVIDENCE));
+  });
+
+  it("countedRunIdsOf: unique, sorted, only the asked agent", () => {
+    const rs = [row(B, "case-1", 0), row(A, "case-1", 1), row(A, "case-2", 2)];
+    const runs = useCaseRunsOf({ runs: [...rs.map((x) => x.run), rs[1]!.run], graders: rs.flatMap((x) => x.graders) });
+    expect(countedRunIdsOf(runs, keyOf(A), UC)).toEqual([rs[1]!.run.runId, rs[2]!.run.runId].sort());
+    expect(countedRunIdsOf(runs, keyOf(C), UC)).toEqual([]);
   });
 });
 
