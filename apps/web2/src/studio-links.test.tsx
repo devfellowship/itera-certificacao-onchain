@@ -142,14 +142,19 @@ describe('studio links on the old pages (C5-T2)', () => {
     expect(d.querySelector('.tad-studio-links:empty')).not.toBeNull()
   })
 
-  it('as shipped (C5-T3: S4 and S5 built): /agents/:aid links to S5 and still hides S6', async () => {
+  it('as shipped (C5-T4: S4 to S7 built): /agents/:aid links to S5 and S6, /agents still hides S8', async () => {
     saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
-    expect(STUDIO_SCREENS.S4.built).toBe(true)
-    expect(STUDIO_SCREENS.S5.built).toBe(true)
+    for (const s of ['S4', 'S5', 'S6', 'S7'] as const) expect(STUDIO_SCREENS[s].built, s).toBe(true)
+    expect(STUDIO_SCREENS.S8.built).toBe(false)
     const d = mountOld('/agents/agent-1')
     await waitFor(() => d.textContent!.includes('Profile Agent'), 'profile')
     expect(d.querySelector('[data-testid="studio-variants"]')?.getAttribute('href')).toBe('/studio/experiments/new?agent=agent-1')
-    expect(d.querySelector('[data-testid="studio-experiments"]')).toBeNull()
+    expect(d.querySelector('[data-testid="studio-experiments"]')?.getAttribute('href')).toBe('/studio/experiments?agent=agent-1')
+    act(() => root?.unmount())
+    document.body.innerHTML = ''
+    const a = mountOld('/agents')
+    await waitFor(() => a.textContent!.includes('Alpha Agent'), 'ranking')
+    expect(a.querySelector('[data-testid="studio-compare-use-case"]')).toBeNull()
   })
 
   it('with the screens built: /agents links to S8 and /agents/:aid to S5 and S6 filtered by the agent', async () => {

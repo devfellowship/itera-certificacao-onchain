@@ -290,6 +290,9 @@ describe.skipIf(!URL_)("PgSelfDeclaredStore v2 and PgEvalResultsReader on Postgr
     expect(runs.every((r) => r.caseId === baseline.caseId && r.agentId === agentA)).toBe(true);
     expect(runs.filter((r) => r.variant.isBaseline)).toHaveLength(4);
     expect(runs.find((r) => r.id === baseline.runIds[0])).toMatchObject({ evaluationId: baseline.evaluationId, caseKey: `${tag}-case`, useCaseKey: "fix/prod-bug" });
+    // C5-T4: an upload is self-declared, and every graded run carries its hard-gate state.
+    expect(runs.every((r) => r.resultOrigin === "self_declared")).toBe(true);
+    expect(runs.every((r) => typeof r.hardGatesOk === "boolean")).toBe(true);
     expect(await reader.listRuns(ALICE, { agentId: agentA }, 500)).toHaveLength(7);
     expect(await reader.listRuns(ALICE, { agentId: randomUUID() }, 500)).toEqual([]);
     expect(await reader.listRuns(BOB, { caseId: baseline.caseId }, 500)).toEqual([]);

@@ -60,3 +60,14 @@ export function experimentScript(input: { cases: CommandCase[]; agentId?: string
   const blocks = input.cases.map((c) => [`# case ${c.caseKey} (${c.useCaseKey}, ${c.mode})`, ...caseCommands(c, { agentId: input.agentId, variant: v, repeat: input.repeat })].join('\n'))
   return [head, ...blocks].join('\n\n')
 }
+
+/**
+ * C5-T4 (S6, S7): the kit's compare command for one case and a pair of variants,
+ * `tma eval diff <baseline> <variant>` (DIFF_USAGE of eval.ts: two variant folders <case>/runs/<sha12>).
+ * A variant with change_kind none has no folder name the studio knows, so it stays a placeholder.
+ */
+export function diffCommand(caseKey: string, base: NonNullable<CommandVariant>, variant: NonNullable<CommandVariant>): string {
+  const folder = (v: NonNullable<CommandVariant>) =>
+    v.changeKind === 'none' ? `${caseDir(caseKey)}/runs/<${v.label} folder>` : `${caseDir(caseKey)}/runs/${v.variantSha256.slice(0, 12)}`
+  return `tma eval diff ${folder(base)} ${folder(variant)}`
+}
