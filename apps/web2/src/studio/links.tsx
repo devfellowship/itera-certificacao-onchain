@@ -13,8 +13,8 @@ import { Link } from 'react-router-dom'
 export type StudioScreen = 'S4' | 'S5' | 'S6' | 'S7' | 'S8' | 'S10'
 
 export const STUDIO_SCREENS: Record<StudioScreen, { path: string; built: boolean }> = {
-  S4: { path: '/studio/cases', built: false },
-  S5: { path: '/studio/experiments/new', built: false },
+  S4: { path: '/studio/cases', built: true },
+  S5: { path: '/studio/experiments/new', built: true },
   S6: { path: '/studio/experiments', built: false },
   S7: { path: '/studio/diff', built: false },
   S8: { path: '/studio/compare', built: false },

@@ -276,6 +276,29 @@ describe.skipIf(!URL_)("PgSelfDeclaredStore v2 and PgEvalResultsReader on Postgr
     expect(await count(`select count(*) as n from public.eval_variants where owner_wallet = $1`, [ALICE])).toBe(2);
   });
 
+  it("C5-T3: lists the cases with counts, the runs with filters, and the case graders and task slug, to the owner only", async () => {
+    const cases = await reader.listCases(ALICE, 200);
+    const first = cases.find((c) => c.id === baseline.caseId)!;
+    expect(first).toMatchObject({ caseKey: `${tag}-case`, variantCount: 2, runCount: 6, taskId, taskSlug: tag });
+    expect(first.lastRunAt).not.toBeNull();
+    expect(cases.map((c) => c.caseKey)).toContain(`${tag}-case-2`);
+    expect(await reader.listCases(BOB, 200)).toEqual([]);
+    expect(await reader.listCases(ALICE, 1)).toHaveLength(1);
+
+    const runs = await reader.listRuns(ALICE, { caseId: baseline.caseId }, 500);
+    expect(runs).toHaveLength(6);
+    expect(runs.every((r) => r.caseId === baseline.caseId && r.agentId === agentA)).toBe(true);
+    expect(runs.filter((r) => r.variant.isBaseline)).toHaveLength(4);
+    expect(runs.find((r) => r.id === baseline.runIds[0])).toMatchObject({ evaluationId: baseline.evaluationId, caseKey: `${tag}-case`, useCaseKey: "fix/prod-bug" });
+    expect(await reader.listRuns(ALICE, { agentId: agentA }, 500)).toHaveLength(7);
+    expect(await reader.listRuns(ALICE, { agentId: randomUUID() }, 500)).toEqual([]);
+    expect(await reader.listRuns(BOB, { caseId: baseline.caseId }, 500)).toEqual([]);
+    expect(await reader.listRuns(ALICE, {}, 2)).toHaveLength(2);
+
+    const detail = await reader.caseDetail(baseline.caseId, ALICE);
+    expect(detail).toMatchObject({ taskSlug: tag, graders: [{ id: "hidden-tests", semver: "2.0.0", kind: "code" }] });
+  });
+
   it("deletes the grader rows and trajectory rows with the run", async () => {
     const ids = baseline.runIds;
     await pool.query(`delete from public.runs where evaluation_id = $1`, [baseline.evaluationId]);

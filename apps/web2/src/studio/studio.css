@@ -37,3 +37,97 @@
 .stu-dl dt { color: var(--tma-muted, #666); }
 .stu-dl dd { margin: 0; }
 .stu-copy pre { margin: 8px 0; padding: 8px; overflow-x: auto; user-select: all; }
+/* C5-T3: S4 test case and S5 experiment. */
+.stu-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.stu-pad {
+  padding: 12px 20px;
+}
+.stu-count {
+  font-size: 12px;
+}
+.stu-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 8px 0 0;
+}
+.stu-summary dt {
+  font-weight: 600;
+  font-size: 13px;
+}
+.stu-summary dd {
+  margin: 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+.stu-runs {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.stu-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.stu-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.stu-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.stu-table th,
+.stu-table td {
+  text-align: left;
+  padding: 8px 20px;
+  border-top: 1px solid var(--tma-line);
+  vertical-align: top;
+}
+.stu-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stu-copy__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.stu-copy__btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid var(--tma-line);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.stu-copy__pre {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--tma-line);
+  border-radius: 6px;
+  font-family: var(--tma-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+  overflow-x: auto;
+}

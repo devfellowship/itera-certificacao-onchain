@@ -129,6 +129,8 @@ describe('studio links on the old pages (C5-T2)', () => {
 
   it('no studio link on /agents and /agents/:aid while no studio screen exists', async () => {
     saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
+    // C5-T3 built S4 and S5: switch every screen off to prove the hidden state.
+    for (const s of SCREENS) STUDIO_SCREENS[s].built = false
     const a = mountOld('/agents')
     await waitFor(() => a.textContent!.includes('Alpha Agent'), 'ranking')
     expect(a.querySelectorAll('[data-studio-link]')).toHaveLength(0)
@@ -138,6 +140,16 @@ describe('studio links on the old pages (C5-T2)', () => {
     await waitFor(() => d.textContent!.includes('Profile Agent'), 'profile')
     expect(d.querySelectorAll('[data-studio-link]')).toHaveLength(0)
     expect(d.querySelector('.tad-studio-links:empty')).not.toBeNull()
+  })
+
+  it('as shipped (C5-T3: S4 and S5 built): /agents/:aid links to S5 and still hides S6', async () => {
+    saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
+    expect(STUDIO_SCREENS.S4.built).toBe(true)
+    expect(STUDIO_SCREENS.S5.built).toBe(true)
+    const d = mountOld('/agents/agent-1')
+    await waitFor(() => d.textContent!.includes('Profile Agent'), 'profile')
+    expect(d.querySelector('[data-testid="studio-variants"]')?.getAttribute('href')).toBe('/studio/experiments/new?agent=agent-1')
+    expect(d.querySelector('[data-testid="studio-experiments"]')).toBeNull()
   })
 
   it('with the screens built: /agents links to S8 and /agents/:aid to S5 and S6 filtered by the agent', async () => {

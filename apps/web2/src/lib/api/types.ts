@@ -1234,3 +1234,98 @@ export interface CreateLocalAgentInput {
   harness?: string
   visibility?: AgentVisibility
 }
+
+// ---- Studio eval results (plan 20261112-tma-c5-studio-area-web2, C5-T3). Read only, owner-scoped.
+// The shapes of GET /eval-cases, GET /eval-cases/:id and GET /eval-runs in apps/api/src/self-declared/eval-results.ts.
+
+export interface EvalAgentVersion {
+  harness: string
+  harnessVersion: string | null
+  harnessRepoSha: string | null
+  modelId: string
+  rulesSha256: string | null
+  skillsSha256: string | null
+  mcpManifestSha256: string | null
+  toolsSha256: string | null
+}
+
+/** An agent variant: a base agent version plus ONE change. `isBaseline` is relative to the case in context. */
+export interface EvalVariant {
+  id: string
+  agentSha256: string
+  agent: EvalAgentVersion
+  variantSha256: string
+  label: string
+  changeKind: string
+  isBaseline: boolean
+}
+
+export type EvalCaseMode = 'replay' | 'trace_review'
+
+export interface EvalCase {
+  id: string
+  caseKey: string
+  manifestSha256: string
+  originPinSha256: string | null
+  mode: EvalCaseMode
+  /** The L1 pair type/subtype (the subtype is the L2 tag). */
+  useCaseKey: string
+  taskId: string | null
+  baselineVariantId: string | null
+  /** Before and Expected only (Q-T16 = A). */
+  taskSummary: { before: string | null; expected: string | null } | null
+  createdAt: string
+}
+
+export interface EvalCaseListItem extends EvalCase {
+  taskSlug: string | null
+  variantCount: number
+  runCount: number
+  lastRunAt: string | null
+}
+
+export interface EvalCasesResponse {
+  cases: EvalCaseListItem[]
+  limit: number
+  truncated: boolean
+}
+
+export interface EvalCaseVariantStats extends EvalVariant {
+  predictionSha256: string | null
+  n: number
+  pass: number
+  fail: number
+  infraErrors: number
+  passRate: number | null
+  meanScore: number | null
+  evaluationIds: string[]
+}
+
+export interface EvalCaseDetail extends EvalCase {
+  taskSlug: string | null
+  graders: Array<{ id: string; semver: string; kind: string }>
+  variants: EvalCaseVariantStats[]
+}
+
+export interface EvalRun {
+  id: string
+  evaluationId: string | null
+  agentId: string | null
+  agentName: string | null
+  seq: number | null
+  status: string
+  score: number | null
+  infraOk: boolean | null
+  startedAt: string
+  caseId: string
+  caseKey: string
+  useCaseKey: string
+  variant: EvalVariant
+  predictionSha256: string | null
+}
+
+export interface EvalRunsResponse {
+  runs: EvalRun[]
+  limit: number
+  truncated: boolean
+}

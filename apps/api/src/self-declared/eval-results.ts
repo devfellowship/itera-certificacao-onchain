@@ -10,7 +10,17 @@
  *   GET /runs/:id          adds `case`, `variant`, `predictionSha256`, `graders` and `trajectorySummary` for that run.
  *   GET /eval-cases/:id    owner only: the case and the agent variants that ran on it (and its baseline), each
  *                          with n, pass, pass rate, mean score, the prediction and the baseline flag. Another principal's case answers the same 404 as an
- *                          unknown one.
+ *                          unknown one. C5-T3 adds `taskSlug` (for the /tasks/:slug link) and `graders` (the distinct id@semver
+ *                          that graded a run of this case).
+ *   GET /eval-cases        owner only (C5-T3, studio S1/S4): the caller's cases, newest first, each with taskSlug,
+ *                          variantCount (the variants that ran on it, plus its baseline) and runCount. Capped at
+ *                          EVAL_CASES_LIMIT (200): `{ cases, limit, truncated }`.
+ *   GET /eval-runs         owner only (C5-T3, studio S4/S5): the caller's uploaded eval runs (runs with a case and a
+ *                          variant), newest first, each with its case key, its variant (base agent + change), its
+ *                          evaluation and the TMA agent of that evaluation. Filters: ?agent=<agent uuid> and
+ *                          ?case=<case uuid> (another principal's id matches nothing: an empty list). Capped at
+ *                          EVAL_RUNS_LIMIT (500): `{ runs, limit, truncated }`. There is no experiment table: the
+ *                          studio derives an experiment from these rows (case x variant).
  *
  * The first two decorate the JSON body that their own routers send (as the 0021 run guard does with
  * `resultOrigin`): those routers keep their files, their owner checks and their 404s. A body with an `error`
@@ -130,9 +140,56 @@ export interface EvalCaseVariantStats extends EvalVariantView {
   evaluationIds: string[];
 }
 
+/** A grader version that graded at least one run of a case (id@semver). */
+export interface CaseGraderView {
+  id: string;
+  semver: string;
+  kind: string;
+}
+
 export interface EvalCaseDetail extends EvalCaseView {
+  /** C5-T3: the slug of the case's task (for the /tasks/:slug link), or null. */
+  taskSlug: string | null;
+  /** C5-T3: the distinct grader versions that graded a run of this case, by id then semver. */
+  graders: CaseGraderView[];
   variants: EvalCaseVariantStats[];
 }
+
+/** One row of GET /eval-cases (C5-T3). */
+export interface EvalCaseListItem extends EvalCaseView {
+  taskSlug: string | null;
+  /** The variants that ran on the case, plus its baseline (the same set as the detail's variants). */
+  variantCount: number;
+  runCount: number;
+  lastRunAt: string | null;
+}
+
+/** One row of GET /eval-runs (C5-T3): an uploaded run, the crossing of a case and a variant. */
+export interface EvalRunRow {
+  id: string;
+  evaluationId: string | null;
+  /** The TMA agent of the run's evaluation (the agent of `tma eval upload --agent`). */
+  agentId: string | null;
+  agentName: string | null;
+  seq: number | null;
+  status: string;
+  score: number | null;
+  infraOk: boolean | null;
+  startedAt: string;
+  caseId: string;
+  caseKey: string;
+  useCaseKey: string;
+  variant: EvalVariantView;
+  predictionSha256: string | null;
+}
+
+export interface EvalRunsFilter {
+  agentId?: string | null;
+  caseId?: string | null;
+}
+
+export const EVAL_CASES_LIMIT = 200;
+export const EVAL_RUNS_LIMIT = 500;
 
 export interface CaseVariantOfRun {
   case: EvalCaseView;
@@ -153,6 +210,10 @@ export interface EvalResultsReader {
   resultsOfRuns(runIds: string[]): Promise<Map<string, RunEvalResults>>;
   /** The case of `owner`, or null (unknown, or another principal's). */
   caseDetail(caseId: string, owner: string): Promise<EvalCaseDetail | null>;
+  /** C5-T3: the cases of `owner`, newest first, at most `limit` rows. */
+  listCases(owner: string, limit: number): Promise<EvalCaseListItem[]>;
+  /** C5-T3: the uploaded eval runs of `owner`, newest first, at most `limit` rows. */
+  listRuns(owner: string, filter: EvalRunsFilter, limit: number): Promise<EvalRunRow[]>;
 }
 
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
@@ -312,7 +373,12 @@ export class PgEvalResultsReader implements EvalResultsReader {
   async caseDetail(caseId: string, owner: string): Promise<EvalCaseDetail | null> {
     const pool = this.pool();
     const meta = await hasEvalMetaSchema(pool);
-    const c = (await pool.query(`select ${caseColumns(meta)} from public.eval_cases c where c.id = $1 and c.owner_wallet = $2`, [caseId, owner])).rows[0];
+    const c = (await pool.query(
+      `select ${caseColumns(meta)}, t.slug as task_slug
+         from public.eval_cases c left join public.tasks t on t.id = c.task_id
+        where c.id = $1 and c.owner_wallet = $2`,
+      [caseId, owner],
+    )).rows[0];
     if (!c) return null;
     const kase = caseView(c);
     // The agent variants that ran on this case, and its baseline (even with no run yet). Their stats count only
@@ -350,7 +416,82 @@ export class PgEvalResultsReader implements EvalResultsReader {
         evaluationIds: (r.evaluation_ids as string[]).slice().sort(),
       };
     });
-    return { ...kase, variants };
+    const graders = (await pool.query(
+      `select distinct gv.grader_id, gv.semver, gv.kind
+         from public.grader_results gr
+         join public.grader_versions gv on gv.id = gr.grader_version_id
+         join public.runs r on r.id = gr.run_id
+        where r.case_id = $1 and r.owner_wallet = $2
+        order by gv.grader_id, gv.semver, gv.kind`,
+      [caseId, owner],
+    )).rows.map((g: Record<string, unknown>) => ({ id: String(g.grader_id), semver: String(g.semver), kind: String(g.kind) }));
+    return { ...kase, taskSlug: orNull(c.task_slug), graders, variants };
+  }
+
+  async listCases(owner: string, limit: number): Promise<EvalCaseListItem[]> {
+    const pool = this.pool();
+    const meta = await hasEvalMetaSchema(pool);
+    const { rows } = await pool.query(
+      `select ${caseColumns(meta)}, t.slug as task_slug, s.run_count, s.last_run_at,
+              (select count(*) from (
+                 select r2.variant_id from public.runs r2 where r2.case_id = c.id and r2.owner_wallet = $1 and r2.variant_id is not null
+                 union
+                 select c.baseline_variant_id where c.baseline_variant_id is not null
+               ) x)::int as variant_count
+         from public.eval_cases c
+         left join public.tasks t on t.id = c.task_id
+         left join lateral (
+           select count(*)::int as run_count, max(r.started_at) as last_run_at
+             from public.runs r where r.case_id = c.id and r.owner_wallet = $1
+         ) s on true
+        where c.owner_wallet = $1
+        order by c.created_at desc, c.id
+        limit $2`,
+      [owner, limit],
+    );
+    return rows.map((r: Record<string, unknown>) => ({
+      ...caseView(r),
+      taskSlug: orNull(r.task_slug),
+      variantCount: Number(r.variant_count ?? 0),
+      runCount: Number(r.run_count ?? 0),
+      lastRunAt: r.last_run_at == null ? null : iso(r.last_run_at),
+    }));
+  }
+
+  async listRuns(owner: string, filter: EvalRunsFilter, limit: number): Promise<EvalRunRow[]> {
+    const { rows } = await this.pool().query(
+      `select r.id as run_id, r.evaluation_id, e.agent_id, a.name as agent_name, r.seq, r.status,
+              coalesce((r.evidence_manifest -> 'item' ->> 'score')::numeric, r.score_total) as score,
+              r.infra_ok, r.started_at, r.prediction_sha256,
+              c.id as case_id, c.case_key, c.use_case_key, c.baseline_variant_id, ${VARIANT_COLUMNS}
+         from public.runs r
+         join public.eval_cases c on c.id = r.case_id and c.owner_wallet = $1
+         join public.eval_variants v on v.id = r.variant_id
+         left join public.evaluations e on e.id = r.evaluation_id
+         left join public.agents a on a.id = e.agent_id
+        where r.owner_wallet = $1
+          and ($2::uuid is null or e.agent_id = $2::uuid)
+          and ($3::uuid is null or r.case_id = $3::uuid)
+        order by r.started_at desc, r.seq nulls last, r.id
+        limit $4`,
+      [owner, filter.agentId ?? null, filter.caseId ?? null, limit],
+    );
+    return rows.map((r: Record<string, unknown>) => ({
+      id: String(r.run_id),
+      evaluationId: orNull(r.evaluation_id),
+      agentId: orNull(r.agent_id),
+      agentName: orNull(r.agent_name),
+      seq: num(r.seq),
+      status: String(r.status),
+      score: num(r.score),
+      infraOk: (r.infra_ok as boolean | null) ?? null,
+      startedAt: iso(r.started_at),
+      caseId: String(r.case_id),
+      caseKey: String(r.case_key),
+      useCaseKey: String(r.use_case_key),
+      variant: variantView(r, orNull(r.baseline_variant_id)),
+      predictionSha256: orNull(r.prediction_sha256),
+    }));
   }
 }
 
@@ -435,13 +576,42 @@ export function createEvalResultsRouter(reader: EvalResultsReader): Router {
     }
   });
 
+  const notReady = (res: Response) =>
+    res.status(503).json({ error: "schema_not_ready", message: `database schema is not migrated yet (needs db/migrations/${EVAL_RESULTS_MIGRATION})` });
+
+  // C5-T3 (studio S1/S4): the caller's cases. Read only.
+  router.get("/eval-cases", requirePrincipal, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!(await reader.ready())) return void notReady(res);
+      const rows = await reader.listCases(req.principal!.id, EVAL_CASES_LIMIT + 1);
+      res.json({ cases: rows.slice(0, EVAL_CASES_LIMIT), limit: EVAL_CASES_LIMIT, truncated: rows.length > EVAL_CASES_LIMIT });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // C5-T3 (studio S4/S5): the caller's uploaded eval runs, filtered by TMA agent and/or case. Read only.
+  router.get("/eval-runs", requirePrincipal, async (req: Request, res: Response, next: NextFunction) => {
+    const one = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+    const agentId = one(req.query.agent);
+    const caseId = one(req.query.case);
+    if ((agentId && !UUID_RE.test(agentId)) || (caseId && !UUID_RE.test(caseId))) {
+      res.status(400).json({ error: "invalid_query", message: "agent and case must be uuids" });
+      return;
+    }
+    try {
+      if (!(await reader.ready())) return void notReady(res);
+      const rows = await reader.listRuns(req.principal!.id, { agentId, caseId }, EVAL_RUNS_LIMIT + 1);
+      res.json({ runs: rows.slice(0, EVAL_RUNS_LIMIT), limit: EVAL_RUNS_LIMIT, truncated: rows.length > EVAL_RUNS_LIMIT });
+    } catch (e) {
+      next(e);
+    }
+  });
+
   router.get("/eval-cases/:id", requirePrincipal, async (req: Request, res: Response, next: NextFunction) => {
     const id = String(req.params.id);
     try {
-      if (!(await reader.ready())) {
-        res.status(503).json({ error: "schema_not_ready", message: `database schema is not migrated yet (needs db/migrations/${EVAL_RESULTS_MIGRATION})` });
-        return;
-      }
+      if (!(await reader.ready())) return void notReady(res);
       const detail = UUID_RE.test(id) ? await reader.caseDetail(id, req.principal!.id) : null;
       if (!detail) {
         res.status(404).json({ error: "eval case not found" });
