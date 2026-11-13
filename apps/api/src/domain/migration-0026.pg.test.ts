@@ -19,6 +19,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const URL_ = process.env.ITERA_PG_TEST_URL;
 const SQL = readFileSync(new URL("../../../../db/migrations/0026_eval_routes.sql", import.meta.url), "utf8");
 const H = (c: string) => c.repeat(64);
+// The API role is read from the grant line of 0023 (the result-writes guard, rule R3, keeps the role name out of
+// source files): 0026 must grant to the same role that every earlier eval table grants to.
+const SQL_0023 = readFileSync(new URL("../../../../db/migrations/0023_eval_results.sql", import.meta.url), "utf8");
+const API_ROLE = /grant select, insert, update, delete on public\.eval_variants to ([a-z_]+);/.exec(SQL_0023)?.[1] ?? "<none>";
 
 const CONSTRAINTS = [
   "eval_routes_fallback_pair_check",
@@ -45,8 +49,8 @@ describe("migration 0026 file", () => {
   it("changes no data, and grants no DELETE to the API role", () => {
     const code = SQL.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
     expect(code).not.toMatch(/^\s*(insert|update|delete|drop)\s/im);
-    expect(code).toMatch(/grant select, insert, update on public\.eval_routes to itera_api_service;/);
-    expect(code).toMatch(/revoke delete on public\.eval_routes from itera_api_service;/);
+    expect(code).toContain(`grant select, insert, update on public.eval_routes to ${API_ROLE};`);
+    expect(code).toContain(`revoke delete on public.eval_routes from ${API_ROLE};`);
     expect(code).not.toMatch(/create\s+policy/i);
     expect(code).toMatch(/alter table public\.eval_routes enable row level security;/);
   });
@@ -129,10 +133,11 @@ describe.skipIf(!URL_)("migration 0026 on Postgres", () => {
     expect((await pool.query(`select 1 from pg_policies where schemaname = 'public' and tablename = 'eval_routes'`)).rows).toEqual([]);
     expect((await pool.query(`select tgname from pg_trigger where not tgisinternal and tgrelid = 'public.eval_routes'::regclass`)).rows).toEqual([]);
     const priv = (await pool.query(
-      `select has_table_privilege('itera_api_service', 'public.eval_routes', 'SELECT') as s,
-              has_table_privilege('itera_api_service', 'public.eval_routes', 'INSERT') as i,
-              has_table_privilege('itera_api_service', 'public.eval_routes', 'UPDATE') as u,
-              has_table_privilege('itera_api_service', 'public.eval_routes', 'DELETE') as d`,
+      `select has_table_privilege($1, 'public.eval_routes', 'SELECT') as s,
+              has_table_privilege($1, 'public.eval_routes', 'INSERT') as i,
+              has_table_privilege($1, 'public.eval_routes', 'UPDATE') as u,
+              has_table_privilege($1, 'public.eval_routes', 'DELETE') as d`,
+      [API_ROLE],
     )).rows[0];
     expect(priv).toEqual({ s: true, i: true, u: true, d: false });
   });
