@@ -173,6 +173,9 @@ describe('S9 shapes and links', () => {
     await waitFor(() => rows(c).length === 5, 'rows')
     const a = c.querySelector<HTMLAnchorElement>('[data-testid="s9-fleet-link"]')!
     expect(a.getAttribute('href')).toBe(DEFAULT_FLEET_WALL_URL)
+    const wall = new URL(DEFAULT_FLEET_WALL_URL)
+    expect(wall.host).toBe('decisiongraph.devfellowship.com')
+    expect(wall.hash).toContain('card=trajectory-wall')
     expect(a.textContent).toBe('Fleet-wide wall')
     expect(calls.every((p) => p.startsWith('/trajectories') || p.startsWith('/eval-cases') || p.startsWith('/me'))).toBe(true)
   })
