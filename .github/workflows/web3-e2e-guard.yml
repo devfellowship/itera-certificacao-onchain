@@ -184,6 +184,16 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # C8-T2: the route endpoints on eval_routes (0026) through the real SQL — approve writes one valid row; n = 4,
+      # a NOT YET cell and another principal's agent write no row; approved -> live -> rolled_back; a second live
+      # route on the target gives 409 and the one-live index refuses it too (23505); the reads stay in the tenant.
+      # Synthetic rows in a random tenant. It deletes its fixtures.
+      - name: Routes store test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/self-declared/routes.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       # C4-T4: the hosted worker's finish writes the same record as an upload — run_actions rows with status and
       # args_sha256, runs.infra_ok, one grader_results row, a grader registry row reused by the next run; the
       # old shape when 0023 is absent; a refused trajectory never loses the run result. It deletes its fixtures.
