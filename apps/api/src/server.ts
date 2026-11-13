@@ -3,6 +3,7 @@ import { selfDeclaredPerDayFromEnv } from "./self-declared/router.js";
 import { PgRunOriginLookup } from "./self-declared/run-guard.js";
 import { PgEvalResultsReader } from "./self-declared/eval-results.js";
 import { PgGraderVersionsReader } from "./self-declared/grader-versions.js";
+import { PgTrajectoriesReader } from "./self-declared/trajectories.js";
 import { PgEvalCleanupStore } from "./self-declared/cleanup.pg.js";
 import { PgRecomputeStore } from "./self-declared/recompute.pg.js";
 import { hasEvalMetaSchema, hasEvalResultsSchema } from "./domain/schema-features.js";
@@ -135,6 +136,8 @@ createApp(repo, {
   evalResults: new PgEvalResultsReader(getPool),
   // C5-T5: read only grader library (503 before 0023).
   graderVersions: new PgGraderVersionsReader(getPool),
+  // C5-T9: studio S9 trajectory wall and path map (read only, 503 before 0024).
+  trajectories: new PgTrajectoriesReader(getPool),
   // C4-T13: POST /eval-results/cleanup (owner-only delete of unreferenced cases, variants, grader versions; dry_run default).
   evalCleanup: { store: new PgEvalCleanupStore(getPool()), ready: () => hasEvalResultsSchema(getPool()) },
   // C4-T10: POST /eval-results/recompute (back-fill of derived columns of the caller's own rows; dry_run default).

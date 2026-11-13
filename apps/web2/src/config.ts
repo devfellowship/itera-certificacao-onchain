@@ -18,6 +18,14 @@ export const DFL_FEDERATE_URL = import.meta.env.VITE_DFL_FEDERATE_URL || DEFAULT
  */
 export const HOSTED_RUNS_ENABLED = import.meta.env.VITE_TMA_WEB2_HOSTED === 'true'
 
+/**
+ * The fleet-wide trajectory wall (Decision Graph analytics). Studio S9 shows TMA runs only (plan
+ * 20261112-tma-c9-trajectory-analytics ADR-6, Q-T20 = A) and links here for the fleet. The exact path needs
+ * confirmation by the Decision Graph owners; override with VITE_TMA_FLEET_WALL_URL.
+ */
+export const DEFAULT_FLEET_WALL_URL = 'https://decision-graph.devfellowship.com/analytics/trajectories'
+export const FLEET_WALL_URL = import.meta.env.VITE_TMA_FLEET_WALL_URL || DEFAULT_FLEET_WALL_URL
+
 /** Route of this app that receives the DFL redirect (`pages/DflCallbackPage.tsx`). */
 export const DFL_CALLBACK_PATH = '/auth/dfl/callback'
 

@@ -180,7 +180,7 @@ export {
   validateTrajectory,
 } from './trajectory.js';
 export { stepKindOf, hostedStepKindOf, OPENCODE_TOOL_NAMES } from './step-kind.js';
-export { TRAJECTORY_SHAPES_SPEC, kindOfStep, kindString, shapeOf, firstFailure, pathMap } from './trajectory-shapes.js';
+export { TRAJECTORY_SHAPES_SPEC, kindOfStep, kindString, shapeOf, firstFailure, pathMap, pathOf } from './trajectory-shapes.js';
 export {
   PIN_FORMAT,
   PIN_MAX_BYTES,

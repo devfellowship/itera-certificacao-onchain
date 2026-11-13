@@ -38,6 +38,10 @@ export function StudioHomePage({ cases }: { cases?: StudioCase[] }) {
           <Link to="/studio/graders" data-testid="studio-graders-link">
             Graders
           </Link>
+          {' · '}
+          <Link to="/studio/trajectories" data-testid="studio-trajectories-link">
+            Trajectories
+          </Link>
         </p>
         {task && (
           <p className="tma-body-sm" data-testid="studio-task-filter">

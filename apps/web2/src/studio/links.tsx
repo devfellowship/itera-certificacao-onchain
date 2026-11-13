@@ -10,7 +10,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
-export type StudioScreen = 'S4' | 'S5' | 'S6' | 'S7' | 'S8' | 'S10'
+export type StudioScreen = 'S4' | 'S5' | 'S6' | 'S7' | 'S8' | 'S9' | 'S10'
 
 export const STUDIO_SCREENS: Record<StudioScreen, { path: string; built: boolean }> = {
   S4: { path: '/studio/cases', built: true },
@@ -18,6 +18,7 @@ export const STUDIO_SCREENS: Record<StudioScreen, { path: string; built: boolean
   S6: { path: '/studio/experiments', built: true },
   S7: { path: '/studio/diff', built: true },
   S8: { path: '/studio/compare', built: false },
+  S9: { path: '/studio/trajectories', built: true },
   S10: { path: '/studio/graders', built: true },
 }
 
