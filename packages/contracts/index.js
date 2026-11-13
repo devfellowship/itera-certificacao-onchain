@@ -210,6 +210,13 @@ export {
   parseRouteText,
 } from './route.js';
 export {
+  ROUTE_OBSERVATION_FORMAT,
+  ROUTE_OBSERVATION_MAX_BYTES,
+  routeObservationSchema,
+  validateRouteObservation,
+  parseRouteObservationText,
+} from './route-observation.js';
+export {
   FALLBACK_LAB,
   LABS,
   PROVIDER_KEYS,

@@ -20,6 +20,7 @@
     "trajectory-shapes.js",
     "pin.js",
     "route.js",
+    "route-observation.js",
     "run-artifacts.js",
     "compare.js",
     "index.d.ts",

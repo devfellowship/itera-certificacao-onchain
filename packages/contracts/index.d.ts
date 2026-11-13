@@ -615,6 +615,46 @@ export declare function routeVerdictPasses(rule: string, verdict: string): boole
 export declare function validateRoute(value: unknown): RouteValidation;
 export declare function parseRouteText(text: string): RouteValidation;
 
+// --- Route observation (plan 20261112-tma-c8-routing-from-evals, T5; ADR-3, ADR-7).
+// Schema: schemas/route-observation-v1.schema.json (tma-route-observation/1); validator: route-observation.js.
+
+export type RouteHarness = 'claude-code' | 'codex' | 'opencode';
+
+/** What the host runs today for one harness; null = not known. */
+export interface RouteObservationAgent {
+  harness_repo_sha: string | null;
+  rules_sha256: string | null;
+  skills_sha256: string | null;
+}
+
+/** A tma-route-observation/1 file: what a host-side collector observed today. */
+export interface RouteObservation {
+  format: 'tma-route-observation/1';
+  observed_at: string;
+  /** The digest of the model list and prices (tiers.json + catalog). */
+  models: { digest: string };
+  /** The share in percent of each L1 pair among the declared runs of the window; total 0 = no data. */
+  mix: { window_days: 14; total: number; shares: Record<string, number> };
+  /** Per L1 pair, grader id -> version. */
+  graders: Record<string, Record<string, string>>;
+  agents: Partial<Record<RouteHarness, RouteObservationAgent>>;
+}
+
+export interface RouteObservationIssue {
+  code: 'unknown_key' | 'invalid' | 'too_large' | 'not_json';
+  path: string;
+  message: string;
+}
+export type RouteObservationValidation =
+  | { ok: true; value: RouteObservation }
+  | { ok: false; issues: RouteObservationIssue[]; errors: string[] };
+
+export declare const ROUTE_OBSERVATION_FORMAT: 'tma-route-observation/1';
+export declare const ROUTE_OBSERVATION_MAX_BYTES: number;
+export declare const routeObservationSchema: Record<string, unknown>;
+export declare function validateRouteObservation(value: unknown): RouteObservationValidation;
+export declare function parseRouteObservationText(text: string): RouteObservationValidation;
+
 export {
   FALLBACK_LAB,
   LABS,

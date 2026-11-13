@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testmyagent.com/schemas/route-observation-v1.schema.json",
+  "title": "TestMyAgent route observation (tma-route-observation/1)",
+  "description": "What a host-side collector observed today, for the daily route recheck (plan 20261112-tma-c8-routing-from-evals, T5, ADR-3, ADR-7). tma route recheck compares it with the baseline it stored the first time it saw each live route, and with the agent that each live route row names. models.digest is the digest of the model list and prices (dfl-evals/models/tiers.json and the catalog). mix holds the share in percent of each L1 pair among the declared runs of the last 14 days. graders holds the grader versions of each pair's profile. agents holds, per harness, the harness commit, the rules digest (CLAUDE.md) and the skills digest that the host runs today; null means not known. Identifiers, digests, numbers and short tokens only: every string has a pattern and a length limit, and there is no free text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "observed_at", "models", "mix", "graders", "agents"],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64 },
+    "gitSha": { "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$", "maxLength": 64 },
+    "pair": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}/[a-z0-9][a-z0-9_-]{0,63}$", "maxLength": 129 },
+    "graderId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]{0,99}$", "maxLength": 100 },
+    "semver": { "type": "string", "pattern": "^[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}(-[0-9A-Za-z][0-9A-Za-z.-]{0,39})?$", "maxLength": 70 },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})$",
+      "maxLength": 35
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["harness_repo_sha", "rules_sha256", "skills_sha256"],
+      "properties": {
+        "harness_repo_sha": { "anyOf": [{ "$ref": "#/$defs/gitSha" }, { "type": "null" }] },
+        "rules_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "skills_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
+      }
+    }
+  },
+  "properties": {
+    "format": { "const": "tma-route-observation/1" },
+    "observed_at": { "$ref": "#/$defs/timestamp" },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest"],
+      "properties": {
+        "digest": { "$ref": "#/$defs/sha256", "description": "The digest of the model list and prices (tiers.json + catalog)." }
+      }
+    },
+    "mix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["window_days", "total", "shares"],
+      "properties": {
+        "window_days": { "const": 14, "description": "The window of the declared runs (T5: 14 days)." },
+        "total": { "type": "integer", "minimum": 0, "maximum": 1000000000, "description": "The declared runs in the window; 0 = no data." },
+        "shares": {
+          "type": "object",
+          "maxProperties": 200,
+          "propertyNames": { "$ref": "#/$defs/pair" },
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 100 },
+          "description": "The share in percent (0..100) of each L1 pair among the declared runs. An absent pair is 0."
+        }
+      }
+    },
+    "graders": {
+      "type": "object",
+      "maxProperties": 200,
+      "propertyNames": { "$ref": "#/$defs/pair" },
+      "additionalProperties": {
+        "type": "object",
+        "maxProperties": 50,
+        "propertyNames": { "$ref": "#/$defs/graderId" },
+        "additionalProperties": { "$ref": "#/$defs/semver" }
+      },
+      "description": "Per L1 pair, the grader id -> version map of the pair's profile."
+    },
+    "agents": {
+      "type": "object",
+      "maxProperties": 3,
+      "propertyNames": { "enum": ["claude-code", "codex", "opencode"] },
+      "additionalProperties": { "$ref": "#/$defs/agent" },
+      "description": "Per harness, what the host runs today."
+    }
+  }
+}
