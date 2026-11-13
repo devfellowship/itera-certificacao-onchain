@@ -5,3 +5,6 @@ dist/
 .env.*
 !.env.example
 e2e-report/
+
+# self-host docs e2e logs (printed in the report, never committed)
+scripts/e2e/logs/
