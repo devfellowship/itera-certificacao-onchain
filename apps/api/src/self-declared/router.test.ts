@@ -79,6 +79,34 @@ const v2body = (over: Record<string, unknown> = {}): Record<string, unknown> => 
 // and tma-trajectory/2 runs.
 const v3body = (over: Record<string, unknown> = {}): Record<string, unknown> => v2body({ format: "tma-local-result/3", ...over });
 
+// A recorded session on a trace_review case (plan 20261112-tma-c3-eval-repo-kit-docs, C3-T9): the shape of
+// `tma eval upload --mode trace_review` (services/runner/src/cli/eval/trace-review.ts). ONE run of the baseline
+// variant "recorded session", its structural trajectory, and a human label (kind human, labeler, reason_code: /3).
+const SESSION_MODEL = "anthropic/claude-sonnet-4.5";
+const humanLabel = (over: Record<string, unknown> = {}) => ({
+  id: "human-review", semver: "1.0.0", code_sha256: H("9"), kind: "human", pass: false, score: 40, weight: 0, hard_gate: false, decisive: false,
+  labeler: "tainan", reason_code: "partial", ...over,
+});
+const traceReviewBody = (graders: unknown[], over: Record<string, unknown> = {}): Record<string, unknown> => v3body({
+  runner: { version: "0.1.0", execution: "external", profile: null, sandbox_image_id: null },
+  executor: { model_id: SESSION_MODEL, provider: "anthropic", route: "openrouter", harness: "claude-code", variant: null, cost_source: "none" },
+  ran_from: "2026-11-12T18:00:00.000Z",
+  ran_to: "2026-11-12T18:00:21.000Z",
+  summary: { score: 100, runs: 1, items: 1 },
+  case: { case_key: "tiny-add-review", manifest_sha256: H("3"), origin_pin_sha256: null, mode: "trace_review", use_case_key: "fix/red-ci" },
+  variant: {
+    agent: { harness: "claude-code", harness_version: "2.1.87", harness_repo_sha: null, model_id: SESSION_MODEL, rules_sha256: null, skills_sha256: null, mcp_manifest_sha256: null, tools_sha256: null },
+    variant_sha256: EMPTY, label: "recorded session", change_kind: "none",
+  },
+  comparison: IS_BASELINE,
+  runs: [{
+    ...tmaRun(1, 100), wall_s: 21, cost_usd: null, tokens_in: null, tokens_out: null, parts: null, infra_ok: true, graders,
+    trajectory: { format: "tma-trajectory/1", steps: [step(1, { tool: "Read" }), step(2), step(3, { tool: "Bash", tool_family: "shell", target_kind: "command", target_redacted: "npm test" })] },
+  }],
+  ...over,
+});
+const CODE_GRADER = { id: "hidden-tests", semver: "2.0.0", code_sha256: H("f"), kind: "code", pass: true, score: 100, weight: 1, hard_gate: true, decisive: true };
+
 class FakeLookup implements RunOriginLookup {
   runs = new Map<string, RunOrigin>();
   async originOf(id: string) {
@@ -373,6 +401,50 @@ describe("POST /self-declared-results with tma-local-result/2", () => {
         "url": "https://web2.example/evaluations/<id>",
       }
     `);
+    expect(store.v2Runs.size).toBe(0);
+  });
+});
+
+describe("POST /self-declared-results with a recorded session (trace_review, C3-T9)", () => {
+  beforeEach(() => {
+    store.models.add(SESSION_MODEL);
+  });
+
+  it("writes ONE run with its case, its variant, N trajectory steps and a human grader row", async () => {
+    const r = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: traceReviewBody([CODE_GRADER, humanLabel()]) });
+    expect(r.json?.error ?? null).toBeNull();
+    expect(r).toMatchObject({ status: 201, json: { format: "tma-local-result/3", action: "inserted", runs: { inserted: 1, updated: 0, unchanged: 0 } } });
+    expect(r.json.run_ids).toHaveLength(1);
+    expect(r.json.case_id).toEqual(expect.any(String));
+    expect(r.json.variant_id).toEqual(expect.any(String));
+    const runs = store.v2Runs.get(r.json.evaluation_id)!;
+    expect([...runs.keys()]).toEqual(r.json.run_ids);
+    expect(runs.get(r.json.run_id)).toMatchObject({ seq: 1, status: "pass", steps: 3, graderKinds: ["code", "human"] });
+    // The recorded session is the baseline of its case.
+    expect([...store.cases.values()]).toEqual([{ id: r.json.case_id, baselineVariantId: r.json.variant_id }]);
+  });
+
+  it("a label added later (the human grader alone) adds a grader row to the same run; the same body again is unchanged", async () => {
+    const a = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: traceReviewBody([CODE_GRADER]) });
+    expect(a.status).toBe(201);
+    const labelOnly = traceReviewBody([humanLabel({ labeler: "sam", reason_code: "wrong_sha" })]);
+    const b = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: labelOnly });
+    expect(b).toMatchObject({ status: 200, json: { action: "updated", evaluation_id: a.json.evaluation_id, case_id: a.json.case_id, variant_id: a.json.variant_id, run_ids: a.json.run_ids, runs: { updated: 1 } } });
+    expect(store.v2Runs.get(a.json.evaluation_id)!.get(a.json.run_id)).toMatchObject({ graderKinds: ["code", "human"], steps: 3 });
+    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: labelOnly })).toMatchObject({ status: 200, json: { action: "unchanged", runs: { unchanged: 1 } } });
+    // The same label without labeler and reason_code is a valid /2 body too.
+    const v2Label = { ...labelOnly, format: "tma-local-result/2", runs: [{ ...(labelOnly.runs as any[])[0], graders: [humanLabel({ labeler: undefined, reason_code: undefined })] }] };
+    expect((await call("POST", "/self-declared-results", { token: dfl(ALICE), body: JSON.parse(JSON.stringify(v2Label)) })).json).toMatchObject({ format: "tma-local-result/2", action: "updated" });
+  });
+
+  it("refuses a prompt key with 400 unknown_key, at the top and in the label, and writes nothing", async () => {
+    const top = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: { ...traceReviewBody([CODE_GRADER, humanLabel()]), prompt: "make add return the sum" } });
+    expect(top).toMatchObject({ status: 400, json: { error: "unknown_key", path: "/prompt" } });
+    const inLabel = await call("POST", "/self-declared-results", { token: dfl(ALICE), body: traceReviewBody([CODE_GRADER, { ...humanLabel(), prompt: "is the fix right?" }]) });
+    expect(inLabel).toMatchObject({ status: 400, json: { error: "unknown_key", path: "/runs/0/graders/1/prompt" } });
+    const inRun = traceReviewBody([CODE_GRADER]);
+    ((inRun.runs as any[])[0] as Record<string, unknown>).prompt = "make add return the sum";
+    expect(await call("POST", "/self-declared-results", { token: dfl(ALICE), body: inRun })).toMatchObject({ status: 400, json: { error: "unknown_key", path: "/runs/0/prompt" } });
     expect(store.v2Runs.size).toBe(0);
   });
 });

@@ -6,14 +6,16 @@
 // trace into a tma-trajectory/1 record with redacted targets.
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { flag, flagList, has, numberFlag, parseArgs, required } from '../args.js';
+import { flag, flagList, has, numberFlag, parseArgs, required, type ParsedArgs } from '../args.js';
 import type { Command, Io } from '../command.js';
 import { apiUrl, CliError } from '../env.js';
 import { checkAgentId } from '../result.js';
 import { loadSessionFile, requireSession } from '../session.js';
 import { postResult } from './upload.js';
 import { agentSha, baseAgentFrom, buildEvalUpload, variantFolders } from '../eval/upload.js';
+import { buildTraceReviewUpload, claudeCodeSessionFacts, readHumanLabel } from '../eval/trace-review.js';
 import { readClaudeCodeSession, trajectoryFromActions, trajectoryLine } from '../eval/trajectory.js';
+import type { LocalResultV2Plus } from '@itera/contracts';
 import type { RunAction } from '../../types.js';
 import { buildCaseFolder, CASE_RUNS_DIR, loadCaseFolder } from '../eval/case.js';
 import { evalDiff } from '../eval/diff.js';
@@ -52,10 +54,19 @@ const TRAJECTORY_USAGE = `usage: tma eval trajectory --from claude-code <session
   --root  a folder whose prefix is dropped from paths (the session cwd is one by default)`;
 
 const UPLOAD_USAGE = `usage: tma eval upload --case <case dir> --variant-dir <dir> --agent <agent id> [--base-agent <file>] [--dry-run]
+       tma eval upload --mode trace_review --case <case dir> --session <session.jsonl> --agent <agent id>
+                       [--base-agent <file>] [--label-file <label.json>] [--label-only] [--variant-label <text>] [--root <dir>]... [--dry-run]
   Sends the runs of ONE variant as one tma-local-result/2 body (numbers, digests, grader rows, trajectory)
   to POST /self-declared-results. --dry-run prints the body and asks the API with ?dry_run=1 when logged in.
   --base-agent  the base agent version (the 8 fields of variant.agent, or a tma-pin/1). Default: the case pin,
-                else the agent folder of an agent variant.`;
+                else the agent folder of an agent variant (trace_review: else the harness and model of the session).
+  --mode trace_review  a RECORDED Claude Code session of a trace_review case: no agent runs. ONE run (repeat 1) of the
+                variant "recorded session" (the baseline: change_kind none, no prediction), with the redacted
+                trajectory of the session and the latest tma eval grade of the recorded output, if any.
+  --label-file  a human label {grader_id, version, pass, score?, labeler?, reason_code?, code_sha256?}: one grader
+                result of kind human (decisive only when the case lists that grader at that version). labeler or
+                reason_code makes the body tma-local-result/3.
+  --label-only  send the human grader only (add a label to a run already uploaded: the API adds one grader row).`;
 
 const USAGE = [
   'usage: tma eval <case|run|grade|diff|trajectory|upload> ...   (the eval kit: plan C3)',
@@ -83,7 +94,10 @@ async function caseMain(argv: string[], io: Io): Promise<number> {
   const lock = await buildCaseFolder({ caseFile, dest, taskDir: flag(a, 'task-dir'), recorded: flag(a, 'recorded'), clone: has(a, 'clone') });
   io.out(`case ${lock.case_key} (${lock.use_case}, ${lock.mode}) written to ${resolve(dest)}`);
   io.out(`manifest ${lock.manifest_sha256.slice(0, 12)}  task ${lock.task ? `${lock.task.ref} env ${lock.task.environment_sha256.slice(0, 12)}` : 'none on this host'}  pin ${lock.pin_sha256?.slice(0, 12) ?? 'none'}`);
-  if (lock.mode === 'trace_review') next(io, `tma eval grade --case ${dest}`);
+  if (lock.mode === 'trace_review') {
+    next(io, `tma eval grade --case ${dest}`);
+    next(io, `tma eval upload --mode trace_review --case ${dest} --session <session.jsonl> --agent <agent id> [--label-file <label.json>]`);
+  }
   else next(io, `tma eval run --case ${dest} --variant <variant.json> --repeat 3`);
   return 0;
 }
@@ -149,28 +163,64 @@ async function trajectoryMain(argv: string[], io: Io): Promise<number> {
   return 0;
 }
 
+async function readJsonFile(file: string): Promise<unknown> {
+  const raw = await readFile(resolve(file), 'utf-8').catch(() => null);
+  if (raw === null) throw new CliError(`cannot read ${file}`);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new CliError(`${file} is not JSON`);
+  }
+}
+
+/** The body of a recorded session on a trace_review case (C3-T9). */
+async function traceReviewBody(a: ParsedArgs, c: Awaited<ReturnType<typeof loadCaseFolder>>, agentId: string, io: Io): Promise<LocalResultV2Plus> {
+  if (flag(a, 'variant-dir')) throw new CliError('--variant-dir is for a replay case; --mode trace_review uploads --session <session.jsonl>');
+  const sessionFile = required(a, 'session', UPLOAD_USAGE);
+  const text = await readFile(resolve(sessionFile), 'utf-8').catch(() => null);
+  if (text === null) throw new CliError(`cannot read ${sessionFile}`);
+  const r = readClaudeCodeSession(text, { redact: { roots: flagList(a, 'root').map((x) => resolve(x)) } });
+  if (r.skipped > 0) io.err(`[tma eval] ${r.skipped} line(s) of the session were not JSON and were skipped`);
+  const baseFile = flag(a, 'base-agent');
+  const labelFile = flag(a, 'label-file');
+  const { body, notes } = await buildTraceReviewUpload({
+    c,
+    agentId,
+    trajectory: r.trajectory,
+    session: claudeCodeSessionFacts(text),
+    baseAgent: baseFile ? baseAgentFrom(await readJsonFile(baseFile), baseFile) : undefined,
+    label: labelFile ? readHumanLabel(await readJsonFile(labelFile), labelFile) : undefined,
+    labelOnly: has(a, 'label-only'),
+    variantLabel: flag(a, 'variant-label'),
+  });
+  for (const n of notes) io.err(`[tma eval] ${n}`);
+  io.err(`[tma eval] trajectory: ${trajectoryLine(r.trajectory)}`);
+  return body;
+}
+
 async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
-  const a = parseArgs(argv, { case: {}, 'variant-dir': {}, agent: {}, 'base-agent': {}, 'dry-run': { boolean: true } });
+  const a = parseArgs(argv, {
+    case: {}, 'variant-dir': {}, agent: {}, 'base-agent': {}, 'dry-run': { boolean: true },
+    mode: {}, session: {}, 'label-file': {}, 'label-only': { boolean: true }, 'variant-label': {}, root: { repeat: true },
+  });
   const c = await loadCaseFolder(required(a, 'case', UPLOAD_USAGE));
   const agentId = checkAgentId(required(a, 'agent', UPLOAD_USAGE));
-  let dirs = flag(a, 'variant-dir') ? [resolve(flag(a, 'variant-dir')!)] : [];
-  if (dirs.length === 0) {
-    dirs = await variantFolders(c.dir);
-    if (dirs.length !== 1) throw new CliError(`give --variant-dir: the case has ${dirs.length} variant folders\n${UPLOAD_USAGE}`);
-  }
-  let baseAgent;
-  const baseFile = flag(a, 'base-agent');
-  if (baseFile) {
-    const raw = await readFile(resolve(baseFile), 'utf-8').catch(() => null);
-    if (raw === null) throw new CliError(`cannot read ${baseFile}`);
-    try {
-      baseAgent = baseAgentFrom(JSON.parse(raw), baseFile);
-    } catch (e) {
-      if (e instanceof SyntaxError) throw new CliError(`${baseFile} is not JSON`);
-      throw e;
+  const mode = flag(a, 'mode') ?? 'replay';
+  if (mode !== 'replay' && mode !== 'trace_review') throw new CliError(`--mode must be replay or trace_review\n${UPLOAD_USAGE}`);
+  if (mode !== c.manifest.mode) throw new CliError(`case ${c.manifest.case_key} is a ${c.manifest.mode} case: give --mode ${c.manifest.mode}`);
+  let body: LocalResultV2Plus;
+  if (mode === 'trace_review') body = await traceReviewBody(a, c, agentId, io);
+  else {
+    for (const k of ['session', 'label-file', 'label-only', 'variant-label']) if (has(a, k)) throw new CliError(`--${k} is for --mode trace_review`);
+    let dirs = flag(a, 'variant-dir') ? [resolve(flag(a, 'variant-dir')!)] : [];
+    if (dirs.length === 0) {
+      dirs = await variantFolders(c.dir);
+      if (dirs.length !== 1) throw new CliError(`give --variant-dir: the case has ${dirs.length} variant folders\n${UPLOAD_USAGE}`);
     }
+    const baseFile = flag(a, 'base-agent');
+    const baseAgent = baseFile ? baseAgentFrom(await readJsonFile(baseFile), baseFile) : undefined;
+    body = await buildEvalUpload({ c, variantDir: dirs[0]!, agentId, baseAgent });
   }
-  const body = await buildEvalUpload({ c, variantDir: dirs[0]!, agentId, baseAgent });
   const env = deps.env ?? process.env;
   const base = apiUrl(env);
   const nowMs = (deps.now ?? (() => new Date()))().getTime();
@@ -181,7 +231,7 @@ async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<numbe
     token = s && s.api_url === base && Date.parse(s.expires_at) > nowMs ? s.session_token : undefined;
   } else token = requireSession(base, nowMs, env).session_token;
   const label = `${body.case.case_key} / ${body.variant.label}`;
-  io.err(`[tma eval] ${label}: ${body.runs.length} run(s), mean score ${body.summary.score}, agent ${agentSha(body).slice(0, 12)}, variant ${body.variant.variant_sha256.slice(0, 12)}`);
+  io.err(`[tma eval] ${label}: ${body.format}, ${body.runs.length} run(s), mean score ${body.summary.score}, agent ${agentSha(body).slice(0, 12)}, variant ${body.variant.variant_sha256.slice(0, 12)}`);
   if (dryRun) {
     io.err('dry run: this is exactly what tma eval upload sends:');
     io.out(JSON.stringify(body, null, 2));

@@ -47,8 +47,8 @@ export class FakeSelfDeclaredStore implements SelfDeclaredStore {
   cases = new Map<string, { id: string; baselineVariantId: string | null }>();
   /** v2: agent variant key (tenant, principal, base agent digest, diff digest) → { id, change kind }. Independent of a case. */
   variants = new Map<string, { id: string; changeKind: string }>();
-  /** v2: evaluation id → run id → { digest, seq, status, graderRows, steps }. */
-  v2Runs = new Map<string, Map<string, { digest: string; seq: number; status: string; graderRows: number; steps: number }>>();
+  /** v2: evaluation id → run id → { digest, seq, status, graderRows, graderKinds (every row, oldest first), steps }. */
+  v2Runs = new Map<string, Map<string, { digest: string; seq: number; status: string; graderRows: number; graderKinds: string[]; steps: number }>>();
   /** The tenant of the last v2 import (the router passes it). */
   lastTenant: string | null = null;
 
@@ -88,7 +88,8 @@ export class FakeSelfDeclaredStore implements SelfDeclaredStore {
       else counts.inserted++;
       runs.set(rid, {
         digest, seq: prev?.seq ?? ++seq, status: runStatusV2(r, run),
-        graderRows: (prev?.graderRows ?? 0) + run.graders.length, steps: run.trajectory?.steps.length ?? 0,
+        graderRows: (prev?.graderRows ?? 0) + run.graders.length, graderKinds: [...(prev?.graderKinds ?? []), ...run.graders.map((g) => g.kind)],
+        steps: run.trajectory?.steps.length ?? 0,
       });
     }
     const existed = this.v2Runs.has(id);

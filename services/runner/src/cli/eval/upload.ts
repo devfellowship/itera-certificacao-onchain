@@ -139,7 +139,7 @@ async function resolveBaseAgent(input: UploadInput, v: VariantFile): Promise<Age
 }
 
 /** The final status of a run from its latest grading (the hidden-tests status when it ran). */
-function runStatus(g: GradingEntry, evidence: Record<string, { status?: FinalStatus }> | null): FinalStatus {
+export function runStatus(g: GradingEntry, evidence: Record<string, { status?: FinalStatus }> | null): FinalStatus {
   if (!g.case.infra_ok) return 'infra_error';
   const hidden = evidence?.[`${HIDDEN_TESTS_GRADER_ID}@${EVALUATOR_VERSION}`]?.status;
   if (hidden === 'invalid' || hidden === 'timeout') return hidden;
@@ -151,7 +151,7 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
   const { c } = input;
   const dir = resolve(input.variantDir);
   const lock = await readJson<VariantLock>(join(dir, 'variant.lock.json'));
-  if (!lock) throw new CliError(`${input.variantDir} is not a variant folder of a tma eval run (no variant.lock.json). A recorded output uploads with C3-T9.`);
+  if (!lock) throw new CliError(`${input.variantDir} is not a variant folder of a tma eval run (no variant.lock.json). A recorded session of a trace_review case uploads with --mode trace_review --session <session.jsonl>.`);
   const v = lock.variant;
   if (!V2_CASE_KEY.test(c.manifest.case_key)) {
     throw new CliError(`case_key "${c.manifest.case_key}" does not fit tma-local-result/2 (lowercase letters, digits, _ and -, at most 63; no dot): rename the case`);
@@ -243,7 +243,7 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
 }
 
 /** The agent_sha256 that the API derives (eval_variants.agent_sha256), for the human line. */
-export function agentSha(body: LocalResultV2): string {
+export function agentSha(body: Pick<LocalResultV2, 'variant'>): string {
   return agentVersionSha256(body.variant.agent);
 }
 
