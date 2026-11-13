@@ -69,6 +69,29 @@ export async function hasEvalResultsSchema(db: Queryable, now: number = Date.now
 }
 
 /**
+ * 0025_grader_versions_created_by.sql adds grader_versions.created_by. Until it is applied, a v2 upload registers
+ * a grader version with no creator (the insert names no created_by). Same cache rule as the probes above.
+ */
+let graderCreatedByPresent = false;
+let graderCreatedByCheckedAt = Number.NEGATIVE_INFINITY;
+
+export async function hasGraderCreatedBy(db: Queryable, now: number = Date.now()): Promise<boolean> {
+  if (graderCreatedByPresent) return true;
+  if (now - graderCreatedByCheckedAt < RECHECK_MS) return false;
+  graderCreatedByCheckedAt = now;
+  try {
+    const { rows } = await db.query(
+      `select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'grader_versions' and column_name = 'created_by'`,
+    );
+    graderCreatedByPresent = rows.length > 0;
+  } catch {
+    graderCreatedByPresent = false;
+  }
+  return graderCreatedByPresent;
+}
+
+/**
  * 0024_eval_summary_steps_grader_meta.sql (plan 20261112-tma-c4-result-store-trajectory-upload, T9-T11) adds
  * eval_cases.task_summary, the tma-trajectory/2 step columns of run_actions, the proof, calibration, note and author
  * of grader_versions and the reason code and labeler of grader_results. Until it is applied, a v2 upload that uses
@@ -103,6 +126,8 @@ export function resetSchemaFeatures(): void {
   checkedAt = Number.NEGATIVE_INFINITY;
   evalPresent = false;
   evalCheckedAt = Number.NEGATIVE_INFINITY;
+  graderCreatedByPresent = false;
+  graderCreatedByCheckedAt = Number.NEGATIVE_INFINITY;
   metaPresent = false;
   metaCheckedAt = Number.NEGATIVE_INFINITY;
 }

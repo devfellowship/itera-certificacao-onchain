@@ -8,7 +8,7 @@ import type { LocalResult, LocalResultV2Plus } from "@itera/contracts";
 import { agentVersionSha256 } from "@itera/contracts";
 import type { Pool, PoolClient } from "pg";
 import { SchemaNotReadyError } from "../domain/runs-store.js";
-import { hasEvalMetaSchema, hasEvalResultsSchema } from "../domain/schema-features.js";
+import { hasEvalMetaSchema, hasEvalResultsSchema, hasGraderCreatedBy } from "../domain/schema-features.js";
 import {
   EVAL_META_MIGRATION,
   EVAL_RESULTS_MIGRATION,
@@ -85,6 +85,12 @@ interface TaskRow {
   slug: string;
   name: string;
   visibility: string;
+}
+
+/** The user id of a `dfl:<uuid>` principal, or null for any other principal shape (a wallet, the hosted runner). */
+export function userIdOf(principal: string): string | null {
+  const m = /^dfl:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(principal);
+  return m ? m[1].toLowerCase() : null;
 }
 
 export class PgSelfDeclaredStore implements SelfDeclaredStore {
@@ -448,7 +454,7 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
         await c.query(`delete from public.run_actions where run_id = $1`, [p.id]);
       }
       for (const g of run.graders) {
-        const gv = await this.graderVersion(c, tenant, g, graderCache, meta);
+        const gv = await this.graderVersion(c, tenant, principal, g, graderCache, meta);
         await c.query(
           meta
             ? `insert into public.grader_results (tenant, run_id, grader_version_id, pass, score, weight, hard_gate, decisive, infra_ok, reason_code, labeler)
@@ -479,17 +485,32 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
   /**
    * grader_versions is a registry: (tenant, id, semver, code digest) → one row, created on first use. 0024: the proof,
    * calibration, note and author of the version are set by the first upload that sends each; another value for a
-   * field that is already set is a conflict (a new value is a new semver).
+   * field that is already set is a conflict (a new value is a new semver). 0025: the row records who created it
+   * (created_by = the user id of principal dfl:<uuid>); the first author is kept on conflict, and a row that exists
+   * with no creator stays with none. Before 0025 the insert names no created_by.
    */
-  private async graderVersion(c: PoolClient, tenant: string, g: GraderV2, cache: Map<string, string>, meta: boolean): Promise<string> {
+  private async graderVersion(c: PoolClient, tenant: string, principal: string, g: GraderV2, cache: Map<string, string>, meta: boolean): Promise<string> {
     const key = `${g.id}@${g.semver}#${g.code_sha256}`;
     const hit = cache.get(key);
     if (hit) return hit;
     const m = graderMetaOf(g);
+    const creator = userIdOf(principal);
+    const withCreator = (await hasGraderCreatedBy(c)) && creator !== null;
+    const cols = ["tenant", "grader_id", "semver", "kind", "code_sha256"];
+    const params: unknown[] = [tenant, g.id, g.semver, g.kind, g.code_sha256];
+    if (meta) {
+      cols.push("proof_caught", "proof_total", "calibration", "note", "author");
+      params.push(m.proof?.caught ?? null, m.proof?.total ?? null, m.calibration === null ? null : JSON.stringify(m.calibration), m.note, m.author);
+    }
+    if (withCreator) {
+      cols.push("created_by");
+      params.push(creator);
+    }
+    const values = cols.map((col, i) => (col === "calibration" ? `$${i + 1}::jsonb` : `$${i + 1}`)).join(", ");
     const row = (await c.query(
       meta
-        ? `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256, proof_caught, proof_total, calibration, note, author)
-           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+        ? `insert into public.grader_versions (${cols.join(", ")})
+           values (${values})
            on conflict on constraint grader_versions_key do update set
              proof_caught = case when public.grader_versions.proof_total is null then excluded.proof_caught else public.grader_versions.proof_caught end,
              proof_total  = coalesce(public.grader_versions.proof_total, excluded.proof_total),
@@ -497,11 +518,10 @@ export class PgSelfDeclaredStore implements SelfDeclaredStore {
              note         = coalesce(public.grader_versions.note, excluded.note),
              author       = coalesce(public.grader_versions.author, excluded.author)
            returning id, kind, proof_caught, proof_total, calibration, note, author`
-        : `insert into public.grader_versions (tenant, grader_id, semver, kind, code_sha256) values ($1, $2, $3, $4, $5)
+        : `insert into public.grader_versions (${cols.join(", ")}) values (${values})
            on conflict on constraint grader_versions_key do update set kind = public.grader_versions.kind
            returning id, kind`,
-      [tenant, g.id, g.semver, g.kind, g.code_sha256,
-        ...(meta ? [m.proof?.caught ?? null, m.proof?.total ?? null, m.calibration === null ? null : JSON.stringify(m.calibration), m.note, m.author] : [])],
+      params,
     )).rows[0];
     if (row.kind !== g.kind) throw new SelfDeclaredError(409, "grader_conflict", `grader ${key} exists with kind ${row.kind}`);
     if (meta) {
