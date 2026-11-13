@@ -182,7 +182,7 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
 
   let firstId = "";
 
-  it("approves through the real SQL: the row passes every CHECK and is a valid tma-route/1 row", async () => {
+  it("approves through the real SQL: the row passes every CHECK and is a valid tma-route/2 row", async () => {
     expect(await routes.ready()).toBe(true);
     const r = await call("POST", "/routes/approve", approveBody({ fallback_agent: keys.small }));
     expect(r.status, JSON.stringify(r.json)).toBe(201);
@@ -191,7 +191,8 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
     expect(r.json).toMatchObject({
       tenant: TENANT, use_case_key: UC, model_id: "opencode-go/deepseek-v4-pro", harness: "opencode", harness_repo_sha: "0".repeat(40),
       rules_sha256: H("6"), skills_sha256: [H("7")], fallback_model_id: "zai/glm-5.3-air", picked_rule: "absolute", verdict: "same", n: 10,
-      policy_version: "c8-1", state: "approved", approved_by_actor: ALICE,
+      policy_version: "c8-1", state: "approved", approved_by_actor: ALICE, format: "tma-route/2", live_at: null, rollback_pr_url: null,
+      rolled_back_at: null,
     });
     expect(r.json.evidence_run_ids).toHaveLength(10);
     firstId = r.json.id;
@@ -226,7 +227,8 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
     const pr = (n: number) => `https://github.com/example-org/infra/pull/${n}`;
     const live = await call("PATCH", `/routes/${firstId}/state`, { state: "live", pr_url: pr(1) }, APPLIER);
     expect(live.status, JSON.stringify(live.json)).toBe(200);
-    expect(live.json).toMatchObject({ state: "live", pr_url: pr(1) });
+    expect(live.json).toMatchObject({ format: "tma-route/2", state: "live", pr_url: pr(1), rollback_pr_url: null, rolled_back_at: null });
+    expect(live.json.live_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(validateRoute(live.json).ok).toBe(true);
 
     const second = (await call("POST", "/routes/approve", approveBody({ target_value: "deepseek-pro" }))).json.id as string;
@@ -243,6 +245,9 @@ describe.skipIf(!URL_)("route endpoints on Postgres (0026 applied)", () => {
 
     const back = await call("PATCH", `/routes/${firstId}/state`, { state: "rolled_back", pr_url: pr(3) }, APPLIER);
     expect(back.status).toBe(200);
+    expect(back.json).toMatchObject({ state: "rolled_back", pr_url: pr(1), rollback_pr_url: pr(3), live_at: live.json.live_at });
+    expect(back.json.rolled_back_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(validateRoute(back.json).ok).toBe(true);
     const db = (await pool.query(`select * from public.eval_routes where id = $1`, [firstId])).rows[0];
     expect(db).toMatchObject({ state: "rolled_back", pr_url: pr(1), rollback_pr_url: pr(3) });
     expect(db.live_at).toBeInstanceOf(Date);

@@ -31,6 +31,13 @@ export interface CompareAgent {
   cost_per_task: number | null
   cost_label: 'metered' | 'derived' | null
   median_wall_ms: number | null
+  /**
+   * The counted run ids of this agent (sorted; at most 500): the exact list POST /routes/approve freezes for it (plan
+   * C8, Q4 = A). Absent when an older API answers.
+   */
+  evidence_run_ids?: string[]
+  /** The full number of counted runs; larger than evidence_run_ids.length when the API cut the list. */
+  evidence_run_count?: number
   absolute: { label: AbsoluteLabel; reason: 'n_below_minimum' | null; runs_at_least_same: number; runs_at_least_close: number }
   relative: {
     label: RelativeLabel

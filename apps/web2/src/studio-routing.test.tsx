@@ -5,7 +5,9 @@
  * GET /eval-runs and POST /routes/approve. Fixture ids and names are synthetic.
  * Proves: the current route, the recommendation and both verdicts; the evidence links; approve disabled at n = 4 and on
  * a NOT YET cell under absolute; approve posts the exact body; a 400 shows the API message; after 201 the copy
- * command holds the id; no Apply / Run / Save text; the recommendation helper; the S8 link.
+ * command holds the id; no Apply / Run / Save text; the recommendation helper; the S8 link; the evidence list from the
+ * compare response's evidence_run_ids (per rule, unlinked ids, the cut line); "live since" and the rollback PR link of a
+ * tma-route/2 row.
  */
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -17,7 +19,7 @@ import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
 import type { CompareAgent, UseCaseCompareResponse } from './studio/compare'
 import { routingHref } from './studio/links'
-import { approveBlockers, recommendAgent, ROUTING_MIN_N, ROUTING_PASSING, targetProblems, type Route } from './studio/routing'
+import { approveBlockers, evidenceIdsOf, recommendAgent, ROUTING_MIN_N, ROUTING_PASSING, targetProblems, type Route } from './studio/routing'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -259,6 +261,68 @@ describe('S12 screen', () => {
     expect(c.querySelectorAll('[data-testid="s12-evidence-unlinked"]')).toHaveLength(1)
   })
 
+  it('without evidence_run_ids (an older API) the evidence falls back to GET /eval-runs, with no cut line', async () => {
+    const c = mountAt(PAGE)
+    await ready(c)
+    expect(q(c, 's12-evidence-cut')).toBeNull()
+    expect(q(c, 's12-live-since')).toBeNull()
+    expect(q(c, 's12-rollback-pr-link')).toBeNull()
+  })
+
+  it('lists exactly the evidence_run_ids of the compare response; under relative also the current agent ids', async () => {
+    const withIds: UseCaseCompareResponse = {
+      ...DATA,
+      agents: DATA.agents.map((a) =>
+        a.agent_key === KEY_C
+          ? { ...a, evidence_run_ids: [uuid(32), uuid(35), uuid(77)], evidence_run_count: 3 }
+          : a.agent_key === KEY_A
+            ? { ...a, evidence_run_ids: [uuid(11)], evidence_run_count: 1 }
+            : a,
+      ),
+    }
+    const c = mountAt(PAGE, { compare: [200, withIds] })
+    await ready(c)
+    const ids = () => [...c.querySelectorAll<HTMLElement>('[data-testid="s12-evidence"] [data-run-id]')].map((e) => e.dataset.runId)
+    const linked = () => [...c.querySelectorAll<HTMLElement>('[data-testid="s12-evidence-link"]')].map((e) => e.dataset.runId)
+    const unlinked = () => [...c.querySelectorAll<HTMLElement>('[data-testid="s12-evidence-unlinked"]')].map((e) => e.dataset.runId)
+    // Absolute: C's ids only. Run 31 is C's in GET /eval-runs but not counted by the API, so it is not listed.
+    expect(ids()).toEqual([uuid(32), uuid(35), uuid(77)])
+    expect(linked()).toEqual([uuid(32)])
+    expect(c.querySelector<HTMLAnchorElement>('[data-testid="s12-evidence-link"]')!.getAttribute('href')).toBe(`/evaluations/${uuid(532)}`)
+    // 35 has an eval-runs row with no evaluation; 77 has no eval-runs row at all.
+    expect(unlinked()).toEqual([uuid(35), uuid(77)])
+    expect(q(c, 's12-evidence')!.textContent).toContain('not in your latest results list')
+    expect(q(c, 's12-evidence-cut')).toBeNull()
+    // Relative: plus the current agent (A) ids, as the API freezes them.
+    click(q(c, 's12-rule-relative')!)
+    expect(ids()).toEqual([uuid(32), uuid(35), uuid(77), uuid(11)])
+    expect(linked()).toEqual([uuid(32), uuid(11)])
+  })
+
+  it('shows "showing N of M runs" when the API cut the list', async () => {
+    const cut: UseCaseCompareResponse = {
+      ...DATA,
+      agents: DATA.agents.map((a) => (a.agent_key === KEY_C ? { ...a, evidence_run_ids: [uuid(31), uuid(32)], evidence_run_count: 640 } : a)),
+    }
+    const c = mountAt(PAGE, { compare: [200, cut] })
+    await ready(c)
+    expect(q(c, 's12-evidence-cut')!.textContent).toBe('showing 2 of 640 runs')
+  })
+
+  it('shows "live since" and the rollback PR link of a tma-route/2 live row', async () => {
+    const v2 = route({
+      format: 'tma-route/2',
+      live_at: '2026-11-02T09:30:00.000Z',
+      rollback_pr_url: 'https://github.com/example-org/example-infra/pull/8',
+      rolled_back_at: null,
+    })
+    const c = mountAt(PAGE, { routes: [200, { routes: [v2] }] })
+    await ready(c)
+    const cur = q(c, 's12-current')!
+    expect(cur.querySelector('[data-testid="s12-live-since"]')!.textContent).toBe('live since 2026-11-02')
+    expect(cur.querySelector('[data-testid="s12-rollback-pr-link"]')!.getAttribute('href')).toBe('https://github.com/example-org/example-infra/pull/8')
+  })
+
   it('shows "default (no live route)" when no route is live', async () => {
     const c = mountAt(PAGE, { routes: [200, { routes: [route({ state: 'rolled_back' })] }], compare: [200, { ...DATA, current_agent: null }] })
     await ready(c)
@@ -410,6 +474,21 @@ describe('S12 screen', () => {
     await waitFor(() => !!q(c, 's8-routing-link'), 'S8 link')
     expect(q(c, 's8-routing-link')!.getAttribute('href')).toBe('/studio/routing/fix%2Fprod-bug')
     expect(routingHref('plan/write-plan')).toBe('/studio/routing/plan%2Fwrite-plan')
+  })
+})
+
+describe('evidenceIdsOf', () => {
+  const a = agent(KEY_C, { evidence_run_ids: [uuid(1), uuid(2)], evidence_run_count: 2 })
+  const cur = agent(KEY_A, { evidence_run_ids: [uuid(3)], evidence_run_count: 700 })
+  it('is null without the field (the fallback path)', () => {
+    expect(evidenceIdsOf(agent(KEY_C), [], KEY_A, 'absolute')).toBeNull()
+  })
+  it('absolute: the agent ids; relative: plus the current agent ids and counts', () => {
+    expect(evidenceIdsOf(a, [a, cur], KEY_A, 'absolute')).toEqual({ ids: [uuid(1), uuid(2)], total: 2 })
+    expect(evidenceIdsOf(a, [a, cur], KEY_A, 'relative')).toEqual({ ids: [uuid(1), uuid(2), uuid(3)], total: 702 })
+    // The agent is the current agent: one side only.
+    expect(evidenceIdsOf(cur, [a, cur], KEY_A, 'relative')).toEqual({ ids: [uuid(3)], total: 700 })
+    expect(evidenceIdsOf(a, [a, cur], null, 'relative')).toEqual({ ids: [uuid(1), uuid(2)], total: 2 })
   })
 })
 

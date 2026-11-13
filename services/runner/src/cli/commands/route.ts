@@ -40,7 +40,7 @@ export interface RouteDeps {
 }
 
 const PR_USAGE = `usage: tma route pr (--route-file <route.json> | --route <id>) --targets <targets.json> --repo-dir <infra checkout> [--dry-run] [--base master]
-  Applies an APPROVED route (tma-route/1) to ONE file of the infra checkout and opens the PR:
+  Applies an APPROVED route (tma-route/1 file or tma-route/2 API row) to ONE file of the infra checkout and opens the PR:
   env:<FLAG>      replaces the FLAG=<old> line and writes a "# route ..." + "# rollback: FLAG=<old>" block above it;
   claude-md:<row> replaces the model cell (**\`value\`**) of the one row that starts with row_prefix.
   Refuses (exit 2): state is not approved; n < 5; the verdict does not pass under the picked rule (absolute:
@@ -66,7 +66,7 @@ const PR_RE = /^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9
 
 function checkRouteRow(value: unknown, label: string): Route {
   const r = validateRoute(value);
-  if (!r.ok) throw new RouteRefusal(`${label} is not a valid tma-route/1 row: ${r.errors.slice(0, 3).join('; ')}`);
+  if (!r.ok) throw new RouteRefusal(`${label} is not a valid route row (tma-route/1 or tma-route/2): ${r.errors.slice(0, 3).join('; ')}`);
   return r.value;
 }
 

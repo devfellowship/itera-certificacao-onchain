@@ -20,7 +20,10 @@
  *                              and `state`, each at most once (else 400 invalid_query).
  *   GET   /routes/:id          one route of the result tenant, or 404. A malformed id → 400.
  *
- * Every row is answered in the `tma-route/1` shape (packages/contracts/route.js). 503 schema_not_ready before 0026.
+ * Every row is answered in the `tma-route/2` shape (packages/contracts/route.js, schemas/route-v2.schema.json; Q3 = A):
+ * the tma-route/1 keys plus live_at, rollback_pr_url and rolled_back_at (ISO string or null). 503 schema_not_ready
+ * before 0026. The approve evidence comes from countedRunIdsOf (use-case-compare.ts), the same helper as the
+ * `evidence_run_ids` of GET /use-cases/:key/compare (Q4 = A).
  * Tenant: TMA_RESULT_TENANT (resultTenantFromEnv), as the compare route. Routes are tenant-wide: every principal of
  * the tenant may read them; only the approver's own evidence can back an approval.
  *
@@ -32,13 +35,14 @@
 import { createHash } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import type { Pool } from "pg";
-import { ROUTE_MIN_N, ROUTE_RULES, ROUTE_STATES, routeVerdictPasses, type Route, type RouteRule, type RouteState } from "@itera/contracts";
-import { runScore } from "@itera/contracts/compare";
+import {
+  ROUTE_FORMAT_V2, ROUTE_MIN_N, ROUTE_RULES, ROUTE_STATES, routeVerdictPasses, type RouteRule, type RouteState, type RouteV2,
+} from "@itera/contracts";
 import { requirePrincipal } from "../auth/middleware.js";
 import { hasEvalRoutesSchema } from "../domain/schema-features.js";
 import { resultTenantFromEnv } from "./store.js";
 import {
-  AGENT_KEY_RE, agentKeyOf, compareView, USE_CASE_PAIR_RE, useCaseRunsOf, type CompareAgentView, type UseCaseCompareReader,
+  AGENT_KEY_RE, agentKeyOf, compareView, countedRunIdsOf, ROUTE_MAX_EVIDENCE, USE_CASE_PAIR_RE, useCaseRunsOf, type CompareAgentView, type UseCaseCompareReader,
   type UseCaseCompareView,
 } from "./use-case-compare.js";
 
@@ -46,17 +50,17 @@ export const EVAL_ROUTES_MIGRATION = "0026_eval_routes.sql";
 /** The routing policy version stored when the approve body names none. */
 export const DEFAULT_ROUTE_POLICY_VERSION = "c8-1";
 export const ROUTES_LIST_LIMIT = 200;
-/** eval_routes_evidence_max_check. */
-export const ROUTE_MAX_EVIDENCE = 500;
+/** eval_routes_evidence_max_check (one value, defined in use-case-compare.ts). */
+export { ROUTE_MAX_EVIDENCE };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-// The patterns of the eval_routes CHECKs (0026), narrowed where tma-route/1 is narrower.
+// The patterns of the eval_routes CHECKs (0026), narrowed where tma-route/2 is narrower.
 const ROUTE_TARGET_RE = /^(env:[A-Z][A-Z0-9_]{1,63}|claude-md:[a-z0-9][a-z0-9_-]{0,63})$/;
 const VALUE_RE = /^[a-z0-9][a-z0-9_.:-]{0,63}$/;
 const POLICY_RE = /^[a-z0-9][a-z0-9_.-]{0,31}$/;
 const ACTOR_RE = /^[a-z0-9][a-z0-9_.:-]{0,63}$/;
 const PR_URL_RE = /^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}\/pull\/[0-9]{1,9}$/;
-/** The harness values of tma-route/1. */
+/** The harness values of tma-route/1 and tma-route/2. */
 const ROUTE_HARNESSES = new Set(["claude-code", "codex", "opencode"]);
 
 /** One row of eval_routes (column names). Timestamps are Date (pg) or an ISO string. */
@@ -137,13 +141,14 @@ export interface RoutesStore {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The row view (tma-route/1)
+// The row view (tma-route/2)
 
 const iso = (v: Date | string | null): string | null => (v === null ? null : v instanceof Date ? v.toISOString() : new Date(v).toISOString());
 
-/** A row of eval_routes in the tma-route/1 shape. Columns that the contract does not name are left out. */
-export function routeView(r: RouteRecord): Route {
+/** A row of eval_routes in the tma-route/2 shape. Columns that the contract does not name are left out. */
+export function routeView(r: RouteRecord): RouteV2 {
   return {
+    format: ROUTE_FORMAT_V2,
     id: r.id,
     tenant: r.tenant,
     use_case_key: r.use_case_key,
@@ -152,7 +157,7 @@ export function routeView(r: RouteRecord): Route {
     rollback_value: r.rollback_value,
     model_id: r.model_id,
     agent_sha256: r.agent_sha256,
-    harness: ROUTE_HARNESSES.has(r.harness) ? (r.harness as Route["harness"]) : null,
+    harness: ROUTE_HARNESSES.has(r.harness) ? (r.harness as RouteV2["harness"]) : null,
     harness_repo_sha: r.harness_repo_sha,
     rules_sha256: r.rules_sha256,
     skills_sha256: r.skills_sha256 === null ? null : [r.skills_sha256],
@@ -168,6 +173,9 @@ export function routeView(r: RouteRecord): Route {
     pr_url: r.pr_url,
     approved_by_actor: r.approved_by_actor,
     approved_at: iso(r.approved_at),
+    live_at: iso(r.live_at),
+    rollback_pr_url: r.rollback_pr_url,
+    rolled_back_at: iso(r.rolled_back_at),
     created_at: iso(r.created_at) as string,
     updated_at: iso(r.updated_at) as string,
   };
@@ -452,13 +460,11 @@ export function createRoutesRouter(deps: RoutesRouterDeps): Router {
         return;
       }
       // The evidence: the counted runs of the cell (infra fault and no-score runs are not counted), and under the
-      // relative rule also the counted runs of the current agent it was compared with.
-      const profile = { useCase: b.use_case, graders: [] };
-      const sides = new Set([b.agent, ...(b.picked_rule === "relative" && b.current_agent ? [b.current_agent] : [])]);
-      const evidence = useCaseRunsOf(rows)
-        .filter((r) => sides.has(r.agentKey) && r.infraOk !== false && runScore(r, profile).score !== null)
-        .map((r) => r.runId);
-      const evidenceIds = [...new Set(evidence)];
+      // relative rule also the counted runs of the current agent it was compared with. countedRunIdsOf is the same
+      // helper as the compare response's evidence_run_ids.
+      const libRuns = useCaseRunsOf(rows);
+      const sides = [...new Set([b.agent, ...(b.picked_rule === "relative" && b.current_agent ? [b.current_agent] : [])])];
+      const evidenceIds = [...new Set(sides.flatMap((k) => countedRunIdsOf(libRuns, k, b.use_case)))];
       if (evidenceIds.length > ROUTE_MAX_EVIDENCE) {
         res.status(400).json({ error: "evidence_too_large", message: `the verdict cites ${evidenceIds.length} runs; the limit is ${ROUTE_MAX_EVIDENCE}` });
         return;

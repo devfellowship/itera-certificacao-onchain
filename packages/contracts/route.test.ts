@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Itera / DevFellowship
 import { describe, expect, it } from 'vitest';
-import { ROUTE_MAX_BYTES, parseRouteText, routeSchema, routeVerdictPasses, validateRoute } from './index.js';
+import {
+  ROUTE_FORMAT, ROUTE_FORMAT_V1, ROUTE_FORMAT_V2, ROUTE_MAX_BYTES, parseRouteText, routeSchema, routeSchemaV2, routeVerdictPasses, validateRoute,
+} from './index.js';
 
 // Synthetic fixture: invented ids and hashes only.
 const H = (c: string) => c.repeat(64);
@@ -73,5 +75,99 @@ describe('tma-route/1', () => {
     expect(parseRouteText('{').ok).toBe(false);
     expect(parseRouteText(' '.repeat(ROUTE_MAX_BYTES + 1)).ok).toBe(false);
     expect(parseRouteText(JSON.stringify(route())).ok).toBe(true);
+  });
+});
+
+const PR = (n: number) => `https://github.com/example-org/infra/pull/${n}`;
+const v2 = (over: Record<string, unknown> = {}): Record<string, any> =>
+  route({ format: 'tma-route/2', policy_version: 'c8-1', live_at: null, rollback_pr_url: null, rolled_back_at: null, ...over });
+const issuesOf = (value: unknown) => {
+  const r = validateRoute(value);
+  return r.ok ? [] : r.issues;
+};
+
+describe('tma-route/2', () => {
+  it('exports both formats; the current one is tma-route/2; both schemas are closed', () => {
+    expect(ROUTE_FORMAT_V1).toBe('tma-route/1');
+    expect(ROUTE_FORMAT_V2).toBe('tma-route/2');
+    expect(ROUTE_FORMAT).toBe(ROUTE_FORMAT_V2);
+    expect(routeSchemaV2.additionalProperties).toBe(false);
+    expect(routeSchemaV2.$id).toMatch(/route-v2\.schema\.json$/);
+    expect(routeSchemaV2.required).toEqual(expect.arrayContaining(['format', 'live_at', 'rollback_pr_url', 'rolled_back_at']));
+  });
+
+  it('accepts a valid approved, live and rolled_back row', () => {
+    expect(issuesOf(v2())).toEqual([]);
+    expect(issuesOf(v2({ state: 'live', pr_url: PR(1), live_at: '2026-11-13T10:00:00Z' }))).toEqual([]);
+    expect(
+      issuesOf(v2({ state: 'rolled_back', pr_url: PR(1), live_at: '2026-11-13T10:00:00Z', rollback_pr_url: PR(2), rolled_back_at: '2026-11-13T11:00:00.123Z' })),
+    ).toEqual([]);
+    expect(issuesOf(v2({ state: 'proposed', approved_by_actor: null, approved_at: null }))).toEqual([]);
+  });
+
+  it('refuses a v2 row without one of the three keys', () => {
+    for (const k of ['live_at', 'rollback_pr_url', 'rolled_back_at']) {
+      const r = v2();
+      delete r[k];
+      const issues = issuesOf(r);
+      expect(issues.length, k).toBeGreaterThan(0);
+      expect(issues[0]).toMatchObject({ code: 'invalid' });
+    }
+  });
+
+  it('refuses a v2 row without format (it is read as v1, which has no live_at)', () => {
+    const r = v2();
+    delete r.format;
+    expect(issuesOf(r).map((i) => i.code)).toContain('unknown_key');
+  });
+
+  it('a live row needs pr_url and live_at', () => {
+    expect(issuesOf(v2({ state: 'live', pr_url: PR(1), live_at: null }))).toEqual([
+      expect.objectContaining({ code: 'inconsistent', path: '/live_at' }),
+    ]);
+    expect(issuesOf(v2({ state: 'live', pr_url: null, live_at: '2026-11-13T10:00:00Z' }))).toEqual([
+      expect.objectContaining({ code: 'inconsistent', path: '/pr_url' }),
+    ]);
+    const noPr = v2({ state: 'live', live_at: '2026-11-13T10:00:00Z' });
+    delete noPr.pr_url;
+    expect(issuesOf(noPr)).toEqual([expect.objectContaining({ code: 'inconsistent', path: '/pr_url' })]);
+  });
+
+  it('a rolled_back row needs rollback_pr_url and rolled_back_at', () => {
+    const base = { state: 'rolled_back', pr_url: PR(1), live_at: '2026-11-13T10:00:00Z' };
+    expect(issuesOf(v2({ ...base, rollback_pr_url: null, rolled_back_at: '2026-11-13T11:00:00Z' }))).toEqual([
+      expect.objectContaining({ code: 'inconsistent', path: '/rollback_pr_url' }),
+    ]);
+    expect(issuesOf(v2({ ...base, rollback_pr_url: PR(2), rolled_back_at: null }))).toEqual([
+      expect.objectContaining({ code: 'inconsistent', path: '/rolled_back_at' }),
+    ]);
+  });
+
+  it('refuses a bad rollback PR URL or timestamp', () => {
+    expect(validateRoute(v2({ rollback_pr_url: 'https://example.com/pull/1' })).ok).toBe(false);
+    expect(validateRoute(v2({ live_at: '2026-11-13' })).ok).toBe(false);
+  });
+
+  it('refuses an unknown key (closed schema)', () => {
+    expect(issuesOf(v2({ note: 'x' }))[0]).toMatchObject({ code: 'unknown_key', path: '/note' });
+  });
+
+  it('a v1 row stays exactly as before: no format and format tma-route/1 validate; v1 with live_at is refused', () => {
+    expect(issuesOf(route())).toEqual([]);
+    expect(issuesOf(route({ format: 'tma-route/1' }))).toEqual([]);
+    // v1 has no live/rolled_back column checks.
+    expect(issuesOf(route({ state: 'live', pr_url: null }))).toEqual([]);
+    expect(issuesOf(route({ format: 'tma-route/1', live_at: '2026-11-13T10:00:00Z' }))[0]).toMatchObject({ code: 'unknown_key', path: '/live_at' });
+    expect(issuesOf(route({ live_at: null }))[0]).toMatchObject({ code: 'unknown_key', path: '/live_at' });
+  });
+
+  it('refuses an unknown format', () => {
+    expect(validateRoute(route({ format: 'tma-route/3' })).ok).toBe(false);
+    expect(validateRoute(v2({ format: 'tma-route/3' })).ok).toBe(false);
+    expect(validateRoute(null).ok).toBe(false);
+  });
+
+  it('parseRouteText reads a v2 row', () => {
+    expect(parseRouteText(JSON.stringify(v2())).ok).toBe(true);
   });
 });

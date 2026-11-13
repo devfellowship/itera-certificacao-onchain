@@ -2,11 +2,16 @@
  * S12 Routing per use case (plan 20261112-tma-c8-routing-from-evals, task C8-T3), route /studio/routing/:useCase
  * (the L1 pair type/subtype, URL-encoded). Reached from S8.
  *
- *   current route    the latest `live` row of GET /routes?use_case=, or "default (no live route)".
+ *   current route    the latest `live` row of GET /routes?use_case=, or "default (no live route)"; with tma-route/2 rows
+ *                    also "live since <date>" (live_at) and the rollback PR link (rollback_pr_url) when present.
  *   recommendation   the cheapest agent with a passing verdict under either rule and n >= 5 (recommendAgent, from the
  *                    S8 compare response; no verdict is computed here).
  *   the agent        both verdicts side by side (as S8 shows them), n, cost per task with its label, the evidence runs
- *                    as links to /evaluations/:eid, the policy version.
+ *                    as links to /evaluations/:eid, the policy version. The evidence list is the compare response's
+ *                    `evidence_run_ids` (plan C8, Q4 = A): exactly the runs POST /routes/approve freezes for the picked
+ *                    rule (under relative, plus the current agent's), joined to GET /eval-runs only for the link; an
+ *                    id with no eval-runs row is listed unlinked. An older API without the field: the runs of the
+ *                    agent's variants from GET /eval-runs (an approximation).
  *   one action       "Pick rule and approve": POST /routes/approve. The row it writes is the verdict only (ADR-1); the
  *                    change itself goes by a PR that the kit command `tma route pr` opens (copy command).
  *
@@ -31,6 +36,7 @@ import {
   passesUnder,
   postApproveRoute,
   recommendAgent,
+  evidenceIdsOf,
   routeAgentKey,
   routePrCommand,
   ROUTING_MIN_N,
@@ -123,6 +129,24 @@ function CurrentRoute({ live, routesError }: { live: Route | null; routesError: 
                 </dd>
               </>
             )}
+            {live.live_at && (
+              <>
+                <dt>Live</dt>
+                <dd data-testid="s12-live-since" title={live.live_at}>
+                  live since {live.live_at.slice(0, 10)}
+                </dd>
+              </>
+            )}
+            {live.rollback_pr_url && (
+              <>
+                <dt>Rollback PR</dt>
+                <dd>
+                  <a href={live.rollback_pr_url} target="_blank" rel="noreferrer" data-testid="s12-rollback-pr-link">
+                    {live.rollback_pr_url}
+                  </a>
+                </dd>
+              </>
+            )}
           </dl>
         ) : (
           <p className="tma-body-sm">default (no live route)</p>
@@ -151,7 +175,9 @@ function Verdicts({ a, data }: { a: CompareAgent; data: UseCaseCompareResponse }
   )
 }
 
-function Evidence({ a, runs, useCase }: { a: CompareAgent; runs: EvalRun[] | null; useCase: string }) {
+function Evidence({ a, data, rule, runs, useCase }: { a: CompareAgent; data: UseCaseCompareResponse; rule: RouteRule; runs: EvalRun[] | null; useCase: string }) {
+  const frozen = evidenceIdsOf(a, data.agents, data.current_agent, rule)
+  if (frozen) return <FrozenEvidence ids={frozen.ids} total={frozen.total} runs={runs} />
   if (!runs) return <p className="tma-body-sm tma-muted">The evidence runs could not be loaded.</p>
   const ids = new Set(a.variant_ids)
   const mine = runs.filter((r) => r.useCaseKey === useCase && ids.has(r.variant.id) && r.infraOk !== false)
@@ -172,6 +198,38 @@ function Evidence({ a, runs, useCase }: { a: CompareAgent; runs: EvalRun[] | nul
         ),
       )}
     </ul>
+  )
+}
+
+/** The evidence ids of the compare response; GET /eval-runs only adds the evaluation link and the case key. */
+function FrozenEvidence({ ids, total, runs }: { ids: string[]; total: number; runs: EvalRun[] | null }) {
+  if (!ids.length) return <p className="tma-body-sm tma-muted">No counted runs for this agent yet.</p>
+  const byId = new Map((runs ?? []).map((r) => [r.id, r]))
+  return (
+    <>
+      {total > ids.length && (
+        <p className="tma-body-sm tma-muted" data-testid="s12-evidence-cut">
+          showing {ids.length} of {total} runs
+        </p>
+      )}
+      <ul className="stu-runs s12-evidence" data-testid="s12-evidence">
+        {ids.map((id) => {
+          const r = byId.get(id)
+          return r?.evaluationId ? (
+            <li key={id}>
+              <Link to={evaluationHref(r.evaluationId)} className="tma-mono" data-testid="s12-evidence-link" data-run-id={id}>
+                {r.caseKey} · {sha12(id)}
+              </Link>
+            </li>
+          ) : (
+            <li key={id} className="tma-mono tma-muted" data-testid="s12-evidence-unlinked" data-run-id={id}>
+              {r ? `${r.caseKey} · ` : ''}
+              {sha12(id)} {r ? '(uploaded, no evaluation page)' : '(not in your latest results list)'}
+            </li>
+          )
+        })}
+      </ul>
+    </>
   )
 }
 
@@ -234,10 +292,25 @@ function RouteList({ routes }: { routes: Route[] }) {
   )
 }
 
-function ApprovePanel({ data, useCase, agent, live, onApproved }: { data: UseCaseCompareResponse; useCase: string; agent: CompareAgent | null; live: Route | null; onApproved: (r: Route) => void }) {
+function ApprovePanel({
+  data,
+  useCase,
+  agent,
+  live,
+  rule,
+  setRule,
+  onApproved,
+}: {
+  data: UseCaseCompareResponse
+  useCase: string
+  agent: CompareAgent | null
+  live: Route | null
+  rule: RouteRule
+  setRule: (r: RouteRule) => void
+  onApproved: (r: Route) => void
+}) {
   const ids = { kind: useId(), name: useId(), value: useId(), rollback: useId(), fallback: useId() }
   const liveTarget = live ? splitTarget(live.route_target) : null
-  const [rule, setRule] = useState<RouteRule>('absolute')
   const [target, setTarget] = useState<TargetInput>({
     kind: liveTarget?.kind ?? 'env',
     name: liveTarget?.name ?? '',
@@ -337,6 +410,8 @@ export function RoutingView({ data, useCase }: { data: RoutingData; useCase: str
   const live = data.routes ? latestLive(data.routes) : null
   const [picked, setPicked] = useState<string>(rec?.agent.agent_key ?? sortAgents(compare.agents)[0]?.agent_key ?? '')
   const [approved, setApproved] = useState<Route | null>(null)
+  // The rule picked in the approve panel; the evidence list follows it (relative adds the current agent's runs).
+  const [rule, setRule] = useState<RouteRule>('absolute')
   const agent = compare.agents.find((a) => a.agent_key === picked) ?? null
   const selectId = useId()
   const routes = [...(approved ? [approved] : []), ...(data.routes ?? []).filter((r) => r.id !== approved?.id)]
@@ -406,13 +481,13 @@ export function RoutingView({ data, useCase }: { data: RoutingData; useCase: str
                     </dd>
                   </dl>
                   <span className="tma-label">Evidence runs</span>
-                  <Evidence a={agent} runs={data.runs} useCase={useCase} />
+                  <Evidence a={agent} data={compare} rule={approved ? approved.picked_rule : rule} runs={data.runs} useCase={useCase} />
                   {agent.n < ROUTING_MIN_N && <MoreSamples useCase={useCase} n={agent.n} />}
                 </>
               )}
             </div>
           </Card>
-          {approved ? <ApprovedRoute route={approved} /> : <ApprovePanel data={compare} useCase={useCase} agent={agent} live={live} onApproved={setApproved} />}
+          {approved ? <ApprovedRoute route={approved} /> : <ApprovePanel data={compare} useCase={useCase} agent={agent} live={live} rule={rule} setRule={setRule} onApproved={setApproved} />}
         </>
       )}
       <RouteList routes={routes} />
