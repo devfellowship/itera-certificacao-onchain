@@ -166,6 +166,15 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # C7-T3: GET /use-cases/:key/compare reads only the caller's rows of the result tenant (owner + tenant on the
+      # case, the variant and the run), takes the latest grading per (run, grader version), and computes every number
+      # with @itera/contracts/compare. Rows are written through the real upload path. It deletes its fixtures.
+      - name: Use-case compare reader test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/self-declared/use-case-compare.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       # C4-T4: the hosted worker's finish writes the same record as an upload — run_actions rows with status and
       # args_sha256, runs.infra_ok, one grader_results row, a grader registry row reused by the next run; the
       # old shape when 0023 is absent; a refused trajectory never loses the run result. It deletes its fixtures.
