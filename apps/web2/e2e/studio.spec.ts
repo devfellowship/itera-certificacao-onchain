@@ -142,6 +142,8 @@ test('studio S10 graders list and S10a grader detail show the fixture grader, re
   await expect(page).not.toHaveURL(/\/studio\/graders\/?$/)
   await expectMounted(page)
   await expect(page.getByText(FIXTURE_GRADER_ID).first()).toBeVisible({ timeout: 30_000 })
-  expect(await page.locator('[data-copy-command]').count(), 'copy commands on S10a').toBeGreaterThanOrEqual(1)
+  // Wait for the detail itself: right after the SPA navigation the list page can still be on screen.
+  await expect(page.getByTestId('studio-grader-detail')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('[data-copy-command]').first(), 'copy command on S10a').toBeAttached({ timeout: 30_000 })
   await expectNoControls(page, FORBIDDEN_GRADER_CONTROLS)
 })
