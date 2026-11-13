@@ -6,15 +6,19 @@
 //   rollback  a live route -> a PR that writes the old value back;
 //   mark      PATCH /routes/:id/state after the merge (live or rolled_back, with the PR URL), or the T5 mark
 //             needs_check (no PR: ADR-7, a trigger marks a route, it never changes it);
-//   list      GET /routes (filters state, use case), each row checked with validateRoute (the T5 trigger job reads it).
+//   list      GET /routes (filters state, use case), each row checked with validateRoute (the T5 trigger job reads it);
+//   recheck   T5: compare today's observation (tma-route-observation/1) with the stored baselines and with each live
+//             route's agent, and mark a route needs_check per trigger. It never runs git, never opens a route file,
+//             never calls pr or rollback (ADR-7).
 //
 // A refusal prints one line and exits 2. --dry-run prints the exact diff and the PR text and runs nothing.
 // git and gh run through an injectable exec, so the tests never touch a real repository or GitHub.
-import { readFile, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { ROUTE_STATES, validateRoute, type Route } from '@itera/contracts';
+import { randomBytes } from 'node:crypto';
+import { readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
+import { ROUTE_STATES, parseRouteObservationText, validateRoute, type Route } from '@itera/contracts';
 import { exec as realExec, type ExecResult } from '../../exec.js';
-import { apiCall, describeRefusal, type Fetch } from '../api.js';
+import { apiCall, describeRefusal, type ApiAnswer, type Fetch } from '../api.js';
 import { flag, has, parseArgs, required } from '../args.js';
 import type { Command, Io } from '../command.js';
 import { apiUrl, CliError } from '../env.js';
@@ -30,6 +34,7 @@ import {
   unifiedDiff,
   type RouteAction,
 } from '../route/apply.js';
+import { emptyRecheckState, recheck, triggersText, validateRecheckState, type Mark, type RecheckState } from '../route/recheck.js';
 
 export type RouteExec = (cmd: string, args: string[], opts: { cwd: string }) => Promise<ExecResult>;
 
@@ -70,8 +75,20 @@ const LIST_USAGE = `usage: tma route list [--state <state>] [--use-case <type/su
   Prints one line per route: id, use case, target, state, model (tab-separated); --json prints the JSON array.
   --state     one of ${ROUTE_STATES.join(', ')}`;
 
+const RECHECK_USAGE = `usage: tma route recheck --observed <observation.json> --state <state.json> [--dry-run] [--json]
+  Task T5 (daily): compares today's observation (tma-route-observation/1, written by a host collector) with the
+  baseline stored per live route in --state, and with the agent each live route row names. Triggers: model_or_price
+  (new model list or price digest), task_mix (the pair's 14-day share moved more than 10 points), grader_version
+  (a grader of the pair's profile changed, came or went), agent_change (harness commit, rules or skills digest).
+  The first sight of a route records its baseline (only agent_change runs). Each triggered route gets
+  PATCH <api>/routes/<id>/state {state: needs_check} and one line; a route value or file is never changed.
+  --state     the baseline file (tma-route-recheck-state/1); absent = empty; written atomically, also in --dry-run
+  --dry-run   send no PATCH; print "would mark (dry run)"
+  --json      print {marks, refused} instead of lines
+  Exit: 0 ok, 2 usage or invalid input (the state file stays as it was), 3 the API refused at least one mark, 1 other.`;
+
 const USAGE = [
-  'usage: tma route <pr|rollback|mark|list> ...   (apply an approved model route by a PR: plan C8)', '', PR_USAGE, '', ROLLBACK_USAGE, '', MARK_USAGE, '', LIST_USAGE,
+  'usage: tma route <pr|rollback|mark|list|recheck> ...   (apply an approved model route by a PR: plan C8)', '', PR_USAGE, '', ROLLBACK_USAGE, '', MARK_USAGE, '', LIST_USAGE, '', RECHECK_USAGE,
 ].join('\n');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -191,8 +208,7 @@ async function markMain(argv: string[], io: Io, deps: RouteDeps): Promise<number
     if (!PR_RE.test(pr)) throw new CliError(`--pr must be a GitHub pull request URL (https://github.com/<owner>/<repo>/pull/<n>)`);
   }
   const body = pr === null ? { state } : { state, pr_url: pr };
-  const { base, token } = session(deps);
-  const r = await apiCall(base, `/routes/${id}/state`, { method: 'PATCH', body, token, fetchImpl: deps.fetchImpl });
+  const r = await patchRouteState(deps, id, body);
   if (r.status === 404) {
     io.err(`tma route mark: 404 from PATCH /routes/${id}/state: the route is not found, or the API does not have this endpoint yet (task T2 of plan 20261112-tma-c8-routing-from-evals). Nothing was changed.`);
     return 1;
@@ -200,6 +216,42 @@ async function markMain(argv: string[], io: Io, deps: RouteDeps): Promise<number
   if (r.status < 200 || r.status >= 300) throw new CliError(`cannot set the route state: ${describeRefusal(r)}`);
   io.out(pr === null ? `route ${id} -> ${state}` : `route ${id} -> ${state} (${pr})`);
   return 0;
+}
+
+/** PATCH /routes/:id/state: the one call of `tma route mark` and of `tma route recheck`. */
+async function patchRouteState(deps: RouteDeps, id: string, body: { state: string; pr_url?: string }): Promise<ApiAnswer> {
+  const { base, token } = session(deps);
+  return apiCall(base, `/routes/${id}/state`, { method: 'PATCH', body, token, fetchImpl: deps.fetchImpl });
+}
+
+/**
+ * GET /routes with the filters, every row through validateRoute: the one read of `tma route list` and of
+ * `tma route recheck`. Returns null after it printed why (exit 1).
+ */
+async function fetchRoutes(deps: RouteDeps, io: Io, cmd: string, filters: { state?: string; useCase?: string }): Promise<Route[] | null> {
+  const query = new URLSearchParams();
+  if (filters.useCase !== undefined) query.set('use_case', filters.useCase);
+  if (filters.state !== undefined) query.set('state', filters.state);
+  const qs = query.toString();
+  const { base, token } = session(deps);
+  const r = await apiCall(base, `/routes${qs ? `?${qs}` : ''}`, { token, fetchImpl: deps.fetchImpl });
+  if (r.status !== 200) throw new CliError(`cannot list the routes: ${describeRefusal(r)}`);
+  const rows = r.body?.routes;
+  if (!Array.isArray(rows)) {
+    io.err(`tma route ${cmd}: the API answer has no routes array`);
+    return null;
+  }
+  const routes: Route[] = [];
+  for (const [i, row] of rows.entries()) {
+    const v = validateRoute(row);
+    if (!v.ok) {
+      const id = row && typeof row === 'object' && typeof (row as { id?: unknown }).id === 'string' ? (row as { id: string }).id.slice(0, 60) : `#${i}`;
+      io.err(`tma route ${cmd}: route ${id} is not a valid route row (tma-route/1 or tma-route/2): ${v.errors.slice(0, 3).join('; ')}`);
+      return null;
+    }
+    routes.push(v.value);
+  }
+  return routes;
 }
 
 async function listMain(argv: string[], io: Io, deps: RouteDeps): Promise<number> {
@@ -211,28 +263,8 @@ async function listMain(argv: string[], io: Io, deps: RouteDeps): Promise<number
     throw new CliError(`--state must be one of ${ROUTE_STATES.join(', ')}\n${LIST_USAGE}`);
   }
   if (useCase !== undefined && !USE_CASE_RE.test(useCase)) throw new CliError(`--use-case must be one L1 pair type/subtype\n${LIST_USAGE}`);
-  const query = new URLSearchParams();
-  if (useCase !== undefined) query.set('use_case', useCase);
-  if (state !== undefined) query.set('state', state);
-  const qs = query.toString();
-  const { base, token } = session(deps);
-  const r = await apiCall(base, `/routes${qs ? `?${qs}` : ''}`, { token, fetchImpl: deps.fetchImpl });
-  if (r.status !== 200) throw new CliError(`cannot list the routes: ${describeRefusal(r)}`);
-  const rows = r.body?.routes;
-  if (!Array.isArray(rows)) {
-    io.err('tma route list: the API answer has no routes array');
-    return 1;
-  }
-  const routes: Route[] = [];
-  for (const [i, row] of rows.entries()) {
-    const v = validateRoute(row);
-    if (!v.ok) {
-      const id = row && typeof row === 'object' && typeof (row as { id?: unknown }).id === 'string' ? (row as { id: string }).id.slice(0, 60) : `#${i}`;
-      io.err(`tma route list: route ${id} is not a valid route row (tma-route/1 or tma-route/2): ${v.errors.slice(0, 3).join('; ')}`);
-      return 1;
-    }
-    routes.push(v.value);
-  }
+  const routes = await fetchRoutes(deps, io, 'list', { state, useCase });
+  if (routes === null) return 1;
   if (has(a, 'json')) {
     io.out(JSON.stringify(routes, null, 2));
     return 0;
@@ -241,10 +273,112 @@ async function listMain(argv: string[], io: Io, deps: RouteDeps): Promise<number
   return 0;
 }
 
+/** Write a file atomically: a temp file in the same directory, then rename over the target. */
+async function writeAtomic(path: string, text: string): Promise<void> {
+  const tmp = join(dirname(path), `.${basename(path)}.${randomBytes(6).toString('hex')}.tmp`);
+  try {
+    await writeFile(tmp, text, { encoding: 'utf-8', mode: 0o644 });
+    await rename(tmp, path);
+  } catch (e) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw new CliError(`cannot write ${path} (${e instanceof Error ? e.message.slice(0, 120) : 'error'})`);
+  }
+}
+
+async function readState(path: string): Promise<RecheckState> {
+  let text: string;
+  try {
+    text = await readFile(path, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return emptyRecheckState();
+    throw new RouteRefusal(`cannot read the state file ${path}`);
+  }
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    throw new RouteRefusal(`the state file ${path} is not JSON (it is left as it is)`);
+  }
+  const r = validateRecheckState(v);
+  if (!r.ok) throw new RouteRefusal(`the state file ${path} is not a tma-route-recheck-state/1 file: ${r.error} (it is left as it is)`);
+  return r.value;
+}
+
+interface Refused {
+  route_id: string;
+  use_case_key: string;
+  status: number;
+  error: string;
+}
+
+async function recheckMain(argv: string[], io: Io, deps: RouteDeps): Promise<number> {
+  let a: ReturnType<typeof parseArgs>;
+  try {
+    a = parseArgs(argv, { observed: {}, state: {}, 'dry-run': { boolean: true }, json: { boolean: true } });
+  } catch (e) {
+    throw new RouteRefusal(`${e instanceof Error ? e.message : 'bad arguments'}\n${RECHECK_USAGE}`);
+  }
+  if (a.positionals.length) throw new RouteRefusal(`unexpected argument: ${a.positionals[0]!.slice(0, 60)}\n${RECHECK_USAGE}`);
+  const observedFile = flag(a, 'observed');
+  const stateFile = flag(a, 'state');
+  if (!observedFile || !stateFile) throw new RouteRefusal(`--observed and --state are required\n${RECHECK_USAGE}`);
+  const dryRun = has(a, 'dry-run');
+  const json = has(a, 'json');
+
+  const obsText = await readFile(resolve(observedFile), 'utf-8').catch(() => null);
+  if (obsText === null) throw new RouteRefusal(`cannot read ${observedFile}`);
+  const parsed = parseRouteObservationText(obsText);
+  if (!parsed.ok) throw new RouteRefusal(`${observedFile} is not a valid tma-route-observation/1 file: ${parsed.errors.slice(0, 3).join('; ')}`);
+  const statePath = resolve(stateFile);
+  const state = await readState(statePath);
+
+  const live = await fetchRoutes(deps, io, 'recheck', { state: 'live' });
+  if (live === null) return 1;
+  const result = recheck(live, parsed.value, state);
+
+  const marked: Mark[] = [];
+  const refused: Refused[] = [];
+  const lines: string[] = [];
+  try {
+    for (const check of result.checks) {
+      const notes = check.notes.length ? ` [${check.notes.join('; ')}]` : '';
+      const head = `route ${check.route_id} ${check.use_case_key}:`;
+      if (check.triggers.length === 0) {
+        lines.push(`${head} ok${notes}`);
+        continue;
+      }
+      const what = `${head} needs_check (${triggersText(check.triggers)})`;
+      const mark: Mark = { route_id: check.route_id, use_case_key: check.use_case_key, triggers: check.triggers };
+      if (dryRun) {
+        marked.push(mark);
+        lines.push(`${what} would mark (dry run)${notes}`);
+        continue;
+      }
+      const r = await patchRouteState(deps, check.route_id, { state: 'needs_check' });
+      if (r.status >= 200 && r.status < 300) {
+        marked.push(mark);
+        lines.push(`${what} marked${notes}`);
+      } else {
+        const code = typeof r.body?.error === 'string' && /^[a-z0-9_]{1,64}$/.test(r.body.error) ? r.body.error : 'error';
+        refused.push({ route_id: check.route_id, use_case_key: check.use_case_key, status: r.status, error: code });
+        lines.push(`${what} NOT marked: ${r.status} ${code}${notes}`);
+      }
+    }
+  } finally {
+    // The baselines are facts about the observation, not about the API: write them also in a dry run and after a refusal.
+    await writeAtomic(statePath, `${JSON.stringify(result.nextState, null, 2)}\n`);
+  }
+
+  if (json) io.out(JSON.stringify({ dry_run: dryRun, marks: marked, refused }, null, 2));
+  else for (const l of lines) io.out(l);
+  if (dryRun) io.err('dry run: tma route recheck sent no PATCH; the state file is written');
+  return refused.length ? 3 : 0;
+}
+
 export function makeRouteCommand(deps: RouteDeps = {}): Command {
   return {
     name: 'route',
-    summary: 'Apply an approved model route by a PR (pr), roll it back by a PR (rollback), record the state (mark), list routes (list)',
+    summary: 'Apply an approved model route by a PR (pr), roll it back by a PR (rollback), record the state (mark), list routes (list), mark live routes needs_check on a trigger (recheck)',
     usage: USAGE,
     async main(argv, io) {
       const [sub, ...rest] = argv;
@@ -258,6 +392,8 @@ export function makeRouteCommand(deps: RouteDeps = {}): Command {
             return await markMain(rest, io, deps);
           case 'list':
             return await listMain(rest, io, deps);
+          case 'recheck':
+            return await recheckMain(rest, io, deps);
           default:
             throw new CliError(`${sub ? `unknown route command: ${sub}` : 'give a route command'}\n${USAGE}`);
         }
