@@ -2,6 +2,7 @@ import { PgSelfDeclaredStore } from "./self-declared/store.pg.js";
 import { selfDeclaredPerDayFromEnv } from "./self-declared/router.js";
 import { PgRunOriginLookup } from "./self-declared/run-guard.js";
 import { PgEvalResultsReader } from "./self-declared/eval-results.js";
+import { PgGraderVersionsReader } from "./self-declared/grader-versions.js";
 import { PgEvalCleanupStore } from "./self-declared/cleanup.pg.js";
 import { PgRecomputeStore } from "./self-declared/recompute.pg.js";
 import { hasEvalMetaSchema, hasEvalResultsSchema } from "./domain/schema-features.js";
@@ -132,6 +133,8 @@ createApp(repo, {
   runOrigins: new PgRunOriginLookup(getPool),
   // C4-T3: case, variant, graders, trajectory summary on the read routes + GET /eval-cases/:id (no-op before 0023).
   evalResults: new PgEvalResultsReader(getPool),
+  // C5-T5: read only grader library (503 before 0023).
+  graderVersions: new PgGraderVersionsReader(getPool),
   // C4-T13: POST /eval-results/cleanup (owner-only delete of unreferenced cases, variants, grader versions; dry_run default).
   evalCleanup: { store: new PgEvalCleanupStore(getPool()), ready: () => hasEvalResultsSchema(getPool()) },
   // C4-T10: POST /eval-results/recompute (back-fill of derived columns of the caller's own rows; dry_run default).

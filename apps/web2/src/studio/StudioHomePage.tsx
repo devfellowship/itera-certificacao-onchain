@@ -18,6 +18,11 @@ export function StudioHomePage({ cases = [] }: { cases?: StudioCase[] }) {
       <div className="stu-head">
         <h1 className="tma-h1">Studio</h1>
         <p className="stu-sub">Test cases from real agent work, grouped by use case. Read only.</p>
+        <p className="tma-body-sm">
+          <Link to="/studio/graders" data-testid="studio-graders-link">
+            Graders
+          </Link>
+        </p>
       </div>
 
       {groups.length === 0 ? (

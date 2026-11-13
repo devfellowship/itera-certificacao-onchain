@@ -42,6 +42,7 @@ import { createLocalAgentsRouter, localAgentJson, type LocalAgentsRouterDeps } f
 import { createSelfDeclaredRouter, type SelfDeclaredRouterDeps } from "./self-declared/router.js";
 import { createSelfDeclaredRunGuard, type RunOriginLookup } from "./self-declared/run-guard.js";
 import { createEvalResultsRouter, type EvalResultsReader } from "./self-declared/eval-results.js";
+import { createGraderVersionsRouter, type GraderVersionsReader } from "./self-declared/grader-versions.js";
 import { createEvalCleanupRouter, type EvalCleanupRouterDeps } from "./self-declared/cleanup.js";
 import { createRecomputeRouter, type RecomputeRouterDeps } from "./self-declared/recompute.js";
 import { createCliAuthRouter, type CliAuthRouterDeps } from "./cli-auth/router.js";
@@ -219,6 +220,8 @@ export interface AppOptions {
    * GET /evaluations/:id and GET /runs/:id, and GET /eval-cases/:id. Needs 0023: before it, the bodies are
    * unchanged and GET /eval-cases/:id answers 503 schema_not_ready. Mounted only when given. */
   evalResults?: EvalResultsReader;
+  /** C5-T5: GET /grader-versions, GET /grader-versions/:id (read only, tenant scoped). */
+  graderVersions?: GraderVersionsReader;
   /** C4-T13 (plan 20261112-tma-c4-result-store-trajectory-upload): POST /eval-results/cleanup, the owner deletes eval
    * cases, agent variants and grader versions that no run or grading references (dry_run by default). Needs 0023
    * (503 schema_not_ready before it). Mounted only when given. */
@@ -300,6 +303,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   if (options.runOrigins) app.use(createSelfDeclaredRunGuard(options.runOrigins));
   // C4-T3: after the guard (its 404 is never decorated), before the routers whose bodies it extends.
   if (options.evalResults) app.use(createEvalResultsRouter(options.evalResults));
+  if (options.graderVersions) app.use(createGraderVersionsRouter(options.graderVersions));
   // C4-T13: after express.json() (a small JSON body), owner-only.
   if (options.evalCleanup) app.use(createEvalCleanupRouter(options.evalCleanup));
   if (options.recompute) app.use(createRecomputeRouter(options.recompute));

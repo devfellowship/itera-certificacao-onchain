@@ -30,3 +30,10 @@
   flex-direction: column;
   gap: 4px;
 }
+
+.stu-table { width: 100%; border-collapse: collapse; }
+.stu-table th, .stu-table td { text-align: left; padding: 8px 12px; }
+.stu-dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; padding: 12px; }
+.stu-dl dt { color: var(--tma-muted, #666); }
+.stu-dl dd { margin: 0; }
+.stu-copy pre { margin: 8px 0; padding: 8px; overflow-x: auto; user-select: all; }
