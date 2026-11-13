@@ -2,7 +2,9 @@
  * "Try this grader (dry run)" (plan 20261112-tma-c5-studio-area-web2, task C5-T10; Tainan Q-C5-2b = A).
  * One grader grades one output on `tma studio serve` (POST <serve>/grade/dry-run) and the panel shows the result.
  * ADR-5 holds: there is no Save anywhere; the panel only does a dry run, and nothing is stored on the server.
- * The panel is hidden when VITE_TMA_STUDIO_SERVE_URL is empty (the default).
+ * The panel shows only when VITE_TMA_STUDIO_SERVE_URL is set AND VITE_TMA_STUDIO_DRY_RUN is 'true' (both off by
+ * default). The serve on the host has no `/grade/dry-run` route yet (405), so the serve URL alone (set for S2/S3)
+ * must not surface a broken "Dry run" button (C5-T6).
  *
  * Reusable on purpose: S10a mounts it on the grader detail; S11a (judge calibration, plan C6) can mount the same
  * component with the judge's `graderId@semver`.
@@ -12,7 +14,7 @@
  */
 import { useState, type FormEvent } from 'react'
 import { loadSession } from '../auth/sessionStorage'
-import { STUDIO_SERVE_URL } from '../config'
+import { DRY_RUN_ENABLED, STUDIO_SERVE_URL } from '../config'
 import { getSessionToken } from '../lib/api'
 import { Card, CardHeader } from '../tma/ui'
 
@@ -59,19 +61,22 @@ export function GraderDryRunPanel({
   grader,
   kind,
   serveUrl = STUDIO_SERVE_URL,
+  enabled = DRY_RUN_ENABLED,
   getToken = sessionBearer,
 }: {
   /** `graderId@semver`. */
   grader: string
   kind: 'code' | 'judge' | 'human'
   serveUrl?: string
+  /** Override of VITE_TMA_STUDIO_DRY_RUN (tests). */
+  enabled?: boolean
   getToken?: () => string | null
 }) {
   const [output, setOutput] = useState('')
   const [expected, setExpected] = useState('')
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<DryRunOutcome | null>(null)
-  if (!serveUrl || kind === 'human') return null
+  if (!serveUrl || !enabled || kind === 'human') return null
 
   async function submit(e: FormEvent) {
     e.preventDefault()

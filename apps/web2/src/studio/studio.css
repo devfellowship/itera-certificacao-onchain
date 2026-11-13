@@ -301,3 +301,37 @@ a.s9-row:hover { background: var(--tma-line); }
   .s12-page { padding-left: 16px; padding-right: 16px; }
   .s12-page h1 { font-size: 24px; }
 }
+
+/* S2 trace picker and S3 trace view (C5-T6). Prefix trc-. Colour is never the only signal: every marker has text. */
+.trc-small { font-size: 12px; }
+.trc-rows, .trc-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.trc-row { border: 1px solid var(--tma-line); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.trc-row__head, .trc-row__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
+.trc-row__id { font-weight: 600; }
+.trc-why, .trc-pin, .trc-chip { font-family: var(--tma-font-mono, monospace); font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--tma-line-strong); }
+.trc-why--red { color: #c62828; border-color: #c62828; }
+.trc-pin--complete { color: #2e7d32; border-color: #2e7d32; }
+.trc-pin--incomplete { color: #b26a00; border-color: #b26a00; }
+.trc-pin--none { color: var(--tma-text-muted); }
+.trc-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.trc-chip { background: var(--tma-surface); }
+.trc-task { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+.trc-task dt { font-weight: 600; }
+.trc-task dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.trc-filters { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 8px 0 12px; }
+.trc-filter { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.trc-filter__opt { text-decoration: none; padding: 1px 6px; border-radius: 4px; }
+.trc-filter__opt--on { font-weight: 600; background: var(--tma-surface); border: 1px solid var(--tma-line-strong); }
+.trc-paging { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+.trc-cards { display: flex; flex-wrap: wrap; gap: 16px; }
+.trc-dl { padding: 0; }
+.trc-run { border-top: 1px solid var(--tma-line); padding: 8px 0; }
+.trc-step { border-left: 3px solid var(--tma-line); padding: 4px 8px; }
+.trc-step--failed { border-left-color: #c62828; }
+.trc-step--first-fail { outline: 2px solid #d62728; outline-offset: 1px; }
+.trc-step__head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.trc-ok { color: #2e7d32; font-weight: 600; }
+.trc-fail { color: #c62828; font-weight: 600; }
+.trc-preview { font-family: var(--tma-font-mono, monospace); font-size: 12px; margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.trc-preview--open { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.trc-more { font-size: 12px; background: none; border: none; padding: 0; color: var(--tma-primary); cursor: pointer; }

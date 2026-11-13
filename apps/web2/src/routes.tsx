@@ -39,6 +39,8 @@ import { StudioExperimentsPage } from './studio/StudioExperimentsPage'
 import { StudioHomePage } from './studio/StudioHomePage'
 import { StudioRoutingPage } from './studio/StudioRoutingPage'
 import { StudioTrajectoriesPage } from './studio/StudioTrajectoriesPage'
+import { StudioTracePage } from './studio/StudioTracePage'
+import { StudioTracesPage } from './studio/StudioTracesPage'
 
 /** App routes: App Nav + session gate. */
 function AppLayout() {
@@ -112,6 +114,9 @@ export const routes: RouteObject[] = [
           { path: '/studio/diff', element: <StudioDiffPage /> },
           // C5-T9: S9 trajectory wall and path map on TMA runs (read only; plan C9 ADR-6, Q-T20 = A).
           { path: '/studio/trajectories', element: <StudioTrajectoriesPage /> },
+          // C5-T6: S2 trace picker and S3 trace view on fleet traces from `tma studio serve` (studio/traces.ts). Read only.
+          { path: '/studio/traces', element: <StudioTracesPage /> },
+          { path: '/studio/traces/:sessionId', element: <StudioTracePage /> },
           // C7-T4: S8 agent compare per use case (plan 20261112-tma-c7-model-comparison-per-use-case). Read only.
           { path: '/studio/compare', element: <StudioComparePage /> },
           // C8-T3: S12 routing per use case (plan 20261112-tma-c8-routing-from-evals). Writes only the verdict (ADR-1).
