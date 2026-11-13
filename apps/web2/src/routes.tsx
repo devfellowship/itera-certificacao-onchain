@@ -37,6 +37,7 @@ import { StudioDiffPage } from './studio/StudioDiffPage'
 import { StudioExperimentPage } from './studio/StudioExperimentPage'
 import { StudioExperimentsPage } from './studio/StudioExperimentsPage'
 import { StudioHomePage } from './studio/StudioHomePage'
+import { StudioRoutingPage } from './studio/StudioRoutingPage'
 import { StudioTrajectoriesPage } from './studio/StudioTrajectoriesPage'
 
 /** App routes: App Nav + session gate. */
@@ -113,6 +114,8 @@ export const routes: RouteObject[] = [
           { path: '/studio/trajectories', element: <StudioTrajectoriesPage /> },
           // C7-T4: S8 agent compare per use case (plan 20261112-tma-c7-model-comparison-per-use-case). Read only.
           { path: '/studio/compare', element: <StudioComparePage /> },
+          // C8-T3: S12 routing per use case (plan 20261112-tma-c8-routing-from-evals). Writes only the verdict (ADR-1).
+          { path: '/studio/routing/:useCase', element: <StudioRoutingPage /> },
         ],
       },
       {

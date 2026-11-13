@@ -24,6 +24,9 @@ export const STUDIO_SCREENS: Record<StudioScreen, { path: string; built: boolean
 
 type Params = Record<string, string | null | undefined>
 
+/** S12 routing per use case (C8-T3): the pair is one path segment, so its `/` is encoded (%2F). */
+export const routingHref = (useCase: string) => `/studio/routing/${encodeURIComponent(useCase)}`
+
 /** Path of a studio screen with its query filter (empty values are dropped). */
 export function studioHref(screen: StudioScreen, params: Params = {}): string {
   const q = new URLSearchParams()

@@ -266,3 +266,38 @@ a.s9-row:hover { background: var(--tma-line); }
 .s8-info { cursor: help; border-radius: 4px; padding: 0 2px; }
 .s8-info:focus-visible { outline: none; box-shadow: var(--tma-focus-ring); }
 .s8-rules p { margin: 8px 0 0; }
+/* S12 routing per use case (C8-T3). Prefix s12-. One column; works at 390 px with no horizontal page scroll. */
+.s12 { min-width: 0; }
+.s12 .tma-card { min-width: 0; max-width: 100%; }
+.s12-break { overflow-wrap: anywhere; word-break: break-word; }
+.s12-dl dd { overflow-wrap: anywhere; min-width: 0; }
+.s12-verdicts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 8px 0 12px; }
+.s12-verdict-box { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--tma-line); border-radius: 8px; min-width: 0; }
+.s12-agent select, .s12-fields select, .s12-fields input { max-width: 100%; min-width: 0; }
+.s12-agent select { width: 100%; }
+.s12-form { display: flex; flex-direction: column; gap: 12px; }
+.s12-fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; }
+.s12-fieldset legend { margin-bottom: 4px; }
+.s12-radio { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+.s12-fields { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 8px 12px; align-items: center; font-size: 14px; }
+.s12-fields input, .s12-fields select { width: 100%; font-family: var(--tma-font-mono, ui-monospace, monospace); }
+.s12-fields input:invalid { border-color: var(--tma-danger-text); }
+.s12-blockers { margin: 0; padding-left: 18px; color: var(--tma-text-muted); }
+.s12-approve { align-self: flex-start; }
+.s12-approve:disabled { opacity: 0.55; cursor: not-allowed; }
+.s12-error { color: var(--tma-danger-text); }
+.s12-evidence a { overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .s12-fields { grid-template-columns: minmax(0, 1fr); }
+}
+/* The app shell keeps a 1024px floor for the desktop screens (tma/ui/ui.css). S12 must work at 390 px, so it lifts
+   the floor, as the evaluation page does (.tma-app:has(.re-page), running-evaluation/review.css). */
+.tma-app:has(.s12-page) { min-width: 0; }
+.s12-page { min-width: 0; max-width: 100%; }
+.s12-page .stu-copy { min-width: 0; max-width: 100%; }
+@media (max-width: 720px) {
+  .tma-app:has(.s12-page) .tma-nav { height: auto; padding: 10px 16px; flex-wrap: wrap; gap: 8px; }
+  .tma-app:has(.s12-page) .tma-nav__left { flex-wrap: wrap; gap: 8px 16px; }
+  .s12-page { padding-left: 16px; padding-right: 16px; }
+  .s12-page h1 { font-size: 24px; }
+}

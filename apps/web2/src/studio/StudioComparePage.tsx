@@ -36,7 +36,7 @@ import {
 } from './compare'
 import { CopyCommand } from './CopyCommand'
 import { caseCommands } from './eval-command'
-import { studioHref } from './links'
+import { routingHref, studioHref } from './links'
 import { isL1Pair, type StudioCase } from './use-case'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
 import './studio.css'
@@ -355,6 +355,13 @@ export function CompareView({ data, useCase }: { data: UseCaseCompareResponse; u
       <CurrentAgentSelect data={data} useCase={useCase} />
       <ParetoChart data={data} />
       <CompareTable data={data} />
+      <Card pad>
+        <p className="tma-body-sm">
+          <Link to={routingHref(useCase)} data-testid="s8-routing-link">
+            Routing for this use case
+          </Link>
+        </p>
+      </Card>
       <Card pad>
         <KitCommand useCase={useCase} repeat={data.profile.min_runs_per_cell} />
       </Card>
