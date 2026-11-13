@@ -25,8 +25,12 @@ function json(status: number, body: unknown): FetchAnswer {
   return { status, json: async () => body };
 }
 
-/** A mock DFL Supabase. `user` answers /auth/v1/user; `iam` answers the IAM RPC. */
-function mockDfl(opts: { user?: (token: string) => FetchAnswer | Promise<FetchAnswer>; iam?: () => FetchAnswer | Promise<FetchAnswer> }) {
+/** A mock DFL Supabase. `user` answers /auth/v1/user; `iam` answers the IAM RPC; `human` answers iam.current_human_actor. */
+function mockDfl(opts: {
+  user?: (token: string) => FetchAnswer | Promise<FetchAnswer>;
+  iam?: () => FetchAnswer | Promise<FetchAnswer>;
+  human?: () => FetchAnswer | Promise<FetchAnswer>;
+}) {
   const calls: Call[] = [];
   const fetchImpl: FetchLike = async (url, init) => {
     calls.push({ url, init });
@@ -34,6 +38,7 @@ function mockDfl(opts: { user?: (token: string) => FetchAnswer | Promise<FetchAn
     const token = auth.replace(/^Bearer /, "");
     if (url === `${SUPABASE}/auth/v1/user`) return opts.user ? opts.user(token) : json(500, {});
     if (url === `${SUPABASE}/rest/v1/rpc/get_my_iam_role`) return opts.iam ? opts.iam() : json(500, {});
+    if (url === `${SUPABASE}/rest/v1/rpc/current_human_actor`) return opts.human ? opts.human() : json(500, {});
     throw new Error(`unexpected url ${url}`);
   };
   return { calls, fetchImpl };
@@ -78,7 +83,7 @@ describe("POST /auth/dfl/exchange", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { sessionToken: string; expiresAt: string; user: { id: string; email: string } };
     expect(body.user).toEqual({ id: `dfl:${id}`, email: "ana@example.com" });
-    expect(verifyPrincipalToken(body.sessionToken)).toEqual({ id: `dfl:${id}`, kind: "dfl" });
+    expect(verifyPrincipalToken(body.sessionToken)).toEqual({ id: `dfl:${id}`, kind: "dfl", actorType: "unknown" });
     const ttlMs = Date.parse(body.expiresAt) - Date.now();
     expect(ttlMs).toBeGreaterThan(23.9 * 3600_000);
     expect(ttlMs).toBeLessThanOrEqual(24 * 3600_000);
@@ -260,13 +265,13 @@ describe("GET /auth/me", () => {
 
     const me = await fetch(`${base}/auth/me`, { headers: { Authorization: `Bearer ${sessionToken}` } });
     expect(me.status).toBe(200);
-    expect(await me.json()).toEqual({ id: `dfl:${id}`, kind: "dfl", wallet: `dfl:${id}`, email: "bia@example.com" });
+    expect(await me.json()).toEqual({ id: `dfl:${id}`, kind: "dfl", wallet: `dfl:${id}`, actor_type: "unknown", email: "bia@example.com" });
 
     const wallet = "11111111111111111111111111111111";
     const siws = issueSessionToken(wallet, Date.now(), "siws").token;
     const meSiws = await fetch(`${base}/auth/me`, { headers: { Authorization: `Bearer ${siws}` } });
     expect(meSiws.status).toBe(200);
-    expect(await meSiws.json()).toEqual({ id: wallet, kind: "siws", wallet });
+    expect(await meSiws.json()).toEqual({ id: wallet, kind: "siws", wallet, actor_type: "unknown" });
 
     expect((await fetch(`${base}/auth/me`)).status).toBe(401);
   });
@@ -309,6 +314,100 @@ describe("config", () => {
       expect(CORS_ALLOWED_ORIGINS).toContain("https://testmyagent.com");
       expect(CORS_ALLOWED_ORIGINS).not.toContain("https://testmyagent.devfellowship.com");
       expect(CORS_ALLOWED_ORIGINS).not.toContain("https://www.testmyagent.com");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The actor-type claim (plan 20261112-tma-c8-routing-from-evals, Q b5c4ba38 = B)
+
+/** A JWT-shaped synthetic DFL token (unsigned: the mock Supabase accepts any token). Built at run time. */
+const fakeDflJwt = (payload: Record<string, unknown>) =>
+  ["e30", Buffer.from(JSON.stringify(payload)).toString("base64url"), "c2ln"].join(".");
+
+describe("POST /auth/dfl/exchange: the act claim", () => {
+  const HUMAN_ACTOR = "13efcd4f-0000-4000-8000-000000000001";
+  const userWith = (id: string, appMetadata?: unknown) => () =>
+    json(200, { id, email: "ana@example.com", aud: "authenticated", ...(appMetadata === undefined ? {} : { app_metadata: appMetadata }) });
+  const run = async (opts: { token: string; appMetadata?: unknown; human?: () => FetchAnswer | Promise<FetchAnswer> }) => {
+    const id = randomUUID();
+    const lines: string[] = [];
+    const { calls, fetchImpl } = mockDfl({ user: userWith(id, opts.appMetadata), human: opts.human });
+    const base = await start({ users: new FakeUsersStore(), config: config(), fetch: fetchImpl, log: (l) => lines.push(l) });
+    const res = await exchange(base, { dflToken: opts.token });
+    const body = (await res.json()) as { sessionToken?: string };
+    const humanCalls = calls.filter((c) => c.url.endsWith("/rest/v1/rpc/current_human_actor"));
+    return { id, res, body, lines, calls, humanCalls, principal: body.sessionToken ? verifyPrincipalToken(body.sessionToken) : null };
+  };
+
+  it("a uuid from iam.current_human_actor → act human; the RPC carries Content-Profile iam, the bearer and the anon key", async () => {
+    const token = fakeDflJwt({ sub: "x", role: "authenticated" });
+    const r = await run({ token, human: () => json(200, HUMAN_ACTOR) });
+    expect(r.res.status).toBe(200);
+    expect(r.principal).toEqual({ id: `dfl:${r.id}`, kind: "dfl", actorType: "human" });
+    expect(r.humanCalls).toHaveLength(1);
+    const h = new Headers(r.humanCalls[0]!.init?.headers);
+    expect(h.get("content-profile")).toBe("iam");
+    expect(h.get("authorization")).toBe(`Bearer ${token}`);
+    expect(h.get("apikey")).toBe(ANON);
+    expect(h.get("content-type")).toBe("application/json");
+    expect(r.humanCalls[0]!.init?.method).toBe("POST");
+    expect(r.humanCalls[0]!.init?.body).toBe("{}");
+    // /auth/me shows the claim.
+    const me = await fetch(`http://127.0.0.1:${(server!.address() as AddressInfo).port}/auth/me`, {
+      headers: { Authorization: `Bearer ${r.body.sessionToken}` },
+    });
+    expect(((await me.json()) as { actor_type: string }).actor_type).toBe("human");
+  });
+
+  it("null from the RPC → act unknown (a user without a human actor)", async () => {
+    const r = await run({ token: fakeDflJwt({ sub: "x" }), human: () => json(200, null) });
+    expect(r.res.status).toBe(200);
+    expect(r.principal?.actorType).toBe("unknown");
+    expect(r.lines).toEqual([]);
+  });
+
+  it("a client_id claim (an MCP OAuth grant token) → act unknown, and the RPC is NOT called", async () => {
+    const r = await run({ token: fakeDflJwt({ sub: "x", client_id: "mcp-client-1" }), human: () => json(200, HUMAN_ACTOR) });
+    expect(r.res.status).toBe(200);
+    expect(r.principal?.actorType).toBe("unknown");
+    expect(r.humanCalls).toHaveLength(0);
+  });
+
+  it("an undecodable token payload → act unknown, and the RPC is NOT called", async () => {
+    const r = await run({ token: "not-a-jwt", human: () => json(200, HUMAN_ACTOR) });
+    expect(r.principal?.actorType).toBe("unknown");
+    expect(r.humanCalls).toHaveLength(0);
+  });
+
+  it("app_metadata.kind agent → act agent, and the RPC is NOT called", async () => {
+    const r = await run({ token: fakeDflJwt({ sub: "x" }), appMetadata: { kind: "agent" }, human: () => json(200, HUMAN_ACTOR) });
+    expect(r.principal?.actorType).toBe("agent");
+    expect(r.humanCalls).toHaveLength(0);
+  });
+
+  it("RPC 503, a timeout, or an unreadable body → act unknown, the session is still minted, one log line without the token", async () => {
+    const token = fakeDflJwt({ sub: "x", secret_marker: "zz-token-marker" });
+    const timeout = () => {
+      const err = new Error("The operation was aborted due to timeout");
+      err.name = "TimeoutError";
+      throw err;
+    };
+    for (const [human, reason] of [
+      [() => json(503, {}), "current_human_actor answered 503"],
+      [timeout, "current_human_actor timeout"],
+      [() => json(200, { id: 1 }), "current_human_actor answered an unreadable body"],
+      [() => json(404, {}), "current_human_actor answered 404"],
+    ] as const) {
+      const r = await run({ token, human });
+      expect(r.res.status).toBe(200);
+      expect(r.body.sessionToken).toBeTruthy();
+      expect(r.principal?.actorType).toBe("unknown");
+      expect(r.lines).toEqual([`[dfl-auth] actor type unavailable: ${reason}`]);
+      expect(r.lines.join("\n")).not.toContain(token);
+      expect(r.lines.join("\n")).not.toContain("zz-token-marker");
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+      server = null;
     }
   });
 });

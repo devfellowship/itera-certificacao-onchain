@@ -56,6 +56,17 @@ export function routeVerdictPasses(rule, verdict) {
 }
 
 /**
+ * True when the route waits for a person to approve a swap (plan 20261112-tma-c8-routing-from-evals, Q d881e5df = C):
+ * state `approved` AND a `pr_url` (the apply path registered its PR while another route was still applied on the
+ * target). live_at stays null until a person approves the swap (POST /routes/:id/swap). The API and the web client
+ * share this one rule.
+ * @param {{ state?: unknown, pr_url?: unknown } | null | undefined} route
+ */
+export function isSwapPending(route) {
+  return !!route && route.state === 'approved' && typeof route.pr_url === 'string' && route.pr_url.length > 0;
+}
+
+/**
  * The schema validator for this row: tma-route/2 → v2; anything else (tma-route/1, no format, an unknown format) → v1,
  * which refuses an unknown format through its const.
  * @param {unknown} value

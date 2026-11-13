@@ -138,7 +138,9 @@ createApp(repo, {
   evalResults: new PgEvalResultsReader(getPool),
   // C7-T3: GET /use-cases/:key/compare (derived on read; 503 before 0023).
   useCaseCompare: { reader: new PgUseCaseCompareReader(getPool) },
-  // C8-T2: model routes on eval_routes (503 before 0026). PATCH /routes/:id/state only for TMA_ROUTE_APPLY_ACTORS.
+  // C8-T2: model routes on eval_routes (503 before 0026). Approve and POST /routes/:id/swap only for a session whose
+  // actor-type claim (act) is human (Q b5c4ba38 = B); PATCH /routes/:id/state for any DFL login. A live mark on a target
+  // that already holds an applied route waits as a pending swap (202) until a person approves it (Q d881e5df = C).
   routes: { store: new PgRoutesStore(getPool), reader: new PgUseCaseCompareReader(getPool) },
   // C5-T5: read only grader library (503 before 0023).
   graderVersions: new PgGraderVersionsReader(getPool),

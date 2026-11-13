@@ -7,7 +7,10 @@
  * a NOT YET cell under absolute; approve posts the exact body; a 400 shows the API message; after 201 the copy
  * command holds the id; no Apply / Run / Save text; the recommendation helper; the S8 link; the evidence list from the
  * compare response's evidence_run_ids (per rule, unlinked ids, the cut line); "live since" and the rollback PR link of a
- * tma-route/2 row.
+ * tma-route/2 row. Swap (Q d881e5df = C, Q b5c4ba38 = B): a pending row (approved + pr_url) shows the applied route it
+ * would replace, its PR and two buttons; approve and reject post {decision} to POST /routes/:id/swap and reload the
+ * routes; a 403 not_a_human_actor shows the sign-in text (also on the approve-route control); isSwapPending equals
+ * the contract.
  */
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -19,7 +22,9 @@ import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
 import type { CompareAgent, UseCaseCompareResponse } from './studio/compare'
 import { routingHref } from './studio/links'
-import { approveBlockers, evidenceIdsOf, recommendAgent, ROUTING_MIN_N, ROUTING_PASSING, targetProblems, type Route } from './studio/routing'
+import {
+  approveBlockers, evidenceIdsOf, isSwapPending, NOT_A_HUMAN_TEXT, recommendAgent, ROUTING_MIN_N, ROUTING_PASSING, targetProblems, type Route,
+} from './studio/routing'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -184,7 +189,8 @@ const RUNS = {
 
 type Answer = [number, unknown]
 interface Stub {
-  routes?: Answer
+  routes?: Answer | (() => Answer)
+  swap?: Answer
   compare?: Answer | ((url: URL) => Answer)
   approve?: Answer
 }
@@ -199,7 +205,11 @@ function mountAt(path: string, stub: Stub = {}) {
       const url = new URL(raw)
       calls.push({ url: raw, method: init?.method ?? 'GET', body: (init?.body as string | undefined) ?? null })
       if (url.pathname === '/routes/approve') return json(...(stub.approve ?? [201, route({ id: uuid(901), state: 'approved', pr_url: null })]))
-      if (url.pathname === '/routes') return json(...(stub.routes ?? [200, { routes: [route()] }]))
+      if (/^\/routes\/[^/]+\/swap$/.test(url.pathname)) return json(...(stub.swap ?? [200, { status: 'swapped', route: route(), retired: [] }]))
+      if (url.pathname === '/routes') {
+        const r = stub.routes ?? [200, { routes: [route()] }]
+        return json(...(typeof r === 'function' ? r() : r))
+      }
       if (url.pathname.startsWith('/use-cases/') && url.pathname.endsWith('/compare')) {
         const c = stub.compare ?? [200, DATA]
         return json(...(typeof c === 'function' ? c(url) : c))
@@ -474,6 +484,101 @@ describe('S12 screen', () => {
     await waitFor(() => !!q(c, 's8-routing-link'), 'S8 link')
     expect(q(c, 's8-routing-link')!.getAttribute('href')).toBe('/studio/routing/fix%2Fprod-bug')
     expect(routingHref('plan/write-plan')).toBe('/studio/routing/plan%2Fwrite-plan')
+  })
+})
+
+describe('S12 swap pending (Q d881e5df = C)', () => {
+  const PENDING_ID = uuid(902)
+  const PENDING_PR = 'https://github.com/example-org/example-infra/pull/8'
+  const pendingRoute = route({ id: PENDING_ID, state: 'approved', pr_url: PENDING_PR, model_id: 'lab-c/model-c', agent_sha256: H('3'), target_value: 'model-c' })
+  const withPending = { routes: [200, { routes: [pendingRoute, route()] }] as Answer }
+  const swapCalls = () => calls.filter((x) => new URL(x.url).pathname.endsWith('/swap'))
+  const routeReads = () => calls.filter((x) => new URL(x.url).pathname === '/routes').length
+
+  it('a pending row shows the applied route it would replace, its PR, and both buttons', async () => {
+    const c = mountAt(PAGE, withPending)
+    await ready(c)
+    const block = q(c, 's12-swap-pending')!
+    expect(block.dataset.routeId).toBe(PENDING_ID)
+    expect(block.textContent).toContain('Swap pending')
+    const applied = q(block, 's12-swap-applied')!
+    expect(applied.dataset.routeId).toBe(uuid(900))
+    expect(applied.textContent).toContain(uuid(900).slice(0, 8))
+    expect(applied.textContent).toContain('anthropic/model-a')
+    expect(applied.textContent).toContain('live')
+    expect(q(block, 's12-swap-pr-link')!.getAttribute('href')).toBe(PENDING_PR)
+    expect(q(block, 's12-swap-approve')!.textContent).toBe('Approve swap')
+    expect(q(block, 's12-swap-reject')!.textContent).toBe('Reject swap')
+    // Only the pending row has the block; the live row has none.
+    expect(c.querySelectorAll('[data-testid="s12-swap-pending"]')).toHaveLength(1)
+  })
+
+  it('"Approve swap" posts {decision: "approve"} to POST /routes/:id/swap and reloads the routes', async () => {
+    let swapped = false
+    const c = mountAt(PAGE, {
+      routes: () => [200, { routes: swapped ? [{ ...pendingRoute, state: 'live' }, route({ state: 'rolled_back' })] : [pendingRoute, route()] }],
+    })
+    await ready(c)
+    const before = routeReads()
+    swapped = true
+    click(q(c, 's12-swap-approve')!)
+    await waitFor(() => !q(c, 's12-swap-pending'), 'reload')
+    expect(swapCalls()).toHaveLength(1)
+    expect(swapCalls()[0]!.method).toBe('POST')
+    expect(new URL(swapCalls()[0]!.url).pathname).toBe(`/routes/${PENDING_ID}/swap`)
+    expect(JSON.parse(swapCalls()[0]!.body!)).toEqual({ decision: 'approve' })
+    expect(routeReads()).toBe(before + 1)
+    expect(q(c, 's12-current')!.textContent).toContain('lab-c/model-c')
+  })
+
+  it('"Reject swap" posts {decision: "reject"}', async () => {
+    const c = mountAt(PAGE, { ...withPending, swap: [200, { status: 'swap_rejected', route: { ...pendingRoute, pr_url: null } }] })
+    await ready(c)
+    click(q(c, 's12-swap-reject')!)
+    await waitFor(() => swapCalls().length === 1, 'swap call')
+    expect(JSON.parse(swapCalls()[0]!.body!)).toEqual({ decision: 'reject' })
+    expect(new URL(swapCalls()[0]!.url).pathname).toBe(`/routes/${PENDING_ID}/swap`)
+  })
+
+  it('a 403 not_a_human_actor shows the sign-in text; the routes stay as they were', async () => {
+    const c = mountAt(PAGE, { ...withPending, swap: [403, { error: 'not_a_human_actor', message: "only a person's login may approve a route; sign in again with your own DFL login" }] })
+    await ready(c)
+    const before = routeReads()
+    click(q(c, 's12-swap-approve')!)
+    await waitFor(() => !!q(c, 's12-swap-error'), 'error')
+    expect(q(c, 's12-swap-error')!.textContent).toBe("Only a person's own login can approve. Sign in again.")
+    expect(q(c, 's12-swap-error')!.textContent).toBe(NOT_A_HUMAN_TEXT)
+    expect(routeReads()).toBe(before)
+    expect(q(c, 's12-swap-pending')).not.toBeNull()
+  })
+
+  it('the approve-route control shows the same text on a 403 not_a_human_actor', async () => {
+    const c = mountAt(PAGE, { approve: [403, { error: 'not_a_human_actor', message: 'x' }] })
+    await ready(c)
+    click(q(c, 's12-rule-relative')!)
+    setValue(q<HTMLInputElement>(c, 's12-target-value')!, 'model-c')
+    click(approve(c))
+    await waitFor(() => !!q(c, 's12-approve-error'), 'error')
+    expect(q(c, 's12-approve-error')!.textContent).toBe(NOT_A_HUMAN_TEXT)
+  })
+
+  it('the pending block has no Apply, Run or Save text', async () => {
+    const c = mountAt(PAGE, withPending)
+    await ready(c)
+    for (const el of q(c, 's12-swap-pending')!.querySelectorAll<HTMLElement>('*')) {
+      expect(el.textContent ?? '').not.toMatch(/\b(apply|run|save)\b/i)
+    }
+    const page = q(c, 'studio-routing')!
+    for (const b of page.querySelectorAll('button')) expect(['Approve route', 'Copy command', 'Approve swap', 'Reject swap']).toContain(b.textContent)
+  })
+
+  it('isSwapPending equals the contract (packages/contracts/route.js)', () => {
+    const src = readFileSync(resolve(process.cwd(), '../../packages/contracts/route.js'), 'utf-8')
+    expect(src).toContain("return !!route && route.state === 'approved' && typeof route.pr_url === 'string' && route.pr_url.length > 0;")
+    expect(isSwapPending({ state: 'approved', pr_url: PENDING_PR })).toBe(true)
+    expect(isSwapPending({ state: 'approved', pr_url: null })).toBe(false)
+    expect(isSwapPending({ state: 'live', pr_url: PENDING_PR })).toBe(false)
+    expect(isSwapPending(null)).toBe(false)
   })
 })
 

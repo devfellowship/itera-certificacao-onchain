@@ -206,6 +206,7 @@ export {
   routeSchema,
   routeSchemaV2,
   routeVerdictPasses,
+  isSwapPending,
   validateRoute,
   parseRouteText,
 } from './route.js';

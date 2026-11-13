@@ -2,7 +2,10 @@
 // of an approved model route. The studio never runs this; claude-main or a person does.
 //
 //   pr        an approved route row -> a PR to the infra repo that edits ONE flag line (or one model cell
-//             of the CLAUDE.md table) and keeps the old value as the rollback line;
+//             of the CLAUDE.md table) and keeps the old value as the rollback line. With --route (API mode), when
+//             another route is already applied (live or needs_check) on the same target, the PR is a DRAFT and the
+//             command registers a pending swap (PATCH live -> 202 swap_pending, Q d881e5df = C): a person approves or
+//             rejects the swap on S12 before the PR is made ready and merged;
 //   rollback  a live route -> a PR that writes the old value back;
 //   mark      PATCH /routes/:id/state after the merge (live or rolled_back, with the PR URL), or the T5 mark
 //             needs_check (no PR: ADR-7, a trigger marks a route, it never changes it);
@@ -55,8 +58,14 @@ const PR_USAGE = `usage: tma route pr (--route-file <route.json> | --route <id>)
   is not allowed; the file value is not rollback_value (re-approve); nothing to change.
   --targets   a dfl-route-targets/1 file (dfl-evals routes/targets.json)
   --repo-dir  a clean checkout of the infra repo, on an up-to-date <base>; map paths are relative to it
-  --route     read GET <api>/routes/<id> with your tma login (task T2)
+  --route     read GET <api>/routes/<id> with your tma login (task T2). Before any git, it also reads
+              GET <api>/routes?state=live and ?state=needs_check: when another route is applied on the same target,
+              swap mode: gh pr create --draft, a "Swap pending" section in the PR body, then the same PATCH as
+              tma route mark --state live (the API answers 202 swap_pending); a person approves or rejects the swap
+              on S12, and only then is the PR made ready and merged.
+  --route-file  offline: no API read, so no swap check (check the target yourself with tma route list)
   --dry-run   print the exact unified diff and the PR title and body; write nothing, run no git and no gh
+              (in swap mode it also prints "swap mode: would open a DRAFT PR and register a pending swap ...")
   Without --dry-run: git checkout -b route/<use case>/<id8>, commit, git push -u origin, gh pr create.`;
 
 const ROLLBACK_USAGE = `usage: tma route rollback (--route-file <route.json> | --route <id>) --targets <targets.json> --repo-dir <infra checkout> [--dry-run] [--base master]
@@ -66,6 +75,8 @@ const ROLLBACK_USAGE = `usage: tma route rollback (--route-file <route.json> | -
 const MARK_USAGE = `usage: tma route mark --route <id> --state live|rolled_back --pr <PR URL>
        tma route mark --route <id> --state needs_check
   After the merge: PATCH <api>/routes/<id>/state with {state, pr_url} (task T2; 404 until T2 ships).
+  live on a target that another route still holds: the API answers 202 swap_pending; the route waits until a
+  person approves or rejects the swap on S12 (exit 0). Nothing changes live until then.
   needs_check (task T5): a trigger marks a live route for a check; the body is {state} only, so --pr is refused.
   The route keeps its value in the file; roll it back with tma route rollback, then mark rolled_back.`;
 
@@ -147,6 +158,21 @@ async function run(exec: RouteExec, cwd: string, cmd: string, args: string[]): P
   return r.stdout;
 }
 
+/** The applied route (live or needs_check) on the route's target, other than the route itself; null when free. */
+async function appliedOnTarget(deps: RouteDeps, io: Io, route: Route): Promise<Route | null | 'failed'> {
+  for (const state of ['live', 'needs_check'] as const) {
+    const rows = await fetchRoutes(deps, io, 'pr', { state });
+    if (rows === null) return 'failed';
+    const hit = rows.find((r) => r.id !== route.id && r.route_target === route.route_target);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function swapSection(old: Route): string {
+  return `\n\n## Swap pending\n\nSwap pending: route ${old.id} is applied on this target. Do not merge until a person approves the swap on S12.`;
+}
+
 async function applyMain(action: RouteAction, argv: string[], io: Io, deps: RouteDeps): Promise<number> {
   const usage = action === 'pr' ? PR_USAGE : ROLLBACK_USAGE;
   const a = parseArgs(argv, { 'route-file': {}, route: {}, targets: {}, 'repo-dir': {}, 'dry-run': { boolean: true }, base: {} });
@@ -160,8 +186,16 @@ async function applyMain(action: RouteAction, argv: string[], io: Io, deps: Rout
   const filePath = join(repoDir, target.file);
   const edit = planEdit(action, route, target, await readText(filePath));
   const title = prTitle(edit);
-  const body = prBody(edit);
+  let body = prBody(edit);
   const diff = unifiedDiff(target.file, edit.before, edit.after);
+  // Swap mode (Q d881e5df = C): API mode only, before any git. --route-file stays offline.
+  let swapWith: Route | null = null;
+  if (action === 'pr' && flag(a, 'route') !== undefined) {
+    const applied = await appliedOnTarget(deps, io, route);
+    if (applied === 'failed') return 1;
+    swapWith = applied;
+    if (swapWith) body += swapSection(swapWith);
+  }
 
   if (has(a, 'dry-run')) {
     io.err(`dry run: tma route ${action} writes nothing and runs no git and no gh`);
@@ -171,6 +205,7 @@ async function applyMain(action: RouteAction, argv: string[], io: Io, deps: Rout
     io.out(`PR title: ${title}`);
     io.out('PR body:');
     io.out(body);
+    if (swapWith) io.out(`swap mode: would open a DRAFT PR and register a pending swap with route ${swapWith.id}`);
     return 0;
   }
 
@@ -184,9 +219,16 @@ async function applyMain(action: RouteAction, argv: string[], io: Io, deps: Rout
   await run(exec, repoDir, 'git', ['add', '--', target.file]);
   await run(exec, repoDir, 'git', ['commit', '-m', title, '-m', `Route: ${route.id}\nUse case: ${route.use_case_key}\nVerdict: ${route.verdict} under the ${route.picked_rule} rule, n=${route.n}, policy ${route.policy_version}`]);
   await run(exec, repoDir, 'git', ['push', '-u', 'origin', branch]);
-  const out = await run(exec, repoDir, 'gh', ['pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', body]);
+  const ghArgs = ['pr', 'create', ...(swapWith ? ['--draft'] : []), '--base', base, '--head', branch, '--title', title, '--body', body];
+  const out = await run(exec, repoDir, 'gh', ghArgs);
   const url = out.trim().split('\n').reverse().find((l) => /^https:\/\//.test(l.trim()))?.trim() ?? out.trim();
   io.out(url);
+  if (swapWith) {
+    if (!PR_RE.test(url)) throw new CliError(`gh pr create did not print a pull request URL; register the swap with tma route mark --route ${route.id} --state live --pr <URL>`);
+    const code = await markRoute(deps, io, route.id, 'live', url);
+    io.err(`next: a person approves or rejects the swap on S12; after an approve, mark the draft PR ready, merge it and install`);
+    return code;
+  }
   io.err(`next (after the merge and the apply): tma route mark --route ${route.id} --state ${action === 'pr' ? 'live' : 'rolled_back'} --pr ${url}`);
   return 0;
 }
@@ -207,11 +249,24 @@ async function markMain(argv: string[], io: Io, deps: RouteDeps): Promise<number
     pr = required(a, 'pr', MARK_USAGE);
     if (!PR_RE.test(pr)) throw new CliError(`--pr must be a GitHub pull request URL (https://github.com/<owner>/<repo>/pull/<n>)`);
   }
+  return markRoute(deps, io, id, state, pr);
+}
+
+/** PATCH /routes/:id/state and print the outcome: the one mark of `tma route mark` and of `tma route pr` in swap mode. */
+async function markRoute(deps: RouteDeps, io: Io, id: string, state: string, pr: string | null): Promise<number> {
   const body = pr === null ? { state } : { state, pr_url: pr };
   const r = await patchRouteState(deps, id, body);
   if (r.status === 404) {
     io.err(`tma route mark: 404 from PATCH /routes/${id}/state: the route is not found, or the API does not have this endpoint yet (task T2 of plan 20261112-tma-c8-routing-from-evals). Nothing was changed.`);
     return 1;
+  }
+  if (r.status === 202 && r.body?.status === 'swap_pending') {
+    const word = (v: unknown, re: RegExp) => (typeof v === 'string' && re.test(v) ? v : '?');
+    const old = word(r.body.live_route_id, UUID_RE);
+    const oldState = word(r.body.live_route_state, /^[a-z_]{1,20}$/);
+    const target = word((r.body.route as { route_target?: unknown } | null | undefined)?.route_target, /^[A-Za-z0-9:_-]{1,80}$/);
+    io.out(`route ${id}: swap pending — route ${old} (${oldState}) stays applied on ${target}; a person approves or rejects the swap on S12`);
+    return 0;
   }
   if (r.status < 200 || r.status >= 300) throw new CliError(`cannot set the route state: ${describeRefusal(r)}`);
   io.out(pr === null ? `route ${id} -> ${state}` : `route ${id} -> ${state} (${pr})`);

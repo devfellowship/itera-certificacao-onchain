@@ -10,7 +10,7 @@
  * Existing routes keep importing from here.
  */
 export { NONCE_TTL_MS, buildSignInMessage, resetPendingNoncesForTests, verifyWalletSignature } from "../auth/adapters/siws.js";
-export type { AuthAdapter, Principal, PrincipalKind } from "../auth/adapters/types.js";
+export type { ActorType, AuthAdapter, Principal, PrincipalKind } from "../auth/adapters/types.js";
 export { optionalPrincipal, optionalWallet, requirePrincipal, requireWallet } from "../auth/middleware.js";
 export { verifyPrincipalToken, verifySessionToken } from "../auth/principal.js";
 export { createAuthRouter, type AuthRouterOptions } from "../auth/router.js";

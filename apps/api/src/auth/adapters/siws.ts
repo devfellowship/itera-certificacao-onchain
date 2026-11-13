@@ -138,7 +138,7 @@ export const siwsAdapter: AuthAdapter = {
   kind: "siws",
   router: createSiwsRouter,
   principalFromSubject(sub: string): Principal | null {
-    return isSiwsPrincipalId(sub) ? { id: sub, kind: "siws" } : null;
+    return isSiwsPrincipalId(sub) ? { id: sub, kind: "siws", actorType: "unknown" } : null;
   },
 };
 

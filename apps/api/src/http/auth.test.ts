@@ -60,7 +60,7 @@ describe("Sign-In With Solana", () => {
     const me = await fetch(`${baseUrl}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
     expect(me.status).toBe(200);
     // T5: /auth/me adds id + kind; `wallet` stays (ADR-3 alias).
-    expect(await me.json()).toEqual({ id: w.address, kind: "siws", wallet: w.address });
+    expect(await me.json()).toEqual({ id: w.address, kind: "siws", wallet: w.address, actor_type: "unknown" });
   });
 
   it("accepts a base64 signature", async () => {
