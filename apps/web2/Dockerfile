@@ -32,6 +32,8 @@ COPY packages/contracts packages/contracts
 # VITE_* values are read at build time. Pass --build-arg to change them.
 ARG VITE_TMA_API_URL
 ARG VITE_DFL_FEDERATE_URL
+# Base URL of `tma studio serve` (tailnet). Unset: the S10a dry-run panel stays hidden. Plan 20261112-tma-c5-studio-area-web2, C5-T10/T11.
+ARG VITE_TMA_STUDIO_SERVE_URL
 RUN npx turbo run build --filter=@itera/web2
 
 FROM node:24-alpine
