@@ -2,7 +2,7 @@
  * S10a Grader detail (plan 20261112-tma-c5-studio-area-web2, task C5-T5). Read only. The canvas write buttons are
  * replaced by a copy command: the studio never writes; the user runs `tma eval` on their own host.
  * Data: GET /grader-versions/:id. Judge calibration screens (S11, S11a) are not here.
- * C5-T10: when VITE_TMA_STUDIO_SERVE_URL is set, the "Try this grader (dry run)" panel (GraderDryRunPanel) shows
+ * C5-T10: when VITE_TMA_STUDIO_SERVE_URL is set and VITE_TMA_STUDIO_DRY_RUN is 'true' (C5-T6), the "Try this grader (dry run)" panel (GraderDryRunPanel) shows
  * under the copy command. It only does a dry run on `tma studio serve`; nothing is stored.
  */
 import { useEffect, useState } from 'react'
@@ -36,7 +36,17 @@ export function CopyCommand({ command }: { command: string }) {
 
 const pct = (v: number | null) => (v === null ? 'n/a' : `${Math.round(v * 1000) / 10}%`)
 
-export function GraderDetailView({ g, serveUrl }: { g: GraderVersionDetail; /** Override of VITE_TMA_STUDIO_SERVE_URL (tests). */ serveUrl?: string }) {
+export function GraderDetailView({
+  g,
+  serveUrl,
+  dryRunEnabled,
+}: {
+  g: GraderVersionDetail
+  /** Override of VITE_TMA_STUDIO_SERVE_URL (tests). */
+  serveUrl?: string
+  /** Override of VITE_TMA_STUDIO_DRY_RUN (tests). */
+  dryRunEnabled?: boolean
+}) {
   return (
     <>
       <Card data-testid="grader-detail">
@@ -96,7 +106,7 @@ export function GraderDetailView({ g, serveUrl }: { g: GraderVersionDetail; /** 
         <p className="tma-body-sm tma-muted">The studio is read only. Copy this command and run it where your case folder is.</p>
         <CopyCommand command={gradeCommand()} />
       </Card>
-      <GraderDryRunPanel grader={`${g.graderId}@${g.semver}`} kind={g.kind} {...(serveUrl !== undefined ? { serveUrl } : {})} />
+      <GraderDryRunPanel grader={`${g.graderId}@${g.semver}`} kind={g.kind} {...(serveUrl !== undefined ? { serveUrl } : {})} {...(dryRunEnabled !== undefined ? { enabled: dryRunEnabled } : {})} />
     </>
   )
 }

@@ -9,8 +9,10 @@ interface ImportMetaEnv {
   readonly VITE_TMA_WEB2_HOSTED?: string
   /** Fleet-wide trajectory wall of Decision Graph analytics (studio S9 link). Default: DEFAULT_FLEET_WALL_URL. */
   readonly VITE_TMA_FLEET_WALL_URL?: string
-  /** Base URL of `tma studio serve` for the S10a dry-run panel (C5-T10). Default: empty = panel hidden. */
+  /** Base URL of `tma studio serve` (S2/S3 traces, S10a dry run). Default: empty = S2/S3 not configured, panel hidden. */
   readonly VITE_TMA_STUDIO_SERVE_URL?: string
+  /** 'true' shows the S10a dry-run panel (also needs VITE_TMA_STUDIO_SERVE_URL). Default: off. */
+  readonly VITE_TMA_STUDIO_DRY_RUN?: string
 }
 
 interface ImportMeta {

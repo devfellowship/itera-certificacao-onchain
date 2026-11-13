@@ -27,11 +27,18 @@ export const DEFAULT_FLEET_WALL_URL = 'https://decisiongraph.devfellowship.com/a
 export const FLEET_WALL_URL = import.meta.env.VITE_TMA_FLEET_WALL_URL || DEFAULT_FLEET_WALL_URL
 
 /**
- * Base URL of `tma studio serve` (plan 20261112-tma-c5-studio-area-web2, C5-T10, Q-C5-2b = A), no trailing slash.
- * Set: S10a shows the "Try this grader (dry run)" panel, which calls POST <url>/grade/dry-run with the web2
- * session bearer. Empty (the default): the panel is hidden and only the copy command shows.
+ * Base URL of `tma studio serve` (plan 20261112-tma-c5-studio-area-web2, C5-T6/T10/T11), no trailing slash.
+ * THE one base URL of the serve. Set: S2 (/studio/traces) and S3 (/studio/traces/:sessionId) read through it
+ * (only via studio/traces.ts). Empty (the default): S2/S3 show "not configured" and the dry-run panel stays hidden.
  */
 export const STUDIO_SERVE_URL = trimSlash(import.meta.env.VITE_TMA_STUDIO_SERVE_URL || '')
+
+/**
+ * The S10a "Try this grader (dry run)" panel (C5-T10) is a separate opt-in: it shows only when STUDIO_SERVE_URL is
+ * set AND VITE_TMA_STUDIO_DRY_RUN is 'true'. Reason: the serve on the host has no `/grade/dry-run` route yet (it
+ * answers 405), so setting the URL for S2/S3 must not surface a broken "Dry run" button. Default: off.
+ */
+export const DRY_RUN_ENABLED = import.meta.env.VITE_TMA_STUDIO_DRY_RUN === 'true'
 
 /** Route of this app that receives the DFL redirect (`pages/DflCallbackPage.tsx`). */
 export const DFL_CALLBACK_PATH = '/auth/dfl/callback'
