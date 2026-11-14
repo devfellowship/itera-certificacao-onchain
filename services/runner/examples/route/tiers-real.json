@@ -1,0 +1,10 @@
+{
+  "schema": "tma-model-tiers/1",
+  "models": [
+    {
+      "model_id": "claude-opus-5-5",
+      "tier": "frontier",
+      "price_source": "metered"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 // Paid-run budget (T6). Fake fetch and invented rows only: no paid run, no network.
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CliError } from '../env.js';
 import { API, TOKEN } from '../test/fixtures.js';
@@ -8,7 +9,7 @@ const NOW = Date.parse('2026-11-13T12:00:00Z');
 const H = 3600 * 1000;
 const TIERS = parseTiers(
   JSON.stringify({
-    format: 'tma-model-tiers/1',
+    schema: 'tma-model-tiers/1',
     models: [
       { model_id: 'z-ai/glm-5.3', tier: 'mid', price_source: 'metered' },
       { model_id: 'opencode-go/deepseek-v4.1-flash', tier: 'small', price_source: { table: 'prices.json', as_of: '2026-11-01' } },
@@ -24,11 +25,25 @@ const CAPS = { total: 200, night: 10, month: 60 };
 describe('parseTiers', () => {
   it('refuses a bad format, an unknown key, a bad tier and a bad price source', () => {
     expect(() => parseTiers('nope')).toThrow(CliError);
-    expect(() => parseTiers('{"format":"x","models":[]}')).toThrow(/format/);
-    expect(() => parseTiers('{"format":"tma-model-tiers/1","models":[],"extra":1}')).toThrow(/unknown key/);
-    expect(() => parseTiers('{"format":"tma-model-tiers/1","models":[{"model_id":"a/b","tier":"huge","price_source":"metered"}]}')).toThrow(/tier/);
-    expect(() => parseTiers('{"format":"tma-model-tiers/1","models":[{"model_id":"a/b","tier":"mid","price_source":"free"}]}')).toThrow(/price_source/);
-    expect(() => parseTiers('{"format":"tma-model-tiers/1","models":[{"model_id":"a/b","tier":"mid","price_source":"metered","x":1}]}')).toThrow(/unknown key/);
+    expect(() => parseTiers('{"schema":"x","models":[]}')).toThrow(/schema/);
+    expect(() => parseTiers('{"format":"tma-model-tiers/1","models":[]}')).toThrow(/"format" is not accepted/);
+    expect(() => parseTiers('{"schema":"tma-model-tiers/1","models":[{"model_id":"-bad id","tier":"mid","price_source":"metered"}]}')).toThrow(/model_id/);
+    expect(() => parseTiers('{"schema":"tma-model-tiers/1","models":[],"extra":1}')).toThrow(/unknown key/);
+    expect(() => parseTiers('{"schema":"tma-model-tiers/1","models":[{"model_id":"a/b","tier":"huge","price_source":"metered"}]}')).toThrow(/tier/);
+    expect(() => parseTiers('{"schema":"tma-model-tiers/1","models":[{"model_id":"a/b","tier":"mid","price_source":"free"}]}')).toThrow(/price_source/);
+    expect(() => parseTiers('{"schema":"tma-model-tiers/1","models":[{"model_id":"a/b","tier":"mid","price_source":"metered","x":1}]}')).toThrow(/unknown key/);
+  });
+});
+
+describe('parseTiers on the real dfl-evals file', () => {
+  const real = parseTiers(readFileSync(new URL('../../../examples/route/tiers-real.json', import.meta.url), 'utf-8'));
+  it('accepts it', () => {
+    expect(real.schema).toBe('tma-model-tiers/1');
+    expect(real.models).toHaveLength(1);
+  });
+  it('fleet Claude is free, an unlisted model is paid', () => {
+    expect(isPaidModel('claude-opus-5-5', real)).toBe(false);
+    expect(isPaidModel('z-ai/glm-5.3', real)).toBe(true);
   });
 });
 

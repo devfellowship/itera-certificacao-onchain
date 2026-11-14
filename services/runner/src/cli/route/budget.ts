@@ -44,7 +44,7 @@ export interface TierModel {
   price_source: 'metered' | { table: string; as_of: string };
 }
 export interface Tiers {
-  format: 'tma-model-tiers/1';
+  schema: 'tma-model-tiers/1';
   models: TierModel[];
 }
 
@@ -52,6 +52,8 @@ function closed(o: Record<string, unknown>, allowed: string[], where: string): v
   for (const k of Object.keys(o)) if (!allowed.includes(k)) throw new CliError(`tiers file: unknown key "${k.slice(0, 40)}" in ${where}`);
 }
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 
 export function parseTiers(text: string): Tiers {
   let v: unknown;
@@ -61,14 +63,18 @@ export function parseTiers(text: string): Tiers {
     throw new CliError('tiers file: not JSON');
   }
   if (!isObj(v)) throw new CliError('tiers file: not an object');
-  closed(v, ['format', 'models'], 'the file');
-  if (v.format !== 'tma-model-tiers/1') throw new CliError('tiers file: format must be tma-model-tiers/1');
+  if ('format' in v && !('schema' in v)) {
+    throw new CliError('tiers file: the key "format" is not accepted; tma-model-tiers/1 uses "schema": "tma-model-tiers/1"');
+  }
+  closed(v, ['schema', 'models'], 'the file');
+  if (v.schema !== 'tma-model-tiers/1') throw new CliError('tiers file: schema must be tma-model-tiers/1');
   if (!Array.isArray(v.models)) throw new CliError('tiers file: models must be an array');
   const models: TierModel[] = v.models.map((m, i) => {
     const where = `models[${i}]`;
     if (!isObj(m)) throw new CliError(`tiers file: ${where} is not an object`);
     closed(m, ['model_id', 'tier', 'price_source'], where);
     if (typeof m.model_id !== 'string' || m.model_id === '') throw new CliError(`tiers file: ${where}.model_id must be a non-empty string`);
+    if (!MODEL_ID.test(m.model_id)) throw new CliError(`tiers file: ${where}.model_id does not match ${MODEL_ID.source}`);
     if (typeof m.tier !== 'string' || !(TIER_NAMES as readonly string[]).includes(m.tier)) {
       throw new CliError(`tiers file: ${where}.tier must be one of ${TIER_NAMES.join(', ')}`);
     }
@@ -82,7 +88,7 @@ export function parseTiers(text: string): Tiers {
     }
     return { model_id: m.model_id, tier: m.tier as TierModel['tier'], price_source: ps as TierModel['price_source'] };
   });
-  return { format: 'tma-model-tiers/1', models };
+  return { schema: 'tma-model-tiers/1', models };
 }
 
 // ---- paid or free ----
