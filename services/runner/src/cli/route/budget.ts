@@ -111,6 +111,9 @@ export function isPaidModel(modelId: string, tiers: Tiers): boolean {
 export interface RunRow {
   id?: string;
   startedAt: string;
+  /** The case of the run (GET /eval-runs caseId, caseKey): the nightly held-out proof reads them. */
+  caseId?: string;
+  caseKey?: string;
   variant: { agent: { modelId: string } };
 }
 
@@ -173,6 +176,12 @@ export async function fetchRunRows(opts: { base: string; token: string; fetchImp
     const agent = isObj(variant.agent) ? variant.agent : {};
     if (typeof agent.modelId !== 'string' || agent.modelId === '') throw new CliError(`run_row_without_model_id: run ${idPrefix}`);
     if (typeof o.startedAt !== 'string' || Number.isNaN(Date.parse(o.startedAt))) throw new CliError(`run_row_without_started_at: run ${idPrefix}`);
-    return { id: typeof o.id === 'string' ? o.id : undefined, startedAt: o.startedAt, variant: { agent: { modelId: agent.modelId } } };
+    return {
+      id: typeof o.id === 'string' ? o.id : undefined,
+      startedAt: o.startedAt,
+      caseId: typeof o.caseId === 'string' ? o.caseId : undefined,
+      caseKey: typeof o.caseKey === 'string' ? o.caseKey : undefined,
+      variant: { agent: { modelId: agent.modelId } },
+    };
   });
 }
