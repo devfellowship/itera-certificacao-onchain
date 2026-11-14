@@ -22,7 +22,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { ROUTE_STATES, parseRouteObservationText, validateRoute, type Route } from '@itera/contracts';
 import { exec as realExec, type ExecResult } from '../../exec.js';
 import { apiCall, describeRefusal, type ApiAnswer, type Fetch } from '../api.js';
-import { flag, has, parseArgs, required } from '../args.js';
+import { flag, has, numberFlag, parseArgs, required } from '../args.js';
 import type { Command, Io } from '../command.js';
 import { apiUrl, CliError } from '../env.js';
 import { requireSession } from '../session.js';
@@ -37,6 +37,7 @@ import {
   unifiedDiff,
   type RouteAction,
 } from '../route/apply.js';
+import { capsFromEnv, checkBudget, countPaidRuns, fetchRunRows, parseTiers } from '../route/budget.js';
 import { emptyRecheckState, recheck, triggersText, validateRecheckState, type Mark, type RecheckState } from '../route/recheck.js';
 
 export type RouteExec = (cmd: string, args: string[], opts: { cwd: string }) => Promise<ExecResult>;
@@ -98,8 +99,17 @@ const RECHECK_USAGE = `usage: tma route recheck --observed <observation.json> --
   --json      print {marks, refused} instead of lines
   Exit: 0 ok, 2 usage or invalid input (the state file stays as it was), 3 the API refused at least one mark, 1 other.`;
 
+const BUDGET_USAGE = `usage: tma route budget --tiers <tiers.json> [--plan <n>] [--json]
+  Task T6 (ADR-7): counts the PAID runs in GET <api>/eval-runs with your tma login. A run is paid unless its model is a
+  local route (ollama/, local/), a fleet Claude model, or listed with tier local in the tiers file (tma-model-tiers/1);
+  a model that the file does not list counts as paid and is reported as unlisted.
+  Caps: total 200 (hard; TMA_BUDGET_TOTAL can only lower it), night 10 (last 24 h, TMA_BUDGET_NIGHT), month 60 (UTC
+  calendar month, TMA_BUDGET_MONTH). --plan n = paid runs about to start: exit 2 and "refused: ..." when the budget
+  would be passed (exactly at a cap is allowed). Without --plan: exit 0.
+  The API caps the list at 500 rows: a truncated answer is refused (exit 1), because the count would be too low.`;
+
 const USAGE = [
-  'usage: tma route <pr|rollback|mark|list|recheck> ...   (apply an approved model route by a PR: plan C8)', '', PR_USAGE, '', ROLLBACK_USAGE, '', MARK_USAGE, '', LIST_USAGE, '', RECHECK_USAGE,
+  'usage: tma route <pr|rollback|mark|list|recheck|budget> ...   (apply an approved model route by a PR: plan C8)', '', PR_USAGE, '', ROLLBACK_USAGE, '', MARK_USAGE, '', LIST_USAGE, '', RECHECK_USAGE, '', BUDGET_USAGE,
 ].join('\n');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -430,10 +440,37 @@ async function recheckMain(argv: string[], io: Io, deps: RouteDeps): Promise<num
   return refused.length ? 3 : 0;
 }
 
+async function budgetMain(argv: string[], io: Io, deps: RouteDeps): Promise<number> {
+  const a = parseArgs(argv, { tiers: {}, plan: {}, json: { boolean: true } });
+  if (a.positionals.length) throw new CliError(`unexpected argument: ${a.positionals[0]!.slice(0, 60)}\n${BUDGET_USAGE}`);
+  const tiersFile = required(a, 'tiers', BUDGET_USAGE);
+  const planned = numberFlag(a, 'plan', { min: 0, max: 100000, integer: true });
+  const tiers = parseTiers(await readText(resolve(tiersFile)));
+  const caps = capsFromEnv(deps.env ?? process.env);
+  const { base, token } = session(deps);
+  const rows = await fetchRunRows({ base, token, fetchImpl: deps.fetchImpl });
+  const counts = countPaidRuns(rows, tiers, (deps.now ?? Date.now)());
+  const verdict = planned === undefined ? null : checkBudget({ counts, planned, caps });
+  if (has(a, 'json')) {
+    io.out(JSON.stringify({ ...counts, caps, planned: planned ?? null, ok: verdict ? verdict.ok : true, reasons: verdict ? verdict.reasons : [] }, null, 2));
+  } else {
+    io.out(`paid_total\t${counts.paid_total}\tcap ${caps.total}`);
+    io.out(`paid_night\t${counts.paid_night}\tcap ${caps.night}`);
+    io.out(`paid_month\t${counts.paid_month}\tcap ${caps.month}`);
+    io.out(`total_runs\t${counts.total_runs}`);
+    io.out(`unlisted\t${counts.unlisted.length ? counts.unlisted.join(', ') : '-'}`);
+  }
+  if (verdict && !verdict.ok) {
+    io.err(`refused: ${verdict.reasons.join('; ')}`);
+    return 2;
+  }
+  return 0;
+}
+
 export function makeRouteCommand(deps: RouteDeps = {}): Command {
   return {
     name: 'route',
-    summary: 'Apply an approved model route by a PR (pr), roll it back by a PR (rollback), record the state (mark), list routes (list), mark live routes needs_check on a trigger (recheck)',
+    summary: 'Apply an approved model route by a PR (pr), roll it back by a PR (rollback), record the state (mark), list routes (list), mark live routes needs_check on a trigger (recheck), count paid runs against the budget (budget)',
     usage: USAGE,
     async main(argv, io) {
       const [sub, ...rest] = argv;
@@ -449,6 +486,8 @@ export function makeRouteCommand(deps: RouteDeps = {}): Command {
             return await listMain(rest, io, deps);
           case 'recheck':
             return await recheckMain(rest, io, deps);
+          case 'budget':
+            return await budgetMain(rest, io, deps);
           default:
             throw new CliError(`${sub ? `unknown route command: ${sub}` : 'give a route command'}\n${USAGE}`);
         }
