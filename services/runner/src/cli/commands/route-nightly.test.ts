@@ -23,7 +23,7 @@ const CASE1 = 'aaaaaaaa-0000-4000-8000-000000000001';
 const CASE2 = 'aaaaaaaa-0000-4000-8000-000000000002';
 const EV_PIN = H('e');
 const PAID = 'z-ai/glm-5.3';
-const TIERS = JSON.stringify({ format: 'tma-model-tiers/1', models: [{ model_id: PAID, tier: 'mid', price_source: 'metered' }] });
+const TIERS = JSON.stringify({ schema: 'tma-model-tiers/1', models: [{ model_id: PAID, tier: 'mid', price_source: 'metered' }] });
 
 /** The example live route as the API answers it (tma-route/2). */
 function route(over: Record<string, unknown> = {}) {

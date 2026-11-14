@@ -8,7 +8,7 @@ import { API, TOKEN, captureIo, tempEnv } from '../test/fixtures.js';
 import { makeRouteCommand } from './route.js';
 
 const NOW = Date.parse('2026-11-13T12:00:00Z');
-const TIERS = JSON.stringify({ format: 'tma-model-tiers/1', models: [{ model_id: 'z-ai/glm-5.3', tier: 'mid', price_source: 'metered' }] });
+const TIERS = JSON.stringify({ schema: 'tma-model-tiers/1', models: [{ model_id: 'z-ai/glm-5.3', tier: 'mid', price_source: 'metered' }] });
 
 function loggedIn(): NodeJS.ProcessEnv {
   const env = tempEnv();
