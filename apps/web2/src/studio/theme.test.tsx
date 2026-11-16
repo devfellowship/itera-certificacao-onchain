@@ -33,6 +33,13 @@ describe('studio theme css', () => {
     }
   })
 
+  it('carries the step-kind and avatar tokens of the S2, S3 and S9 artboards', () => {
+    for (const [name, value] of Object.entries({ '--stu-k-read': '#8fb3e8', '--stu-k-search': '#b8a5e3', '--stu-k-test': '#7ad6cd', '--stu-k-tool': '#e3a5c7', '--stu-av-cc': '#4a3328', '--stu-av-cx': '#26302e', '--stu-av-oc': '#2a2a36', '--stu-av-al': '#1f3326' })) {
+      expect(css).toContain(`${name}: ${value};`)
+    }
+    expect(css).toContain('--stu-k-write: var(--stu-warn);')
+  })
+
   it('re-maps the app tokens only inside the .stu-theme scope', () => {
     const lines = css.split('\n').filter((l) => /^\s*--tma-[a-z-]+:/.test(l))
     expect(lines.length).toBeGreaterThan(10)
