@@ -418,6 +418,8 @@ describe('S4, S6 and S7 fixes from the UI judge (UI-S4S6S7-FIX)', () => {
     expect(cascade(addCol.querySelector('.mx-add')!, 'border')!.value).toMatch(/^1px dashed/)
     expect(cascade(c.querySelector('.mx-row .mx-rowhead')!, 'position').value).toBe('sticky')
     expect(cascade(c.querySelector('th.mx-agent')!, 'width').value).toBe('380px')
+    // Row height: 8 + 21 (count line) + 2 + 19.5 (link line) + 8 + 1 hairline = 59.5 px, under the 60 px of the artboard (measured 61.5 px with a 4 px gap).
+    expect(cascade(c.querySelector('.mx-cell__line')!, 'margin-top').value).toBe('2px')
     // Every body row has a cell under the add column, so the hairlines run to the table edge.
     expect(c.querySelectorAll('tbody tr.mx-row').length).toBe(c.querySelectorAll('tbody tr.mx-row > td.mx-fill').length)
     expectReadOnly(c)

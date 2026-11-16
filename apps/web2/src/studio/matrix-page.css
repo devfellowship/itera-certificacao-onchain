@@ -77,7 +77,7 @@
   .mx-table > thead > tr > th.mx-agent { width: 300px; }
   .mx-table th.mx-rowhead { white-space: normal; padding-right: 8px; }
 }
-.mx-cell__line { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; margin-top: 4px; }
+.mx-cell__line { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; margin-top: 2px; }
 .mx-more { margin-top: 0; }
 .mx-more[open] { flex: 1 0 100%; }
 .mx-more > summary { cursor: pointer; color: var(--stu-text-muted); font-size: var(--stu-fs-label); font-family: var(--stu-font-mono); list-style: none; }
