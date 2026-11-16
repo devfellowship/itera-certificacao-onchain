@@ -128,6 +128,56 @@ describe('S13 review queue', () => {
   })
 })
 
+describe('S13 canvas layout (UI-S13)', () => {
+  it('opts in to the studio theme and follows the artboard: judge tabs, the question as the title, sections, a 3-button grade bar', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    expect(q(c, 'studio-review')!.classList.contains('stu-theme')).toBe(true)
+    const tabs = c.querySelectorAll<HTMLElement>('[role="tablist"] [role="tab"]')
+    expect([...tabs].map((t) => t.getAttribute('aria-selected'))).toEqual(['true', 'false'])
+    expect(q(c, 'review-judge-async-wait-lifecycle')).toBe(tabs[0])
+    expect(c.querySelector('h1')!.textContent).toBe('Waits use a watcher, not polling in the session?')
+    expect(q(c, 'review-card')!.contains(c.querySelector('h1'))).toBe(true)
+    const titles = [...c.querySelectorAll('h2.stu-section__title')].map((h) => h.firstChild?.textContent)
+    expect(titles).toEqual(['Context', 'Last 4 calls', 'Judge says'])
+    expect(c.querySelector('.rvw-actions')!.querySelectorAll('button')).toHaveLength(3)
+    expect(q(c, 'review-pass')!.className).toContain('stu-btn--primary')
+    expect(c.querySelector('[role="tooltip"]')!.textContent).toContain('teaches and checks the AI judge')
+  })
+
+  it('lists the last calls of the run under the section, from the steps endpoint, with the failed one marked', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-last-calls'), 'last calls')
+    const rows = [...c.querySelectorAll('[data-testid="review-last-calls"] li')]
+    expect(rows.map((r) => r.textContent)).toEqual(['Bashgh pr view', 'Bashgh run watcherror'])
+    expect(rows[1]!.className).toContain('rvw-call--bad')
+    expect(calls.filter((x) => x.path.startsWith('/review-queue/steps')).length).toBe(1)
+  })
+
+  it('keeps the keys: 1-4 pick a reason (aria-pressed), f sends fail with it, d defers without a write', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '3' })))
+    expect(q(c, 'review-reason-partial')!.getAttribute('aria-pressed')).toBe('true')
+    expect(q(c, 'review-reason-no_check')!.getAttribute('aria-pressed')).toBe('false')
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f' })))
+    await waitFor(() => writes().length === 1, 'write')
+    expect(writes()[0]!.body).toEqual({ run_id: R1, judge_id: 'async-wait-lifecycle', pass: false, reason_code: 'partial' })
+    await waitFor(() => q(c, 'review-card')?.dataset.runId === R2, 'second run')
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' })))
+    await waitFor(() => !!q(c, 'review-done'), 'done')
+    expect(writes()).toHaveLength(1)
+  })
+
+  it('verdicts carry the word, not only a color', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    expect(q(c, 'review-judge')!.parentElement!.className).toContain('stu-ok')
+    expect(q(c, 'review-workflow')!.parentElement!.className).toContain('stu-bad')
+    expect(q(c, 'review-workflow')!.textContent).toBe('fail')
+  })
+})
+
 describe('S13 step detail', () => {
   it('a click on a step box opens the detail of that step: tool, target, result, timing and the idle time before it', async () => {
     const c = mountAt('/studio/review')
