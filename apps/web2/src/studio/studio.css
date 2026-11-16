@@ -337,3 +337,21 @@ a.s9-row:hover { background: var(--tma-line); }
 .trc-preview { font-family: var(--tma-font-mono, monospace); font-size: 12px; margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .trc-preview--open { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .trc-more { font-size: 12px; background: none; border: none; padding: 0; color: var(--tma-primary); cursor: pointer; }
+
+/* S13 review queue (C6-T3): phone first, one run per screen. */
+.rvw-page { max-width: 640px; }
+.rvw-card { display: flex; flex-direction: column; gap: 12px; }
+.rvw-top, .rvw-judges, .rvw-chips, .rvw-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rvw-meta { overflow-wrap: anywhere; margin: 0; }
+.rvw-summary dd { overflow-wrap: anywhere; }
+.rvw-steps { display: flex; flex-wrap: wrap; gap: 2px; font-family: var(--tma-font-mono, monospace); font-size: 12px; }
+.rvw-step { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 1px solid currentColor; border-radius: 3px; opacity: 0.8; }
+.rvw-step--bad { outline: 2px solid #c0392b; opacity: 1; }
+.rvw-gap { padding: 0 6px; opacity: 0.7; }
+.rvw-chip { min-height: 36px; padding: 6px 12px; border: 1px solid currentColor; border-radius: 18px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.rvw-chip--on { background: currentColor; }
+.rvw-chip--on, .rvw-chip--on .rvw-key { color: var(--tma-bg, #fff); }
+.rvw-key { font-family: var(--tma-font-mono, monospace); font-size: 11px; opacity: 0.7; }
+.rvw-actions > * { flex: 1 1 30%; min-height: 44px; }
+.rvw-question { font-weight: 600; margin: 0; }
+@media (hover: none) { .rvw-key { display: none; } }

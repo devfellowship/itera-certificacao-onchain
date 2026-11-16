@@ -37,6 +37,7 @@ import { StudioDiffPage } from './studio/StudioDiffPage'
 import { StudioExperimentPage } from './studio/StudioExperimentPage'
 import { StudioExperimentsPage } from './studio/StudioExperimentsPage'
 import { StudioHomePage } from './studio/StudioHomePage'
+import { StudioReviewPage } from './studio/StudioReviewPage'
 import { StudioRoutingPage } from './studio/StudioRoutingPage'
 import { StudioTrajectoriesPage } from './studio/StudioTrajectoriesPage'
 import { StudioTracePage } from './studio/StudioTracePage'
@@ -119,6 +120,8 @@ export const routes: RouteObject[] = [
           { path: '/studio/traces/:sessionId', element: <StudioTracePage /> },
           // C7-T4: S8 agent compare per use case (plan 20261112-tma-c7-model-comparison-per-use-case). Read only.
           { path: '/studio/compare', element: <StudioComparePage /> },
+          // C6-T3: S13 review queue, the one studio write (a human label, POST /grader-results/human).
+          { path: '/studio/review', element: <StudioReviewPage /> },
           // C8-T3: S12 routing per use case (plan 20261112-tma-c8-routing-from-evals). Writes only the verdict (ADR-1).
           { path: '/studio/routing/:useCase', element: <StudioRoutingPage /> },
         ],
