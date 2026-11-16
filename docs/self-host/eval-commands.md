@@ -320,6 +320,31 @@ The same batch again answers `unchanged` for each row.
 
 Other flags: `--root <dir>` (repeatable), `--limit <n>`.
 
+## Write weak workflow labels on review runs
+
+`tma eval workflow-labels` writes weak pass labels on the runs of a review batch.
+A label comes from the outcome signals of the run, not from a model and not from a person.
+
+```bash
+tma eval workflow-labels --batch rows.jsonl --signals candidates.jsonl --judge async-wait-lifecycle --judge external-block-handling --out decisions.jsonl --dry-run
+tma eval workflow-labels --batch rows.jsonl --signals candidates.jsonl --judge async-wait-lifecycle --judge external-block-handling
+```
+
+- `--batch` is the batch file of `tma eval review-batch`.
+- `--signals` is a `trace-select` candidates file (`tma-trace-select/1`). It is repeatable; a later file wins for the same run.
+- A row joins its candidate by task id, session id and sub-agent id. The ids come from the path of the Claude Code session file.
+
+The rule is `clean-merge`.
+The delivering PR merged with green CI, and every red signal of the run is known `false`: `revert`, `red_ci`, `rerun_task`, `ci_rerun` and `correction`.
+A signal that is `null` was not measured, so the row gets no label.
+No rule gives a fail label. Strong labels come from a person on the review screen.
+
+The command sends `POST /grader-results/human` with `workflow_signal: "clean-merge"` and `reason_code: "other"`, one label for each run and judge.
+The API stores the labeler `workflow:clean-merge` with the strength `weak`.
+Only an agent login can write a workflow label, and only a pass.
+The same label again answers `unchanged`.
+`--out` writes one decision for each row (ids, the L1 pair, the signals and the decision; no task text).
+
 ## Prove a grader
 
 A grader in the eval repo has a folder `graders/<id>/<semver>/`.

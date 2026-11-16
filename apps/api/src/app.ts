@@ -89,6 +89,7 @@ const ROUTES = [
   "POST /grader-results/human",
   "GET /grader-results/human?run_id=",
   "GET /review-queue?judge=&limit=",
+  "GET /review-queue/runs?case_key=",
   "GET /runs/:id/actions",
   "GET /runs/:id/artifacts",
   "GET /runs/:id/artifacts/file?path=",

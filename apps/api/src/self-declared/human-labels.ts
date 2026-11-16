@@ -3,13 +3,20 @@
  * The studio S13 review screen writes ONE thing: a grader_results row of kind `human` on a run. Needs 0024
  * (grader_results.labeler, reason_code); before it every route answers 503 schema_not_ready.
  *
- *   POST /grader-results/human     body EXACTLY {run_id, judge_id, pass, reason_code?}. Stores one grader_results row:
+ *   POST /grader-results/human     body EXACTLY {run_id, judge_id, pass, reason_code?, workflow_signal?}. Stores one grader_results row:
  *                                  grader version = the human label grader `label-<judge_id>@1.0.0` of the tenant
  *                                  (kind human, code_sha256 = humanLabelDigest, the kit's humanGraderDigest rule,
  *                                  created on first use; its own id, because a run's graders may not repeat an id and
  *                                  the judge result of the same run carries `<judge_id>`), pass, score 100 | 0, weight 0, hard_gate false, decisive false,
  *                                  infra_ok true, labeler = the caller (labelerOf), reason_code. 201 with the row.
+ *                                  With workflow_signal (task C6-T2, Q-C6-T2 = A): a WORKFLOW label, labeler =
+ *                                  `workflow:<signal>`. Only an agent login may write one, only a pass (T2 writes weak
+ *                                  pass labels only), only a signal of WORKFLOW_SIGNALS, and reason_code is required.
+ *                                  Idempotent: the same run, judge and signal again answers 200 with the stored row and
+ *                                  `unchanged: true`. Every label read carries `strength` (labelStrength).
  *   GET  /grader-results/human     ?run_id=<uuid>: the human labels of one run, newest first.
+ *   GET  /review-queue/runs        ?case_key=<key>: the trace_review runs of one case of the tenant ({run_id, started_at}), so a
+ *                                  label writer on the host finds the run of a batch row (tma eval workflow-labels).
  *   GET  /review-queue/steps       ?run_id=<uuid>: the redacted steps of one run (tool, target, status, duration, start in ms), the
  *                                  detail behind the step boxes of S13. Same tenant checks as the labels.
  *   GET  /review-queue             ?judge=<id>[&limit=1..200]: the trace_review runs of the tenant that no person has
@@ -42,11 +49,25 @@ export const LABEL_GRADER_SEMVER = "1.0.0";
 export const labelGraderId = (judgeId: string): string => `label-${judgeId}`;
 export const REASON_CODES = ["wrong_sha", "no_check", "partial", "other"] as const;
 export type ReasonCode = (typeof REASON_CODES)[number];
+/** The workflow signals a workflow label may name, each with its strength (plan ADR-12: a label carries its source and
+ * strength). Q-C6-T2 = A: workflow signals do not separate the two judge modes, so T2 writes weak PASS labels only.
+ *   clean-merge  the declared run's delivering PR merged with green CI, and trace-select knows every red signal of the
+ *                run as false: no revert, no red CI, no task re-dispatch, no CI re-run, no Tainan correction in the run. */
+export const WORKFLOW_SIGNALS: Readonly<Record<string, "weak" | "strong">> = { "clean-merge": "weak" };
+export type LabelStrength = "weak" | "strong";
+/** A person's label is strong; a workflow label has the strength of its signal; an agent or user label has none. */
+export function labelStrength(labeler: string | null): LabelStrength | null {
+  if (!labeler) return null;
+  if (labeler.startsWith("person:")) return "strong";
+  if (labeler.startsWith("workflow:")) return WORKFLOW_SIGNALS[labeler.slice("workflow:".length)] ?? null;
+  return null;
+}
+const CASE_KEY_RE = /^[a-z0-9][a-z0-9_-]{2,62}$/;
 export const QUEUE_DEFAULT_LIMIT = 50;
 export const QUEUE_MAX_LIMIT = 200;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BODY_KEYS = new Set(["run_id", "judge_id", "pass", "reason_code"]);
+const BODY_KEYS = new Set(["run_id", "judge_id", "pass", "reason_code", "workflow_signal"]);
 
 /** The kit's humanGraderDigest (services/runner/src/cli/eval/trace-review.ts): the same id@version is one row. */
 export function humanLabelDigest(id: string, version: string): string {
@@ -128,6 +149,8 @@ export interface HumanLabelStore {
   runTenant(runId: string): Promise<RunTenant>;
   insert(row: { tenant: string; runId: string; judgeId: string; pass: boolean; reasonCode: ReasonCode | null; labeler: string }): Promise<HumanLabel>;
   labels(runId: string, tenant: string): Promise<HumanLabel[]>;
+  /** The trace_review runs of one case of the tenant, oldest first. */
+  caseRuns(tenant: string, caseKey: string): Promise<Array<{ runId: string; startedAt: string }>>;
   queue(tenant: string, judgeId: string, labeler: string, limit: number): Promise<ReviewRun[]>;
   steps(runId: string, tenant: string): Promise<StepDetail[]>;
 }
@@ -205,6 +228,16 @@ export class PgHumanLabelStore implements HumanLabelStore {
     }));
   }
 
+  async caseRuns(tenant: string, caseKey: string): Promise<Array<{ runId: string; startedAt: string }>> {
+    const { rows } = await this.pool().query(
+      `select r.id, r.started_at from public.runs r join public.eval_cases c on c.id = r.case_id
+        where c.tenant = $1 and c.case_key = $2 and c.mode = 'trace_review'
+        order by r.started_at, r.id limit 50`,
+      [tenant, caseKey],
+    );
+    return rows.map((r: Record<string, unknown>) => ({ runId: String(r.id), startedAt: iso(r.started_at) }));
+  }
+
   async queue(tenant: string, judgeId: string, labeler: string, limit: number): Promise<ReviewRun[]> {
     const latest = (gidParam: string, where: string) => `(select json_build_object('pass', gr.pass, 'labeler', gr.labeler, 'at', gr.graded_at)
         from public.grader_results gr join public.grader_versions g on g.id = gr.grader_version_id and g.tenant = gr.tenant
@@ -271,6 +304,8 @@ export interface HumanLabelsRouterDeps {
   tenant?: string;
 }
 
+const withStrength = (l: HumanLabel): HumanLabel & { strength: LabelStrength | null } => ({ ...l, strength: labelStrength(l.labeler) });
+
 class Refusal extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
     super(message);
@@ -309,9 +344,26 @@ export function createHumanLabelsRouter(deps: HumanLabelsRouterDeps): Router {
       if (typeof b.pass !== "boolean") throw new Refusal(400, "invalid_body", "pass is true or false");
       const rc = b.reason_code ?? null;
       if (rc !== null && !REASON_CODES.includes(rc as ReasonCode)) throw new Refusal(400, "invalid_body", `reason_code is one of ${REASON_CODES.join(", ")}, or null`);
+      let labeler = labelerOf(req.principal!);
+      const signal = b.workflow_signal ?? null;
+      if (signal !== null) {
+        // A workflow label (C6-T2): a deterministic signal of a declared run, written by an agent, never by a person.
+        if (typeof signal !== "string" || !Object.hasOwn(WORKFLOW_SIGNALS, signal)) throw new Refusal(400, "unknown_signal", `workflow_signal is one of ${Object.keys(WORKFLOW_SIGNALS).join(", ")}`);
+        if (req.principal!.actorType !== "agent") throw new Refusal(403, "workflow_label_needs_agent", "a workflow label is written by an agent login; a person writes a person label");
+        if (b.pass !== true) throw new Refusal(400, "workflow_label_pass_only", "a workflow label is a weak pass label (Q-C6-T2 = A)");
+        if (rc === null) throw new Refusal(400, "invalid_body", "a workflow label needs a reason_code");
+        labeler = `workflow:${signal}`;
+      }
       const runId = await runOfTenant(b.run_id);
-      const label = await deps.store.insert({ tenant: tenant(), runId, judgeId: b.judge_id, pass: b.pass, reasonCode: rc as ReasonCode | null, labeler: labelerOf(req.principal!) });
-      res.status(201).json(label);
+      if (signal !== null) {
+        const same = (await deps.store.labels(runId, tenant())).find((l) => l.judgeId === b.judge_id && l.labeler === labeler);
+        if (same) {
+          res.status(200).json({ ...withStrength(same), unchanged: true });
+          return;
+        }
+      }
+      const label = await deps.store.insert({ tenant: tenant(), runId, judgeId: b.judge_id, pass: b.pass, reasonCode: rc as ReasonCode | null, labeler });
+      res.status(201).json(withStrength(label));
     })().catch(fail(res, next));
   });
 
@@ -319,7 +371,7 @@ export function createHumanLabelsRouter(deps: HumanLabelsRouterDeps): Router {
     (async () => {
       await guard(req);
       const runId = await runOfTenant(req.query.run_id);
-      res.json({ labels: await deps.store.labels(runId, tenant()) });
+      res.json({ labels: (await deps.store.labels(runId, tenant())).map(withStrength) });
     })().catch(fail(res, next));
   });
 
@@ -332,6 +384,16 @@ export function createHumanLabelsRouter(deps: HumanLabelsRouterDeps): Router {
       if (!Number.isInteger(n) || n < 1) throw new Refusal(400, "invalid_query", `limit is an integer from 1 to ${QUEUE_MAX_LIMIT}`);
       const runs = await deps.store.queue(tenant(), judge, labelerOf(req.principal!), Math.min(n, QUEUE_MAX_LIMIT));
       res.json({ judge, judges: LABEL_JUDGE_IDS, runs });
+    })().catch(fail(res, next));
+  });
+
+  router.get("/review-queue/runs", requirePrincipal, (req: Request, res: Response, next: NextFunction) => {
+    (async () => {
+      await guard(req);
+      const key = req.query.case_key;
+      if (typeof key !== "string" || !CASE_KEY_RE.test(key)) throw new Refusal(400, "invalid_query", "case_key is 3 to 63 of a-z 0-9 _ -");
+      const runs = await deps.store.caseRuns(tenant(), key);
+      res.json({ case_key: key, runs: runs.map((r) => ({ run_id: r.runId, started_at: r.startedAt })) });
     })().catch(fail(res, next));
   });
 
