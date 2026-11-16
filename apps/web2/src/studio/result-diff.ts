@@ -57,6 +57,15 @@ export function stepsOfActions(actions: RunAction[]): AlignableStep[] {
     .map((a) => ({ seq: a.seq, tool: a.tool, target_kind: 'none' as const, target_redacted: a.target }))
 }
 
+/**
+ * Which cards start open. The code diff and the code files are the main block of the page, so they start open; raw JSON (the run
+ * record, a tree over a thousand pixels tall) starts closed. Another type starts open only when it is the only card of its cell.
+ */
+export function openByDefault(a: Artifact, countInCell: number): boolean {
+  if (a.kind === 'json') return false
+  return a.kind === 'diff' || a.kind === 'text' || countInCell === 1
+}
+
 /** The data types in the order S7 shows them. */
 export const KIND_ORDER: ArtifactKind[] = ['diff', 'json', 'markdown', 'html', 'image', 'ndjson', 'text', 'binary']
 export const KIND_LABEL: Record<ArtifactKind, string> = {

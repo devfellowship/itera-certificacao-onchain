@@ -26,7 +26,7 @@ import { Crumb, CrumbSep, InfoTip, StudioBar, TitleRow } from './chrome'
 import { CopyCommand } from './CopyCommand'
 import { diffCommand } from './eval-command'
 import { studioHref } from './links'
-import { alignmentWord, diffQueryOf, KIND_LABEL, newestRunOf, pairFromVariants, rowsByKind, stepsOfActions, type DiffQuery, type Pair } from './result-diff'
+import { alignmentWord, diffQueryOf, KIND_LABEL, newestRunOf, openByDefault, pairFromVariants, rowsByKind, stepsOfActions, type DiffQuery, type Pair } from './result-diff'
 import { evaluationHref, runHref } from './runs'
 import { Dot, themeClass } from './theme'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
@@ -211,7 +211,7 @@ function Cards({ list, which }: { list: Artifact[]; which: string }) {
   return (
     <div className="stu-cards">
       {list.map((a) => (
-        <ArtifactCard key={a.id} artifact={a} collapsible defaultOpen={list.length === 1} testId={`s7-${which}-artifact`} />
+        <ArtifactCard key={a.id} artifact={a} collapsible defaultOpen={openByDefault(a, list.length)} testId={`s7-${which}-artifact`} />
       ))}
     </div>
   )
@@ -253,7 +253,7 @@ function DiffView({ data }: { data: Data }) {
       </TitleRow>
 
       <div className="df-scroll">
-        <div className="df-table">
+        <div className={`df-table${expected != null ? ' df-table--exp' : ''}`}>
           <div className="df-head" role="row" data-testid="s7-runs">
             <div className="df-case" role="columnheader">
               <span className="df-case__mark" aria-hidden="true">
@@ -267,11 +267,11 @@ function DiffView({ data }: { data: Data }) {
               </span>
               <span className="df-case__text">
                 {data.caseId && caseKey ? (
-                  <Link to={`/studio/cases/${encodeURIComponent(data.caseId)}`} className="df-case__key" data-testid="s7-case-link">
+                  <Link to={`/studio/cases/${encodeURIComponent(data.caseId)}`} className="df-case__key" title={caseKey} data-testid="s7-case-link">
                     {caseKey}
                   </Link>
                 ) : (
-                  <span className="df-case__key">{caseKey ?? 'Two runs'}</span>
+                  <span className="df-case__key" title={caseKey ?? undefined}>{caseKey ?? 'Two runs'}</span>
                 )}
                 <span className="stu-label">test case{kase ? ` · ${kase.useCaseKey}` : ''}</span>
               </span>
@@ -286,7 +286,10 @@ function DiffView({ data }: { data: Data }) {
             {[base, variant].map((s, i) => {
               const res = resultOf(s.run.status)
               return (
-                <span key={i} className="df-cell">
+                <span key={i} className={`df-cell${s.run.status === 'pass' ? ' df-cell--pass' : ''}`} data-label={i === 0 ? 'Base' : 'Variant'} data-testid={`s7-result-${i === 0 ? 'base' : 'variant'}`}>
+                  <svg className={`df-cell__icon stu-${res.tone === 'muted' ? 'label' : res.tone}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d={res.path} />
+                  </svg>
                   <span className={`stu-${res.tone === 'muted' ? 'label' : res.tone}`}>{s.run.status}</span>
                   <span className="stu-label"> · score {fmtScore(s.run.scoreTotal ?? s.row?.score ?? null)}</span>
                 </span>
@@ -306,7 +309,7 @@ function DiffView({ data }: { data: Data }) {
                   <th scope="col">Base{bv ? ` · ${bv.label}` : ''}</th>
                   <th scope="col">Variant{vv ? ` · ${vv.label}` : ''}</th>
                   {expected != null && (
-                    <th scope="col" data-testid="s7-expected-head">
+                    <th scope="col" className="df-expected-head" data-testid="s7-expected-head">
                       Expected vs agent
                     </th>
                   )}
@@ -316,14 +319,14 @@ function DiffView({ data }: { data: Data }) {
                 {rows.map((r, i) => (
                   <tr key={r.kind} data-testid="s7-row" data-kind={r.kind}>
                     <th scope="row">{KIND_LABEL[r.kind]}</th>
-                    <td>
+                    <td data-label="Base">
                       <Cards list={r.base} which="base" />
                     </td>
-                    <td>
+                    <td data-label="Variant">
                       <Cards list={r.variant} which="variant" />
                     </td>
                     {expected != null && i === 0 && (
-                      <td rowSpan={rows.length} className="df-expected" data-testid="s7-expected">
+                      <td rowSpan={rows.length} className="df-expected" data-label="Expected vs agent" data-testid="s7-expected">
                         <span className="stu-label">Expected (from the test case)</span>
                         <MarkdownView text={expected} testId="s7-expected-text" />
                         <p className="stu-gap">Read it against the agent outputs on the left, row by row.</p>
@@ -366,12 +369,14 @@ function DiffView({ data }: { data: Data }) {
                       const tone = STEP_TONE[word]
                       const cell = (step: typeof r.base, targets: Map<number, string | null>, side: 'b' | 'v') =>
                         step ? (
-                          <td className={`df-step df-step--${tone}`}>
+                          <td className={`df-step df-step--${tone}`} data-label={side === 'b' ? 'Base step' : 'Variant step'}>
                             <span className={`stu-dot df-step__dot${word === 'changed' ? ' stu-dot--warn' : word === 'same' ? '' : word === 'inserted' && side === 'v' ? ' stu-dot--ok' : ' stu-dot--bad'}`} aria-hidden="true" />
                             {`#${step.seq} ${step.tool} ${targets.get(step.seq) ?? ''}`}
                           </td>
                         ) : (
-                          <td className="df-step df-step--none">no step</td>
+                          <td className="df-step df-step--none" data-label={side === 'b' ? 'Base step' : 'Variant step'}>
+                            no step
+                          </td>
                         )
                       return (
                         <tr key={i} data-testid="s7-step" data-label={word}>

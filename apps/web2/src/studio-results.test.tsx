@@ -9,6 +9,7 @@
  * pages, from ?case&base&variant, ?baseRun&run and ?evaluation (the "Compare with baseline" link); both are read only
  * (ADR-5), mark Studio active in the App Nav, and show a clear state on empty, 503 and 404.
  */
+import { readFileSync } from 'node:fs'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
@@ -16,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
 import { RELATIVE_RULE_TEXT } from './tma/compare/case-compare'
+import { openByDefault } from './studio/result-diff'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -174,7 +176,11 @@ describe('S6 experiment result', () => {
     expect(page.querySelector('.stu-crumb--current')?.textContent).toBe('experiments')
     expect(page.querySelector('h1')?.textContent).toBe('Base agent vs agent variant')
     expect([...page.querySelectorAll('.mx-group th')].map((h) => h.textContent)).toEqual(['Key metrics', 'Agent', 'Per test case'])
-    expect(page.querySelectorAll('thead th[scope="col"]')).toHaveLength(3)
+    // The empty corner, the two agent columns, and the dashed "Add another agent variant" column.
+    expect(page.querySelectorAll('thead th[scope="col"]')).toHaveLength(4)
+    expect(q(c, 's6-add-column')!.textContent).toContain('Add another agent variant')
+    expect(q(c, 's6-add-column')!.textContent).toContain('same 1 test case')
+    expect(q(c, 's6-add-column')!.querySelector('a')!.getAttribute('href')).toBe(`/studio/experiments/new?agent=${AGENT}`)
     // Key metrics pool the dataset: base 2 of 3, variant 2 of 2 (the infra failure is left out).
     const keyRows = [...page.querySelectorAll('tbody tr.mx-row')].slice(0, 5).map((r) => r.textContent)
     expect(keyRows[0]).toContain('67%')
@@ -310,5 +316,168 @@ describe('S7 result diff', () => {
     c = mountAt(`/studio/diff?case=${CASE}&base=v-base&variant=v-skill`, { runs: [503, { error: 'schema_not_ready' }] })
     await waitFor(() => q(c, 'studio-load-error') !== null, 'the 503 state')
     expect(q(c, 'studio-load-error')!.textContent).toContain('not migrated')
+  })
+})
+
+
+/**
+ * The cascade of the studio stylesheets for a real element of the page. jsdom does not load the CSS, so this reads the top-level rules of the
+ * files, matches each selector against the element with `matches()`, and ranks them by specificity (`:where()` weighs 0). The shared
+ * `.stu-table th, .stu-table td` (padding 8px 20px) once beat every `.mx-*` padding rule, because `:where(.mx-table)` has zero weight (UI-S4S6S7-FIX).
+ */
+const studioFile = (f: string) => {
+  const rel = 'studio/' + f
+  return readFileSync(new URL(rel, import.meta.url), 'utf8')
+}
+const STUDIO_CSS = ['theme.css', 'chrome.css', 'studio.css', 'matrix-page.css', 'diff-page.css'].map((f) => studioFile(f).replace(/\/\*[\s\S]*?\*\//g, ''))
+type Rule = { sel: string; body: string; order: number }
+function topLevelRules(css: string, start: number): Rule[] {
+  const out: Rule[] = []
+  let i = 0
+  let order = start
+  while (i < css.length) {
+    const open = css.indexOf('{', i)
+    if (open < 0) break
+    const prelude = css.slice(i, open).trim()
+    let depth = 1
+    let j = open + 1
+    while (j < css.length && depth > 0) {
+      if (css[j] === '{') depth++
+      else if (css[j] === '}') depth--
+      j++
+    }
+    if (!prelude.startsWith('@')) for (const sel of prelude.split(',')) out.push({ sel: sel.trim(), body: css.slice(open + 1, j - 1), order: order++ })
+    i = j
+  }
+  return out
+}
+const ALL_RULES = STUDIO_CSS.flatMap((css, n) => topLevelRules(css, n * 100000))
+function specificity(sel: string): number {
+  const s = sel.replace(/:where\([^)]*\)/g, '')
+  const ids = (s.match(/#[\w-]+/g) ?? []).length
+  const classes = (s.match(/\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+(?:\([^)]*\))?/g) ?? []).length
+  const types = (s.replace(/\.[\w-]+|\[[^\]]*\]|:{1,2}[\w-]+(?:\([^)]*\))?/g, ' ').match(/(?:^|[\s>+~])[a-z][\w-]*/g) ?? []).length
+  return ids * 10000 + classes * 100 + types
+}
+/** The declaration that wins for `prop` on `el`: its value, and how many other rules tie with it on specificity (a tie is decided by load order only). */
+function cascade(el: Element, prop: string): { value: string | null; ties: number } {
+  const hits: Array<{ spec: number; order: number; value: string }> = []
+  for (const r of ALL_RULES) {
+    let matches = false
+    try {
+      matches = el.matches(r.sel.replace(/:where\(([^)]*)\)/g, '$1'))
+    } catch {
+      matches = false
+    }
+    if (!matches) continue
+    const d = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(r.body)
+    if (d) hits.push({ spec: specificity(r.sel), order: r.order, value: d[1]!.trim() })
+  }
+  if (!hits.length) return { value: null, ties: 0 }
+  const top = Math.max(...hits.map((h) => h.spec))
+  const best = hits.filter((h) => h.spec === top).sort((a, b) => a.order - b.order)
+  return { value: best[best.length - 1]!.value, ties: best.length - 1 }
+}
+
+describe('S4, S6 and S7 fixes from the UI judge (UI-S4S6S7-FIX)', () => {
+  it('S6: the row heads and cells are not indented by the shared .stu-table padding, and no rule ties on specificity', async () => {
+    const c = mountAt(`/studio/experiments?agent=${AGENT}`)
+    await waitFor(() => qa(c, 's6-cell').length === 2, 'the cells')
+    const rowhead = c.querySelector('.mx-row .mx-rowhead')!
+    const group = c.querySelector('.mx-group th')!
+    const metric = c.querySelector('td.mx-metric')!
+    const cell = c.querySelector('td.mx-cell')!
+    const agent = c.querySelector('th.mx-agent')!
+    for (const el of [rowhead, group, metric, cell, agent]) expect(cascade(el, 'padding').ties, `${el.className} padding ties`).toBe(0)
+    // Left side of a 1 to 4 value shorthand.
+    const left = (el: Element) => {
+      const v = (cascade(el, 'padding').value ?? '').split(/\s+/)
+      return parseInt(v[3] ?? v[1] ?? v[0] ?? 'x', 10)
+    }
+    // A row label and the group label above it start at the same x: no left padding on either (the 20 px of .stu-table is gone).
+    expect(cascade(rowhead, 'padding').value).toBe('8px 12px 8px 0')
+    expect(left(rowhead)).toBe(left(group))
+    expect(cascade(metric, 'padding').value).toBe('8px 28px 8px 10px')
+    expect(cascade(cell, 'padding').value).toBe('8px 28px 8px 10px')
+    expect(cascade(agent, 'padding').value).toBe('0 10px 16px 0')
+    expect(cascade(rowhead, 'border-top').value).toBe('0')
+  })
+
+  it('S6: the winning count is green, the S7 link sits in the variant cell, the add column is the dashed card, the head cells are sticky', async () => {
+    const c = mountAt(`/studio/experiments?agent=${AGENT}`)
+    await waitFor(() => qa(c, 's6-cell').length === 2, 'the cells')
+    const [b, v] = qa(c, 's6-cell')
+    expect(cascade(v!.querySelector('.mx-cell__count')!, 'color').value).toBe('var(--stu-ok)')
+    expect(cascade(b!.querySelector('.mx-cell__count')!, 'color').value).toBe('var(--stu-text)')
+    expect(q(b!, 's6-diff-link')).toBeNull()
+    const link = q(v!, 's6-diff-link')!
+    expect(link.closest('td')).toBe(v)
+    expect(link.getAttribute('href')).toBe(`/studio/diff?case=${CASE}&base=v-base&variant=v-skill`)
+    expect(q(c, 's6-row')!.querySelector('th.mx-rowhead')!.querySelector('[data-testid="s6-diff-link"]')).toBeNull()
+    const addCol = q(c, 's6-add-column')!
+    expect(cascade(addCol.querySelector('.mx-add')!, 'border')!.value).toMatch(/^1px dashed/)
+    expect(cascade(c.querySelector('.mx-row .mx-rowhead')!, 'position').value).toBe('sticky')
+    expect(cascade(c.querySelector('th.mx-agent')!, 'width').value).toBe('380px')
+    // Every body row has a cell under the add column, so the hairlines run to the table edge.
+    expect(c.querySelectorAll('tbody tr.mx-row').length).toBe(c.querySelectorAll('tbody tr.mx-row > td.mx-fill').length)
+    expectReadOnly(c)
+  })
+
+  it('S7: the outputs and tool-call tables take their 200 px first column from the header row, and the stacked phone layout is declared', async () => {
+    const c = mountAt(`/studio/diff?case=${CASE}&base=v-base&variant=v-skill`)
+    await waitFor(() => qa(c, 's7-row').length > 0 && qa(c, 's7-step').length > 0, 'the rows')
+    // table-layout: fixed reads the widths of the first row: the head cell must carry the width.
+    expect(cascade(c.querySelector('.df-outputs thead th:first-child')!, 'width').value).toBe('200px')
+    expect(cascade(c.querySelector('.df-steps thead th:first-child')!, 'width').value).toBe('200px')
+    expect(cascade(c.querySelector('.df-outputs tbody th')!, 'width').value).toBeNull()
+    expect(cascade(c.querySelector('.df-outputs')!, 'table-layout').value).toBe('fixed')
+    // Base and variant start 20 px after the 200 px column, as the result grid and the head cards do.
+    expect(cascade(c.querySelector('.df-outputs tbody td')!, 'padding-left').value).toBe('20px')
+    expect(cascade(c.querySelector('.df-grid .df-cell')!, 'margin-left').value).toBe('20px')
+    const phone = studioFile('diff-page.css').match(/@media \(max-width: 720px\) \{([\s\S]*)\n\}/)![1]!
+    expect(phone).toMatch(/\.df-outputs thead[^{]*\{ display: none; \}/)
+    expect(phone).toMatch(/\.df-outputs tr[^{]*\{ display: block; width: auto;/)
+    expect(phone).toMatch(/attr\(data-label\)/)
+    for (const td of c.querySelectorAll('.df-outputs tbody td')) expect(td.getAttribute('data-label')).toMatch(/^(Base|Variant|Expected vs agent)$/)
+    for (const td of c.querySelectorAll('.df-steps tbody td')) expect(td.getAttribute('data-label')).toMatch(/^(Base|Variant) step$/)
+  })
+
+  it('S7: the passing side of the Result row is tinted, and the case key keeps one line with its full text as the title', async () => {
+    const c = mountAt(`/studio/diff?case=${CASE}&base=v-base&variant=v-skill`, { runB: [200, { ...RUN_B, status: 'fail' }] })
+    await waitFor(() => qa(c, 's7-row').length > 0, 'the rows')
+    expect(q(c, 's7-result-base')!.classList.contains('df-cell--pass')).toBe(false)
+    expect(q(c, 's7-result-variant')!.classList.contains('df-cell--pass')).toBe(true)
+    expect(cascade(q(c, 's7-result-variant')!, 'background').value).toBe('var(--stu-accent-soft)')
+    expect(cascade(q(c, 's7-result-base')!, 'background').value).toBeNull()
+    const key = q(c, 's7-case-link')!
+    expect(key.getAttribute('title')).toBe('webhook-dup-001')
+    expect(cascade(key, 'text-overflow').value).toBe('ellipsis')
+    expect(cascade(key, 'white-space').value).toBe('nowrap')
+  })
+
+  it('S7: the code diff and code files start open, raw JSON starts closed, and a lone non-JSON card keeps opening', async () => {
+    const c = mountAt(`/studio/diff?case=${CASE}&base=v-base&variant=v-skill`)
+    await waitFor(() => qa(c, 's7-row').length > 0, 'the rows')
+    const open = (e: HTMLElement) => [e.dataset.kind, e.dataset.open]
+    for (const card of qa(c, 's7-base-artifact').concat(qa(c, 's7-variant-artifact'))) {
+      if (card.dataset.kind === 'json') expect(open(card), card.dataset.path).toEqual(['json', 'false'])
+      if (card.dataset.kind === 'diff') expect(open(card), card.dataset.path).toEqual(['diff', 'true'])
+    }
+    expect(qa(c, 's7-base-artifact').some((e) => e.dataset.kind === 'json')).toBe(true)
+    expect(qa(c, 's7-base-artifact').some((e) => e.dataset.kind === 'diff')).toBe(true)
+    const a = (kind: string) => ({ id: 'x', path: 'x', kind, bytes: 1, source: 'run' }) as never
+    expect(openByDefault(a('diff'), 3)).toBe(true)
+    expect(openByDefault(a('text'), 3)).toBe(true)
+    expect(openByDefault(a('json'), 1)).toBe(false)
+    expect(openByDefault(a('markdown'), 1)).toBe(true)
+    expect(openByDefault(a('markdown'), 2)).toBe(false)
+  })
+
+  it('S4: steps 2 and 3 stack in one column, the tags share one chip style, the selected radio is drawn in the text color, the step number is 600', async () => {
+    const css = (f: string) => studioFile(f).replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(css('case-page.css')).toMatch(/\.cs-pair \{[^}]*grid-template-columns: minmax\(0, 1fr\);/)
+    expect(css('case-page.css')).toMatch(/\.cs-mode input\[type='radio'\]:checked \{[^}]*var\(--stu-text\)/)
+    expect(css('chrome.css')).toMatch(/\.stu-step__n \{[^}]*font-weight: 600;/)
+    expect(css('chrome.css')).toMatch(/\.stu-copy__btn \{[^}]*white-space: nowrap;/)
   })
 })
