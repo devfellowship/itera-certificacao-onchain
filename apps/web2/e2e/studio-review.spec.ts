@@ -101,6 +101,9 @@ test('S13: a label is written and read back, and /studio/review renders a card a
   await expect(page.getByTestId('review-position')).toHaveText(/^1 of \d+$/)
   await expect(card).toContainText('Waits use a watcher')
   await expect(page.getByTestId('review-pass')).toBeVisible()
+  // The selected judge tab is readable: its text color differs from its background.
+  const chip = await page.getByTestId(`review-judge-${JUDGE}`).evaluate((e) => { const c = getComputedStyle(e); return { fg: c.color, bg: c.backgroundColor } })
+  expect(chip.fg, 'selected judge tab text differs from its background').not.toBe(chip.bg)
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow, 'no horizontal scroll at 390 px').toBeLessThanOrEqual(1)
 })
