@@ -49,15 +49,17 @@ function qs(query?: Query): string {
   return s ? `?${s}` : ''
 }
 
-export async function request<R>(path: string, init: RequestInit & { query?: Query; auth?: boolean } = {}): Promise<R> {
+export async function request<R>(path: string, init: RequestInit & { query?: Query; auth?: boolean | 'optional' } = {}): Promise<R> {
   const { query, auth = true, headers, ...rest } = init
   const h: Record<string, string> = { ...(headers as Record<string, string> | undefined) }
   if (rest.body != null && !(rest.body instanceof FormData)) h['Content-Type'] = 'application/json'
+  // auth: true = token + sign-in-again on 401. 'optional' = token when a session exists, never the sign-in-again step
+  // (a public page can call it with a stale token). false = no token.
   if (auth && sessionToken) h.Authorization = `Bearer ${sessionToken}`
   const res = await fetch(`${API_BASE_URL}${path}${qs(query)}`, { ...rest, headers: h })
   if (!res.ok) {
     const body = (await res.json().catch(() => ({ error: res.statusText }))) as { error?: string }
-    if (res.status === 401 && auth && sessionToken) onUnauthorized?.()
+    if (res.status === 401 && auth === true && sessionToken) onUnauthorized?.()
     throw new ApiError(res.status, body?.error || `Request failed with status ${res.status}. Try again.`, body)
   }
   if (res.status === 204) return undefined as R
@@ -165,8 +167,8 @@ export const api = {
   evalRuns: (filter: { agent?: string | null; case?: string | null } = {}) =>
     request<T.EvalRunsResponse>('/eval-runs', { query: { agent: filter.agent, case: filter.case } }),
   run: (id: string) => request<T.Run>(`/runs/${encodeURIComponent(id)}`),
-  /** Tool calls of the agent, public read. `afterSeq` is the cursor (rows with seq > afterSeq). */
-  runActions: (id: string, afterSeq = 0) => request<T.RunActionsResponse>(`/runs/${encodeURIComponent(id)}/actions`, { query: { after_seq: afterSeq || undefined }, auth: false }),
+  /** Tool calls of the agent. Public for a public run; a private run needs the owner's token (404 without it). Token when a session exists, no sign-in-again step on a 401. `afterSeq` is the cursor (rows with seq > afterSeq). */
+  runActions: (id: string, afterSeq = 0) => request<T.RunActionsResponse>(`/runs/${encodeURIComponent(id)}/actions`, { query: { after_seq: afterSeq || undefined }, auth: 'optional' }),
   /** U27: the run owner's one answer — did the result match reality? */
   runFeedback: (id: string, matchedReality: boolean, note?: string) =>
     request<{ feedback: T.RunFeedback; taskReputation: T.TaskReputation | null }>(`/runs/${encodeURIComponent(id)}/feedback`, { method: 'POST', body: json({ matchedReality, note }) }),
