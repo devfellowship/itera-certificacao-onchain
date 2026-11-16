@@ -1,15 +1,36 @@
 /**
- * S3 Trace view (plan 20261112-tma-c5-studio-area-web2, task C5-T6). Read only.
+ * S3 Trace view (plan 20261112-tma-c5-studio-area-web2, tasks C5-T6 and UI-S2S3S9). Read only.
  * One session from `tma studio serve` (GET /v1/traces/:session_id[?agent_id=]) through studio/traces.ts: the session
  * summary, the index row, the task summary and candidate info, the first failed step, and a step timeline per run
  * (main first, then subagents by start time). The content never goes to the TMA server (parent ADR-1).
+ *
+ * Layout from the canvas artboard "S3 Trace view": title, stat tiles, section tabs, the tool-call waterfall (or where
+ * the time went) and a side panel with the step that went wrong. A click on a step row opens that step in the panel.
+ * Gaps against the artboard (the serve sends no such data): tokens, the Tests / Log / Patch / Grader report tabs,
+ * turn rows (the trace has no user turn text), the "Build a case" button (S4 takes no trace yet), and the outcome
+ * tile (the merge state of the PR). The profile cannot tell a model pause from a wait on a person, and says so.
  */
 import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { Card, CardHeader } from '../tma/ui'
-import { PinBadge, TaskSummaryBlock, TraceErrorCard, WhyBadge, dash, fmtDuration, fmtTime, useTraceLoad } from './TraceParts'
-import { fetchTrace, type FirstFailure, type Trace, type TraceRun, type TraceSpan } from './traces'
+import { Card } from '../tma/ui'
+import { InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, WhyBadge, dash, fmtDuration, fmtTime, useTraceLoad } from './TraceParts'
+import { Chip, Section, Tab, Tabs, themeClass } from './theme'
+import {
+  buildProfile,
+  buildWaterfall,
+  fetchTrace,
+  fmtMs,
+  trueSignals,
+  type FirstFailure,
+  type SpanKind,
+  type Trace,
+  type TraceRun,
+  type TraceSpan,
+  type WaterfallRow,
+  type WaterfallStep,
+} from './traces'
 import './studio.css'
+import './traces.css'
 
 /** Main run(s) first, then subagents by start time. */
 export function orderRuns(runs: readonly TraceRun[]): TraceRun[] {
@@ -25,117 +46,18 @@ function topTools(counts: Record<string, unknown> | null, n = 8): Array<[string,
     .slice(0, n)
 }
 
-function SummaryCard({ t }: { t: Trace }) {
-  const s = t.summary
-  const tools = topTools(s?.tool_counts ?? null)
-  return (
-    <Card data-trace-summary="" data-testid="trace-summary">
-      <CardHeader title={s?.title ?? 'Session'} meta={t.agent_id ? `agent ${t.agent_id}` : 'session'} />
-      <div className="trc-cards stu-pad">
-        <dl className="stu-dl trc-dl">
-          <dt>Session</dt>
-          <dd className="tma-mono">{t.session_id}</dd>
-          <dt>Started</dt>
-          <dd>{fmtTime(s?.started_at ?? null)}</dd>
-          <dt>Ended</dt>
-          <dd>{fmtTime(s?.ended_at ?? null)}</dd>
-          <dt>Duration</dt>
-          <dd>{fmtDuration(s?.duration_s ?? null)}</dd>
-          <dt>Active time</dt>
-          <dd>{fmtDuration(s?.active_s ?? null)}</dd>
-          <dt>Models</dt>
-          <dd>{s?.models.length ? s.models.join(', ') : '—'}</dd>
-          <dt>Runs</dt>
-          <dd data-field="runs">
-            {dash(s?.n_runs)}
-            {s?.n_subagent_runs != null ? ` (${s.n_subagent_runs} subagent)` : ''}
-          </dd>
-          <dt>Tool calls</dt>
-          <dd data-field="tool_calls">{dash(s?.n_tool_calls)}</dd>
-          <dt>Errors</dt>
-          <dd data-field="errors">{dash(s?.errors)}</dd>
-          <dt>Closure</dt>
-          <dd>{dash(s?.closure_confidence)}</dd>
-          <dt>Cost</dt>
-          <dd data-field="cost">{s?.cost_usd != null ? `$${s.cost_usd.toFixed(2)}` : '—'}</dd>
-          {tools.length > 0 && (
-            <>
-              <dt>Top tools</dt>
-              <dd data-field="tool_counts">{tools.map(([k, v]) => `${k} ${v}`).join(' · ')}</dd>
-            </>
-          )}
-        </dl>
-        <dl className="stu-dl trc-dl" data-testid="trace-index">
-          <dt>Host</dt>
-          <dd>{dash(t.index.host)}</dd>
-          <dt>Harness</dt>
-          <dd>{dash(t.index.harness)}</dd>
-          <dt>Kind</dt>
-          <dd>{dash(t.index.kind)}</dd>
-          <dt>Messages</dt>
-          <dd>{dash(t.index.message_count)}</dd>
-          <dt>State</dt>
-          <dd>{dash(t.index.state)}</dd>
-        </dl>
-      </div>
-    </Card>
-  )
-}
+const SHOWN_STEPS = 200
+const KIND_LEGEND: Array<{ key: SpanKind | 'failed'; label: string }> = [
+  { key: 'read', label: 'read' },
+  { key: 'search', label: 'search' },
+  { key: 'write', label: 'write' },
+  { key: 'test', label: 'test' },
+  { key: 'tool', label: 'tool call' },
+  { key: 'failed', label: 'failed' },
+]
 
-function CandidateCard({ t }: { t: Trace }) {
-  if (!t.task_summary && !t.candidate && !t.pin) return null
-  const c = t.candidate
-  return (
-    <Card data-testid="trace-candidate">
-      <CardHeader title="Task" meta={c?.identifier ?? c?.task_id ?? ''} />
-      <div className="stu-pad">
-        {c && (
-          <p className="trc-row__head trc-small">
-            <WhyBadge why={c.why} />
-            <span data-field="l2_class">{dash(c.l2_class)}</span>
-            <span className="tma-muted" data-field="mode">
-              {dash(c.mode)}
-            </span>
-            <PinBadge pin={t.pin} />
-          </p>
-        )}
-        {!c && <PinBadge pin={t.pin} />}
-        {t.task_summary ? <TaskSummaryBlock summary={t.task_summary} /> : <p className="trc-small tma-muted">No task summary.</p>}
-      </div>
-    </Card>
-  )
-}
-
-function FirstFailureCard({ f }: { f: FirstFailure | null }) {
-  return (
-    <Card data-first-failure="" data-testid="trace-first-failure">
-      <CardHeader title="First failure" meta={f ? `step ${dash(f.seq)}` : ''} />
-      <div className="stu-pad">
-        {f ? (
-          <>
-            <dl className="stu-dl trc-dl">
-              <dt>Agent</dt>
-              <dd className="tma-mono">{f.agent_id ?? 'main'}</dd>
-              <dt>Step</dt>
-              <dd>{dash(f.seq)}</dd>
-              <dt>Tool</dt>
-              <dd>{dash(f.tool)}</dd>
-              <dt>Intent</dt>
-              <dd>{dash(f.intent)}</dd>
-              <dt>Target kind</dt>
-              <dd>{dash(f.target_kind)}</dd>
-              <dt>Time</dt>
-              <dd>{fmtTime(f.ts)}</dd>
-            </dl>
-            {f.preview && <pre className="trc-preview trc-preview--open">{f.preview}</pre>}
-          </>
-        ) : (
-          <p className="tma-body-sm tma-muted">No failed step.</p>
-        )}
-      </div>
-    </Card>
-  )
-}
+const seqText = (s: TraceSpan) => (s.seq === null ? '—' : String(s.seq).padStart(2, '0'))
+const stepTarget = (s: TraceSpan) => s.target ?? ([s.shape, s.intent].filter(Boolean).join(' / ') || '—')
 
 /** A preview clipped to 3 lines with a local "more" toggle. */
 function Preview({ text }: { text: string }) {
@@ -155,71 +77,410 @@ function Preview({ text }: { text: string }) {
   )
 }
 
-function StepRow({ s, firstFailure }: { s: TraceSpan; firstFailure: boolean }) {
-  const ok = s.ok !== false
+function Tile({ label, children, field, tone }: { label: string; children: React.ReactNode; field?: string; tone?: 'bad' }) {
   return (
-    <li
-      className={`trc-step${ok ? '' : ' trc-step--failed'}${firstFailure ? ' trc-step--first-fail' : ''}`}
-      data-trace-step=""
-      data-step-ok={ok ? 'true' : 'false'}
-      data-first-failure-step={firstFailure ? '' : undefined}
-    >
-      <div className="trc-step__head trc-small">
-        <span className="tma-mono">#{dash(s.seq)}</span>
-        <span className="tma-mono tma-muted">{s.ts ? fmtTime(s.ts).slice(11) : '—'}</span>
-        <span className="tma-mono">{dash(s.tool)}</span>
-        <span>{[s.shape, s.intent].filter(Boolean).join(' / ') || '—'}</span>
-        {s.target_kind && <span className="tma-muted">{s.target_kind}</span>}
-        <span className={ok ? 'trc-ok' : 'trc-fail'}>{ok ? 'ok' : 'failed'}</span>
-        {s.dur_ms !== null && <span className="tma-muted">{s.dur_ms} ms</span>}
-        {firstFailure && <span className="trc-fail">first failure</span>}
-      </div>
-      {s.preview && <Preview text={s.preview} />}
-    </li>
+    <div className="trc-tile">
+      <span className="stu-label">{label}</span>
+      <span className="trc-tile__v" data-field={field}>
+        {tone === 'bad' && <span aria-hidden="true" className="trc-dot trc-dot--bad" />}
+        {children}
+      </span>
+    </div>
   )
 }
 
-function RunSection({ run, ff }: { run: TraceRun; ff: FirstFailure | null }) {
-  const isFf = (s: TraceSpan) => !!ff && s.ok === false && (ff.agent_id ?? null) === (run.agent_id ?? null) && s.seq === ff.seq && s.ts === ff.ts
-  let marked = false
+function Stats({ t, retries }: { t: Trace; retries: number }) {
+  const s = t.summary
   return (
-    <section className="trc-run" data-testid="trace-run" data-agent-id={run.agent_id ?? ''}>
-      <h2 className="stu-subtype">
-        {run.title ?? (run.agent_id ? `Subagent ${run.agent_id}` : 'Main run')}{' '}
-        <span className="tma-muted trc-small">
-          {run.agent_type ?? (run.is_subagent ? 'subagent' : 'main')} · {fmtDuration(run.duration_s)}
-          {run.models.length ? ` · ${run.models.join(', ')}` : ''}
-        </span>
-      </h2>
-      {run.description && <p className="tma-body-sm tma-muted">{run.description}</p>}
-      {run.spans.length === 0 ? (
-        <p className="tma-body-sm tma-muted">No steps.</p>
-      ) : (
-        <ol className="trc-steps">
-          {run.spans.map((s, i) => {
-            const mark = !marked && isFf(s)
-            if (mark) marked = true
-            return <StepRow key={`${s.seq ?? i}:${i}`} s={s} firstFailure={mark} />
-          })}
-        </ol>
+    <div className="trc-tiles" data-testid="trace-stats">
+      <Tile label="tool calls" field="tool_calls">
+        {dash(s?.n_tool_calls)}
+      </Tile>
+      <Tile label="errors" field="errors" tone={(s?.errors ?? 0) > 0 ? 'bad' : undefined}>
+        {dash(s?.errors)}
+      </Tile>
+      <Tile label="retries" field="retries">
+        {retries}
+      </Tile>
+      <Tile label="wall time" field="wall">
+        {fmtDuration(s?.duration_s ?? null)}
+      </Tile>
+      <Tile label="active time" field="active">
+        {fmtDuration(s?.active_s ?? null)}
+      </Tile>
+      <Tile label="runs" field="runs">
+        {`${dash(s?.n_runs)}${s?.n_subagent_runs != null ? ` (${s.n_subagent_runs} subagent)` : ''}`}
+      </Tile>
+      <Tile label="cost" field="cost">
+        {s?.cost_usd != null ? `$${s.cost_usd.toFixed(2)}` : '—'}
+      </Tile>
+    </div>
+  )
+}
+
+function SummaryTab({ t }: { t: Trace }) {
+  const s = t.summary
+  const tools = topTools(s?.tool_counts ?? null)
+  const c = t.candidate
+  return (
+    <div className="trc-summary" data-testid="trace-summary-tab">
+      {(t.task_summary || c || t.pin) && (
+        <Section title="Task" meta={c?.identifier ?? c?.task_id ?? ''} data-testid="trace-candidate">
+          {c && (
+            <p className="trc-meta">
+              <WhyBadge why={c.why} />
+              <span data-field="l2_class">{dash(c.l2_class)}</span>
+              <span className="stu-label" data-field="mode">
+                {dash(c.mode)}
+              </span>
+              <PinBadge pin={t.pin} />
+            </p>
+          )}
+          {!c && <PinBadge pin={t.pin} />}
+          {t.task_summary ? <TaskSummaryBlock summary={t.task_summary} /> : <p className="stu-label">No task summary.</p>}
+        </Section>
       )}
+      <Section title="Session" meta={t.agent_id ? `agent ${t.agent_id}` : 'session'}>
+        <dl className="trc-kv">
+          <dt>Session</dt>
+          <dd className="stu-label">{t.session_id}</dd>
+          <dt>Started</dt>
+          <dd>{fmtTime(s?.started_at ?? null)}</dd>
+          <dt>Ended</dt>
+          <dd>{fmtTime(s?.ended_at ?? null)}</dd>
+          <dt>Duration</dt>
+          <dd>{fmtDuration(s?.duration_s ?? null)}</dd>
+          <dt>Active time</dt>
+          <dd>{fmtDuration(s?.active_s ?? null)}</dd>
+          <dt>Models</dt>
+          <dd>{s?.models.length ? s.models.join(', ') : '—'}</dd>
+          <dt>Closure</dt>
+          <dd>{dash(s?.closure_confidence)}</dd>
+          {tools.length > 0 && (
+            <>
+              <dt>Top tools</dt>
+              <dd data-field="tool_counts">{tools.map(([k, v]) => `${k} ${v}`).join(' · ')}</dd>
+            </>
+          )}
+        </dl>
+      </Section>
+      <Section title="Index" data-testid="trace-index">
+        <dl className="trc-kv">
+          <dt>Host</dt>
+          <dd>{dash(t.index.host)}</dd>
+          <dt>Harness</dt>
+          <dd>{dash(t.index.harness)}</dd>
+          <dt>Kind</dt>
+          <dd>{dash(t.index.kind)}</dd>
+          <dt>Messages</dt>
+          <dd>{dash(t.index.message_count)}</dd>
+          <dt>State</dt>
+          <dd>{dash(t.index.state)}</dd>
+        </dl>
+      </Section>
+    </div>
+  )
+}
+
+function Axis({ totalMs }: { totalMs: number }) {
+  if (totalMs <= 0) return <span className="stu-label">no timestamps</span>
+  const ticks = Array.from({ length: 7 }, (_, i) => i / 6)
+  return (
+    <span className="trc-axis" aria-hidden="true">
+      {ticks.map((f, i) => (
+        <span key={i} className="trc-axis__tick" style={{ left: `${f * 100}%`, transform: i === 0 ? 'none' : i === 6 ? 'translateX(-100%)' : 'translateX(-50%)' }}>
+          {fmtMs(totalMs * f)}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function StepLine({ row, on, first, onPick }: { row: WaterfallStep; on: boolean; first: boolean; onPick: () => void }) {
+  const s = row.span
+  const mark = first ? 'first failure' : row.failed ? 'failure' : ''
+  return (
+    <div
+      role="row"
+      className={`trc-wf__row${on ? ' trc-wf__row--on' : ''}${row.failed ? ' trc-wf__row--failed' : ''}`}
+      data-trace-step=""
+      data-step-ok={row.failed ? 'false' : 'true'}
+      data-first-failure-step={first ? '' : undefined}
+      onClick={onPick}
+    >
+      <span role="cell" className="trc-wf__step">
+        <button type="button" className="trc-wf__pick" onClick={onPick} aria-pressed={on} aria-label={`Open step ${seqText(s)}`}>
+          <span className="trc-wf__n">{seqText(s)}</span>
+          <span aria-hidden="true" className={`trc-dot ${row.failed ? 'trc-dot--bad' : 'trc-dot--ok'}`} />
+          <span className="trc-wf__tool">{dash(s.tool)}</span>
+          <span className="trc-wf__target trc-ellip">{stepTarget(s)}</span>
+        </button>
+      </span>
+      <span role="cell" className="trc-wf__lane">
+        {row.left !== null && row.width !== null && (
+          <>
+            <span className={`trc-bar trc-bar--${row.failed ? 'err' : row.kind}`} style={{ left: `${row.left}%`, width: `${row.width}%` }} />
+            {mark && (
+              <span className="trc-wf__mark" style={{ left: `calc(${Math.min(row.left + row.width, 88)}% + 6px)` }}>
+                {mark}
+              </span>
+            )}
+          </>
+        )}
+      </span>
+      <span role="cell" className={`trc-wf__time${row.failed ? ' trc-wf__time--bad' : ''}`}>
+        {row.failed && <span className="trc-sr">failed, </span>}
+        {fmtMs(s.dur_ms)}
+      </span>
+    </div>
+  )
+}
+
+function RunLine({ row }: { row: Extract<WaterfallRow, { type: 'run' }> }) {
+  const r = row.run
+  return (
+    <div role="row" className="trc-wf__row trc-wf__row--run" data-testid="trace-run" data-agent-id={r.agent_id ?? ''}>
+      <span role="cell" className="trc-wf__step">
+        <span aria-hidden="true" className={`trc-dot ${r.is_subagent ? 'trc-dot--warn' : 'trc-dot--merged'}`} />
+        <span className="trc-wf__tool">{r.title ?? (r.agent_id ? `Subagent ${r.agent_id}` : 'Main run')}</span>
+        <span className="trc-wf__target trc-ellip">
+          {r.agent_type ?? (r.is_subagent ? 'subagent' : 'main')}
+          {r.models.length ? ` · ${r.models.join(', ')}` : ''}
+          {r.description ? ` · ${r.description}` : ''}
+        </span>
+      </span>
+      <span role="cell" className="trc-wf__lane">
+        {row.left !== null && row.width !== null && <span className="trc-bar trc-bar--run" style={{ left: `${row.left}%`, width: `${row.width}%` }} />}
+      </span>
+      <span role="cell" className="trc-wf__time">
+        {fmtDuration(r.duration_s)}
+      </span>
+    </div>
+  )
+}
+
+function Waterfall({ runs, ffId, sel, onSel }: { runs: TraceRun[]; ffId: string | null; sel: string | null; onSel: (id: string) => void }) {
+  const wf = buildWaterfall(runs)
+  const [all, setAll] = useState(false)
+  let steps = 0
+  const shown = all ? wf.rows : wf.rows.filter((r) => r.type === 'run' || ++steps <= SHOWN_STEPS)
+  const shownSteps = shown.filter((r) => r.type === 'step').length
+  if (wf.rows.length === 0) return <p className="tma-body-sm tma-muted">No runs in this trajectory.</p>
+  return (
+    <>
+      <div className="trc-scroll">
+        <div role="table" aria-label="Tool call waterfall" className="trc-wf">
+          <div role="row" className="trc-wf__row trc-wf__row--head">
+            <span role="columnheader">step</span>
+            <span role="columnheader" className="trc-wf__lane">
+              <Axis totalMs={wf.totalMs} />
+            </span>
+            <span role="columnheader" className="trc-wf__time">
+              time
+            </span>
+          </div>
+          {shown.map((r) =>
+            r.type === 'run' ? <RunLine key={r.id} row={r} /> : <StepLine key={r.id} row={r} on={sel === r.id} first={ffId === r.id} onPick={() => onSel(r.id)} />,
+          )}
+        </div>
+      </div>
+      <p className="trc-foot">
+        <span className="stu-label" data-testid="trace-shown">
+          showing {shownSteps} of {wf.steps} calls
+        </span>
+        {!all && wf.steps > shownSteps && (
+          <button type="button" className="stu-btn stu-btn--secondary" onClick={() => setAll(true)} data-testid="trace-show-all">
+            Show all {wf.steps} calls
+          </button>
+        )}
+      </p>
+    </>
+  )
+}
+
+function Profile({ runs, wallS }: { runs: TraceRun[]; wallS: number | null }) {
+  const p = buildProfile(runs, wallS)
+  const top = p.lines[0]
+  return (
+    <div className="trc-profile" data-testid="trace-profile">
+      {p.wallMs > 0 && top?.key === 'between' && (
+        <p className="tma-body-sm">
+          Most of the {fmtMs(p.wallMs)} is between calls: the model thinking, or a person answering. The trace does not tell which.
+        </p>
+      )}
+      {p.lines.length === 0 ? (
+        <p className="tma-body-sm tma-muted">No timed calls in this trace.</p>
+      ) : (
+        <div role="table" aria-label="Where time went" className="trc-prof">
+          {p.lines.map((l) => (
+            <div role="row" key={l.key} className="trc-prof__row">
+              <span role="cell" className="trc-prof__label">
+                <span aria-hidden="true" className={`trc-swatch trc-bar--${l.key === 'between' ? 'other' : l.key}`} />
+                {l.label}
+                {l.calls > 0 && <span className="stu-label">{l.calls} {l.calls === 1 ? 'call' : 'calls'}</span>}
+              </span>
+              <span role="cell" className="trc-prof__bar">
+                <span className={`trc-bar trc-bar--${l.key === 'between' ? 'other' : l.key}`} style={{ left: 0, width: `${Math.min(100, l.pct)}%` }} />
+              </span>
+              <span role="cell" className="trc-wf__time">
+                {fmtMs(l.ms)}
+              </span>
+              <span role="cell" className="trc-prof__pct">
+                {l.pct}%
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {p.slowest.length > 0 && (
+        <Section title="Slowest calls">
+          <ul className="trc-slowest">
+            {p.slowest.map((s, i) => (
+              <li key={i}>
+                <span className="stu-label">{seqText(s)}</span> {dash(s.tool)} · {fmtMs(s.dur_ms)} {s.ok === false && <span className="stu-bad">failed</span>}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+    </div>
+  )
+}
+
+function FirstFailurePanel({ f }: { f: FirstFailure | null }) {
+  return (
+    <section className="trc-panel" data-first-failure="" data-testid="trace-first-failure">
+      <span className="trc-panel__head">
+        <span aria-hidden="true" className={`trc-dot ${f ? 'trc-dot--bad' : 'trc-dot--ok'}`} />
+        {f ? 'Where it went wrong' : 'No failed step'}
+        {f && <span className="stu-label trc-panel__meta">step {dash(f.seq)}</span>}
+      </span>
+      {f ? (
+        <>
+          <p className="stu-label">{[f.tool, f.intent, f.target_kind].filter(Boolean).join(' · ') || '—'}</p>
+          <dl className="trc-kv">
+            <dt>Agent</dt>
+            <dd className="stu-label">{f.agent_id ?? 'main'}</dd>
+            <dt>Step</dt>
+            <dd>{dash(f.seq)}</dd>
+            <dt>Tool</dt>
+            <dd>{dash(f.tool)}</dd>
+            <dt>Intent</dt>
+            <dd>{dash(f.intent)}</dd>
+            <dt>Target kind</dt>
+            <dd>{dash(f.target_kind)}</dd>
+            <dt>Time</dt>
+            <dd>{fmtTime(f.ts)}</dd>
+          </dl>
+          {f.preview && <pre className="trc-preview trc-preview--open">{f.preview}</pre>}
+        </>
+      ) : (
+        <p className="tma-body-sm tma-muted">No failed step.</p>
+      )}
+    </section>
+  )
+}
+
+function StepPanel({ row }: { row: WaterfallStep }) {
+  const s = row.span
+  return (
+    <section className="trc-panel" data-testid="trace-step-panel">
+      <span className="trc-panel__head">
+        <span aria-hidden="true" className={`trc-dot ${row.failed ? 'trc-dot--bad' : 'trc-dot--ok'}`} />
+        Step {seqText(s)}
+        <span className="stu-label trc-panel__meta">{row.failed ? 'failed' : 'ok'}</span>
+      </span>
+      <p className="stu-label">{[s.tool, s.intent, s.target_kind, s.dur_ms !== null ? fmtMs(s.dur_ms) : null].filter(Boolean).join(' · ') || '—'}</p>
+      {s.preview ? <Preview key={row.id} text={s.preview} /> : <p className="tma-body-sm tma-muted">No preview stored for this step.</p>}
     </section>
   )
 }
 
 export function TraceView({ t }: { t: Trace }) {
   const runs = orderRuns(t.runs)
+  const wf = buildWaterfall(runs)
+  const stepRows = wf.rows.filter((r): r is WaterfallStep => r.type === 'step')
+  const ff = t.first_failure
+  const ffRow = ff ? stepRows.find((r) => r.span.ok === false && (ff.agent_id ?? null) === (runs[r.run]!.agent_id ?? null) && r.span.seq === ff.seq && r.span.ts === ff.ts) ?? null : null
+  const ffId = ffRow?.id ?? null
+  const [tab, setTab] = useState<'calls' | 'summary'>('calls')
+  const [view, setView] = useState<'waterfall' | 'profile'>('waterfall')
+  const [sel, setSel] = useState<string | null>(null)
+  const selected = sel ? stepRows.find((r) => r.id === sel) ?? null : null
+  const retries = runs.reduce((n, r) => n + r.spans.filter((s) => s.retry_of != null).length, 0)
+  const s = t.summary
+  const signals = trueSignals(t.candidate?.signals ?? null)
   return (
-    <div className="stu-groups">
-      <SummaryCard t={t} />
-      <CandidateCard t={t} />
-      <FirstFailureCard f={t.first_failure} />
-      <Card data-testid="trace-steps">
-        <CardHeader title="Steps" meta={`${runs.length} ${runs.length === 1 ? 'run' : 'runs'}`} />
-        <div className="stu-pad">
-          {runs.length === 0 ? <p className="tma-body-sm tma-muted">No runs in this trajectory.</p> : runs.map((r, i) => <RunSection key={`${r.agent_id ?? 'main'}:${i}`} run={r} ff={t.first_failure} />)}
+    <div className="trc-view">
+      <div className="trc-view__main">
+        <div className="trc-view__lead" data-trace-summary="" data-testid="trace-summary">
+          <h1 className="tma-h1" data-testid="trace-title">
+            {s?.title ?? t.candidate?.identifier ?? 'Trace'}
+          </h1>
+          <Stats t={t} retries={retries} />
         </div>
-      </Card>
+        <Tabs label="Run sections" className="trc-tabs">
+          <Tab selected={tab === 'calls'} onClick={() => setTab('calls')} data-testid="trace-tab-calls">
+            Tool calls <span className="stu-label">{wf.steps}</span>
+          </Tab>
+          <Tab selected={tab === 'summary'} onClick={() => setTab('summary')} data-testid="trace-tab-summary">
+            Summary
+          </Tab>
+        </Tabs>
+        {tab === 'summary' ? (
+          <SummaryTab t={t} />
+        ) : (
+          <section className="trc-calls" data-testid="trace-steps" aria-label="Tool calls">
+            <div className="trc-calls__bar">
+              <h2 className="trc-calls__title">Tool calls</h2>
+              <span className="trc-views" role="group" aria-label="View">
+                <Chip small on={view === 'waterfall'} onClick={() => setView('waterfall')}>
+                  Waterfall
+                </Chip>
+                <Chip small on={view === 'profile'} onClick={() => setView('profile')}>
+                  Where time went
+                </Chip>
+              </span>
+              <span className="trc-legend" aria-label="Legend">
+                {KIND_LEGEND.map((k) => (
+                  <span key={k.key} className="stu-label">
+                    <span aria-hidden="true" className={`trc-swatch trc-bar--${k.key === 'failed' ? 'err' : k.key}`} />
+                    {k.label}
+                  </span>
+                ))}
+              </span>
+            </div>
+            {view === 'waterfall' ? <Waterfall runs={runs} ffId={ffId} sel={sel ?? ffId} onSel={setSel} /> : <Profile runs={runs} wallS={s?.duration_s ?? null} />}
+          </section>
+        )}
+      </div>
+      <aside className="trc-aside" aria-label="Trace summary">
+        <FirstFailurePanel f={ff} />
+        {selected && selected.id !== ffId && <StepPanel row={selected} />}
+        <div className="trc-checks">
+          {s?.closure_confidence && <span className="stu-label">closure confidence: {s.closure_confidence}</span>}
+          {signals.length > 0 && (
+            <span className="trc-check">
+              Signal: <SignalChips signals={t.candidate?.signals ?? null} />
+            </span>
+          )}
+        </div>
+        <details className="trc-details">
+          <summary>Technical details</summary>
+          <dl className="trc-kv">
+            <dt>Harness</dt>
+            <dd>{dash(t.index.harness)}</dd>
+            <dt>Host</dt>
+            <dd>{dash(t.index.host)}</dd>
+            <dt>Extractor</dt>
+            <dd className="stu-label">{dash(s?.extractor_version)}</dd>
+            <dt>Pin</dt>
+            <dd>
+              <PinBadge pin={t.pin} />
+            </dd>
+          </dl>
+        </details>
+      </aside>
     </div>
   )
 }
@@ -230,13 +491,12 @@ export function StudioTracePage() {
   const agentId = params.get('agent_id')
   const loaded = useTraceLoad(() => fetchTrace(sessionId, agentId), [sessionId, agentId])
   return (
-    <main className="tma-page" data-testid="studio-trace">
-      <div className="stu-head">
-        <p className="tma-body-sm">
-          <Link to="/studio">Studio</Link> / <Link to="/studio/traces" data-testid="trace-back">traces</Link> / <span className="tma-mono">{sessionId.slice(0, 8)}</span>
+    <main className={themeClass('tma-page', 'trc-page', 'trc-page--view')} data-testid="studio-trace">
+      <div className="trc-crumbs">
+        <p className="stu-label">
+          <Link to="/studio">Studio</Link> / <Link to="/studio/traces" data-testid="trace-back">traces</Link> / <span>{sessionId.slice(0, 8)}</span>
         </p>
-        <h1 className="tma-h1">Trace</h1>
-        <p className="stu-sub">One fleet session, step by step. Read only. The content comes from the private trace service, not from the TMA server.</p>
+        <InfoTip label="About this trace" text="One fleet session, step by step. Read only. The content comes from the private trace service, not from the TMA server." />
       </div>
       {loaded.state === 'loading' ? (
         <Card pad data-testid="trace-loading">
