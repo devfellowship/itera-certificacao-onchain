@@ -1,7 +1,7 @@
 // The login check of `tma studio serve` (task C5-T11): valid token, expired, wrong signature, missing,
 // plus the allow-list, a CLI session, a disabled account and an API outage. Fixtures only.
 import { describe, expect, it } from 'vitest';
-import { bearerToken, checkLogin, precheckToken } from './auth.js';
+import { bearerToken, checkLogin, precheckToken, principalConflicts, principalKind } from './auth.js';
 import { ALLOWED, fakeApi, OTHER, signToken, webToken } from './fixture.test-helpers.js';
 
 const deps = (api = fakeApi(), allow = [ALLOWED]) => ({ introspect: api, allowPrincipals: new Set(allow) });
@@ -10,7 +10,7 @@ describe('studio serve login check', () => {
   it('accepts a valid web session of an allowed principal (the API confirms it)', async () => {
     const api = fakeApi();
     const r = await checkLogin(`Bearer ${webToken()}`, deps(api));
-    expect(r).toEqual({ ok: true, principal: ALLOWED });
+    expect(r).toEqual({ ok: true, principal: ALLOWED, kind: 'real' });
     expect(api.calls).toBe(1);
   });
 
@@ -87,6 +87,36 @@ describe('studio serve login check', () => {
     expect(await checkLogin(`Bearer ${webToken()}`, deps(down))).toEqual({ ok: false, status: 503, reason: 'auth_unavailable' });
     const err = Object.assign(async () => ({ status: 502, body: null }), { calls: 0 });
     expect(await checkLogin(`Bearer ${webToken()}`, deps(err))).toEqual({ ok: false, status: 503, reason: 'auth_unavailable' });
+  });
+
+  it('fixture principal: accepted with kind fixture (the API confirms it); a real principal stays real', async () => {
+    const api = fakeApi();
+    const d = { introspect: api, allowPrincipals: new Set([ALLOWED]), fixturePrincipals: new Set([OTHER]) };
+    expect(await checkLogin(`Bearer ${webToken(OTHER)}`, d)).toEqual({ ok: true, principal: OTHER, kind: 'fixture' });
+    expect(await checkLogin(`Bearer ${webToken(ALLOWED)}`, d)).toEqual({ ok: true, principal: ALLOWED, kind: 'real' });
+    expect(api.calls).toBe(2);
+  });
+
+  it('fixture principal: a forged token for it is still refused by the API (401)', async () => {
+    const forged = signToken({ sub: OTHER, amr: 'dfl', exp: Math.floor(Date.now() / 1000) + 3600 }, 'another-key');
+    const d = { introspect: fakeApi(), allowPrincipals: new Set([ALLOWED]), fixturePrincipals: new Set([OTHER]) };
+    expect(await checkLogin(`Bearer ${forged}`, d)).toEqual({ ok: false, status: 401, reason: 'invalid_session' });
+  });
+
+  it('a principal on both lists is refused (403 principal_conflict), neither real nor fixture', async () => {
+    const api = fakeApi();
+    const d = { introspect: api, allowPrincipals: new Set([ALLOWED]), fixturePrincipals: new Set([ALLOWED]) };
+    expect(await checkLogin(`Bearer ${webToken(ALLOWED)}`, d)).toEqual({ ok: false, status: 403, reason: 'principal_conflict' });
+    expect(api.calls).toBe(0);
+    expect(principalConflicts(d)).toEqual([ALLOWED]);
+  });
+
+  it('principalKind fails closed', () => {
+    const d = { allowPrincipals: new Set([ALLOWED]), fixturePrincipals: new Set([OTHER]) };
+    expect(principalKind(ALLOWED, d)).toBe('real');
+    expect(principalKind(OTHER, d)).toBe('fixture');
+    expect(principalKind('dfl:nobody', d)).toBe('principal_not_allowed');
+    expect(principalKind(OTHER, { allowPrincipals: new Set([ALLOWED]) })).toBe('principal_not_allowed');
   });
 
   it('bearerToken and precheckToken read only the shape', () => {

@@ -340,6 +340,19 @@ tma studio serve --allow-principal dfl:<uuid> --allow-origin https://testmyagent
   field is not served.
 - One request at a time. Tests run on a synthetic fixture (`src/cli/studio/*.test.ts`).
 
+**Fixture principals (task S2S3-FIXTURE-PRINCIPAL).** A prod check (for example the CLAUDE_SMOKE login) must
+see data on S2/S3 without reading a real trace. `tma studio fixture --out <dir>` writes the synthetic tree
+(`src/cli/studio/fixture.ts`, no real text; task `FIXTURE-00001`, session `aaaaaaaa-0000-4000-8000-00000000000a`).
+`--fixture-principal <id>` (repeatable) with `--fixture-root <dir>` lets those ids read that tree **only**:
+
+- `sourcesFor()` in `server.ts` is the one place that picks the sources of a login, for every content route.
+  A fixture principal gets the fixture tree; a real one gets the real sources; anything else is 403. Never real
+  by default. A fixture principal gets no `POST /grade/dry-run` (403 `fixture_principal_refused`).
+- The start is refused when one id is on both lists, when the fixture root has no marker of `tma studio
+  fixture`, holds a symbolic link, or overlaps a real source. The layer-1 path guard serves a fixture trajectory
+  only from inside the fixture root.
+- Tests: `src/cli/studio/server.fixture.test.ts` (every route, both directions, plus the start refusals).
+
 **`POST /grade/dry-run` (C5-T10, Q-C5-2b = A: dry run only, no network, nothing stored).** With
 `--grader-root <dir>`, one grader of the library grades one posted output and the answer goes back; nothing
 is stored and the temp dir is removed after each call. A code grader always runs in a new Linux user +

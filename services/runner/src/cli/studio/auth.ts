@@ -12,6 +12,11 @@
 // a CLI session, and a principal that is not on this service's allow-list. After the call, the
 // principal id that the API returns must be on the allow-list and equal the token's `sub`.
 //
+// Two lists (task S2S3-FIXTURE-PRINCIPAL): `allowPrincipals` read the real fleet traces; `fixturePrincipals`
+// (for example the CLAUDE_SMOKE login) read ONLY the synthetic fixture tree. The login result says which one
+// (`kind`), and server.ts picks the sources from it in one place. A principal on both lists is refused: it is
+// neither real nor fixture (the serve also refuses to start with such a principal).
+//
 // The token is never logged and never put in an error body.
 
 export type Introspect = (token: string) => Promise<{ status: number; body: Record<string, unknown> | null }>;
@@ -19,14 +24,19 @@ export type Introspect = (token: string) => Promise<{ status: number; body: Reco
 export interface AuthDeps {
   /** `GET /auth/me` of the TMA API with this bearer token. */
   introspect: Introspect;
-  /** The principal ids (e.g. `dfl:<uuid>`) that may read. Empty = nobody. */
+  /** The principal ids (e.g. `dfl:<uuid>`) that may read the REAL traces. Empty = nobody. */
   allowPrincipals: ReadonlySet<string>;
+  /** The principal ids that may read the synthetic fixture tree ONLY. Absent or empty = nobody. */
+  fixturePrincipals?: ReadonlySet<string>;
   /** Clock, for the tests. */
   nowMs?: () => number;
 }
 
+/** Which sources a principal may read: the real fleet traces or the synthetic fixture tree. */
+export type PrincipalKind = 'real' | 'fixture';
+
 export type AuthResult =
-  | { ok: true; principal: string }
+  | { ok: true; principal: string; kind: PrincipalKind }
   /** `status` is the HTTP answer of the studio service; `reason` is a fixed code, safe to log and return. */
   | { ok: false; status: 401 | 403 | 503; reason: AuthRefusal };
 
@@ -36,6 +46,7 @@ export type AuthRefusal =
   | 'expired_token'
   | 'cli_session_refused'
   | 'principal_not_allowed'
+  | 'principal_conflict'
   | 'invalid_session'
   | 'account_refused'
   | 'auth_unavailable';
@@ -78,13 +89,34 @@ export function precheckToken(token: string, nowMs: number): { ok: true; claims:
   return { ok: true, claims: { sub: claims.sub, exp: claims.exp } };
 }
 
+/**
+ * The kind of a principal id, or a refusal: on the real list only = real; on the fixture list only = fixture;
+ * on both = `principal_conflict`; on neither = `principal_not_allowed`. Fail closed: never real by default.
+ */
+export function principalKind(id: string, deps: Pick<AuthDeps, 'allowPrincipals' | 'fixturePrincipals'>): PrincipalKind | AuthRefusal {
+  const real = deps.allowPrincipals.has(id);
+  const fixture = deps.fixturePrincipals?.has(id) ?? false;
+  if (real && fixture) return 'principal_conflict';
+  if (fixture) return 'fixture';
+  if (real) return 'real';
+  return 'principal_not_allowed';
+}
+
+/** The ids on both lists. `tma studio serve` refuses to start when this is not empty. */
+export function principalConflicts(deps: Pick<AuthDeps, 'allowPrincipals' | 'fixturePrincipals'>): string[] {
+  return [...(deps.fixturePrincipals ?? [])].filter((p) => deps.allowPrincipals.has(p));
+}
+
+const isKind = (k: PrincipalKind | AuthRefusal): k is PrincipalKind => k === 'real' || k === 'fixture';
+
 /** Check the login of one request. Called on every request that reads content. */
 export async function checkLogin(authorization: string | string[] | undefined, deps: AuthDeps): Promise<AuthResult> {
   const token = bearerToken(authorization);
   if (!token) return { ok: false, status: 401, reason: 'missing_token' };
   const pre = precheckToken(token, (deps.nowMs ?? Date.now)());
   if (!pre.ok) return { ok: false, status: 401, reason: pre.reason };
-  if (!deps.allowPrincipals.has(pre.claims.sub)) return { ok: false, status: 403, reason: 'principal_not_allowed' };
+  const preKind = principalKind(pre.claims.sub, deps);
+  if (!isKind(preKind)) return { ok: false, status: 403, reason: preKind };
   let answer: Awaited<ReturnType<Introspect>>;
   try {
     answer = await deps.introspect(token);
@@ -96,8 +128,9 @@ export async function checkLogin(authorization: string | string[] | undefined, d
   if (answer.status !== 200) return { ok: false, status: 503, reason: 'auth_unavailable' };
   const id = answer.body?.id;
   if (typeof id !== 'string' || id !== pre.claims.sub) return { ok: false, status: 401, reason: 'invalid_session' };
-  if (!deps.allowPrincipals.has(id)) return { ok: false, status: 403, reason: 'principal_not_allowed' };
-  return { ok: true, principal: id };
+  const kind = principalKind(id, deps);
+  if (!isKind(kind)) return { ok: false, status: 403, reason: kind };
+  return { ok: true, principal: id, kind };
 }
 
 /** The introspection call: `GET <api>/auth/me` with the caller's token, 5 s timeout. */
