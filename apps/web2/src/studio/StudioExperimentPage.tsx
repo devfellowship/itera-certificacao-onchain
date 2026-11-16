@@ -16,6 +16,7 @@ import type { EvalAgentVersion, EvalCaseListItem, EvalRun, EvalVariant } from '.
 import { Badge, Card, CardHeader, Checkbox, SearchInput } from '../tma/ui'
 import { CopyCommand } from './CopyCommand'
 import { experimentScript } from './eval-command'
+import { agentHref } from './links'
 import { changeText, evaluationHref, runHref, sha12, statusTone } from './runs'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
 import './studio.css'
@@ -81,7 +82,7 @@ export function StudioExperimentPage() {
             <p className="tma-body-sm tma-muted" data-testid="studio-load-error">
               {loadErrorText(loaded.status)}
             </p>
-            <AgentLinks agents={new Map()} />
+            <AgentLinks agents={new Map()} agentFilter={agentFilter} />
           </Card>
           <Card pad>
             <CopyCommand title="Experiment commands (on your host)" testId="experiment-copy-command" command={experimentScript({ cases: [], agentId: agentFilter })} />
@@ -93,11 +94,14 @@ export function StudioExperimentPage() {
   )
 }
 
-function AgentLinks({ agents }: { agents: Map<string, string | null> }) {
+function AgentLinks({ agents, agentFilter }: { agents: Map<string, string | null>; agentFilter: string | null }) {
+  // The ?agent= filter names an agent even when it has no uploaded run yet: the way back to its page must exist then too.
+  const all = new Map(agents)
+  if (agentFilter && !all.has(agentFilter)) all.set(agentFilter, null)
   return (
     <p className="tma-body-sm stu-tags" data-testid="experiment-agent-links">
-      {[...agents.entries()].map(([id, name]) => (
-        <Link key={id} to={`/agents/${encodeURIComponent(id)}`} data-testid="experiment-agent-link">
+      {[...all.entries()].map(([id, name]) => (
+        <Link key={id} to={agentHref(id)} data-testid="experiment-agent-link">
           {name ?? id.slice(0, 8)}
         </Link>
       ))}
@@ -180,7 +184,7 @@ function ExperimentView({ data, agentFilter, caseFilter }: { data: Data; agentFi
               ))}
             </div>
           )}
-          <AgentLinks agents={base?.agents ?? new Map()} />
+          <AgentLinks agents={base?.agents ?? new Map()} agentFilter={agentFilter} />
         </div>
       </Card>
 

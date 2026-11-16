@@ -171,4 +171,94 @@ describe('studio links on the old pages (C5-T2)', () => {
     expect(d.querySelector('[data-testid="studio-variants"]')?.getAttribute('href')).toBe('/studio/experiments/new?agent=agent-1')
     expect(d.querySelector('[data-testid="studio-experiments"]')?.getAttribute('href')).toBe('/studio/experiments?agent=agent-1')
   })
+
+  it('way back (C5-FIX-LINKS): S5 and S6 link to /agents/:aid, S8 links each agent, an /evaluations row links to S6', async () => {
+    saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
+    for (const s of SCREENS) STUDIO_SCREENS[s].built = true
+    const evalRun = {
+      id: 'r1', evaluationId: 'e1', agentId: 'agent-1', agentName: 'Profile Agent', seq: 1, status: 'graded', score: 90, infraOk: true,
+      startedAt: '2026-10-14T10:00:00.000Z', caseId: 'c1', caseKey: 'case-1', useCaseKey: 'verify/x', predictionSha256: null,
+      variant: { id: 'v1', label: 'baseline', changeKind: 'none', agentSha256: 'a'.repeat(64), variantSha256: 'b'.repeat(64), agent: { harness: 'opencode', harnessVersion: null, modelId: 'm' } },
+    }
+    const evaluation = {
+      id: 'e1', shortId: 'ab12cd', slug: null, agent: { id: 'agent-1', name: 'Profile Agent', initials: 'PA', authorName: 'Ana', isMine: true },
+      createdAt: '2026-10-14T10:00:00.000Z', feeSol: '0', tasks: [{ id: 't1', name: 'Task one' }], counts: { passed: 1, failed: 0, total: 1 },
+      score: 90, status: 'completed', share: { kind: 'none', url: null },
+    }
+    const evaluationsBody = { evaluations: [evaluation], totals: { spentLamports: 0, spentSol: '0', usd: 0, counts: { all: 1, myAgents: 1, others: 0 } } }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname
+        if (path.endsWith('/eval-runs')) return json(200, { runs: [], limit: 500, truncated: false })
+        if (path.endsWith('/eval-cases')) return json(200, { cases: [] })
+        if (path.endsWith('/evaluations')) return json(200, evaluationsBody)
+        return json(200, {})
+      }),
+    )
+    const href = (c: HTMLElement, id: string) => c.querySelector(`[data-testid="${id}"]`)?.getAttribute('href')
+
+    // S5 with an ?agent= filter and no uploaded run: the agent page link still exists.
+    const s5 = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/studio/experiments/new?agent=agent-1'] })} />)
+    await waitFor(() => !!s5.querySelector('[data-testid="experiment-agent-link"]'), 'S5 agent link')
+    expect(href(s5, 'experiment-agent-link')).toBe('/agents/agent-1')
+    act(() => root?.unmount())
+    document.body.innerHTML = ''
+
+    // S6 empty state with the filter, then with one run that carries the agent id.
+    const s6 = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/studio/experiments?agent=agent-1'] })} />)
+    await waitFor(() => !!s6.querySelector('[data-testid="s6-agent-link"]'), 'S6 agent link')
+    expect(href(s6, 's6-agent-link')).toBe('/agents/agent-1')
+    act(() => root?.unmount())
+    document.body.innerHTML = ''
+    const withRun = { ...evalRun, caseKey: 'case-1' }
+    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (input: RequestInfo | URL) => {
+      const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname
+      if (path.endsWith('/eval-runs')) return json(200, { runs: [withRun], limit: 500, truncated: false })
+      if (path.endsWith('/evaluations')) return json(200, evaluationsBody)
+      return json(200, { cases: [] })
+    })
+    const s6b = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/studio/experiments'] })} />)
+    await waitFor(() => !!s6b.querySelector('[data-testid="s6-agent-link"]'), 'S6 agent link from a run')
+    expect(href(s6b, 's6-agent-link')).toBe('/agents/agent-1')
+    act(() => root?.unmount())
+    document.body.innerHTML = ''
+
+    // S8: the table row links to the agent that ran the variant.
+    const agentRow = {
+      agent_key: `m#${'1'.repeat(64)}`, variant_ids: ['v1'], model_id: 'm', harness: 'opencode', n: 5, infra_error_count: 0, no_score_runs: 0,
+      hard_gate_failures: 0, mean_score: 90, distribution: null, cost_per_task: null, cost_label: null, median_wall_ms: null,
+      absolute: { label: 'SAME', reason: null, runs_at_least_same: 5, runs_at_least_close: 5 },
+      relative: { label: 'refused', reason: 'no_current_agent', gap: null, mann_whitney: null },
+      pareto: { ineligible_reason: null, on_front: null, dominated: null },
+    }
+    const compare = {
+      use_case: 'verify/x',
+      profile: { source: 'defaults', sha256: null, weights: 'w', min_runs_per_cell: 5, relative_margin_points: 5, relative_alpha: 0.05, relative_test: 't', absolute_bars: { same: 90, close: 70 } },
+      rule_text: { absolute: 'a', relative: 'r' }, current_agent: null, agents: [agentRow],
+    }
+    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (input: RequestInfo | URL) => {
+      const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname
+      if (path.endsWith('/eval-runs')) return json(200, { runs: [withRun], limit: 500, truncated: false })
+      if (path.endsWith('/compare')) return json(200, compare)
+      if (path.endsWith('/evaluations')) return json(200, evaluationsBody)
+      return json(200, { cases: [] })
+    })
+    const s8 = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/studio/compare?use_case=verify%2Fx'] })} />)
+    await waitFor(() => !!s8.querySelector('[data-testid="s8-agent-link"]'), 'S8 agent link')
+    expect(href(s8, 's8-agent-link')).toBe('/agents/agent-1')
+    act(() => root?.unmount())
+    document.body.innerHTML = ''
+
+    // /evaluations: the row links to S6 filtered by the agent, and its click still opens the evaluation.
+    const ev = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/evaluations'] })} />)
+    await waitFor(() => !!ev.querySelector('[data-testid="row-studio-experiments"]'), 'evaluations row link')
+    expect(href(ev, 'row-studio-experiments')).toBe('/studio/experiments?agent=agent-1')
+    STUDIO_SCREENS.S6.built = false
+    act(() => root?.unmount())
+    document.body.innerHTML = ''
+    const hidden = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/evaluations'] })} />)
+    await waitFor(() => hidden.textContent!.includes('Profile Agent'), 'evaluations row')
+    expect(hidden.querySelector('[data-testid="row-studio-experiments"]')).toBeNull()
+  }, 20_000)
 })

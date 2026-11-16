@@ -22,7 +22,7 @@ import { CopyCommand } from './CopyCommand'
 import { diffCommand } from './eval-command'
 import { buildMatrix, cellStats, isInfraFailure, passRateText, verdictOf, type CellStats, type Matrix, type MatrixCase, type Verdict } from './experiment-matrix'
 import { bestIndex, rateOf, variantTotals, versusBase } from './experiment-summary'
-import { studioHref } from './links'
+import { agentHref, studioHref } from './links'
 import { changeText, evaluationHref, sha12 } from './runs'
 import { Section, themeClass } from './theme'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
@@ -244,6 +244,22 @@ function GroupHead({ title, cols }: { title: string; cols: number }) {
   )
 }
 
+/** Way back to the canonical page of each agent in this view (ADR-1: /agents/:aid). Up to three; the ?agent= filter counts. */
+function AgentPageLinks({ runs, agentFilter }: { runs: EvalRun[]; agentFilter: string | null }) {
+  const agents = new Map<string, string | null>()
+  if (agentFilter) agents.set(agentFilter, null)
+  for (const r of runs) if (r.agentId && (!agents.has(r.agentId) || agents.get(r.agentId) === null)) agents.set(r.agentId, r.agentName)
+  return (
+    <>
+      {[...agents.entries()].slice(0, 3).map(([id, name]) => (
+        <Link key={id} to={agentHref(id)} className="stu-btn stu-btn--secondary" data-testid="s6-agent-link">
+          Agent page{name ? `: ${name}` : ''}
+        </Link>
+      ))}
+    </>
+  )
+}
+
 function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter: string | null; caseFilter: string | null }) {
   const m: Matrix = useMemo(() => buildMatrix(data.runs), [data.runs])
   const pairs = useMemo(
@@ -267,6 +283,7 @@ function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter
             No uploaded eval runs{agentFilter ? ' for this agent' : ''}
             {caseFilter ? ' on this case' : ''} yet. Build the commands on <Link to={studioHref('S5', { agent: agentFilter, case: caseFilter })}>the experiment builder</Link>, then upload.
           </p>
+          <AgentPageLinks runs={data.runs} agentFilter={agentFilter} />
         </div>
       </div>
     )
@@ -286,6 +303,7 @@ function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter
       <TitleRow
         actions={
           <>
+            <AgentPageLinks runs={data.runs} agentFilter={agentFilter} />
             {chosen && (
               <Link to={studioHref('S7', { case: chosen.c.caseId, base: chosen.base.id, variant: chosen.v.id })} className="stu-btn stu-btn--secondary" data-testid="s6-bar-diff">
                 Compare runs for {chosen.c.caseKey}

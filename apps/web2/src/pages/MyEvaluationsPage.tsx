@@ -12,6 +12,7 @@ import { HOSTED_RUNS_ENABLED } from '../config'
 import type { Agent, EvaluationListItem as ApiEvaluationListItem, EvaluationScope, EvaluationStatus as ApiEvaluationStatus, EvaluationsResponse } from '../lib/api'
 import { AgentAvatar, Badge, Button, ButtonLink, SelfDeclaredBadge, Table, TableEmpty, Tabs, isSelfDeclared, type Column, type Tone } from '../tma/ui'
 import { TaskName } from '../tma/task-filter'
+import { STUDIO_SCREENS, StudioLink } from '../studio/links'
 import './my-evaluations.css'
 
 /** lib/api types predate the web2 end state: a free evaluation ends at `graded`. */
@@ -123,6 +124,15 @@ const COLUMNS: Column<EvaluationListItem>[] = [
           <span className="tme-agent__meta">
             {evId(e.shortId)} · {dateFmt.format(new Date(e.createdAt))}
             {isSelfDeclared(e) && <SelfDeclaredBadge testId="row-self-declared" />}
+            {/* Studio link (C5-FIX-LINKS): the row click opens the evaluation, so this link stops it. Hidden while S6 is not built. */}
+            {e.agent.id && STUDIO_SCREENS.S6.built && (
+              <span onClick={(ev) => ev.stopPropagation()}>
+                {' · '}
+                <StudioLink screen="S6" params={{ agent: e.agent.id }} testId="row-studio-experiments">
+                  Experiments
+                </StudioLink>
+              </span>
+            )}
           </span>
         </span>
       </span>
