@@ -178,6 +178,15 @@ export async function loadTask(taskDir: string): Promise<LoadedTask> {
   }
 
   const scope: ScopeRules = { editable: contract.editable_paths, protected: contract.protected_paths };
+  // Build driver (ADR-5): its outputs become writable for the grader uid, so none may hold a test,
+  // the test framework, or any other protected file.
+  for (const out of contract.environment.build?.outputs ?? []) {
+    const probe = out.split('/').map((seg) => (seg === '*' ? 'x' : seg)).join('/');
+    if (probe.split('/').includes('node_modules')) throw new TaskError(`environment.build output ${out} is under node_modules`);
+    if (matchesAny(`${probe}/probe.test.ts`, scope.protected) || matchesAny(probe, scope.protected)) {
+      throw new TaskError(`environment.build output ${out} matches protected_paths (the grader could rewrite a protected file)`);
+    }
+  }
   const mount: TestMount = contract.tests.mount ?? 'dir';
   const testFiles: LoadedTask['testFiles'] = { public: [], hidden: [] };
   if (mount === 'dir') {

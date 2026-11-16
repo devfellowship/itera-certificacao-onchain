@@ -13,11 +13,11 @@
 // test framework in node_modules and the config cannot be rewritten by the patched code. The
 // report comes back with `docker cp` and is cross-checked against the verifier exit code
 // (services/evaluator/src/suite.ts interpretRun). See services/runner/README.md "Grader sandbox".
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runEvaluation } from '../../evaluator/src/runner.js';
-import type { SuiteExecutor, SuiteRunRequest } from '../../evaluator/src/suite.js';
+import { BUILD_FAILED_EXIT, BUILD_FAILED_MARKER, type SuiteExecutor, type SuiteRunRequest } from '../../evaluator/src/suite.js';
 import { scenarioDir } from '../../evaluator/src/task.js';
 import type { EvidenceManifest, ExecutorInfo } from '../../evaluator/src/types.js';
 import { validateTask, type McpGate, type ValidationResult } from '../../evaluator/src/validate.js';
@@ -82,11 +82,28 @@ export function graderWorkdir(cwd?: string): string {
   return `${GRADER_WORKDIR}/${cwd}`;
 }
 
+/** POSIX single-quote one shell word. */
+export function shellQuote(word: string): string {
+  return `'${word.split("'").join(`'\\''`)}'`;
+}
+
+/**
+ * The container command of one run. With environment.build (ADR-5) it is `sh -c`: the build in the
+ * workspace root (its output to stderr), then `exec` of the verifier argv, passed as "$@" (never
+ * through the shell parser). A failed build exits BUILD_FAILED_EXIT with BUILD_FAILED_MARKER.
+ */
+export function graderCommand(argv: string[], workdir: string, build?: string[]): string[] {
+  if (!build || build.length === 0) return argv;
+  const script = `cd ${GRADER_WORKDIR} && ${build.map(shellQuote).join(' ')} >&2 || { echo ${shellQuote(BUILD_FAILED_MARKER)} >&2; exit ${BUILD_FAILED_EXIT}; }; cd ${shellQuote(workdir)} && exec "$@"`;
+  return ['sh', '-c', script, 'sh', ...argv];
+}
+
 /** `docker create` arguments for one verifier run. */
-export function buildGraderArgs(opts: { name: string; config: SandboxConfig; argv: string[]; limits?: SuiteRunRequest['limits']; image?: string; cwd?: string }): string[] {
+export function buildGraderArgs(opts: { name: string; config: SandboxConfig; argv: string[]; limits?: SuiteRunRequest['limits']; image?: string; cwd?: string; build?: string[] }): string[] {
   const mem = `${cap(opts.limits?.memoryMb, memoryMb(opts.config.memory))}m`;
   const cpus = String(cap(opts.limits?.cpus, Number(opts.config.cpus) || 2));
-  const argv = opts.argv.map((a) => a.split('{report}').join(GRADER_REPORT));
+  const workdir = graderWorkdir(opts.cwd);
+  const argv = graderCommand(opts.argv.map((a) => a.split('{report}').join(GRADER_REPORT)), workdir, opts.build);
   return [
     'create',
     '--name', opts.name,
@@ -109,7 +126,7 @@ export function buildGraderArgs(opts: { name: string; config: SandboxConfig; arg
     '-e', 'CI=1',
     '-e', 'NPM_CONFIG_OFFLINE=true',
     '-e', 'NPM_CONFIG_UPDATE_NOTIFIER=false',
-    '-w', graderWorkdir(opts.cwd),
+    '-w', workdir,
     '--entrypoint', argv[0]!,
     graderImage(opts.config, opts.image),
     ...argv.slice(1),
@@ -118,20 +135,73 @@ export function buildGraderArgs(opts: { name: string; config: SandboxConfig; arg
 
 /**
  * Stage a copy of the workspace for one container: without .git, every file root-readable and not
- * group/other-writable (docker cp writes them as root), the top directory and node_modules/.vite
+ * group/other-writable (docker cp writes them as root), the top directory (and verifier.cwd) with its node_modules/.vite
  * sticky and world-writable (vite writes its bundled config next to vitest.config.ts; vitest keeps
  * a results cache), and an empty world-writable report directory.
  */
-export async function stageWorkspace(workspaceDir: string, stageRoot: string): Promise<void> {
+/**
+ * environment.build outputs (a `*` segment matches one directory) -> the directories they name.
+ * Every path component must be a real directory or absent: a symbolic link (a patch can add one;
+ * it is a scope violation, but the suites still run) is never followed, so rm and chmod below stay
+ * inside the staged workspace.
+ */
+export async function expandOutputs(root: string, outputs: readonly string[]): Promise<string[]> {
+  const found = new Set<string>();
+  const walk = async (rel: string, segs: string[]): Promise<void> => {
+    if (rel) {
+      const st = await lstat(join(root, rel)).catch(() => null);
+      if (st && !st.isDirectory()) return; // a file or a symbolic link: not an output directory
+    }
+    if (segs.length === 0) return void found.add(rel);
+    const [head, ...rest] = segs as [string, ...string[]];
+    if (head !== '*') return walk(rel ? `${rel}/${head}` : head, rest);
+    const entries = await readdir(join(root, rel), { withFileTypes: true }).catch(() => []);
+    for (const e of entries) if (e.isDirectory() && e.name !== 'node_modules' && !e.name.startsWith('.')) await walk(rel ? `${rel}/${e.name}` : e.name, rest);
+  };
+  for (const out of outputs) await walk('', out.split('/'));
+  return [...found].sort();
+}
+
+/** The staged directory of verifier.cwd, or null when a component is missing, a file or a symbolic link. */
+async function realSubdir(root: string, rel: string): Promise<string | null> {
+  let dir = root;
+  for (const seg of rel.split('/')) {
+    dir = join(dir, seg);
+    const st = await lstat(dir).catch(() => null);
+    if (!st?.isDirectory()) return null;
+  }
+  return dir;
+}
+
+/** The top directory, or verifier.cwd: sticky and world-writable, plus its node_modules/.vite cache. */
+async function openForVite(dir: string): Promise<void> {
+  if (await stat(join(dir, 'node_modules')).catch(() => null)) {
+    await mkdir(join(dir, 'node_modules', '.vite'), { recursive: true });
+    await chmod(join(dir, 'node_modules', '.vite'), 0o1777);
+  }
+  await chmod(dir, 0o1777);
+}
+
+export async function stageWorkspace(workspaceDir: string, stageRoot: string, buildOutputs: readonly string[] = [], cwd?: string): Promise<void> {
   const w = join(stageRoot, 'w');
   await cp(workspaceDir, w, { recursive: true, verbatimSymlinks: true, filter: (src) => !src.split('/').includes('.git') });
   const chmodR = await exec('chmod', ['-R', 'a+rX,go-w', w]);
   if (chmodR.code !== 0) throw new Error(`chmod failed: ${chmodR.stderr.slice(0, 200)}`);
-  if (await stat(join(w, 'node_modules')).catch(() => null)) {
-    await mkdir(join(w, 'node_modules', '.vite'), { recursive: true });
-    await chmod(join(w, 'node_modules', '.vite'), 0o1777);
+  await openForVite(w);
+  // verifier.cwd (ADR-5) gets the same: vite writes its bundled config next to the package's
+  // vitest.config.ts. Sticky: the grader uid cannot delete or rename the root-owned files there.
+  if (cwd && cwd !== '.') {
+    const dir = await realSubdir(w, cwd);
+    if (dir) await openForVite(dir);
   }
-  await chmod(w, 0o1777);
+  // Build outputs start EMPTY (a stale build must not pass for a fresh one) and writable by the
+  // grader uid; loadTask refused any output under node_modules or under protected_paths.
+  for (const rel of await expandOutputs(w, buildOutputs)) {
+    const dir = join(w, rel);
+    await rm(dir, { recursive: true, force: true });
+    await mkdir(dir, { recursive: true });
+    await chmod(dir, 0o777);
+  }
   await mkdir(join(stageRoot, 'out', 'report'), { recursive: true });
   await chmod(join(stageRoot, 'out', 'report'), 0o777);
 }
@@ -168,10 +238,10 @@ export function sandboxExecutor(opts: { runId: string; config: SandboxConfig }):
       const name = `itera-grade-${id}-${label}`;
       const stage = await mkdtemp(join(tmpdir(), 'itera-grade-'));
       try {
-        await stageWorkspace(req.workspaceDir, stage);
+        await stageWorkspace(req.workspaceDir, stage, req.build?.outputs, req.cwd);
         await exec('docker', ['rm', '-fv', name]);
         await ensureImage(graderImage(opts.config, req.image));
-        const created = await exec('docker', buildGraderArgs({ name, config: opts.config, argv: req.argv, limits: req.limits, image: req.image, cwd: req.cwd }));
+        const created = await exec('docker', buildGraderArgs({ name, config: opts.config, argv: req.argv, limits: req.limits, image: req.image, cwd: req.cwd, build: req.build?.argv }));
         if (created.code !== 0) throw new Error(`grader create failed: ${created.stderr.slice(0, 300)}`);
         const ws = await pipe({ cmd: 'tar', args: ['-C', stage, '-cf', '-', 'w'] }, { cmd: 'docker', args: ['cp', '-', `${name}:/workspace`] });
         const out = await pipe({ cmd: 'tar', args: ['-C', join(stage, 'out'), '-cf', '-', '.'] }, { cmd: 'docker', args: ['cp', '-', `${name}:/out`] });

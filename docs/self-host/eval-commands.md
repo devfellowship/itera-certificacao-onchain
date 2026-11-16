@@ -69,9 +69,9 @@ The command prints one row for each run:
 ```text
 case webhook-dup-replay  variant 975d43576ebe (reference solution)  [baseline]
 run             repeat  result         score  graders
-local-ed3a0987       1  pass            100  hidden-tests@0.5.0=pass/100
-local-beebeb05       2  pass            100  hidden-tests@0.5.0=pass/100
-local-dd9de384       3  pass            100  hidden-tests@0.5.0=pass/100
+local-ed3a0987       1  pass            100  hidden-tests@0.6.0=pass/100
+local-beebeb05       2  pass            100  hidden-tests@0.6.0=pass/100
+local-dd9de384       3  pass            100  hidden-tests@0.6.0=pass/100
 n 3, measured 3, passed 3, mean score 100
 runs: <your folder>/runs/975d43576ebe (outputs and evidence stay on this host)
 ```
@@ -93,9 +93,9 @@ Expected output:
 ```text
 case webhook-dup-replay  variant 06bdc6a03561 (empty output)
 run             repeat  result         score  graders
-local-cd5991af       1  fail              0  hidden-tests@0.5.0=fail/0
-local-d3a96b53       2  fail              0  hidden-tests@0.5.0=fail/0
-local-7ba88a0d       3  fail              0  hidden-tests@0.5.0=fail/0
+local-cd5991af       1  fail              0  hidden-tests@0.6.0=fail/0
+local-d3a96b53       2  fail              0  hidden-tests@0.6.0=fail/0
+local-7ba88a0d       3  fail              0  hidden-tests@0.6.0=fail/0
 n 3, measured 3, passed 0, mean score 0
 runs: <your folder>/runs/06bdc6a03561 (outputs and evidence stay on this host)
 ```

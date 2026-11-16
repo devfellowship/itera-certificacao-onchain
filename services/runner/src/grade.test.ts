@@ -1,8 +1,9 @@
-import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { lstat, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildGraderArgs, GRADER_REPORT, GRADER_UID, GRADER_WORKDIR, graderImage, graderWorkdir, stageWorkspace } from './grade.js';
+import { buildGraderArgs, expandOutputs, graderCommand, GRADER_REPORT, GRADER_UID, GRADER_WORKDIR, graderImage, graderWorkdir, shellQuote, stageWorkspace } from './grade.js';
 import { defaultSandboxConfig } from './sandbox.js';
 
 const argv = ['npx', 'vitest', 'run', 'tests/hidden', '--reporter=json', '--outputFile={report}'];
@@ -89,5 +90,87 @@ describe('stageWorkspace', () => {
     expect((await stat(join(stage, 'w'))).mode & 0o7777).toBe(0o1777);
     expect((await stat(join(stage, 'w', 'node_modules', '.vite'))).mode & 0o7777).toBe(0o1777);
     expect((await stat(join(stage, 'out', 'report'))).mode & 0o777).toBe(0o777);
+  });
+});
+
+describe('build driver in the grading container (ADR-5)', () => {
+  const dirs: string[] = [];
+  afterAll(async () => Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true }))));
+
+  it('without a build the command is the verifier argv, unchanged', () => {
+    expect(graderCommand(['npx', 'vitest'], GRADER_WORKDIR)).toEqual(['npx', 'vitest']);
+    const args = buildGraderArgs({ name: 'x', config: defaultSandboxConfig({}), argv });
+    expect(args[args.indexOf('--entrypoint') + 1]).toBe('npx');
+    expect(args.slice(args.indexOf('--entrypoint') + 3)).toEqual(argv.slice(1).map((a) => a.split('{report}').join(GRADER_REPORT)));
+  });
+
+  it('with a build: sh -c runs the quoted build in the workspace root, then execs the verifier argv as "$@"', () => {
+    const args = buildGraderArgs({ name: 'x', config: defaultSandboxConfig({}), argv, cwd: 'packages/lib', build: ['npm', 'run', 'build', '-w', '@x/base'] });
+    expect(args[args.indexOf('--entrypoint') + 1]).toBe('sh');
+    const tail = args.slice(args.indexOf('--entrypoint') + 3);
+    expect(tail[0]).toBe('-c');
+    expect(tail[1]).toBe(`cd /workspace/w && 'npm' 'run' 'build' '-w' '@x/base' >&2 || { echo 'itera: build failed' >&2; exit 97; }; cd '/workspace/w/packages/lib' && exec "$@"`);
+    expect(tail.slice(2)).toEqual(['sh', ...argv.map((a) => a.split('{report}').join(GRADER_REPORT))]);
+  });
+
+  it('quotes every word: a build argument never reaches the shell parser as code', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'itera-sh-'));
+    dirs.push(dir);
+    const words = ["it's", '$(touch pwned)', '`id`', 'a b; rm -rf x', '"q"'];
+    expect(spawnSync('sh', ['-c', `printf '%s\\n' ${words.map(shellQuote).join(' ')}`], { cwd: dir, encoding: 'utf-8' }).stdout).toBe(words.join('\n') + '\n');
+    // The composed script, run for real (workspace root replaced by the temp dir).
+    const cmd = graderCommand(['node', '-e', 'process.stdout.write(process.cwd())'], dir, ['node', '-e', "require('fs').writeFileSync('built', 'ok')"]).map((a) => a.split(GRADER_WORKDIR).join(dir));
+    const ok = spawnSync(cmd[0]!, cmd.slice(1), { encoding: 'utf-8' });
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toBe(dir);
+    expect(await readFile(join(dir, 'built'), 'utf-8')).toBe('ok');
+    const bad = graderCommand(['node', '-e', '0'], dir, ['node', '-e', 'process.exit(3)']).map((a) => a.split(GRADER_WORKDIR).join(dir));
+    const failed = spawnSync(bad[0]!, bad.slice(1), { encoding: 'utf-8' });
+    expect(failed.status).toBe(97);
+    expect(failed.stderr).toContain('itera: build failed');
+    expect(await lstat(join(dir, 'pwned')).catch(() => null)).toBeNull();
+  });
+
+  it('stages the build outputs empty and writable, and never follows a symbolic link out of the workspace', async () => {
+    const ws = await mkdtemp(join(tmpdir(), 'itera-ws-'));
+    const stage = await mkdtemp(join(tmpdir(), 'itera-stage-'));
+    const outside = await mkdtemp(join(tmpdir(), 'itera-outside-'));
+    dirs.push(ws, stage, outside);
+    await mkdir(join(ws, 'packages', 'a', 'dist'), { recursive: true });
+    await writeFile(join(ws, 'packages', 'a', 'dist', 'stale.js'), 'old build');
+    await mkdir(join(ws, 'packages', 'b'), { recursive: true });
+    await mkdir(join(outside, 'dist'), { recursive: true });
+    await writeFile(join(outside, 'dist', 'keep'), 'host file');
+    await symlink(outside, join(ws, 'packages', 'evil'));
+    await symlink(join(outside, 'dist'), join(ws, 'dist'));
+    expect(await expandOutputs(ws, ['packages/*/dist', 'dist'])).toEqual(['packages/a/dist', 'packages/b/dist']);
+    await stageWorkspace(ws, stage, ['packages/*/dist', 'dist', 'packages/evil/dist']);
+    for (const p of ['a', 'b']) {
+      const out = join(stage, 'w', 'packages', p, 'dist');
+      expect((await stat(out)).mode & 0o777).toBe(0o777);
+    }
+    await expect(stat(join(stage, 'w', 'packages', 'a', 'dist', 'stale.js'))).rejects.toThrow();
+    expect((await stat(join(stage, 'w', 'packages', 'a'))).mode & 0o022).toBe(0);
+    expect(await readFile(join(outside, 'dist', 'keep'), 'utf-8')).toBe('host file');
+  });
+
+  it('opens verifier.cwd like the top directory (sticky, for the bundled vite config), never through a link', async () => {
+    const ws = await mkdtemp(join(tmpdir(), 'itera-ws-'));
+    const outside = await mkdtemp(join(tmpdir(), 'itera-outside-'));
+    dirs.push(ws, outside);
+    await mkdir(join(ws, 'packages', 'lib', 'node_modules'), { recursive: true });
+    await writeFile(join(ws, 'packages', 'lib', 'vitest.config.ts'), 'export default {}');
+    await symlink(outside, join(ws, 'packages', 'evil'));
+    const stage = await mkdtemp(join(tmpdir(), 'itera-stage-'));
+    dirs.push(stage);
+    await stageWorkspace(ws, stage, [], 'packages/lib');
+    expect((await stat(join(stage, 'w', 'packages', 'lib'))).mode & 0o7777).toBe(0o1777);
+    expect((await stat(join(stage, 'w', 'packages', 'lib', 'node_modules', '.vite'))).mode & 0o7777).toBe(0o1777);
+    expect((await stat(join(stage, 'w', 'packages', 'lib', 'vitest.config.ts'))).mode & 0o022).toBe(0);
+    expect((await stat(join(stage, 'w', 'packages'))).mode & 0o022).toBe(0);
+    const linked = await mkdtemp(join(tmpdir(), 'itera-stage-'));
+    dirs.push(linked);
+    await stageWorkspace(ws, linked, [], 'packages/evil');
+    expect((await stat(outside)).mode & 0o7777).not.toBe(0o1777);
   });
 });

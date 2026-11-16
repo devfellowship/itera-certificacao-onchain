@@ -29,7 +29,17 @@ export interface SuiteRunRequest {
   limits?: { cpus?: number; memoryMb?: number };
   /** task.json verifier.image (digest-pinned grader image). Absent = the executor's default image. */
   image?: string;
+  /**
+   * task.json environment.build (ADR-5): argv run in the workspace root, in the same sandbox, before
+   * the verifier; `outputs` are the directories it may write. A failed build exits BUILD_FAILED_EXIT
+   * with BUILD_FAILED_MARKER in stderr and writes no report.
+   */
+  build?: { argv: string[]; outputs: string[] };
 }
+
+/** The stderr line and exit code of a failed build step (both executors). */
+export const BUILD_FAILED_MARKER = 'itera: build failed';
+export const BUILD_FAILED_EXIT = 97;
 
 export interface SuiteRunResult {
   exitCode: number | null;
@@ -70,6 +80,7 @@ export function interpretRun(run: SuiteRunResult, format: ReportFormat = DEFAULT
   const meta = { exit_code: run.exitCode, duration_ms: run.durationMs };
   const empty = (state: SuiteState) => ({ ...EMPTY_SUITE, cases: [], state, ...meta });
   if (run.timedOut) return { suite: empty('timeout'), error: `verifier timed out after ${Math.round(run.durationMs / 1000)} s` };
+  if (run.report === null && run.stderrTail.includes(BUILD_FAILED_MARKER)) return { suite: empty('no_report'), error: `build failed: ${run.stderrTail.slice(-300)}` };
   if (run.report === null) return { suite: empty('no_report'), error: `verifier wrote no report (exit ${run.exitCode}): ${run.stderrTail.slice(-300)}` };
   let parsed: TestSuiteResult;
   try {
@@ -100,6 +111,12 @@ export function localExecutor(): SuiteExecutor {
       const argv = req.argv.map((a) => a.split(REPORT_PLACEHOLDER).join(reportPath));
       const started = Date.now();
       try {
+        if (req.build) {
+          const built = await spawnWithTimeout(req.build.argv, req.workspaceDir, req.timeoutMs, true);
+          if (built.timedOut || built.exitCode !== 0) {
+            return { exitCode: built.timedOut ? null : BUILD_FAILED_EXIT, timedOut: built.timedOut, durationMs: Date.now() - started, report: null, stderrTail: `${built.stderrTail}\n${BUILD_FAILED_MARKER}` };
+          }
+        }
         const res = await spawnWithTimeout(argv, req.cwd ? join(req.workspaceDir, req.cwd) : req.workspaceDir, req.timeoutMs);
         const report = await readFile(reportPath, 'utf-8').catch(() => null);
         return { ...res, durationMs: Date.now() - started, report };
@@ -110,16 +127,20 @@ export function localExecutor(): SuiteExecutor {
   };
 }
 
-function spawnWithTimeout(argv: string[], cwd: string, timeoutMs: number): Promise<{ exitCode: number | null; timedOut: boolean; stderrTail: string }> {
+/** `withStdout`: stdout joins the stderr tail (a build tool such as tsc prints its errors there). */
+function spawnWithTimeout(argv: string[], cwd: string, timeoutMs: number, withStdout = false): Promise<{ exitCode: number | null; timedOut: boolean; stderrTail: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(argv[0]!, argv.slice(1), { cwd, shell: process.platform === 'win32', stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(argv[0]!, argv.slice(1), { cwd, shell: process.platform === 'win32', stdio: ['ignore', withStdout ? 'pipe' : 'ignore', 'pipe'] });
     let stderr = '';
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
     }, timeoutMs);
-    child.stderr.on('data', (c) => {
+    child.stderr?.on('data', (c) => {
+      stderr = (stderr + c.toString()).slice(-4000);
+    });
+    child.stdout?.on('data', (c) => {
       stderr = (stderr + c.toString()).slice(-4000);
     });
     child.on('error', (err) => {

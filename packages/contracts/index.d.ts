@@ -22,6 +22,8 @@ export interface TaskContract {
     install?: string[];
     /** Lockfile policy driver (ADR-5). Absent = registry-only. */
     lockfile?: 'registry-only' | 'workspace-links';
+    /** Build driver (ADR-5): runs in each grading container before the verifier. Absent = no build. */
+    build?: { cmd: string[]; outputs: string[]; timeout_sec?: number };
     allow_internet?: false;
     cpus?: number;
     memory_mb?: number;
