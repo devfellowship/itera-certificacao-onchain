@@ -10,7 +10,7 @@
 // The readers read a PATH, not a fleet service, so a third party uses them as they are (ADR-4).
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { TRAJECTORY_FORMAT, TRAJECTORY_MAX_STEPS, validateTrajectory, type Trajectory, type TrajectoryStep } from '@itera/contracts';
+import { stepKindOf, TRAJECTORY_FORMAT, TRAJECTORY_MAX_STEPS, validateTrajectory, type Trajectory, type TrajectoryStep } from '@itera/contracts';
 import { argsDigest, classifyFailure } from '../../trace.js';
 import type { RunAction, StepErrorClass, StepStatus, ToolFamily } from '../../types.js';
 import { CliError } from '../env.js';
@@ -92,6 +92,10 @@ function resultText(content: unknown): string | null {
   return content === undefined || content === null ? null : JSON.stringify(content);
 }
 
+const TRAJECTORY_V2_FORMAT = 'tma-trajectory/2' as const;
+/** started_ms holds at most one day (the contract). */
+const MAX_START_MS = 86_400_000;
+
 interface PendingCall {
   seq: number;
   tool: string;
@@ -101,17 +105,20 @@ interface PendingCall {
 }
 
 /**
- * Read a Claude Code session (JSONL) into a tma-trajectory/1 record. A model turn = one assistant message
+ * Read a Claude Code session (JSONL) into a tma-trajectory/1 record (`v2: true`: tma-trajectory/2, which adds the step
+ * kind from the real tool and command, and `started_ms`, the start of the step in ms from the first event of the
+ * session; `turn_origin` stays null). A model turn = one assistant message
  * id. A call without a result (the session stopped) is `error / interrupted`. Calls in a side chain
  * (a sub-agent) point to the one open Task/Agent call as parent, when exactly one is open.
  */
-export function readClaudeCodeSession(text: string, opts: { redact?: RedactContext } = {}): { trajectory: Trajectory; cwd: string | null; skipped: number } {
+export function readClaudeCodeSession(text: string, opts: { redact?: RedactContext; v2?: boolean } = {}): { trajectory: Trajectory; cwd: string | null; skipped: number } {
   const steps: TrajectoryStep[] = [];
   const pending = new Map<string, PendingCall>();
   const earlier: Array<{ seq: number; tool: string; argsSha256: string; failed: boolean }> = [];
   const turns = new Map<string, number>();
   let cwd: string | null = null;
   let skipped = 0;
+  let firstMs: number | null = null;
   const ctx = (): RedactContext => ({ home: opts.redact?.home ?? homedir(), roots: [...(opts.redact?.roots ?? []), ...(cwd ? [cwd] : [])] });
 
   for (const line of text.split('\n')) {
@@ -126,6 +133,7 @@ export function readClaudeCodeSession(text: string, opts: { redact?: RedactConte
     }
     if (typeof ev?.cwd === 'string' && cwd === null) cwd = ev.cwd;
     const atMs = typeof ev?.timestamp === 'string' ? Date.parse(ev.timestamp) : NaN;
+    if (firstMs === null && Number.isFinite(atMs)) firstMs = atMs;
     const content = ev?.message?.content;
     if (ev?.type === 'assistant' && Array.isArray(content)) {
       const msgId = typeof ev.message.id === 'string' ? ev.message.id : `line-${steps.length}`;
@@ -170,6 +178,13 @@ export function readClaudeCodeSession(text: string, opts: { redact?: RedactConte
           args_sha256: argsSha256,
           result_sha256: null,
           retry_of: retryOf,
+          ...(opts.v2
+            ? {
+                step_kind: stepKindOf(tool === 'Agent' ? 'Task' : tool, typeof input.command === 'string' ? input.command : null, tool.startsWith('mcp__')),
+                started_ms: firstMs !== null && Number.isFinite(atMs) ? Math.min(Math.max(Math.round(atMs - firstMs), 0), MAX_START_MS) : null,
+                turn_origin: null,
+              }
+            : {}),
         } as TrajectoryStep;
         steps.push(step);
         pending.set(block.id, { seq, tool, argsSha256, startedMs: Number.isFinite(atMs) ? atMs : null, step });
@@ -199,7 +214,7 @@ export function readClaudeCodeSession(text: string, opts: { redact?: RedactConte
       }
     }
   }
-  return { trajectory: checked({ format: TRAJECTORY_FORMAT, steps } as Trajectory), cwd, skipped };
+  return { trajectory: checked({ format: opts.v2 ? TRAJECTORY_V2_FORMAT : TRAJECTORY_FORMAT, steps } as Trajectory), cwd, skipped };
 }
 
 // --- opencode (the TMA sandbox) --------------------------------------------------------------------
@@ -239,9 +254,9 @@ export function trajectoryFromActions(actions: RunAction[], opts: { redact?: Red
 /** Validate with the API's own validator. A reader bug is a CliError, never a bad upload. */
 export function checked(t: Trajectory): Trajectory {
   const v = validateTrajectory(t);
-  if (!v.ok) throw new CliError(`the trajectory does not match ${TRAJECTORY_FORMAT}: ${v.errors.slice(0, 5).join('; ')}`);
-  // validateTrajectory also takes tma-trajectory/2; this reader writes /1 only.
-  if (v.value.format !== TRAJECTORY_FORMAT) throw new CliError(`the trajectory is ${v.value.format}, not ${TRAJECTORY_FORMAT}`);
+  if (!v.ok) throw new CliError(`the trajectory does not match ${t.format}: ${v.errors.slice(0, 5).join('; ')}`);
+  // validateTrajectory takes tma-trajectory/1 and /2; this reader writes the one that it was asked for.
+  if (v.value.format !== t.format) throw new CliError(`the trajectory is ${v.value.format}, not ${t.format}`);
   return v.value;
 }
 

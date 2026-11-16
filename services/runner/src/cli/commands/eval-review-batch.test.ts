@@ -4,7 +4,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sealPin, validateLocalResultV2 } from '@itera/contracts';
+import { sealPin, validateLocalResultV3 } from '@itera/contracts';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Command } from '../command.js';
 import { CliError } from '../env.js';
@@ -131,9 +131,14 @@ describe('tma eval review-batch: body', () => {
   it('is one ungraded baseline run with the trajectory: graders [], infra_ok false, the pin as origin', async () => {
     const r = parseReviewBatch(JSON.stringify(row()), 'b')[0]!;
     const { body } = await buildReviewBatchBody(r, { agentId: AGENT, judges: [parseJudge(JUDGE)] });
-    expect(body.format).toBe('tma-local-result/2');
-    expect(validateLocalResultV2(body).ok).toBe(true);
+    // The trajectory is tma-trajectory/2 (step kind and start time), so the body is tma-local-result/3.
+    expect(body.format).toBe('tma-local-result/3');
+    expect(validateLocalResultV3(body).ok).toBe(true);
     expect(body.runs).toHaveLength(1);
+    const steps = body.runs[0]!.trajectory!.steps as unknown as Array<Record<string, unknown>>;
+    expect(body.runs[0]!.trajectory!.format).toBe('tma-trajectory/2');
+    expect(steps.every((x) => typeof x.step_kind === 'string')).toBe(true);
+    expect(steps.some((x) => typeof x.started_ms === 'number')).toBe(true);
     expect(body.runs[0]).toMatchObject({ repeat: 1, status: 'invalid', score: 0, infra_ok: false, graders: [] });
     expect(body.runs[0]!.trajectory!.steps.length).toBeGreaterThan(0);
     expect(body.case).toMatchObject({ case_key: 'trace-4da84c52-a1b2c3d4', mode: 'trace_review', use_case_key: 'build/feature', origin_pin_sha256: r.pin.pin_sha256 });

@@ -184,7 +184,7 @@ export async function buildReviewBatchBody(row: ReviewBatchRow, o: ReviewBatchOp
   const text = await readFile(row.session_file, 'utf-8').catch(() => null);
   if (text === null) throw new CliError(`case ${row.case_key}: cannot read the session file`);
   const session = claudeCodeSessionFacts(text);
-  const { trajectory } = readClaudeCodeSession(text, { redact: o.redact });
+  const { trajectory } = readClaudeCodeSession(text, { redact: o.redact, v2: true });
   if (trajectory.steps.length === 0) throw new CliError(`case ${row.case_key}: the session has no tool step`);
   const record = { ...row.pin.record };
   if (record.model_id === null || record.model_id === undefined) {
