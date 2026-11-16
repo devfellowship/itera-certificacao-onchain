@@ -11,4 +11,4 @@ npm run tma -- eval diff /tmp/case-webhook/runs/<baseline sha12> /tmp/case-webho
 ```
 
 The reference solution passes the `hidden-tests` grader (score 100) on each run. The empty output fails the
-hard gate (score 0). The grader version in `case.json` is the evaluator version (`hidden-tests@0.4.0`).
+hard gate (score 0). The grader version in `case.json` is the evaluator version (`hidden-tests@0.5.0`).

@@ -30,7 +30,7 @@ solution/*.patch     reference solution, for the validation gate only (Harbor: s
 | `agent.timeout_sec` | `[agent] timeout_sec` | |
 | `est_minutes` | — | shown in the catalog |
 
-### Drivers (evaluator 0.4.0, plan `20261112-dfl-os-eval-cases-from-real-tasks` ADR-5)
+### Drivers (evaluator 0.4.0+, plan `20261112-dfl-os-eval-cases-from-real-tasks` ADR-5)
 
 Optional `task.json` fields that let a real repository be a task without code in the kit. Each field
 is optional; without it the task grades exactly as before.
@@ -39,6 +39,9 @@ is optional; without it the task grades exactly as before.
 |---|---|---|---|
 | `environment.lockfile` | `registry-only`, `workspace-links` | `registry-only` | `workspace-links` allows an npm workspace `link` entry whose `resolved` path stays inside `environment/` and names a directory with a `package.json`. A link that escapes `environment/` (`..`, an absolute path, a URL) is still refused. Every other entry keeps the registry rule. |
 | `tests.public` | a directory, or absent | required before 0.4.0 | Absent: no public suite runs; both public suites are recorded with state `not_declared`, the gate and the run status use the hidden suite alone. `tests.hidden` stays required. |
+| `tests.mount` (0.5.0) | `dir`, `repo-paths` | `dir` | `repo-paths`: each file of a tests directory goes to its own repository path (`tests/hidden/packages/x/a.test.ts` → `packages/x/a.test.ts`), over the file there. Each such path must match `protected_paths`; `{tests}` must be a whole argv element and expands to the test files (`tests.files` globs, default `**/*.test.*`, `**/*.spec.*`). |
+| `verifier.cwd` (0.5.0) | a workspace-relative directory | the workspace | The verifier runs there (local and sandboxed); `{tests}` is relative to it. With `repo-paths`, every test file must be under it. |
+| `verifier.report` (0.5.0) | `vitest-json`, `node-test-tap` | `vitest-json` | `node-test-tap` reads `node --test --test-reporter=tap --test-reporter-destination={report}`. A `describe()` block is not a case; skip and todo count as skipped; a test file with no test counts zero tests (never a pass); a file that does not load is one failed case. Drivers live in `src/reports.ts`. |
 
 Every change to evaluator source gets a new minor of `EVALUATOR_VERSION` (= the `hidden-tests` grader
 version) and so a new code digest (`evaluatorDigest`, recursive over `src/`, tests left out).

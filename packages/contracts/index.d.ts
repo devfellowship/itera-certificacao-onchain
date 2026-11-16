@@ -32,13 +32,23 @@ export interface TaskContract {
     resources?: { cpus?: number; memory_mb?: number; pids?: number };
   };
   /** `public` is optional (ADR-5): absent = no public suite. */
-  tests: { public?: string; hidden: string };
+  tests: {
+    public?: string;
+    hidden: string;
+    /** Test layout driver (ADR-5). Absent = dir. */
+    mount?: 'dir' | 'repo-paths';
+    /** repo-paths only: globs of the test files. Absent = **\/*.test.* and **\/*.spec.*. */
+    files?: string[];
+  };
   solution: { patch: string };
   editable_paths: string[];
   protected_paths: string[];
   verifier: {
     cmd: string[];
-    report?: 'vitest-json';
+    /** Report driver (ADR-5). Absent = vitest-json. */
+    report?: 'vitest-json' | 'node-test-tap';
+    /** Driver (ADR-5): the directory the verifier runs in, relative to the workspace root. Absent = the root. */
+    cwd?: string;
     /** ghcr.io/devfellowship/testmyagent-grader-<name>@sha256:<digest>; absent = the default sandbox image. */
     image?: string;
     timeout_sec: number;

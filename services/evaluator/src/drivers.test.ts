@@ -104,10 +104,6 @@ async function noPublicCopy(): Promise<string> {
 }
 
 describe('optional public tests', () => {
-  it('is version 0.4.0 of the hidden-tests grader', () => {
-    expect(EVALUATOR_VERSION).toBe('0.4.0');
-  });
-
   it('loads a task without tests.public, and still requires tests.hidden', async () => {
     const dir = await noPublicCopy();
     const task = await loadTask(dir);
@@ -129,7 +125,7 @@ describe('optional public tests', () => {
     expect(pass.tests.public_after_patch).toMatchObject({ state: 'not_declared', total: 0 });
     expect(pass.tests.hidden).toMatchObject({ state: 'ok', total: 5, passed: 5 });
     expect(pass.score.total).toBe(100);
-    expect(pass.evaluator_version).toBe('0.4.0');
+    expect(pass.evaluator_version).toBe(EVALUATOR_VERSION);
     const empty = await runEvaluation({ taskDir: dir, patch: '' });
     expect(empty.tests.hidden.state).toBe('ok');
     expect(empty.tests.hidden.failed).toBeGreaterThan(0);
