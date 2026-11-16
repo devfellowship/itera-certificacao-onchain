@@ -346,8 +346,20 @@ a.s9-row:hover { background: var(--tma-line); }
 .rvw-summary dd { overflow-wrap: anywhere; }
 .rvw-steps { display: flex; flex-wrap: wrap; gap: 2px; font-family: var(--tma-font-mono, monospace); font-size: 12px; }
 .rvw-step { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 1px solid currentColor; border-radius: 3px; opacity: 0.8; }
+.rvw-step--btn { width: 28px; height: 28px; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.rvw-step--on { background: var(--tma-primary); border-color: var(--tma-primary); color: var(--tma-on-primary); opacity: 1; }
+.rvw-toggle { margin: 8px 0 0; min-height: 36px; padding: 4px 0; border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+.rvw-detail { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.rvw-open dd { overflow-wrap: anywhere; font-family: var(--tma-font-mono, monospace); }
+.rvw-rows { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; border: 1px solid currentColor; border-radius: 6px; }
+.rvw-row { padding: 2px 6px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); overflow-wrap: anywhere; font-size: 13px; }
+.rvw-row--bad { border-left: 3px solid #c0392b; }
+.rvw-row--on { background: rgba(128, 128, 128, 0.18); }
+.rvw-rowbtn { display: block; width: 100%; min-height: 32px; text-align: left; padding: 2px 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.rvw-idle { display: block; font-size: 11px; opacity: 0.7; font-family: var(--tma-font-mono, monospace); }
+.rvw-idle--long { opacity: 1; font-weight: 600; color: #b9770e; }
 .rvw-step--bad { outline: 2px solid #c0392b; opacity: 1; }
-.rvw-gap { padding: 0 6px; opacity: 0.7; }
+.rvw-gap { padding: 0 6px; opacity: 0.7; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .rvw-chip { min-height: 36px; padding: 6px 12px; border: 1px solid currentColor; border-radius: 18px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 /* The selected chip uses explicit tokens: `background: currentColor` with a changed `color` resolved both to the page background. */
 .rvw-chip--on { background: var(--tma-primary); border-color: var(--tma-primary); }

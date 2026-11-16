@@ -12,7 +12,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
-import { foldSteps, type ReviewRun } from './studio/review'
+import { fmtDuration, foldSteps, gapBefore, type ReviewRun, type StepDetail } from './studio/review'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -43,14 +43,22 @@ const v = (pass: boolean, labeler: string | null = null) => ({ pass, labeler, gr
 const run = (id: string, over: Partial<ReviewRun> = {}): ReviewRun => ({
   runId: id, caseKey: `case-${id.slice(0, 4)}`, useCaseKey: 'build/feature', originPinSha256: null,
   taskSummary: { before: 'CI was red on the PR', expected: 'The PR merges with green CI' }, modelId: 'anthropic/claude-opus-5.5',
-  status: 'pass', startedAt: '2026-11-15T10:00:00.000Z', steps: [{ kind: 'read', ok: true }, { kind: 'shell', ok: false }],
+  status: 'pass', startedAt: '2026-11-15T10:00:00.000Z', steps: [{ seq: 1, kind: 'read', ok: true }, { seq: 2, kind: 'shell', ok: false }],
   judge: null, workflow: null, mine: null, disagree: false, ...over,
 })
 const QUEUE = [run(R1, { disagree: true, judge: v(true), workflow: v(false, 'workflow:reverted') }), run(R2)]
 
 interface Call { method: string; path: string; body: unknown }
 const calls: Call[] = []
-function mountAt(path: string, queue: [number, unknown] = [200, { judge: 'async-wait-lifecycle', runs: QUEUE }]) {
+const STEPS: StepDetail[] = [
+  { seq: 1, tool: 'Bash', target: 'gh pr view', kind: 'read', status: 'ok', errorClass: null, durationMs: 1200, startedMs: 0, turnOrigin: 'agent' },
+  { seq: 2, tool: 'Bash', target: 'gh run watch', kind: 'shell', status: 'error', errorClass: 'tool_error', durationMs: 4000, startedMs: 200_000, turnOrigin: 'agent' },
+]
+function mountAt(
+  path: string,
+  queue: [number, unknown] = [200, { judge: 'async-wait-lifecycle', runs: QUEUE }],
+  steps: [number, unknown] = [200, { run_id: R1, steps: STEPS }],
+) {
   saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
   calls.length = 0
   vi.stubGlobal(
@@ -60,6 +68,7 @@ function mountAt(path: string, queue: [number, unknown] = [200, { judge: 'async-
       const method = init?.method ?? 'GET'
       calls.push({ method, path: url.pathname + url.search, body: init?.body ? JSON.parse(String(init.body)) : null })
       if (url.pathname === '/review-queue') return json(...queue)
+      if (url.pathname === '/review-queue/steps') return json(...steps)
       if (url.pathname === '/grader-results/human' && method === 'POST') return json(201, { id: 'l1', ...(JSON.parse(String(init!.body)) as object) })
       return json(404, { error: 'not found' })
     }),
@@ -116,6 +125,60 @@ describe('S13 review queue', () => {
     const d = mountAt('/studio/review', [503, { error: 'schema_not_ready' }])
     await waitFor(() => !!q(d, 'review-error'), '503')
     expect(q(d, 'review-error')!.textContent).toContain('not migrated')
+  })
+})
+
+describe('S13 step detail', () => {
+  it('a click on a step box opens the detail of that step: tool, target, result, timing and the idle time before it', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    expect(q(c, 'review-step-detail')).toBeNull()
+    click(c.querySelectorAll<HTMLElement>('[data-testid="review-step"]')[1]!)
+    await waitFor(() => !!q(c, 'review-step-open'), 'detail')
+    expect(calls.filter((x) => x.path.startsWith('/review-queue/steps')).map((x) => x.path)).toEqual([`/review-queue/steps?run_id=${R1}`])
+    const open = q(c, 'review-step-open')!
+    expect(open.textContent).toContain('#2')
+    expect(open.textContent).toContain('gh run watch')
+    expect(open.textContent).toContain('tool_error')
+    expect(open.textContent).toContain('4.0 s')
+    expect(open.textContent).toContain('3 min 19 s')
+    expect(c.querySelectorAll('[data-testid="review-step-row"]')).toHaveLength(2)
+    expect(q(c, 'review-step-idle-long')!.textContent).toContain('3 min 19 s')
+    expect(c.querySelectorAll<HTMLElement>('[data-testid="review-step"]')[1]!.getAttribute('aria-pressed')).toBe('true')
+    // The only writes stay the label: opening a step writes nothing.
+    expect(writes()).toEqual([])
+  })
+  it('the toggle opens the whole timeline without a selected step, and a row selects its step', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    click(q(c, 'review-steps-toggle'))
+    await waitFor(() => c.querySelectorAll('[data-testid="review-step-row"]').length === 2, 'rows')
+    expect(q(c, 'review-step-open')).toBeNull()
+    click(c.querySelectorAll<HTMLElement>('[data-testid="review-step-row"] button')[0]!)
+    expect(q(c, 'review-step-open')!.textContent).toContain('gh pr view')
+  })
+  it('a failed steps request shows a message, not an empty box', async () => {
+    const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: QUEUE }], [403, { error: 'iam_level_too_low' }])
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    click(c.querySelectorAll<HTMLElement>('[data-testid="review-step"]')[0]!)
+    await waitFor(() => !!q(c, 'review-step-error'), 'error')
+    expect(q(c, 'review-step-error')!.textContent!.length).toBeGreaterThan(10)
+  })
+})
+
+describe('step timing helpers', () => {
+  it('formats durations and the idle time between steps', () => {
+    expect(fmtDuration(null)).toBeNull()
+    expect(fmtDuration(250)).toBe('250 ms')
+    expect(fmtDuration(1200)).toBe('1.2 s')
+    expect(fmtDuration(45_000)).toBe('45 s')
+    expect(fmtDuration(190_000)).toBe('3 min 10 s')
+    expect(fmtDuration(3_900_000)).toBe('1 h 5 min')
+    const a = { ...STEPS[0]!, startedMs: 1000, durationMs: 500 }
+    expect(gapBefore(a, { ...STEPS[1]!, startedMs: 61_500 })).toBe(60_000)
+    expect(gapBefore(a, { ...STEPS[1]!, startedMs: null })).toBeNull()
+    expect(gapBefore(undefined, STEPS[1]!)).toBeNull()
+    expect(gapBefore(a, { ...STEPS[1]!, startedMs: 900 })).toBe(0)
   })
 })
 

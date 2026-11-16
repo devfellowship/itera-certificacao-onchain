@@ -6,13 +6,14 @@
  * The ONE write of the studio: POST /grader-results/human. Defer writes nothing. The full trace stays on the host and
  * opens in S3 when the run's case pin is in the `tma studio serve` index.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { STUDIO_SERVE_URL } from '../config'
 import { Badge, Button, Card } from '../tma/ui'
 import { traceHref } from './traces'
 import {
-  JUDGES, JUDGE_TITLES, REASONS, foldSteps, getReviewQueue, isJudge, kindLetter, pinIndex, postLabel, type JudgeId, type ReasonCode, type ReviewRun, type Verdict,
+  JUDGES, JUDGE_TITLES, LONG_GAP_MS, REASONS, fmtDuration, foldSteps, gapBefore, getReviewQueue, getRunSteps, isJudge, kindLetter, pinIndex, postLabel,
+  type JudgeId, type ReasonCode, type ReviewRun, type StepDetail, type Verdict,
 } from './review'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
 import './studio.css'
@@ -20,23 +21,107 @@ import './studio.css'
 const verdictText = (v: Verdict | null) => (v === null ? 'none' : v.pass ? 'pass' : 'fail')
 const verdictTone = (v: Verdict | null) => (v === null ? 'neutral' : v.pass ? 'success' : 'danger')
 
-function FoldedSteps({ steps }: { steps: ReviewRun['steps'] }) {
+/** The detail behind the step boxes: every step in order, with the idle time before it, and the opened step in full. */
+function StepTimeline({ runId, selected, onSelect }: { runId: string; selected: number | null; onSelect: (seq: number) => void }) {
+  const loaded = useStudioLoad(() => getRunSteps(runId), [runId])
+  const rowRef = useRef<HTMLLIElement | null>(null)
+  useEffect(() => {
+    rowRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [selected, loaded.state])
+  if (loaded.state === 'loading') return <p className="tma-body-sm tma-muted">Loading the steps…</p>
+  if (loaded.state === 'error') return <p className="tma-body-sm" role="alert" data-testid="review-step-error">{loadErrorText(loaded.status)}</p>
+  const steps = loaded.data.steps
+  if (steps.length === 0) return <p className="tma-body-sm tma-muted">No steps stored for this run.</p>
+  const open = steps.find((x) => x.seq === selected) ?? null
+  const field = (label: string, value: string | null) => (
+    <>
+      <dt>{label}</dt>
+      <dd>{value ?? '—'}</dd>
+    </>
+  )
+  const startedAt = (x: StepDetail) => fmtDuration(x.startedMs)
+  return (
+    <div className="rvw-detail" data-testid="review-step-detail">
+      {open && (
+        <dl className="stu-dl rvw-open" data-testid="review-step-open">
+          {field('Step', `#${open.seq}`)}
+          {field('Tool', open.tool)}
+          {field('Target', open.target)}
+          {field('Result', open.status === 'ok' ? 'ok' : [open.status, open.errorClass].filter(Boolean).join(' · ') || null)}
+          {field('Took', fmtDuration(open.durationMs))}
+          {field('Started', startedAt(open) ? `${startedAt(open)} into the run` : null)}
+          {field('Idle before', fmtDuration(gapBefore(steps[steps.findIndex((x) => x.seq === open.seq) - 1], open)))}
+          {field('Turn started by', open.turnOrigin)}
+        </dl>
+      )}
+      <ol className="rvw-rows" aria-label="All steps">
+        {steps.map((x, i) => {
+          const gap = gapBefore(steps[i - 1], x)
+          const long = gap !== null && gap >= LONG_GAP_MS
+          const on = x.seq === selected
+          return (
+            <li key={x.seq} ref={on ? rowRef : undefined} className={`rvw-row${on ? ' rvw-row--on' : ''}${x.status !== 'ok' ? ' rvw-row--bad' : ''}`} data-testid="review-step-row" data-seq={x.seq}>
+              {gap !== null && gap >= 1000 && (
+                <span className={`rvw-idle${long ? ' rvw-idle--long' : ''}`} data-testid={long ? 'review-step-idle-long' : 'review-step-idle'}>
+                  {long ? 'idle ' : '+'}
+                  {fmtDuration(gap)}
+                </span>
+              )}
+              <button type="button" className="rvw-rowbtn" onClick={() => onSelect(x.seq)} aria-pressed={on}>
+                <span className="rvw-step">{kindLetter(x.kind)}</span> <strong>{x.tool}</strong> <span className="tma-mono">{x.target ?? ''}</span>
+                {x.status !== 'ok' && <span className="tma-muted"> {x.status ?? 'unknown'}</span>}
+                {x.durationMs !== null && <span className="tma-muted"> {fmtDuration(x.durationMs)}</span>}
+              </button>
+            </li>
+          )
+        })}
+      </ol>
+    </div>
+  )
+}
+
+function FoldedSteps({ runId, steps }: { runId: string; steps: ReviewRun['steps'] }) {
+  const [open, setOpen] = useState(false)
+  const [selected, setSelected] = useState<number | null>(null)
+  useEffect(() => {
+    setOpen(false)
+    setSelected(null)
+  }, [runId])
   if (steps.length === 0) return <p className="tma-body-sm tma-muted">No structural trajectory on this run.</p>
   const f = foldSteps(steps)
+  const pick = (seq: number) => {
+    setSelected(seq)
+    setOpen(true)
+  }
   const cell = (s: ReviewRun['steps'][number], i: number) => (
-    <span key={i} className={`rvw-step${s.ok === false ? ' rvw-step--bad' : ''}`} title={s.kind ?? 'unknown'} data-testid="review-step">
+    <button
+      key={i}
+      type="button"
+      className={`rvw-step rvw-step--btn${s.ok === false ? ' rvw-step--bad' : ''}${selected === s.seq ? ' rvw-step--on' : ''}`}
+      title={s.kind ?? 'unknown'}
+      aria-label={`Step ${s.seq}, ${s.kind ?? 'unknown'}${s.ok === false ? ', failed' : ''}`}
+      aria-pressed={selected === s.seq}
+      onClick={() => pick(s.seq)}
+      data-testid="review-step"
+    >
       {kindLetter(s.kind)}
-    </span>
+    </button>
   )
   return (
-    <div className="rvw-steps" data-testid="review-steps" aria-label={`${steps.length} steps`}>
-      {f.head.map(cell)}
-      {f.hidden > 0 && (
-        <span className="rvw-gap" data-testid="review-steps-hidden">
-          +{f.hidden}
-        </span>
-      )}
-      {f.tail.map((s, i) => cell(s, i + 1000))}
+    <div>
+      <div className="rvw-steps" data-testid="review-steps" aria-label={`${steps.length} steps`}>
+        {f.head.map(cell)}
+        {f.hidden > 0 && (
+          <button type="button" className="rvw-gap" data-testid="review-steps-hidden" onClick={() => setOpen(true)} aria-label={`${f.hidden} more steps, show all`}>
+            +{f.hidden}
+          </button>
+        )}
+        {f.tail.map((s, i) => cell(s, i + 1000))}
+      </div>
+      <button type="button" className="rvw-toggle" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="review-steps-toggle">
+        {open ? 'Hide the steps' : `Show what the agent did (${steps.length} steps)`}
+      </button>
+      {open && <StepTimeline runId={runId} selected={selected} onSelect={setSelected} />}
     </div>
   )
 }
@@ -91,7 +176,7 @@ export function ReviewCard(props: {
         <dt>Expected</dt>
         <dd>{run.taskSummary?.expected ?? '—'}</dd>
       </dl>
-      <FoldedSteps steps={run.steps} />
+      <FoldedSteps runId={run.runId} steps={run.steps} />
       <p className="tma-body-sm rvw-signals">
         Judge <Badge tone={verdictTone(run.judge)} testId="review-judge">{verdictText(run.judge)}</Badge> · Workflow{' '}
         <Badge tone={verdictTone(run.workflow)} testId="review-workflow">{verdictText(run.workflow)}</Badge>
