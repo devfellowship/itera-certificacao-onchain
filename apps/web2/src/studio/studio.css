@@ -338,37 +338,59 @@ a.s9-row:hover { background: var(--tma-line); }
 .trc-preview--open { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .trc-more { font-size: 12px; background: none; border: none; padding: 0; color: var(--tma-primary); cursor: pointer; }
 
-/* S13 review queue (C6-T3): phone first, one run per screen. */
-.rvw-page { max-width: 640px; }
-.rvw-card { display: flex; flex-direction: column; gap: 12px; }
-.rvw-top, .rvw-judges, .rvw-chips, .rvw-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.rvw-meta { overflow-wrap: anywhere; margin: 0; }
-.rvw-summary dd { overflow-wrap: anywhere; }
-.rvw-steps { display: flex; flex-wrap: wrap; gap: 2px; font-family: var(--tma-font-mono, monospace); font-size: 12px; }
-.rvw-step { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 1px solid currentColor; border-radius: 3px; opacity: 0.8; }
-.rvw-step--btn { width: 28px; height: 28px; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.rvw-step--on { background: var(--tma-primary); border-color: var(--tma-primary); color: var(--tma-on-primary); opacity: 1; }
-.rvw-toggle { margin: 8px 0 0; min-height: 36px; padding: 4px 0; border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
-.rvw-detail { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
-.rvw-open dd { overflow-wrap: anywhere; font-family: var(--tma-font-mono, monospace); }
-.rvw-rows { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; border: 1px solid currentColor; border-radius: 6px; }
-.rvw-row { padding: 2px 6px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); overflow-wrap: anywhere; font-size: 13px; }
-.rvw-row--bad { border-left: 3px solid #c0392b; }
-.rvw-row--on { background: rgba(128, 128, 128, 0.18); }
-.rvw-rowbtn { display: block; width: 100%; min-height: 32px; text-align: left; padding: 2px 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.rvw-idle { display: block; font-size: 11px; opacity: 0.7; font-family: var(--tma-font-mono, monospace); }
-.rvw-dur--long { font-weight: 600; color: #b9770e; }
-.rvw-idle--long { opacity: 1; font-weight: 600; color: #b9770e; }
-.rvw-step--bad { outline: 2px solid #c0392b; opacity: 1; }
-.rvw-gap { padding: 0 6px; opacity: 0.7; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.rvw-chip { min-height: 36px; padding: 6px 12px; border: 1px solid currentColor; border-radius: 18px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-/* The selected chip uses explicit tokens: `background: currentColor` with a changed `color` resolved both to the page background. */
-.rvw-chip--on { background: var(--tma-primary); border-color: var(--tma-primary); }
-.rvw-chip--on, .rvw-chip--on .rvw-key { color: var(--tma-on-primary); }
-.rvw-key { font-family: var(--tma-font-mono, monospace); font-size: 11px; opacity: 0.7; }
-.rvw-actions > * { flex: 1 1 30%; min-height: 44px; }
-.rvw-question { font-weight: 600; margin: 0; }
-@media (hover: none) { .rvw-key { display: none; } }
+/* S13 review queue (C6-T3), restyled to the canvas artboard "S13 Human review on the phone" (UI-S13). Phone first.
+   Colors come from the studio theme (theme.css, class stu-theme on the page root). */
+.rvw-page { max-width: 640px; padding-top: 12px; gap: 0; }
+.rvw-head { display: flex; align-items: center; gap: var(--stu-gap-3); flex-wrap: wrap; min-height: var(--stu-tap); border-bottom: 1px solid var(--stu-line); margin-bottom: var(--stu-gap-4); }
+.rvw-queue { margin-left: auto; }
+.rvw-card { display: flex; flex-direction: column; gap: 18px; min-width: 0; flex: 1; }
+.rvw-lead { display: flex; flex-direction: column; gap: var(--stu-gap-2); }
+.rvw-judge { display: flex; align-items: center; gap: var(--stu-gap-1); margin: 0; overflow-wrap: anywhere; }
+.rvw-info { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: -6px 0; color: var(--stu-text-muted); }
+.rvw-question { text-wrap: balance; }
+.rvw-top { display: flex; flex-wrap: wrap; gap: var(--stu-gap-2); }
+.rvw-top:empty { display: none; }
+.rvw-summary { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--stu-gap-1) var(--stu-gap-4); margin: 0; }
+.rvw-summary dt { color: var(--stu-text-muted); }
+.rvw-summary dd { margin: 0; color: var(--stu-text-2); overflow-wrap: anywhere; }
+.rvw-meta { margin: 0; overflow-wrap: anywhere; }
+.rvw-signals { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--stu-gap-2); }
+.rvw-verdict { display: inline-flex; align-items: center; gap: 5px; }
+.rvw-trace { margin: var(--stu-gap-1) 0 0; }
+.rvw-trace a { color: var(--stu-text); text-decoration: underline; text-underline-offset: 3px; }
+.rvw-trace a:hover { color: var(--stu-accent-hover); }
+.rvw-steps { display: flex; flex-wrap: wrap; gap: 3px; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); }
+.rvw-step { display: inline-flex; width: 18px; height: 22px; align-items: center; justify-content: center; border: 1px solid var(--stu-line-strong); border-radius: 2px; color: var(--stu-text-muted); }
+.rvw-step--btn { padding: 0; background: transparent; font: inherit; cursor: pointer; }
+.rvw-step--btn:hover { border-color: var(--stu-line-hover); color: var(--stu-text); }
+.rvw-step--bad { border-color: var(--stu-bad); color: var(--stu-bad); }
+.rvw-step--on { background: var(--stu-accent); border-color: var(--stu-accent); color: var(--stu-on-accent); }
+.rvw-gap { padding: 0 6px; border: 0; background: transparent; color: var(--stu-text-muted); font: inherit; cursor: pointer; }
+.rvw-gap:hover { color: var(--stu-text); }
+.rvw-toggle { align-self: flex-start; min-height: var(--stu-tap); padding: 0; border: 0; background: transparent; color: var(--stu-text-2); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; margin: -8px 0; }
+.rvw-toggle:hover { color: var(--stu-text); }
+.rvw-detail { display: flex; flex-direction: column; gap: var(--stu-gap-3); margin-top: var(--stu-gap-2); }
+.rvw-open { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--stu-gap-1) var(--stu-gap-4); margin: 0; padding: var(--stu-gap-3); background: var(--stu-surface); border: 1px solid var(--stu-line); border-radius: var(--stu-radius); }
+.rvw-open dt { color: var(--stu-text-muted); }
+.rvw-open dd { margin: 0; color: var(--stu-text-2); overflow-wrap: anywhere; font-family: var(--stu-font-mono); font-size: 12px; }
+.rvw-rows { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+.rvw-row { border-bottom: 1px solid var(--stu-line); overflow-wrap: anywhere; }
+.rvw-row--bad { box-shadow: inset 2px 0 0 var(--stu-bad); }
+.rvw-row--on { background: var(--stu-raised); box-shadow: inset 2px 0 0 var(--stu-accent); }
+.rvw-rowbtn { display: flex; gap: 10px; align-items: baseline; width: 100%; min-height: 36px; text-align: left; padding: var(--stu-gap-2) var(--stu-gap-2); border: 0; background: transparent; color: var(--stu-text-2); font: inherit; cursor: pointer; }
+.rvw-rowbtn:hover { color: var(--stu-text); }
+.rvw-tool { flex: none; width: 56px; font-weight: 500; color: var(--stu-text); }
+.rvw-target { flex: 1; min-width: 0; font-family: var(--stu-font-mono); font-size: 12px; }
+.rvw-status, .rvw-took { flex: none; }
+.rvw-idle { display: block; padding: 2px var(--stu-gap-2) 0; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); }
+.rvw-dur--long { font-weight: 500; color: var(--stu-warn); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); }
+.rvw-idle--long { color: var(--stu-warn); font-weight: 500; }
+.rvw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rvw-actions { margin-top: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--stu-gap-2); }
+/* On a phone the grade buttons stay in reach while the steps scroll. */
+@media (max-width: 720px) {
+  .rvw-actions { position: sticky; bottom: 0; z-index: 5; padding: var(--stu-gap-3) 0 var(--stu-gap-4); background: var(--stu-bg); }
+}
 /* The app shell keeps a 1024px floor for the desktop screens (tma/ui/ui.css). S13 is a phone screen,
    so it lifts the floor, as the evaluation page does (.tma-app:has(.re-page)). */
 .tma-app:has(.rvw-page) { min-width: 0; }
