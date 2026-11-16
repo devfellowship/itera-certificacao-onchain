@@ -16,12 +16,14 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Card } from '../tma/ui'
 import { AgentAvatar, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, WhyBadge, dash, fmtTime, useTraceLoad } from './TraceParts'
 import { themeClass } from './theme'
-import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, prUrl, replayOf, traceHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
+import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prUrl, replayOf, shortDay, signalLabel, traceHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
 import './studio.css'
 import './traces.css'
 
 const FILTERS = ['l2_class', 'why', 'mode'] as const
 type FilterKey = (typeof FILTERS)[number]
+/** The group labels of the filter bar. The URL parameters keep the field keys. */
+const FILTER_LABEL: Record<FilterKey, string> = { l2_class: 'Use case', why: 'Picked for', mode: 'Mode' }
 
 const ABOUT = 'Real agent sessions from the daily selection. A signal (a correction, a re-run, a revert) marks the traces with the most to teach. Read only. The content comes from the private trace service, not from the TMA server.'
 const SIGNAL_TIP =
@@ -86,7 +88,7 @@ function TraceRowLine({ r, on, onFocus }: { r: TraceRow; on: boolean; onFocus: (
       </span>
       <span role="cell" className="trc-cell trc-cell--agent" data-field="model">
         <AgentAvatar row={r} />
-        <span className="trc-ellip">
+        <span className="trc-ellip" title={`${a.name} · ${r.model ?? 'model ?'}`}>
           {a.name} · {r.model ?? 'model ?'}
         </span>
       </span>
@@ -153,12 +155,13 @@ function FocusPanel({ r }: { r: TraceRow }) {
   const signals = trueSignals(r.signals)
   const who = [r.executor, r.harness, r.host].filter(Boolean).join(' / ')
   return (
-    <aside className="trc-aside" aria-label="Focused trace" data-testid="trace-focus">
+    <aside className="trc-aside trc-aside--picker" aria-label="Focused trace" data-testid="trace-focus">
+      <div className="trc-aside__in">
       <div className="trc-aside__head">
         <span className="trc-aside__who">
           <AgentAvatar row={r} />
-          <span className="stu-label">
-            {a.name} · {r.model ?? 'model ?'} · {dayOf(r.started_at) ?? '—'}
+          <span className="trc-aside__whotext" data-field="who-line">
+            {a.name} · {r.model ?? 'model ?'} · <span className="trc-nowrap">{shortDay(r.started_at) ?? '—'}</span>
           </span>
         </span>
         <h2 className="trc-aside__title">{rowLabel(r)}</h2>
@@ -171,7 +174,7 @@ function FocusPanel({ r }: { r: TraceRow }) {
         <CheckLine ok={replay === 'yes'}>
           {replay === 'yes' ? 'Can be replayed exactly' : replay === 'partly' ? 'Can be replayed in part: the pin is incomplete' : replay === 'no' ? 'Cannot be replayed' : 'Not pinned yet: replay needs a pin'}
         </CheckLine>
-        {signals.length > 0 && <CheckLine ok={false}>{`Signal: ${signals.join(', ')}`}</CheckLine>}
+        {signals.length > 0 && <CheckLine ok={false}>{`Signal: ${signals.map(signalLabel).join(', ')}`}</CheckLine>}
       </div>
       <details className="trc-details">
         <summary>Technical details</summary>
@@ -181,9 +184,9 @@ function FocusPanel({ r }: { r: TraceRow }) {
           <dt>Executor</dt>
           <dd data-field="who">{who || '—'}</dd>
           <dt>Class</dt>
-          <dd data-field="l2_class">{dash(r.l2_class)}</dd>
+          <dd data-field="l2_class">{dash(r.l2_class && plainValue(r.l2_class))}</dd>
           <dt>Mode</dt>
-          <dd data-field="mode">{dash(r.mode)}</dd>
+          <dd data-field="mode">{dash(r.mode && plainValue(r.mode))}</dd>
           <dt>Started</dt>
           <dd>{fmtTime(r.started_at)}</dd>
           <dt>Pin</dt>
@@ -200,6 +203,7 @@ function FocusPanel({ r }: { r: TraceRow }) {
         ) : (
           <span className="stu-label">No trajectory file to open.</span>
         )}
+      </div>
       </div>
     </aside>
   )
@@ -224,7 +228,7 @@ function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[]
         const values = [...new Set([...rows.map((r) => r[k]).filter((v): v is string => !!v), ...(current ? [current] : [])])].sort()
         return (
           <span key={k} className="trc-filter" data-filter={k}>
-            <span className="stu-label">{k}</span>
+            <span className="stu-label">{FILTER_LABEL[k]}</span>
             {[null, ...values].map((v) => {
               const on = (v ?? null) === (current ?? null)
               return (
@@ -235,7 +239,7 @@ function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[]
                   aria-current={on ? 'true' : undefined}
                   data-filter-value={v ?? 'all'}
                 >
-                  {v ?? 'all'}
+                  {v === null ? 'all' : plainValue(v)}
                 </Link>
               )
             })}
@@ -275,34 +279,29 @@ function Paging({ params, data }: { params: URLSearchParams; data: TraceList }) 
   )
 }
 
-function TraceTable({ data }: { data: TraceList }) {
-  const [focus, setFocus] = useState<string | null>(null)
-  const keyed = data.rows.map((r, i) => ({ r, k: rowKey(r, i) }))
-  const focused = keyed.find((x) => x.k === focus) ?? keyed[0] ?? null
+function TraceTable({ rows, focusedKey, onFocus }: { rows: Array<{ r: TraceRow; k: string }>; focusedKey: string | null; onFocus: (k: string) => void }) {
   return (
-    <div className="trc-body">
-      <div className="trc-tablewrap">
-        <div role="table" aria-label="Traces" className="trc-table">
-          <div role="row" className="trc-row trc-row--head">
-            {['date', 'agent', 'task', 'pr / ci', 'signal', 'replayable'].map((h) => (
-              <span key={h} role="columnheader" className="trc-cell">
-                {h}
-                {h === 'signal' && <InfoTip label="About signal" text={SIGNAL_TIP} />}
-              </span>
-            ))}
-          </div>
-          {keyed.map(({ r, k }) => (
-            <TraceRowLine key={k} r={r} on={focused?.k === k} onFocus={() => setFocus(k)} />
+    <div className="trc-tablewrap">
+      <div role="table" aria-label="Traces" className="trc-table">
+        <div role="row" className="trc-row trc-row--head">
+          {['date', 'agent', 'task', 'pr / ci', 'signal', 'replayable'].map((h) => (
+            <span key={h} role="columnheader" className="trc-cell">
+              {h}
+              {h === 'signal' && <InfoTip label="About signal" text={SIGNAL_TIP} />}
+            </span>
           ))}
         </div>
+        {rows.map(({ r, k }) => (
+          <TraceRowLine key={k} r={r} on={focusedKey === k} onFocus={() => onFocus(k)} />
+        ))}
       </div>
-      {focused && <FocusPanel r={focused.r} />}
     </div>
   )
 }
 
 export function StudioTracesPage() {
   const [params] = useSearchParams()
+  const [focus, setFocus] = useState<string | null>(null)
   const offset = Number(params.get('offset') ?? '0')
   const q = {
     limit: TRACE_PAGE_SIZE,
@@ -312,44 +311,52 @@ export function StudioTracesPage() {
     mode: params.get('mode'),
   }
   const loaded = useTraceLoad(() => fetchTraceList(q), [q.offset, q.l2_class, q.why, q.mode])
+  // Newest first on each page. The serve pages by its own order, so the date order holds inside a page only.
+  const keyed = loaded.state === 'ok' ? newestFirst(loaded.data.rows).map((r, i) => ({ r, k: rowKey(r, i) })) : []
+  const focused = keyed.find((x) => x.k === focus) ?? keyed[0] ?? null
   return (
-    <main className={themeClass('tma-page', 'trc-page')} data-testid="studio-traces">
-      <div className="trc-head">
-        <p className="stu-label">
-          <Link to="/studio">Studio</Link> / traces
-        </p>
-        <div className="trc-title">
-          <h1 className="tma-h1">Traces</h1>
-          <InfoTip label="About traces" text={ABOUT} />
-          {loaded.state === 'ok' && (
-            <span className="stu-label" data-testid="trace-total">
-              {loaded.data.total} {loaded.data.total === 1 ? 'trace' : 'traces'}
-            </span>
-          )}
-        </div>
-      </div>
-      {loaded.state === 'loading' ? (
-        <Card pad data-testid="traces-loading">
-          <span className="tma-body-sm tma-muted">Loading traces…</span>
-        </Card>
-      ) : loaded.state === 'error' ? (
-        <TraceErrorCard error={loaded.error} testId="traces-error" />
-      ) : (
-        <div data-testid="traces-list" className="trc-list">
-          <p className="stu-label" data-testid="trace-source">
-            Selection day {loaded.data.source.selection_day}. {loaded.data.source.pins ? 'Pins exist for this day.' : 'No pins for this day.'}
-          </p>
-          <FilterBar params={params} rows={loaded.data.rows} />
-          {loaded.data.rows.length === 0 ? (
-            <p className="tma-body-sm tma-muted" data-testid="traces-empty">
-              No candidate traces match these filters.
+    <main className={themeClass('tma-page', 'trc-page', 'trc-page--picker')} data-testid="studio-traces">
+      <div className="trc-shell">
+        <div className="trc-col">
+          <div className="trc-head">
+            <p className="stu-label">
+              <Link to="/studio">Studio</Link> / traces
             </p>
+            <div className="trc-title">
+              <h1 className="tma-h1">Traces</h1>
+              <InfoTip label="About traces" text={ABOUT} />
+              {loaded.state === 'ok' && (
+                <span className="stu-label" data-testid="trace-total">
+                  {loaded.data.total} {loaded.data.total === 1 ? 'trace' : 'traces'}
+                </span>
+              )}
+            </div>
+          </div>
+          {loaded.state === 'loading' ? (
+            <Card pad data-testid="traces-loading">
+              <span className="tma-body-sm tma-muted">Loading traces…</span>
+            </Card>
+          ) : loaded.state === 'error' ? (
+            <TraceErrorCard error={loaded.error} testId="traces-error" />
           ) : (
-            <TraceTable data={loaded.data} />
+            <div data-testid="traces-list" className="trc-list">
+              <p className="stu-label" data-testid="trace-source">
+                Selection day {loaded.data.source.selection_day}. {loaded.data.source.pins ? 'Pins exist for this day.' : 'No pins for this day.'} Newest first on each page.
+              </p>
+              <FilterBar params={params} rows={loaded.data.rows} />
+              {loaded.data.rows.length === 0 ? (
+                <p className="tma-body-sm tma-muted" data-testid="traces-empty">
+                  No candidate traces match these filters.
+                </p>
+              ) : (
+                <TraceTable rows={keyed} focusedKey={focused?.k ?? null} onFocus={setFocus} />
+              )}
+              <Paging params={params} data={loaded.data} />
+            </div>
           )}
-          <Paging params={params} data={loaded.data} />
         </div>
-      )}
+        {focused && <FocusPanel r={focused.r} />}
+      </div>
     </main>
   )
 }

@@ -24,7 +24,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { FLEET_WALL_URL } from '../config'
 import { Card } from '../tma/ui'
 import { InfoTip } from './TraceParts'
-import { Chip, themeClass } from './theme'
+import { Toggle, ToggleItem, themeClass } from './theme'
 import {
   SHAPES_SPEC,
   axisTicks,
@@ -63,10 +63,16 @@ export function KindLegend({ spec }: { spec: ShapesSpecView }) {
         </li>
       ))}
       <li className="s9-legend__end">
-        <span className="s9-key s9-end-pass" aria-hidden="true" /> end: pass
+        <span className="s9-key s9-end-pass" aria-hidden="true">
+          ✓
+        </span>{' '}
+        end: pass
       </li>
       <li>
-        <span className="s9-key s9-end-fail" aria-hidden="true" /> end: fail
+        <span className="s9-key s9-end-fail" aria-hidden="true">
+          ✗
+        </span>{' '}
+        end: fail
       </li>
     </ul>
   )
@@ -99,6 +105,7 @@ function WallRow({ run, max }: { run: TrajectoryRun; max: number }) {
             …
           </span>
         )}
+        <span className={`s9-cell-end s9-end-${endTone(run.status)}`} data-end={endTone(run.status)} aria-hidden="true" />
       </span>
       <span className={`s9-endcell s9-end-${endTone(run.status)}`} aria-hidden="true" />
       <span className="s9-sr">{` ${run.steps} ${run.steps === 1 ? 'step' : 'steps'}, ${origin}`}</span>
@@ -182,19 +189,19 @@ export function TrajectoryWall({ runs, spec = SHAPES_SPEC }: { runs: readonly Tr
         <span className="stu-label" data-testid="s9-count">
           {runs.length} {runs.length === 1 ? 'run' : 'runs'}
         </span>
-        <span className="s9-density" role="group" aria-label="Row height">
-          <Chip small on={dense} onClick={() => setDense(true)}>
+        <Toggle label="Row height" className="s9-density">
+          <ToggleItem on={dense} onClick={() => setDense(true)}>
             Compact
-          </Chip>
-          <Chip small on={!dense} onClick={() => setDense(false)}>
+          </ToggleItem>
+          <ToggleItem on={!dense} onClick={() => setDense(false)}>
             Comfortable
-          </Chip>
-        </span>
+          </ToggleItem>
+        </Toggle>
       </div>
       <KindLegend spec={spec} />
       {!spec.named_shapes && (
         <p className="stu-label" data-testid="s9-no-shapes">
-          Runs are not labeled by shape: not enough runs to name shapes; see plan C5-T8. The wall groups them by how they ended.
+          Runs are grouped by how they ended. Shape names show when enough runs share a shape.
         </p>
       )}
       <div className="s9-chart">

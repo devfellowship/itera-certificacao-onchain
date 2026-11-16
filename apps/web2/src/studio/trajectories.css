@@ -22,14 +22,13 @@
 .s9-wall p, .s9-map p { margin: 0; }
 .s9-wall__head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--stu-gap-3); }
 .s9-wall__title { margin: 0; font-size: var(--stu-fs-section); font-weight: 500; color: var(--stu-text); }
-.s9-density { margin-left: auto; display: inline-flex; gap: 4px; }
-.s9-density .stu-chip { border-radius: var(--stu-radius); }
+.s9-density { margin-left: auto; }
 
 /* Legend */
 .s9-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); }
 .s9-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .s9-legend__end { margin-left: 4px; }
-.s9-key { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 14px; height: 14px; border-radius: 3px; font-family: var(--stu-font-mono); font-size: 9px; font-weight: 700; color: var(--stu-on-accent); }
+.s9-key { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 12px; height: 12px; border-radius: 3px; font-family: var(--stu-font-mono); font-size: 8px; line-height: 12px; font-weight: 700; color: var(--stu-on-accent); }
 
 /* Step kinds: one color per trajectory-shapes/1 letter (R read, S search, W write, T test, M mcp or agent, X other or shell) */
 .s9-k-R { background: var(--stu-k-read); }
@@ -47,16 +46,18 @@
 .s9-chart__in { min-width: calc(var(--s9-max) * 3px + 22px + 200px); }
 .s9-band { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 0 var(--stu-gap-4); align-items: start; padding: 6px 0; border-top: 1px solid var(--stu-line); }
 .s9-band:first-child { border-top: 0; padding-top: 0; }
-.s9-rows { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.s9-rows { display: flex; flex-direction: column; gap: 1px; min-width: 0; background: var(--stu-well); }
 .s9-row { position: relative; display: flex; align-items: stretch; height: var(--s9-rh, 4px); color: inherit; text-decoration: none; }
 a.s9-row:hover { background: var(--stu-surface); }
 a.s9-row:hover .s9-cell { filter: brightness(1.2); }
 a.s9-row:focus-visible { outline: 2px solid var(--stu-accent); outline-offset: 1px; z-index: 2; }
 .s9-cells { display: flex; flex: 1 1 auto; min-width: 0; overflow: hidden; }
-.s9-cell { flex: 0 0 min(26px, calc(100% / var(--s9-max))); height: 100%; box-sizing: border-box; box-shadow: inset -1px -1px 0 var(--stu-bg); }
+/* One column per step plus one for the end cell: the longest run fills the track up to the end column, and the end cells
+   of the runs line up as the diagonal edge that shows how each run ended. */
+.s9-cell, .s9-cell-end { flex: 0 0 min(64px, calc(100% / (var(--s9-max) + 1))); height: 100%; box-sizing: border-box; box-shadow: inset -1px -1px 0 var(--stu-well); }
 .s9-cell--first-fail { position: relative; z-index: 1; outline: 2px solid var(--stu-bad); outline-offset: -1px; }
 .s9-more { flex: none; padding-left: 4px; font-size: 10px; line-height: var(--s9-rh, 4px); color: var(--stu-text-muted); }
-.s9-endcell { flex: 0 0 12px; margin-left: 10px; box-shadow: inset 0 -1px 0 var(--stu-bg); }
+.s9-endcell { flex: 0 0 12px; margin-left: 10px; box-shadow: inset 0 -1px 0 var(--stu-well); }
 
 .s9-band__label { border-left: 2px solid var(--stu-line-strong); padding-left: 12px; min-width: 0; }
 .s9-band__label--ok { border-left-color: var(--stu-ok); }
@@ -64,10 +65,11 @@ a.s9-row:focus-visible { outline: 2px solid var(--stu-accent); outline-offset: 1
 .s9-band__label--bad { border-left-color: var(--stu-bad); }
 .s9-band__name { margin: 0; font-size: var(--stu-fs-section); font-weight: 500; color: var(--stu-text); }
 .s9-band__line, .s9-band__steps { margin: 0; }
+.s9-band__label .s9-band__line { font-family: var(--stu-font-sans); font-size: 12px; line-height: 1.45; }
 
 .s9-axis { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 0 var(--stu-gap-4); margin-top: 6px; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); }
 .s9-axis__ticks { position: relative; display: block; height: 14px; margin-right: 22px; }
-.s9-axis__tick { position: absolute; top: 0; white-space: nowrap; left: min(calc(var(--t) * 26px), calc(var(--t) / var(--s9-max) * 100%)); }
+.s9-axis__tick { position: absolute; top: 0; white-space: nowrap; left: min(calc(var(--t) * 64px), calc(var(--t) / (var(--s9-max) + 1) * 100%)); }
 .s9-axis__end { position: absolute; top: 0; right: -22px; width: 22px; text-align: right; }
 
 /* Path map */
@@ -76,6 +78,7 @@ a.s9-row:focus-visible { outline: 2px solid var(--stu-accent); outline-offset: 1
 .s9-node { padding: 2px 0; }
 .s9-node-label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: var(--stu-fs-body); }
 .s9-node-path { font-family: var(--stu-font-mono); }
+.s9-node-label .stu-ok, .s9-node-label .stu-warn, .s9-node-label .stu-bad { font-weight: 500; }
 
 /* The app shell keeps a 1024px floor for the desktop screens (tma/ui/ui.css). S9 must work at 390 px, so it lifts the
    floor, as S12 and S13 do. On a phone a row is 14 px high (a thin row cannot be tapped) and the band label sits above its rows. */

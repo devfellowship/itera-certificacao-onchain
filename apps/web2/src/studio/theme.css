@@ -23,6 +23,8 @@
   --stu-accent: #3fd17f;
   --stu-accent-hover: #62d996;
   --stu-on-accent: #0a0908;
+  /* A recessed well: the dark ground behind a field of cells (S9 wall), darker than the page */
+  --stu-well: #050404;
   --stu-accent-soft: #14281d;
   /* Status colors: green pass, red real failure, amber close or needs attention, purple merged PR */
   --stu-ok: #3fd17f;
@@ -187,6 +189,27 @@
 .stu-chip--sm { min-height: 28px; padding: 0 10px; }
 .stu-chip[aria-pressed='true'],
 .stu-chip--on { border-color: var(--stu-accent); background: var(--stu-accent-soft); color: var(--stu-text); }
+
+/* ---------- Toggle (one joined group that switches a view or a density): active = surface fill and a 2px accent underline ---------- */
+.stu-toggle { display: inline-flex; flex-wrap: nowrap; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); overflow: hidden; }
+.stu-toggle__item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--stu-text-muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.stu-toggle__item + .stu-toggle__item { border-left: 1px solid var(--stu-line); }
+.stu-toggle__item:hover { color: var(--stu-text); }
+.stu-toggle__item[aria-pressed='true'] { background: var(--stu-surface); color: var(--stu-text); box-shadow: inset 0 -2px 0 var(--stu-accent); }
+.stu-toggle__item:focus-visible { outline-offset: -2px; }
 
 /* ---------- Tab (a chip row that switches a view): flat, the current one on a surface ---------- */
 .stu-tabs { display: flex; flex-wrap: wrap; gap: 2px; }

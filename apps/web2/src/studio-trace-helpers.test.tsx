@@ -8,7 +8,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
 import { TraceView } from './studio/StudioTracePage'
-import { agentChip, buildProfile, buildWaterfall, dayOf, fmtMs, replayOf, spanKind, trueSignals, type Trace, type TraceRun, type TraceSpan } from './studio/traces'
+import { agentChip, buildProfile, buildWaterfall, clockOf, dayOf, fmtMs, newestFirst, plainValue, replayOf, shortDay, signalLabel, spanKind, toolLabel, trueSignals, type Trace, type TraceRun, type TraceSpan } from './studio/traces'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -111,6 +111,32 @@ describe('row helpers', () => {
   })
 })
 
+describe('plain-words helpers', () => {
+  it('maps signal keys with one label map and a fallback', () => {
+    expect(['correction', 'ci_rerun', 'revert', 'red_ci', 'abandoned'].map(signalLabel)).toEqual(['correction', 're-run', 'revert', 'red CI', 'abandoned'])
+    expect(signalLabel('new_kind_of_signal')).toBe('new kind of signal')
+    expect(plainValue('trace_review')).toBe('trace review')
+  })
+  it('writes an MCP tool as "mcp: server-tool" and leaves other names', () => {
+    expect(toolLabel('mcp__fleet__ci-check')).toBe('mcp: fleet-ci-check')
+    expect(toolLabel('mcp__dfl__get_plan')).toBe('mcp: dfl-get_plan')
+    expect(toolLabel('Bash')).toBe('Bash')
+    expect(toolLabel(null)).toBeNull()
+  })
+  it('reads a day as "3 Nov" and a time of day as "10:03" (UTC)', () => {
+    expect(shortDay('2026-11-03T10:03:00.000Z')).toBe('3 Nov')
+    expect(shortDay('2026-12-25')).toBe('25 Dec')
+    expect(shortDay('not a date')).toBe('not a date')
+    expect(shortDay(null)).toBeNull()
+    expect(clockOf('2026-11-03T10:03:59.000Z')).toBe('10:03')
+    expect(clockOf('2026-11-03')).toBeNull()
+  })
+  it('orders newest first, undated last, and keeps the order of equal dates', () => {
+    const r = (id: string, started_at: string | null) => ({ id, started_at })
+    expect(newestFirst([r('a', '2026-11-03'), r('b', null), r('c', '2026-11-10'), r('d', '2026-11-03'), r('e', '2026-11-01')]).map((x) => x.id)).toEqual(['c', 'a', 'd', 'e', 'b'])
+  })
+})
+
 describe('S3 views', () => {
   const trace = (spans: TraceSpan[]): Trace => ({
     session_id: 'sid', agent_id: null,
@@ -149,9 +175,11 @@ describe('S3 views', () => {
   it('the tabs switch panels and mark the current one', () => {
     const c = mount(trace([span(0, 0, 5)]))
     const tabs = [...c.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-    expect(tabs.map((t) => t.getAttribute('aria-selected'))).toEqual(['true', 'false'])
-    act(() => tabs[1]!.click())
-    expect([...c.querySelectorAll('[role="tab"]')].map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+    // Summary first; Tool calls is the default selection.
+    expect(tabs.map((t) => t.textContent?.replace(/\d+$/, '').trim())).toEqual(['Summary', 'Tool calls'])
+    expect(tabs.map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+    act(() => tabs[0]!.click())
+    expect([...c.querySelectorAll('[role="tab"]')].map((t) => t.getAttribute('aria-selected'))).toEqual(['true', 'false'])
     expect(c.querySelector('[data-testid="trace-steps"]')).toBeNull()
   })
 

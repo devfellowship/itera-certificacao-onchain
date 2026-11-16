@@ -29,6 +29,19 @@ export function Chip({ on, small, className, type = 'button', ...rest }: { on?: 
   return <button type={type} aria-pressed={on} className={cx('stu-chip', small && 'stu-chip--sm', className)} {...rest} />
 }
 
+/** One joined toggle group (S3 Waterfall / Where time went, S9 Compact / Comfortable). Items set aria-pressed. */
+export function Toggle({ label, children, className, ...rest }: { label: string } & HTMLAttributes<HTMLSpanElement>) {
+  return (
+    <span role="group" aria-label={label} className={cx('stu-toggle', className)} {...rest}>
+      {children}
+    </span>
+  )
+}
+
+export function ToggleItem({ on, className, type = 'button', ...rest }: { on: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type={type} aria-pressed={on} className={cx('stu-toggle__item', className)} {...rest} />
+}
+
 export function Tabs({ label, children, className, ...rest }: { label: string } & HTMLAttributes<HTMLDivElement>) {
   return (
     <div role="tablist" aria-label={label} className={cx('stu-tabs', className)} {...rest}>
