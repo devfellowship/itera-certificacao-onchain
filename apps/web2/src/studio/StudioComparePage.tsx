@@ -13,7 +13,7 @@
  * Read only (Q-T18 = A): the copy command is the one button; the current-agent <select> only changes the query.
  * The `data` and `cases` props are test seams.
  */
-import { useId } from 'react'
+import { useId, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Card, CardHeader, ModelAvatar } from '../tma/ui'
@@ -36,7 +36,7 @@ import {
 } from './compare'
 import { CopyCommand } from './CopyCommand'
 import { caseCommands } from './eval-command'
-import { routingHref, studioHref } from './links'
+import { agentHref, routingHref, studioHref } from './links'
 import { isL1Pair, type StudioCase } from './use-case'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
 import './studio.css'
@@ -174,8 +174,12 @@ export function ParetoChart({ data }: { data: UseCaseCompareResponse }) {
   )
 }
 
-function AgentCell({ a }: { a: CompareAgent }) {
+/** variant id -> the web2 agent that ran it (from GET /eval-runs). The compare response has variant ids but no agent id. */
+type AgentOf = Map<string, { id: string; name: string | null }>
+
+function AgentCell({ a, agentOf }: { a: CompareAgent; agentOf?: AgentOf }) {
   const provider = providerOf(a.model_id)
+  const owner = a.variant_ids.map((v) => agentOf?.get(v)).find((x) => !!x)
   return (
     <span className="s8-agent">
       <ModelAvatar model={a.model_id} provider={provider} size={20} />
@@ -190,14 +194,20 @@ function AgentCell({ a }: { a: CompareAgent }) {
           {' '}
           #{sha12(a.agent_key.split('#')[1] ?? '')}
         </span>
-        {/* TODO(C7-T5): link to the experiment page of this agent. The response has only variant ids, and S6
-            (/studio/experiments) filters by agent id and case, not by variant: no link until one exists. */}
+        {owner && (
+          <>
+            {' '}
+            <Link to={agentHref(owner.id)} className="s8-agent-link" data-testid="s8-agent-link">
+              Agent page{owner.name ? `: ${owner.name}` : ''}
+            </Link>
+          </>
+        )}
       </span>
     </span>
   )
 }
 
-function CompareTable({ data }: { data: UseCaseCompareResponse }) {
+function CompareTable({ data, agentOf }: { data: UseCaseCompareResponse; agentOf?: AgentOf }) {
   const min = data.profile.min_runs_per_cell
   const absId = useId()
   const relId = useId()
@@ -241,7 +251,7 @@ function CompareTable({ data }: { data: UseCaseCompareResponse }) {
               return (
                 <tr key={a.agent_key} data-compare-row data-testid="s8-row" data-agent-key={a.agent_key} data-current={current ? 'true' : undefined}>
                   <th scope="row">
-                    <AgentCell a={a} />
+                    <AgentCell a={a} agentOf={agentOf} />
                     {current && <span className="tma-label s8-current-tag"> current</span>}
                   </th>
                   <td className="tma-mono">{a.harness}</td>
@@ -335,7 +345,7 @@ function KitCommand({ useCase, repeat }: { useCase: string; repeat: number }) {
   return <CopyCommand title="Get more samples for a cell with the kit:" testId="s8-copy-command" command={command} />
 }
 
-export function CompareView({ data, useCase }: { data: UseCaseCompareResponse; useCase: string }) {
+export function CompareView({ data, useCase, agentOf }: { data: UseCaseCompareResponse; useCase: string; agentOf?: AgentOf }) {
   if (data.agents.length === 0) {
     return (
       <div className="stu-groups">
@@ -354,7 +364,7 @@ export function CompareView({ data, useCase }: { data: UseCaseCompareResponse; u
       <ProfileNotice profile={data.profile} />
       <CurrentAgentSelect data={data} useCase={useCase} />
       <ParetoChart data={data} />
-      <CompareTable data={data} />
+      <CompareTable data={data} agentOf={agentOf} />
       <Card pad>
         <p className="tma-body-sm">
           <Link to={routingHref(useCase)} data-testid="s8-routing-link">
@@ -434,6 +444,14 @@ export function StudioComparePage({ data, cases }: { data?: UseCaseCompareRespon
   const current = params.get('current')
   const loaded = useStudioLoad(data || !useCase ? null : () => getUseCaseCompare(useCase, current), [data ? 'prop' : 'api', useCase, current])
   const shown = data ?? (loaded.state === 'ok' ? loaded.data : null)
+  // Best effort: a failed read only leaves the per-agent links out. It never changes the verdicts of the table.
+  const runs = useStudioLoad(shown ? () => api.evalRuns({}) : null, [shown ? useCase : null, current])
+  const agentOf = useMemo<AgentOf | undefined>(() => {
+    if (runs.state !== 'ok') return undefined
+    const m: AgentOf = new Map()
+    for (const r of runs.data.runs) if (r.agentId) m.set(r.variant.id, { id: r.agentId, name: r.agentName })
+    return m
+  }, [runs])
   return (
     <main className="tma-page" data-testid="studio-compare">
       <div className="stu-head">
@@ -449,7 +467,7 @@ export function StudioComparePage({ data, cases }: { data?: UseCaseCompareRespon
       {!useCase ? (
         <UseCasePicker cases={cases} />
       ) : shown ? (
-        <CompareView data={shown} useCase={useCase} />
+        <CompareView data={shown} useCase={useCase} agentOf={agentOf} />
       ) : loaded.state === 'error' ? (
         <Card pad data-testid="s8-error" data-status={loaded.status}>
           <span className="tma-label">No comparison</span>

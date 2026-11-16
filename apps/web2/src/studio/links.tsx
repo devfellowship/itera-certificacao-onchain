@@ -26,6 +26,9 @@ export const STUDIO_SCREENS: Record<StudioScreen, { path: string; built: boolean
 
 type Params = Record<string, string | null | undefined>
 
+/** Way back from a studio screen to the canonical page of an agent (ADR-1: /agents/:aid). */
+export const agentHref = (agentId: string) => `/agents/${encodeURIComponent(agentId)}`
+
 /** S12 routing per use case (C8-T3): the pair is one path segment, so its `/` is encoded (%2F). */
 export const routingHref = (useCase: string) => `/studio/routing/${encodeURIComponent(useCase)}`
 
