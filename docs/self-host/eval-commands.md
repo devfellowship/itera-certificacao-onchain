@@ -288,6 +288,38 @@ Without `--label-only`, every grader of the body gets a new row.
 
 Other flags: `--variant-label <text>` and `--root <dir>` (repeatable).
 
+## Upload many recorded sessions for review
+
+`tma eval review-batch` uploads many recorded Claude Code sessions in one command.
+Each session becomes one run on its own `trace_review` case.
+The review screen of the studio lists these runs.
+
+```bash
+tma eval review-batch --batch rows.jsonl --agent <agent id> --judge async-wait-lifecycle@0.1.0 --dry-run
+tma eval review-batch --batch rows.jsonl --agent <agent id> --judge async-wait-lifecycle@0.1.0
+```
+
+The batch file has one JSON object on each line:
+
+```json
+{"schema":"tma-review-batch/1","case_key":"<case key>","use_case":"<type>/<subtype>","task_ref":{"kind":"dfl-task","id":"<task id>"},"task_label":"<short id>","pin":{"pin_sha256":"<sha256>","record":{"format":"tma-pin/1"}},"session_file":"/abs/path/session.jsonl"}
+```
+
+- `pin.record` is the full `tma-pin/1` record. A pin with a missing field is accepted.
+- `session_file` is an absolute path on your host. The file stays on your host.
+- `task_summary` (`{before, expected}`) is optional. The command sends it only with `--with-summary`.
+
+The runs are not graded.
+Each run has no grader result, and `infra_ok` is `false`.
+So a model comparison never counts these runs.
+A judge result or a human label attaches to the run later.
+
+The command builds every body before it sends one.
+One bad row stops the command, and nothing is sent.
+The same batch again answers `unchanged` for each row.
+
+Other flags: `--root <dir>` (repeatable), `--limit <n>`.
+
 ## Prove a grader
 
 A grader in the eval repo has a folder `graders/<id>/<semver>/`.

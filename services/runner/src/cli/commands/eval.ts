@@ -14,6 +14,7 @@ import { loadSessionFile, requireSession } from '../session.js';
 import { postResult } from './upload.js';
 import { agentSha, baseAgentFrom, buildEvalUpload, variantFolders } from '../eval/upload.js';
 import { buildTraceReviewUpload, claudeCodeSessionFacts, readHumanLabel } from '../eval/trace-review.js';
+import { buildReviewBatchBody, parseJudge, parseReviewBatch, REVIEW_BATCH_FORMAT } from '../eval/review-batch.js';
 import { readClaudeCodeSession, trajectoryFromActions, trajectoryLine } from '../eval/trajectory.js';
 import type { LocalResultV2Plus } from '@itera/contracts';
 import type { RunAction } from '../../types.js';
@@ -94,8 +95,23 @@ const UPLOAD_USAGE = `usage: tma eval upload --case <case dir> --variant-dir <di
                 reason_code makes the body tma-local-result/3.
   --label-only  send the human grader only (add a label to a run already uploaded: the API adds one grader row).`;
 
+const REVIEW_BATCH_USAGE = `usage: tma eval review-batch --batch <rows.jsonl> --agent <agent id> --judge <id>@<semver> [--judge ...]
+                             [--root <dir>]... [--with-summary] [--limit <n>] [--dry-run]
+  Uploads many RECORDED Claude Code sessions as review runs, for the studio review screen (S13): one trace_review
+  case per row and ONE run of the variant "recorded session", with the redacted trajectory. No run is graded:
+  graders [], infra_ok false, so no comparison counts it; judges and human labels attach to the run later.
+  A row (${REVIEW_BATCH_FORMAT}, one JSON object per line):
+    {"schema":"${REVIEW_BATCH_FORMAT}","case_key":"...","use_case":"<type>/<subtype>","task_ref":{"kind":"dfl-task","id":"..."},
+     "task_label":"DFL-01810","pin":{"pin_sha256":"...","record":{tma-pin/1}},"session_file":"/abs/session.jsonl",
+     "task_summary":{"before":"...","expected":"..."}}
+  Idempotent: the same batch again answers unchanged for each row. The session text stays on this host.
+  --judge         a judge that reviews the cases (it goes into each case manifest; repeatable)
+  --with-summary  also send each row's task_summary (default: it stays on this host)
+  --limit         upload the first n rows only
+  --dry-run       build every body and ask the API with ?dry_run=1 (when logged in); nothing is stored`;
+
 const USAGE = [
-  'usage: tma eval <case|run|grade|diff|trajectory|upload|grader prove|judge calibrate> ...   (the eval kit: plan C3)',
+  'usage: tma eval <case|run|grade|diff|trajectory|upload|review-batch|grader prove|judge calibrate> ...   (the eval kit: plan C3)',
   '',
   CASE_USAGE,
   '',
@@ -108,6 +124,8 @@ const USAGE = [
   TRAJECTORY_USAGE,
   '',
   UPLOAD_USAGE,
+  '',
+  REVIEW_BATCH_USAGE,
   '',
   GRADER_PROVE_USAGE,
   '',
@@ -283,6 +301,51 @@ async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<numbe
   return r.ok ? 0 : 1;
 }
 
+async function reviewBatchMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
+  const a = parseArgs(argv, { batch: {}, agent: {}, judge: { repeat: true }, root: { repeat: true }, 'with-summary': { boolean: true }, limit: {}, 'dry-run': { boolean: true } });
+  const file = required(a, 'batch', REVIEW_BATCH_USAGE);
+  const agentId = checkAgentId(required(a, 'agent', REVIEW_BATCH_USAGE));
+  const judges = flagList(a, 'judge').map(parseJudge);
+  if (judges.length === 0) throw new CliError(`give at least one --judge <id>@<semver>\n${REVIEW_BATCH_USAGE}`);
+  const text = await readFile(resolve(file), 'utf-8').catch(() => null);
+  if (text === null) throw new CliError(`cannot read ${file}`);
+  let rows = parseReviewBatch(text, file);
+  const limit = numberFlag(a, 'limit', { min: 1, max: rows.length, integer: true });
+  if (limit !== undefined) rows = rows.slice(0, limit);
+  const roots = flagList(a, 'root').map((x) => resolve(x));
+  const withSummary = has(a, 'with-summary');
+  // Build every body before the first network call: one bad row stops the batch with nothing sent.
+  const bodies: LocalResultV2Plus[] = [];
+  for (const row of rows) {
+    const { body, notes } = await buildReviewBatchBody(row, { agentId, judges, redact: { roots }, withSummary });
+    for (const n of notes) io.err(`[tma eval] ${n}`);
+    bodies.push(body);
+  }
+  const env = deps.env ?? process.env;
+  const base = apiUrl(env);
+  const nowMs = (deps.now ?? (() => new Date()))().getTime();
+  const dryRun = has(a, 'dry-run');
+  let token: string | undefined;
+  if (dryRun) {
+    const s = loadSessionFile(env);
+    token = s && s.api_url === base && Date.parse(s.expires_at) > nowMs ? s.session_token : undefined;
+    if (!token) {
+      io.err(`dry run: ${bodies.length} bodies are valid. You are not logged in, so the API checks are skipped.`);
+      return 0;
+    }
+  } else token = requireSession(base, nowMs, env).session_token;
+  const counts = new Map<string, number>();
+  let failed = 0;
+  for (const body of bodies) {
+    const r = await postResult({ base, body, label: `${body.case.case_key} / ${body.variant.label}`, dryRun, token, fetchImpl: deps.fetchImpl, io });
+    if (!r.ok) failed += 1;
+    else counts.set(r.action ?? 'unknown', (counts.get(r.action ?? 'unknown') ?? 0) + 1);
+  }
+  const parts = [...counts.entries()].sort().map(([k, n]) => `${k} ${n}`);
+  io.out(`review-batch: ${bodies.length} row(s)${dryRun ? ' (dry run)' : ''}: ${parts.join(', ') || 'none sent'}${failed ? `, refused ${failed}` : ''}`);
+  return failed === 0 ? 0 : 1;
+}
+
 async function graderMain(argv: string[], io: Io): Promise<number> {
   const [sub, ...rest] = argv;
   if (sub !== 'prove') throw new CliError(`${sub ? `unknown eval grader command: ${sub}` : 'give an eval grader command'}\n${GRADER_PROVE_USAGE}`);
@@ -346,6 +409,8 @@ export function makeEvalCommand(deps: EvalCommandDeps = {}): Command {
           return trajectoryMain(rest, io);
         case 'upload':
           return uploadMain(rest, io, deps);
+        case 'review-batch':
+          return reviewBatchMain(rest, io, deps);
         case 'grader':
           return graderMain(rest, io);
         case 'judge':

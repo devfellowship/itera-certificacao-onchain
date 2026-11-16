@@ -145,13 +145,13 @@ export async function upload(argv: string[], io: Io, deps: UploadDeps = {}): Pro
 }
 
 /** POST one validated result body (v1 or v2) to /self-declared-results and print the answer. */
-export async function postResult(o: { base: string; body: unknown; label: string; dryRun: boolean; token?: string; fetchImpl?: Fetch; io: Io }): Promise<{ ok: boolean; status: number }> {
+export async function postResult(o: { base: string; body: unknown; label: string; dryRun: boolean; token?: string; fetchImpl?: Fetch; io: Io }): Promise<{ ok: boolean; status: number; action?: string }> {
   const r = await apiCall(o.base, `/self-declared-results${o.dryRun ? '?dry_run=1' : ''}`, { method: 'POST', body: o.body, token: o.token, fetchImpl: o.fetchImpl });
   const rb = r.body ?? {};
   if ((r.status === 200 || r.status === 201) && typeof rb.evaluation_id === 'string') {
     const verb = o.dryRun ? `dry run OK, it would be ${String(rb.action)}` : String(rb.action);
     o.io.out(`${o.label}: ${verb}. Evaluation ${rb.evaluation_id} (self-declared)${o.dryRun ? '' : ` ${String(rb.url ?? '')}`}`.trimEnd());
-    return { ok: true, status: r.status };
+    return { ok: true, status: r.status, action: String(rb.action) };
   }
   o.io.err(`${o.label}: refused: ${describeRefusal(r)}`);
   return { ok: false, status: r.status };

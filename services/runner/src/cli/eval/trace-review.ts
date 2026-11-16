@@ -39,13 +39,14 @@ import { findSecrets } from '../commands/upload.js';
 import { CASE_RUNS_DIR, sha256, type LoadedCase } from './case.js';
 import { RECORDED_VARIANT_DIR, runDirs, type GradingEntry, type RunRecord } from './runs.js';
 import { baseAgentFrom, catalogModelId, runStatus, taskRefOf } from './upload.js';
+import type { TaskRef } from '../tasks.js';
 
 /** The harness of a Claude Code session file. */
 export const CLAUDE_CODE_HARNESS = 'claude-code';
 /** The default label of the recorded-session variant. */
 export const RECORDED_SESSION_LABEL = 'recorded session';
 /** The safe charset of a contract label (variant.label, task summary). */
-const LABEL_CHARSET = /^[A-Za-z0-9 .,:;/()+\-_%$=&'#]*$/;
+export const LABEL_CHARSET = /^[A-Za-z0-9 .,:;/()+\-_%$=&'#]*$/;
 const GRADER_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 const ACTOR = /^[a-z0-9][a-z0-9_.:-]{0,63}$/;
@@ -131,7 +132,7 @@ export function humanGraderDigest(id: string, version: string): string {
   return sha256(`tma-human-label/1\n${id}@${version}`);
 }
 
-type GraderEntry = LocalResultV2Plus['runs'][number]['graders'][number];
+export type GraderEntry = LocalResultV2Plus['runs'][number]['graders'][number];
 
 /**
  * The grader result of a label. decisive is false unless the case lists this grader at this version (then the
@@ -255,46 +256,91 @@ export async function buildTraceReviewUpload(input: TraceReviewInput): Promise<{
   if (input.labelOnly) graders = [];
   if (label) graders.push(label);
 
-  const s = input.session;
-  const wallS = s.firstMs !== null && s.lastMs !== null ? Math.min((s.lastMs - s.firstMs) / 1000, MAX_WALL_S) : null;
-  const row: ResultRow = resultRow({
+  const fallbackMs = recorded ? Date.parse(recorded.grading.graded_at) : Date.parse('1970-01-01T00:00:00Z');
+  const summary = contractTaskSummary(c);
+  if (c.manifest.task_summary && !summary) notes.push('the case task summary has a character outside the upload charset: it stays on this host');
+  const body = assembleRecordedBody({
+    agentId: input.agentId,
+    task: taskRefOf(c.task),
     itemSha256: c.lock.task.item_sha256,
-    repeat: 1,
+    base,
+    session: input.session,
+    trajectory: input.trajectory,
     status,
     score,
     manifest,
+    infraOk,
+    graders,
+    fallbackMs,
+    sandboxImageId: recorded?.run.sandbox_image_id ?? null,
+    caseRef: { case_key: c.manifest.case_key, manifest_sha256: c.manifestSha256, origin_pin_sha256: c.lock.pin_sha256, mode: c.manifest.mode, use_case_key: c.manifest.use_case },
+    summary,
+    variantLabel,
+  });
+  return { body, notes };
+}
+
+/** The pieces of ONE recorded-session run on a trace_review case. */
+export interface RecordedBodyInput {
+  agentId: string;
+  task: TaskRef;
+  itemSha256: string;
+  base: AgentVersion;
+  session: SessionFacts;
+  trajectory: Trajectory;
+  status: FinalStatus;
+  score: number;
+  manifest: EvidenceManifest | null;
+  infraOk: boolean;
+  graders: GraderEntry[];
+  /** ran_from when the session file has no timestamp. */
+  fallbackMs: number;
+  sandboxImageId: string | null;
+  caseRef: { case_key: string; manifest_sha256: string; origin_pin_sha256: string | null; mode: 'trace_review' | 'replay'; use_case_key: string };
+  /** The task summary in the contract charset, or null (it stays on the host). */
+  summary: { before: string; expected: string } | null;
+  variantLabel: string;
+}
+
+/**
+ * Assemble, validate and size-check the body of ONE recorded session: the baseline variant "recorded session" with one
+ * run (repeat 1). tma-local-result/3 when a field needs it (task summary, tma-trajectory/2, label fields); else /2.
+ * Refuses a body that does not validate, that is too big, or that holds a credential-shaped value.
+ */
+export function assembleRecordedBody(i: RecordedBodyInput): LocalResultV2Plus {
+  const s = i.session;
+  const wallS = s.firstMs !== null && s.lastMs !== null ? Math.min((s.lastMs - s.firstMs) / 1000, MAX_WALL_S) : null;
+  const row: ResultRow = resultRow({
+    itemSha256: i.itemSha256,
+    repeat: 1,
+    status: i.status,
+    score: i.score,
+    manifest: i.manifest,
     wallS,
     costUsd: null,
     tokensIn: null,
     tokensOut: null,
     facts: { timedOut: false, costCapped: false, rateLimited: false, emptyPatch: false },
   });
-  const run = { ...row, infra_ok: infraOk, graders, trajectory: input.trajectory };
-  const fallbackMs = recorded ? Date.parse(recorded.grading.graded_at) : Date.parse('1970-01-01T00:00:00Z');
-  const from = s.firstMs ?? fallbackMs;
+  const run = { ...row, infra_ok: i.infraOk, graders: i.graders, trajectory: i.trajectory };
+  const from = s.firstMs ?? i.fallbackMs;
   const to = Math.max(s.lastMs ?? from, from);
-
-  const summary = contractTaskSummary(c);
-  if (c.manifest.task_summary && !summary) notes.push('the case task summary has a character outside the upload charset: it stays on this host');
-  const needsV3 = summary !== null || input.trajectory.format !== 'tma-trajectory/1' || graders.some((g) => 'labeler' in g || 'reason_code' in g);
+  const needsV3 = i.summary !== null || i.trajectory.format !== 'tma-trajectory/1' || i.graders.some((g) => 'labeler' in g || 'reason_code' in g);
   const value = {
     format: needsV3 ? LOCAL_RESULT_V3_FORMAT : LOCAL_RESULT_V2_FORMAT,
-    agent_id: input.agentId,
-    task: taskRefOf(c.task),
+    agent_id: i.agentId,
+    task: i.task,
     metrics_shape: 'tma-score/1' as const,
     grader_version: EVALUATOR_VERSION,
-    runner: { version: RUNNER_VERSION, execution: 'external' as const, profile: null, sandbox_image_id: recorded?.run.sandbox_image_id ?? null },
-    executor: executorOf({ modelId: base.model_id, harness: base.harness, costSource: 'none' }),
+    runner: { version: RUNNER_VERSION, execution: 'external' as const, profile: null, sandbox_image_id: i.sandboxImageId },
+    executor: executorOf({ modelId: i.base.model_id, harness: i.base.harness, costSource: 'none' }),
     ran_from: new Date(from).toISOString(),
     ran_to: new Date(to).toISOString(),
     summary: summarize([row]),
     runs: [run],
-    case: {
-      case_key: c.manifest.case_key, manifest_sha256: c.manifestSha256, origin_pin_sha256: c.lock.pin_sha256, mode: c.manifest.mode, use_case_key: c.manifest.use_case,
-      ...(needsV3 && summary ? { task_summary: summary } : {}),
-    },
+    case: { ...i.caseRef, ...(needsV3 && i.summary ? { task_summary: i.summary } : {}) },
     // The recorded session is the baseline of the case: the base agent unchanged, no prediction.
-    variant: { agent: base, variant_sha256: EMPTY_DIFF_SHA256, label: variantLabel, change_kind: 'none' as const },
+    variant: { agent: i.base, variant_sha256: EMPTY_DIFF_SHA256, label: i.variantLabel, change_kind: 'none' as const },
     comparison: { is_baseline: true, prediction_sha256: null },
   };
   const checked = needsV3 ? validateLocalResultV3(value) : validateLocalResultV2(value);
@@ -303,5 +349,5 @@ export async function buildTraceReviewUpload(input: TraceReviewInput): Promise<{
   if (bytes > LOCAL_RESULT_V2_MAX_BYTES) throw new CliError(`the body is ${bytes} bytes; the API takes at most ${LOCAL_RESULT_V2_MAX_BYTES}`);
   const secrets = findSecrets(checked.value);
   if (secrets.length > 0) throw new CliError(`the upload stops, a value looks like a credential:\n  ${secrets.slice(0, 5).join('\n  ')}`);
-  return { body: checked.value as LocalResultV2Plus, notes };
+  return checked.value as LocalResultV2Plus;
 }
