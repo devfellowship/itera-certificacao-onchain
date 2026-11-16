@@ -209,7 +209,7 @@ The API reads every secret from an env var and fails loud when one is missing (s
 `GITHUB_APP_*`, `ITERA_RUN_KEY_SECRET` and `ITERA_RUNNER_OPENROUTER_KEY`. Never commit a value.
 Login with DFL (web2) reads `DFL_SUPABASE_URL` (default: the DFL project), `DFL_SUPABASE_ANON_KEY`
 (the public anon key; without it only `POST /auth/dfl/exchange` answers 503) and `TMA_MIN_IAM_LEVEL`
-(default 0; above 0 it gates the login AND every later request: a `dfl` session below the level gets `403 iam_level_too_low`, a stale session included).
+(default 0; above 0 it gates the login AND every later request: a `dfl` session below the level gets `403 iam_level_too_low`; a session whose login stored no level, for example one minted before the gate, gets `401 iam_level_unknown`, so the web client signs in again and the new login stores the level).
 The free path (DFL principals) has abuse controls: `TMA_RUNS_PER_USER_PER_DAY` (default 10 runs in
 24 h, `429 quota_exceeded`), `TMA_MAX_QUEUED_RUNS_PER_USER` (default 3, `429 too_many_queued`), and the
 `users.disabled` kill switch (`403 account_disabled` on every write route). SIWS wallets are not affected.

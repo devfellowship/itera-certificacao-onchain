@@ -20,6 +20,7 @@ export function DflCallbackPage() {
   const navigate = useNavigate()
   const { setSession } = useSession()
   const [failed, setFailed] = useState(false)
+  const [refused, setRefused] = useState(false)
   const ran = useRef(false)
 
   useEffect(() => {
@@ -43,6 +44,8 @@ export function DflCallbackPage() {
         setSession(result.session)
         navigate(next, { replace: true })
       } else {
+        // 403 = the API refused this DFL account (iam_level_too_low: not a member, or account_disabled).
+        setRefused(result.reason === 'http' && result.status === 403)
         setFailed(true)
       }
     })
@@ -53,7 +56,9 @@ export function DflCallbackPage() {
       <main className="w2-shell">
         <h1>Could not sign in with DFL</h1>
         <p className="w2-lead" role="alert" data-testid="dfl-callback-error">
-          The sign-in did not finish. The DFL token was missing or the server refused it. Try again.
+          {refused
+            ? 'Your DFL account has no access to TestMyAgent. The studio is for DFL members.'
+            : 'The sign-in did not finish. The DFL token was missing or the server refused it. Try again.'}
         </p>
         <button type="button" className="w2-btn" data-testid="dfl-callback-retry" onClick={() => loginWithDfl('/')}>
           Try again

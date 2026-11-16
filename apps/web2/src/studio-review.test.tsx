@@ -126,6 +126,24 @@ describe('S13 review queue', () => {
     await waitFor(() => !!q(d, 'review-error'), '503')
     expect(q(d, 'review-error')!.textContent).toContain('not migrated')
   })
+
+  // Incident 2026-11-16: a member whose session predates the TMA_MIN_IAM_LEVEL gate (the login stored no level) got
+  // 403 on every call and saw "The studio could not load this data". The API now answers 401 iam_level_unknown for that
+  // session: the page must drop the stored session (the provider then signs in again, and the new exchange stores the level).
+  it('drops a session that predates the member gate (401 iam_level_unknown) so the next exchange stores the level', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined) // jsdom: navigation to the federate URL is not implemented
+    const c = mountAt('/studio/review', [401, { error: 'iam_level_unknown' }], [401, { error: 'iam_level_unknown' }])
+    await waitFor(() => localStorage.getItem('tma2.session') === null, 'session cleared')
+    expect(q(c, 'review-card')).toBeNull()
+  })
+
+  it('names the member gate on a 403 instead of the generic reload text', async () => {
+    const c = mountAt('/studio/review', [403, { error: 'iam_level_too_low' }])
+    await waitFor(() => !!q(c, 'review-error'), '403')
+    expect(q(c, 'review-error')!.textContent).toContain('The studio is for DFL members.')
+    expect(q(c, 'review-error')!.textContent).not.toContain('Reload the page')
+    expect(localStorage.getItem('tma2.session')).not.toBeNull()
+  })
 })
 
 describe('S13 canvas layout (UI-S13)', () => {

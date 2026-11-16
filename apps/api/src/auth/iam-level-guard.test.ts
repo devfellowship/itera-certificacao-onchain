@@ -86,12 +86,22 @@ describe("TMA_MIN_IAM_LEVEL on every route", () => {
       expect(r.json.error).toBe("iam_level_too_low");
     }
   });
-  it("refuses a stored null level and a principal with no users row (fail closed)", async () => {
+  it("refuses a stored null level and a principal with no users row with 401 iam_level_unknown (fail closed, the client signs in again)", async () => {
+    // Incident 2026-11-16: a session minted before the gate (the login stored no level) got 403 and the web client
+    // showed an error page. 401 makes the client clear the session and exchange again, which stores the level.
     for (const uuid of [NULLLEVEL, NOROW]) {
-      const r = await get(QUEUE, dflToken(uuid));
-      expect(r.status).toBe(403);
-      expect(r.json.error).toBe("iam_level_too_low");
+      for (const path of [QUEUE, `/review-queue/steps?run_id=${run.runId}`, "/me"]) {
+        const r = await get(path, dflToken(uuid));
+        expect(r.status, `${uuid} ${path}`).toBe(401);
+        expect(r.json.error).toBe("iam_level_unknown");
+      }
     }
+  });
+  it("lets a null-level principal in once a new login stored a member level", async () => {
+    const t = dflToken(NULLLEVEL);
+    expect((await get(QUEUE, t)).status).toBe(401);
+    await seed(NULLLEVEL, 100);
+    expect((await get(QUEUE, t)).status).toBe(200);
   });
   it("refuses a below-level principal on a write route too", async () => {
     const res = await fetch(`${base}/grader-results/human`, {
