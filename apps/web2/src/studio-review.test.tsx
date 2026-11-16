@@ -6,6 +6,7 @@
  * hotkey sends pass on the judge of ?judge=; the only non-GET call is POST /grader-results/human; the empty,
  * done and 503 states; the fold of a long step list.
  */
+import { readFileSync } from 'node:fs'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
@@ -248,5 +249,75 @@ describe('foldSteps', () => {
     expect(f.head).toHaveLength(12)
     expect(f.hidden).toBe(16)
     expect(f.tail[11]).toBe(39)
+  })
+})
+
+/** The cascade of the two stylesheets for an element with these classes, by specificity (class count) only. jsdom does not load the CSS. */
+const CSS_FILES = ['studio/theme.css', 'studio/studio.css'].map((f) => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
+function winning(classes: string[], prop: string): { value: string | null; ties: number } {
+  const hits: Array<{ spec: number; value: string }> = []
+  for (const css of CSS_FILES) {
+    // Top-level rules of a compound of classes only (a rule inside @media is skipped).
+    for (const m of css.matchAll(/(?<=^|})\s*((?:\.[\w-]+)+)\s*\{([^}]*)\}/g)) {
+      const own = m[1]!.split('.').filter(Boolean)
+      if (!own.every((x) => classes.includes(x))) continue
+      const d = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(m[2]!)
+      if (d) hits.push({ spec: own.length, value: d[1]!.trim() })
+    }
+  }
+  if (hits.length === 0) return { value: null, ties: 0 }
+  const top = Math.max(...hits.map((h) => h.spec))
+  const best = hits.filter((h) => h.spec === top)
+  return { value: best[best.length - 1]!.value, ties: best.length - 1 }
+}
+/** The left side of a 2-value shorthand (`vertical horizontal`) in px; `null` (no rule) is 0. */
+const leftPx = (v: string | null) => (v === null ? 0 : parseInt(v.split(/\s+(?![^(]*\))/)[1]!, 10))
+
+describe('S13 fixes from the UI judge (UI-S13-FIX)', () => {
+  it('the failed-call row lines up with the other rows: its margin and padding cancel, and no rule ties on specificity', () => {
+    const ok = ['stu-row', 'rvw-call']
+    const bad = ['stu-row', 'rvw-call', 'rvw-call--bad']
+    for (const prop of ['padding', 'margin']) expect(winning(bad, prop).ties, `${prop} ties`).toBe(0)
+    const left = (c: string[]) => leftPx(winning(c, 'margin').value) + leftPx(winning(c, 'padding').value)
+    expect(left(ok)).toBe(0)
+    expect(left(bad)).toBe(left(ok))
+    expect(leftPx(winning(bad, 'padding').value)).toBe(10)
+  })
+
+  it('hides the key hints on a touch screen: hover none or a coarse pointer', () => {
+    const css = CSS_FILES.join('\n')
+    expect(css).toMatch(/@media\s*\(hover:\s*none\)\s*,\s*\(pointer:\s*coarse\)\s*\{[^}]*\.stu-kbd--keyboard\s*\{\s*display:\s*none/)
+  })
+
+  it('the reason chips read as the artboard and keep their codes', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    const chip = (code: string) => q(c, `review-reason-${code}`)!.textContent!.replace(/^\d\s*/, '')
+    expect(chip('wrong_sha')).toBe('Checked the wrong SHA')
+    expect(chip('no_check')).toBe('No check at all')
+    expect(chip('partial')).toBe('Check was partial')
+    expect(chip('other')).toBe('Other')
+  })
+
+  it('the info control is one button with a name, and the tip wrapper adds no second tab stop', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    const info = c.querySelector<HTMLElement>('.rvw-info')!
+    expect(info.tagName).toBe('BUTTON')
+    expect(info.getAttribute('type')).toBe('button')
+    expect(info.getAttribute('aria-label')).toBe('What your answer does')
+    expect(info.closest('.tma-tip')!.hasAttribute('tabindex')).toBe(false)
+    expect(info.closest('.tma-tip')!.getAttribute('aria-describedby')).toBe(c.querySelector('[role="tooltip"]')!.id)
+  })
+
+  it('the meta line keeps the model id in its own span with the full id as title, and the queue count stays', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    const model = q(c, 'review-meta')!.querySelector<HTMLElement>('.rvw-meta__model')!
+    expect(model.textContent).toBe('anthropic/claude-opus-5.5')
+    expect(model.title).toBe('anthropic/claude-opus-5.5')
+    expect(q(c, 'review-meta')!.querySelector('.rvw-meta__case')!.textContent).toContain('build/feature')
+    expect(q(c, 'review-position')!.textContent).toBe('1 of 2')
+    expect(q(c, 'review-position')!.closest('header')!.querySelector('[role="tablist"]')).not.toBeNull()
   })
 })

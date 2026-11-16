@@ -208,10 +208,10 @@ export function ReviewCard(props: {
       <div className="rvw-lead">
         <p className="stu-label rvw-judge">
           judge · {judge}
-          <Tip text="Your answer becomes a label that teaches and checks the AI judge. It does not change the run itself.">
-            <span className="rvw-info" role="img" aria-label="What your answer does">
+          <Tip text="Your answer becomes a label that teaches and checks the AI judge. It does not change the run itself." focusable={false}>
+            <button type="button" className="rvw-info" aria-label="What your answer does">
               <InfoIcon />
-            </span>
+            </button>
           </Tip>
         </p>
         <h1 className="stu-h1 rvw-question">{JUDGE_TITLES[judge]}?</h1>
@@ -235,8 +235,13 @@ export function ReviewCard(props: {
           <dt>Expected</dt>
           <dd>{run.taskSummary?.expected ?? '—'}</dd>
         </dl>
-        <p className="stu-label rvw-meta">
-          {run.useCaseKey} · {run.caseKey} · {run.modelId ?? 'model unknown'}
+        <p className="stu-label rvw-meta" data-testid="review-meta">
+          <span className="rvw-meta__case">
+            {run.useCaseKey} · {run.caseKey} ·
+          </span>
+          <span className="rvw-meta__model" title={run.modelId ?? undefined}>
+            {run.modelId ?? 'model unknown'}
+          </span>
         </p>
       </Section>
       <FoldedSteps runId={run.runId} steps={run.steps} />
@@ -335,7 +340,8 @@ export function StudioReviewPage() {
         </Tabs>
         {run && (
           <span className="stu-label rvw-queue">
-            review queue · <span data-testid="review-position">{`${index + 1} of ${runs.length}`}</span>
+            <span className="rvw-queue__label">review queue · </span>
+            <span data-testid="review-position">{`${index + 1} of ${runs.length}`}</span>
           </span>
         )}
       </header>
