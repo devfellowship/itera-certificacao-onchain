@@ -32,6 +32,7 @@ const humanLabels: { store: HumanLabelStore; tenant: string } = {
       throw new Error("not used");
     },
     labels: async () => [],
+    caseRuns: async () => [],
     queue: async () => [run],
     steps: async () => [],
   },
@@ -80,7 +81,7 @@ describe("TMA_MIN_IAM_LEVEL on every route", () => {
     expect(r.json.runs).toHaveLength(1);
   });
   it("refuses a principal below the level with 403 iam_level_too_low on the queue and on the labels", async () => {
-    for (const path of [QUEUE, `/grader-results/human?run_id=${run.runId}`]) {
+    for (const path of [QUEUE, `/grader-results/human?run_id=${run.runId}`, "/review-queue/runs?case_key=trace-4da84c52-a423a4c8"]) {
       const r = await get(path, dflToken(DENY));
       expect(r.status, path).toBe(403);
       expect(r.json.error).toBe("iam_level_too_low");

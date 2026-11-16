@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueSessionToken } from "../auth/session.js";
 import {
-  createHumanLabelsRouter, displayKind, humanLabelDigest, labelerOf, queueOrder, type HumanLabel, type StepDetail, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
+  createHumanLabelsRouter, displayKind, humanLabelDigest, labelerOf, labelStrength, queueOrder, type HumanLabel, type StepDetail, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
 } from "./human-labels.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -44,6 +44,11 @@ class FakeStore implements HumanLabelStore {
   }
   async labels(runId: string) {
     return this.rows.filter((r) => r.runId === runId);
+  }
+  caseRunsArgs: unknown[] = [];
+  async caseRuns(tenant: string, caseKey: string) {
+    this.caseRunsArgs = [tenant, caseKey];
+    return caseKey === "trace-4da84c52-a423a4c8" ? [{ runId: RUN, startedAt: "2026-11-15T10:00:00.000Z" }] : [];
   }
   stepsFor: string[] = [];
   async steps(runId: string): Promise<StepDetail[]> {
@@ -124,6 +129,56 @@ describe("POST /grader-results/human", () => {
   });
 });
 
+describe("POST /grader-results/human with workflow_signal (C6-T2, Q-C6-T2 = A)", () => {
+  const wf = (over: Record<string, unknown> = {}) => label({ pass: true, reason_code: "other", workflow_signal: "clean-merge", ...over });
+  it("an agent login writes a weak workflow pass label with labeler workflow:<signal> and its reason_code", async () => {
+    const w = await call("POST", "/grader-results/human", agent, wf());
+    expect(w.status).toBe(201);
+    expect(w.json).toMatchObject({ runId: RUN, judgeId: "async-wait-lifecycle", pass: true, reasonCode: "other", labeler: "workflow:clean-merge", strength: "weak" });
+    const r = await call("GET", `/grader-results/human?run_id=${RUN}`, human);
+    expect(r.json.labels).toEqual([expect.objectContaining({ labeler: "workflow:clean-merge", reasonCode: "other", strength: "weak" })]);
+  });
+  it("is idempotent per run, judge and signal: the same label again answers 200 unchanged and writes no row", async () => {
+    const a = await call("POST", "/grader-results/human", agent, wf());
+    const b = await call("POST", "/grader-results/human", agent, wf());
+    expect(b.status).toBe(200);
+    expect(b.json).toMatchObject({ id: a.json.id, unchanged: true });
+    // The other judge is another label.
+    expect((await call("POST", "/grader-results/human", agent, wf({ judge_id: "external-block-handling" }))).status).toBe(201);
+    expect(store.rows).toHaveLength(2);
+  });
+  it("refuses a person login, a fail, a missing reason_code and an unknown signal, and writes nothing", async () => {
+    expect(await call("POST", "/grader-results/human", human, wf())).toMatchObject({ status: 403, json: { error: "workflow_label_needs_agent" } });
+    expect(await call("POST", "/grader-results/human", agent, wf({ pass: false }))).toMatchObject({ status: 400, json: { error: "workflow_label_pass_only" } });
+    expect(await call("POST", "/grader-results/human", agent, wf({ reason_code: null }))).toMatchObject({ status: 400, json: { error: "invalid_body" } });
+    expect(await call("POST", "/grader-results/human", agent, wf({ reason_code: undefined }))).toMatchObject({ status: 400 });
+    expect(await call("POST", "/grader-results/human", agent, wf({ workflow_signal: "merged" }))).toMatchObject({ status: 400, json: { error: "unknown_signal" } });
+    expect(await call("POST", "/grader-results/human", agent, wf({ workflow_signal: "__proto__" }))).toMatchObject({ status: 400, json: { error: "unknown_signal" } });
+    expect(await call("POST", "/grader-results/human", agent, wf({ workflow_signal: 1 }))).toMatchObject({ status: 400, json: { error: "unknown_signal" } });
+    expect(await call("POST", "/grader-results/human", agent, wf({ run_id: RUN_OTHER }))).toMatchObject({ status: 403, json: { error: "run_other_tenant" } });
+    expect(store.rows).toHaveLength(0);
+  });
+  it("a person label and an agent label carry strength strong and null", async () => {
+    expect((await call("POST", "/grader-results/human", human, label())).json.strength).toBe("strong");
+    expect((await call("POST", "/grader-results/human", agent, label({ pass: true }))).json.strength).toBeNull();
+  });
+});
+
+describe("GET /review-queue/runs", () => {
+  it("lists the runs of one case of the tenant", async () => {
+    const r = await call("GET", "/review-queue/runs?case_key=trace-4da84c52-a423a4c8", agent);
+    expect(r).toMatchObject({ status: 200, json: { case_key: "trace-4da84c52-a423a4c8", runs: [{ run_id: RUN, started_at: "2026-11-15T10:00:00.000Z" }] } });
+    expect(store.caseRunsArgs).toEqual(["devfellowship", "trace-4da84c52-a423a4c8"]);
+    expect((await call("GET", "/review-queue/runs?case_key=unknown-case", agent)).json.runs).toEqual([]);
+  });
+  it("refuses a bad case key, a siws login and no session", async () => {
+    expect((await call("GET", "/review-queue/runs?case_key=Bad%20Key", agent)).status).toBe(400);
+    expect((await call("GET", "/review-queue/runs", agent)).status).toBe(400);
+    expect((await call("GET", "/review-queue/runs?case_key=trace-4da84c52-a423a4c8", siws)).status).toBe(403);
+    expect((await call("GET", "/review-queue/runs?case_key=trace-4da84c52-a423a4c8")).status).toBe(401);
+  });
+});
+
 describe("GET /review-queue", () => {
   it("passes the tenant, judge, caller and capped limit to the store", async () => {
     const r = await call("GET", "/review-queue?judge=external-block-handling&limit=999", human);
@@ -142,6 +197,13 @@ describe("helpers", () => {
     // sha256("tma-human-label/1\nlabel-async-wait-lifecycle@1.0.0"), the value services/runner humanGraderDigest gives.
     expect(humanLabelDigest("label-async-wait-lifecycle", "1.0.0")).toBe("3e263c0a566a278f705d1b1baf227a17bf214973f6c7434c332b201afb874b09");
     expect(humanLabelDigest("a", "0.0.0")).not.toBe(humanLabelDigest("b", "0.0.0"));
+  });
+  it("labelStrength: person strong, a known workflow signal its strength, anything else null", () => {
+    expect(labelStrength(`person:${UUID}`)).toBe("strong");
+    expect(labelStrength("workflow:clean-merge")).toBe("weak");
+    expect(labelStrength("workflow:reverted")).toBeNull();
+    expect(labelStrength(`agent:${UUID}`)).toBeNull();
+    expect(labelStrength(null)).toBeNull();
   });
   it("labelerOf is fail closed", () => {
     expect(labelerOf({ id: ALICE, kind: "dfl", actorType: "unknown" })).toBe(`user:${UUID}`);

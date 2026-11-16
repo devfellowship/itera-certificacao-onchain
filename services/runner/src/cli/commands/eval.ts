@@ -15,6 +15,7 @@ import { postResult } from './upload.js';
 import { agentSha, baseAgentFrom, buildEvalUpload, variantFolders } from '../eval/upload.js';
 import { buildTraceReviewUpload, claudeCodeSessionFacts, readHumanLabel } from '../eval/trace-review.js';
 import { buildReviewBatchBody, parseJudge, parseReviewBatch, REVIEW_BATCH_FORMAT } from '../eval/review-batch.js';
+import { WORKFLOW_LABELS_USAGE, workflowLabelsMain } from '../eval/workflow-labels.js';
 import { readClaudeCodeSession, trajectoryFromActions, trajectoryLine } from '../eval/trajectory.js';
 import type { LocalResultV2Plus } from '@itera/contracts';
 import type { RunAction } from '../../types.js';
@@ -111,7 +112,7 @@ const REVIEW_BATCH_USAGE = `usage: tma eval review-batch --batch <rows.jsonl> --
   --dry-run       build every body and ask the API with ?dry_run=1 (when logged in); nothing is stored`;
 
 const USAGE = [
-  'usage: tma eval <case|run|grade|diff|trajectory|upload|review-batch|grader prove|judge calibrate> ...   (the eval kit: plan C3)',
+  'usage: tma eval <case|run|grade|diff|trajectory|upload|review-batch|workflow-labels|grader prove|judge calibrate> ...   (the eval kit: plan C3)',
   '',
   CASE_USAGE,
   '',
@@ -126,6 +127,8 @@ const USAGE = [
   UPLOAD_USAGE,
   '',
   REVIEW_BATCH_USAGE,
+  '',
+  WORKFLOW_LABELS_USAGE,
   '',
   GRADER_PROVE_USAGE,
   '',
@@ -411,6 +414,8 @@ export function makeEvalCommand(deps: EvalCommandDeps = {}): Command {
           return uploadMain(rest, io, deps);
         case 'review-batch':
           return reviewBatchMain(rest, io, deps);
+        case 'workflow-labels':
+          return workflowLabelsMain(rest, io, deps);
         case 'grader':
           return graderMain(rest, io);
         case 'judge':

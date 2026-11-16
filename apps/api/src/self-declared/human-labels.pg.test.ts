@@ -119,6 +119,10 @@ describe.skipIf(!URL_)("PgHumanLabelStore on Postgres (0023 and 0024 applied)", 
 
   it("is ready after 0024 and names the tenant of the run's case", async () => {
     expect(await store.ready()).toBe(true);
+    // caseRuns: the run of the case for its tenant, nothing for another tenant or another key (C6-T2 writer lookup).
+    expect((await store.caseRuns(TENANT, `${tag}-review`)).map((r) => r.runId)).toEqual([runId]);
+    expect(await store.caseRuns(`${TENANT}-other`, `${tag}-review`)).toEqual([]);
+    expect(await store.caseRuns(TENANT, `${tag}-none`)).toEqual([]);
     expect(await store.runTenant(runId)).toEqual({ tenant: TENANT });
     expect(await store.runTenant(randomUUID())).toBeNull();
   });
