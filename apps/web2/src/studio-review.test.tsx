@@ -144,9 +144,18 @@ describe('S13 step detail', () => {
     expect(open.textContent).toContain('3 min 19 s')
     expect(c.querySelectorAll('[data-testid="review-step-row"]')).toHaveLength(2)
     expect(q(c, 'review-step-idle-long')!.textContent).toContain('3 min 19 s')
+    expect(q(c, 'review-step-long')).toBeNull()
     expect(c.querySelectorAll<HTMLElement>('[data-testid="review-step"]')[1]!.getAttribute('aria-pressed')).toBe('true')
     // The only writes stay the label: opening a step writes nothing.
     expect(writes()).toEqual([])
+  })
+  it('a step that ran for 30 s or more is marked, so a wait inside one step is visible without timestamps', async () => {
+    const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: QUEUE }], [200, { run_id: R1, steps: [{ ...STEPS[0]!, durationMs: 600_000, startedMs: null }, { ...STEPS[1]!, startedMs: null }] }])
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    click(q(c, 'review-steps-toggle'))
+    await waitFor(() => !!q(c, 'review-step-long'), 'long marker')
+    expect(q(c, 'review-step-long')!.textContent).toContain('ran 10 min')
+    expect(q(c, 'review-step-idle-long')).toBeNull()
   })
   it('the toggle opens the whole timeline without a selected step, and a row selects its step', async () => {
     const c = mountAt('/studio/review')
