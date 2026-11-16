@@ -32,16 +32,17 @@ export function tipShift(triggerLeft: number, viewportWidth: number, width = TIP
 
 /**
  * Text + tooltip wrapper: the bubble opens on hover and on keyboard focus, and `aria-describedby` reads it out.
+ * `focusable={false}` when the child is itself a focusable control (a button): the wrapper then adds no second tab stop.
  * On open, the bubble is shifted so it stays inside the viewport (a badge near the right edge of a 375 px screen).
  */
-export function Tip({ text, children, className }: { text: string; children: ReactNode; className?: string }) {
+export function Tip({ text, children, className, focusable = true }: { text: string; children: ReactNode; className?: string; focusable?: boolean }) {
   const id = useId()
   const [shift, setShift] = useState(0)
   const place = (el: HTMLElement) => setShift(tipShift(el.getBoundingClientRect().left, window.innerWidth))
   return (
     <span
       className={['tma-tip', className].filter(Boolean).join(' ')}
-      tabIndex={0}
+      tabIndex={focusable ? 0 : undefined}
       aria-describedby={id}
       onMouseEnter={(e) => place(e.currentTarget)}
       onFocus={(e) => place(e.currentTarget)}

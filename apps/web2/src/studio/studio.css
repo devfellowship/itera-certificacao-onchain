@@ -346,14 +346,19 @@ a.s9-row:hover { background: var(--tma-line); }
 .rvw-card { display: flex; flex-direction: column; gap: 18px; min-width: 0; flex: 1; }
 .rvw-lead { display: flex; flex-direction: column; gap: var(--stu-gap-2); }
 .rvw-judge { display: flex; align-items: center; gap: var(--stu-gap-1); margin: 0; overflow-wrap: anywhere; }
-.rvw-info { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: -6px 0; color: var(--stu-text-muted); }
+.rvw-info { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: -6px 0; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--stu-text-muted); font: inherit; cursor: help; }
+.rvw-info:hover { color: var(--stu-text); }
+.rvw-info:focus-visible { outline: none; box-shadow: var(--tma-focus-ring); }
 .rvw-question { text-wrap: balance; }
 .rvw-top { display: flex; flex-wrap: wrap; gap: var(--stu-gap-2); }
 .rvw-top:empty { display: none; }
 .rvw-summary { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--stu-gap-1) var(--stu-gap-4); margin: 0; }
 .rvw-summary dt { color: var(--stu-text-muted); }
 .rvw-summary dd { margin: 0; color: var(--stu-text-2); overflow-wrap: anywhere; }
-.rvw-meta { margin: 0; overflow-wrap: anywhere; }
+/* One line: the case keys keep their size and the model id (the longest part) gets the ellipsis. The title carries the full id. */
+.rvw-meta { margin: 0; display: flex; gap: 0 0.5ch; min-width: 0; white-space: nowrap; }
+.rvw-meta__case { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rvw-meta__model { flex: 0 100 auto; min-width: 12ch; overflow: hidden; text-overflow: ellipsis; }
 .rvw-signals { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--stu-gap-2); }
 .rvw-verdict { display: inline-flex; align-items: center; gap: 5px; }
 .rvw-trace { margin: var(--stu-gap-1) 0 0; }
@@ -390,15 +395,34 @@ a.s9-row:hover { background: var(--tma-line); }
 /* On a phone the grade buttons stay in reach while the steps scroll. */
 @media (max-width: 720px) {
   .rvw-actions { position: sticky; bottom: 0; z-index: 5; padding: var(--stu-gap-3) 0 var(--stu-gap-4); background: var(--stu-bg); }
+  /* The bar is in the flow after the chips and pins to the screen bottom. The chips keep one bar of clear room above it,
+     so the last chip row is never under the bar at rest (the card's gap stays, the bar is not counted twice). */
+  .rvw-chips { margin-bottom: var(--stu-gap-2); }
 }
+/* Hints for a key that a touch screen does not have. theme.css hides them under (hover: none); a coarse pointer too. */
+@media (hover: none), (pointer: coarse) { .stu-kbd--keyboard { display: none; } }
 /* The app shell keeps a 1024px floor for the desktop screens (tma/ui/ui.css). S13 is a phone screen,
    so it lifts the floor, as the evaluation page does (.tma-app:has(.re-page)). */
 .tma-app:has(.rvw-page) { min-width: 0; }
 @media (max-width: 720px) {
-  .tma-app:has(.rvw-page) .tma-nav { height: auto; padding: 10px 16px; flex-wrap: wrap; gap: 8px; }
-  .tma-app:has(.rvw-page) .tma-nav__left { flex-wrap: wrap; gap: 8px 16px; }
+  /* One row, as the artboard header: the logo mark, the four links and the avatar. The studio header below it is one row too. */
+  .tma-app:has(.rvw-page) .tma-nav { height: auto; min-height: var(--tma-nav-height); padding: 6px 16px; flex-wrap: wrap; gap: 4px 12px; }
+  .tma-app:has(.rvw-page) .tma-nav__left { display: contents; }
+  .tma-app:has(.rvw-page) .tma-lockup { order: 1; gap: 0; }
+  .tma-app:has(.rvw-page) .tma-lockup__divider, .tma-app:has(.rvw-page) .tma-lockup__name { display: none; }
+  .tma-app:has(.rvw-page) .tma-nav__links { order: 2; flex: 1 1 auto; min-width: 0; gap: 14px; font-size: 13px; }
+  .tma-app:has(.rvw-page) .tma-nav > :not(.tma-nav__left) { order: 3; margin-left: auto; }
   .tma-app:has(.rvw-page) .tma-page { padding-left: 16px; padding-right: 16px; }
+  .rvw-head { flex-wrap: nowrap; gap: var(--stu-gap-2); margin-bottom: var(--stu-gap-3); }
+  .rvw-head .stu-tabs { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .rvw-head .stu-tabs::-webkit-scrollbar { display: none; }
+  .rvw-head .stu-tab { flex: none; }
+  .rvw-queue { flex: none; white-space: nowrap; }
+  /* The words stay for a screen reader; the phone row only has room for the count. */
+  .rvw-queue__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 .rvw-last { list-style: none; margin: 0; padding: 0; }
 .rvw-call .rvw-target { color: var(--stu-text-2); font-family: inherit; font-size: var(--stu-fs-body); }
-.rvw-call--bad { box-shadow: inset 2px 0 0 var(--stu-bad); padding-left: 10px; padding-right: 10px; margin: 0 -10px; }
+/* .stu-row (theme.css) sets `padding` as a shorthand and loads after this file's bare rule would, at the same
+   specificity, so a bare `.rvw-call--bad` lost and the failed row sat 10px left of the others (UI-S13 judge). Two classes win. */
+.stu-row.rvw-call--bad { box-shadow: inset 2px 0 0 var(--stu-bad); padding: var(--stu-gap-2) 10px; margin: 0 -10px; }

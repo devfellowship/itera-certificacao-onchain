@@ -15,8 +15,8 @@ export const JUDGE_TITLES: Record<JudgeId, string> = {
 }
 export const REASONS = [
   { code: 'wrong_sha', text: 'Checked the wrong SHA' },
-  { code: 'no_check', text: 'No check' },
-  { code: 'partial', text: 'Partial' },
+  { code: 'no_check', text: 'No check at all' },
+  { code: 'partial', text: 'Check was partial' },
   { code: 'other', text: 'Other' },
 ] as const
 export type ReasonCode = (typeof REASONS)[number]['code']
