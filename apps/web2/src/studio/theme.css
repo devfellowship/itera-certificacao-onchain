@@ -1,0 +1,247 @@
+/*
+ * Studio theme (plan 20261112-tma-c5-studio-area-web2, task UI-S13; Tainan Q-C5-UI = A).
+ * Source: the design canvas "TMA + Eval Studio: real-trace evals" (artboards S1 to S13). Flows Engine minimal:
+ * black, white and warm grey; the Itera evergreen is the only accent. Hairline borders, 4px radii, no shadow, no gradient.
+ *
+ * How to use it: put the class `stu-theme` on the root element of a studio page (`<main className="tma-page stu-theme">`).
+ * Inside that scope the `--tma-*` tokens take the canvas values, so the shared Card, Button, Badge and Tabs of tma/ui
+ * follow the canvas with no change. Pages that do not carry the class keep the app theme. The classes below
+ * (stu-h1, stu-section, stu-chip, stu-tab, stu-btn, stu-kbd, stu-row) are the canvas patterns the shared tma/ui has no match for.
+ * Every color hex lives in the token block below; theme.test.tsx fails on a hex anywhere else in this file.
+ */
+.stu-theme {
+  /* Canvas palette */
+  --stu-bg: #0a0908;
+  --stu-surface: #141210;
+  --stu-raised: #1a1714;
+  --stu-line: #2a2622;
+  --stu-line-strong: #3a3530;
+  --stu-line-hover: #5a5249;
+  --stu-text: #f6f1e7;
+  --stu-text-2: #c9c0b4;
+  --stu-text-muted: #887f71;
+  --stu-accent: #3fd17f;
+  --stu-accent-hover: #62d996;
+  --stu-on-accent: #0a0908;
+  --stu-accent-soft: #14281d;
+  /* Status colors: green pass, red real failure, amber close or needs attention, purple merged PR */
+  --stu-ok: #3fd17f;
+  --stu-bad: #e07a7a;
+  --stu-bad-soft: #3a2525;
+  --stu-warn: #e8c170;
+  --stu-warn-soft: #3a3020;
+  --stu-merged: #b48cf2;
+  /* Type scale: page title 28 (Barlow Condensed), section 13/500, body 13, mono label 11, button 15 */
+  --stu-font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --stu-font-display: 'Barlow Condensed', 'Inter', system-ui, sans-serif;
+  --stu-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --stu-fs-title: 28px;
+  --stu-fs-section: 13px;
+  --stu-fs-body: 13px;
+  --stu-fs-label: 11px;
+  --stu-fs-button: 15px;
+  /* Spacing and radii */
+  --stu-gap-1: 4px;
+  --stu-gap-2: 8px;
+  --stu-gap-3: 12px;
+  --stu-gap-4: 16px;
+  --stu-gap-5: 20px;
+  --stu-radius: 4px;
+  --stu-tap: 44px;
+
+  /* Re-map the app tokens, so the shared tma/ui follows the canvas inside this scope. */
+  --tma-bg: var(--stu-bg);
+  --tma-surface: var(--stu-surface);
+  --tma-surface-raised: var(--stu-raised);
+  --tma-line: var(--stu-line);
+  --tma-line-strong: var(--stu-line-strong);
+  --tma-text: var(--stu-text);
+  --tma-text-muted: var(--stu-text-muted);
+  --tma-text-subtle: var(--stu-text-muted);
+  --tma-primary: var(--stu-accent);
+  --tma-primary-hover: var(--stu-accent-hover);
+  --tma-primary-soft: var(--stu-accent-soft);
+  --tma-primary-text: var(--stu-accent-hover);
+  --tma-on-primary: var(--stu-on-accent);
+  --tma-success-text: var(--stu-ok);
+  --tma-success-dot: var(--stu-ok);
+  --tma-warning-bg: var(--stu-warn-soft);
+  --tma-warning-text: var(--stu-warn);
+  --tma-warning-dot: var(--stu-warn);
+  --tma-danger-bg: var(--stu-bad-soft);
+  --tma-danger-text: var(--stu-bad);
+  --tma-danger-dot: var(--stu-bad);
+  --tma-font-sans: var(--stu-font-sans);
+  --tma-font-mono: var(--stu-font-mono);
+  --tma-radius-sm: var(--stu-radius);
+  --tma-radius-md: var(--stu-radius);
+  --tma-radius-lg: var(--stu-radius);
+
+  font-family: var(--stu-font-sans);
+  font-size: var(--stu-fs-body);
+  line-height: 1.5;
+  color: var(--stu-text);
+}
+
+.stu-theme :focus-visible { outline: 2px solid var(--stu-accent); outline-offset: 1px; box-shadow: none; }
+
+/* ---------- Type ---------- */
+.stu-theme .tma-h1,
+.stu-h1 {
+  margin: 0;
+  font-family: var(--stu-font-display);
+  font-weight: 600;
+  font-size: var(--stu-fs-title);
+  line-height: 1.1;
+  letter-spacing: -0.3px;
+  color: var(--stu-text);
+  text-wrap: balance;
+}
+/* Mono label: small, muted, no uppercase (the canvas writes "judge calibration · skipped-verification v0.4"). */
+.stu-label {
+  font-family: var(--stu-font-mono);
+  font-size: var(--stu-fs-label);
+  line-height: 1.45;
+  color: var(--stu-text-muted);
+}
+.stu-theme .tma-label {
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: var(--stu-fs-label);
+  font-weight: 400;
+  color: var(--stu-text-muted);
+}
+.stu-text-2 { color: var(--stu-text-2); }
+.stu-theme .tma-body-sm { color: var(--stu-text-2); }
+.stu-theme .tma-muted { color: var(--stu-text-muted); }
+
+/* ---------- Section: a 13/500 heading over its content, spaced 18px from the next one ---------- */
+.stu-section { display: flex; flex-direction: column; gap: var(--stu-gap-1); min-width: 0; }
+.stu-section__title {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--stu-gap-2);
+  flex-wrap: wrap;
+  font-size: var(--stu-fs-section);
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--stu-text);
+}
+.stu-section__meta { margin-left: auto; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); font-weight: 400; }
+
+/* ---------- Card: hairline border, 4px radius, flat ---------- */
+.stu-theme .tma-card,
+.stu-card {
+  background: var(--stu-surface);
+  border: 1px solid var(--stu-line);
+  border-radius: var(--stu-radius);
+  box-shadow: none;
+}
+.stu-theme .tma-card--pad,
+.stu-card--pad { padding: var(--stu-gap-4); }
+/* A card with no fill: the canvas S13 sheet is a column of sections on the page ground. */
+.stu-card--bare { background: transparent; border-color: transparent; padding: 0; }
+
+/* ---------- List row: hairline between rows; --on adds the evergreen bar on the left ---------- */
+.stu-row {
+  display: flex;
+  gap: 10px;
+  padding: var(--stu-gap-2) 0;
+  border-bottom: 1px solid var(--stu-line);
+  font-size: var(--stu-fs-body);
+  color: var(--stu-text-2);
+  min-width: 0;
+}
+.stu-row--on { background: var(--stu-raised); box-shadow: inset 2px 0 0 var(--stu-accent); padding-left: 10px; padding-right: 10px; margin: 0 -10px; }
+.stu-row__key { flex: none; width: 52px; font-weight: 500; color: var(--stu-text); }
+
+/* ---------- Chip (a toggle that picks a value) ---------- */
+.stu-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--stu-tap);
+  padding: 0 12px;
+  border: 1px solid var(--stu-line);
+  border-radius: var(--stu-radius);
+  background: transparent;
+  color: var(--stu-text-2);
+  font: inherit;
+  font-size: var(--stu-fs-body);
+  cursor: pointer;
+}
+.stu-chip:hover { border-color: var(--stu-line-hover); color: var(--stu-text); }
+.stu-chip--sm { min-height: 28px; padding: 0 10px; }
+.stu-chip[aria-pressed='true'],
+.stu-chip--on { border-color: var(--stu-accent); background: var(--stu-accent-soft); color: var(--stu-text); }
+
+/* ---------- Tab (a chip row that switches a view): flat, the current one on a surface ---------- */
+.stu-tabs { display: flex; flex-wrap: wrap; gap: 2px; }
+.stu-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--stu-gap-1);
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: var(--stu-radius);
+  background: transparent;
+  color: var(--stu-text-muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.stu-tab:hover { color: var(--stu-text); }
+.stu-tab[aria-selected='true'],
+.stu-tab[aria-current='page'] { background: var(--stu-surface); color: var(--stu-text); box-shadow: inset 0 -2px 0 var(--stu-accent); }
+
+/* ---------- Button: primary is the evergreen fill, secondary an outline, ghost a bare label ---------- */
+.stu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--stu-gap-2);
+  height: 30px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--stu-line-strong);
+  border-radius: var(--stu-radius);
+  background: transparent;
+  color: var(--stu-text);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.stu-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.stu-btn--lg { height: 48px; font-size: var(--stu-fs-button); }
+.stu-btn--primary { background: var(--stu-accent); border-color: var(--stu-accent); color: var(--stu-on-accent); }
+.stu-btn--primary:hover:not(:disabled) { background: var(--stu-accent-hover); border-color: var(--stu-accent-hover); }
+.stu-btn--secondary:hover:not(:disabled) { border-color: var(--stu-line-hover); }
+.stu-btn--ghost { border-color: transparent; color: var(--stu-text-muted); }
+.stu-btn--ghost:hover:not(:disabled) { color: var(--stu-text); }
+/* The shared Button follows the same shape inside the scope. */
+.stu-theme .tma-btn { border-radius: var(--stu-radius); font-weight: 600; }
+.stu-theme .tma-btn--primary { color: var(--stu-on-accent); }
+.stu-theme .tma-btn--secondary { background: transparent; border-color: var(--stu-line-strong); }
+.stu-theme .tma-btn--text,
+.stu-theme .tma-btn--muted { color: var(--stu-text-muted); }
+
+/* ---------- Key hint ---------- */
+.stu-kbd { font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); line-height: 1.45; font-weight: 400; color: var(--stu-text-muted); }
+.stu-btn--primary .stu-kbd { color: var(--stu-on-accent); opacity: 0.7; }
+@media (hover: none) { .stu-kbd--keyboard { display: none; } }
+
+/* ---------- Status dot and text ---------- */
+.stu-dot { display: inline-block; width: 9px; height: 9px; border-radius: 999px; background: var(--stu-text-muted); flex: none; }
+.stu-dot--ok { background: var(--stu-ok); }
+.stu-dot--bad { background: var(--stu-bad); }
+.stu-dot--warn { background: var(--stu-warn); }
+.stu-dot--merged { background: var(--stu-merged); }
+.stu-ok { color: var(--stu-ok); }
+.stu-bad { color: var(--stu-bad); }
+.stu-warn { color: var(--stu-warn); }
+
+/* ---------- Badge: the shared pill, on the canvas hairline shape ---------- */
+.stu-theme .tma-badge { border-radius: var(--stu-radius); text-transform: none; letter-spacing: 0; font-weight: 400; }
