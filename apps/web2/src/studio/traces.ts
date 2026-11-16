@@ -404,6 +404,55 @@ export function buildProfile(runs: readonly TraceRun[], wallS: number | null): {
   return { lines, slowest, wallMs }
 }
 
+/** One label map for the signal keys of the index (S2 chips, S2 panel line, S3 panel line). */
+export const SIGNAL_LABEL: Record<string, string> = {
+  correction: 'correction',
+  ci_rerun: 're-run',
+  revert: 'revert',
+  red_ci: 'red CI',
+  abandoned: 'abandoned',
+}
+/** A signal key as plain words; an unknown key falls back to the key with "_" as a space. */
+export const signalLabel = (k: string): string => SIGNAL_LABEL[k] ?? k.replace(/_/g, ' ')
+
+/** A filter or index value as plain words: "trace_review" -> "trace review". */
+export const plainValue = (v: string): string => v.replace(/_/g, ' ')
+
+/** `mcp__<server>__<tool>` as "mcp: <server>-<tool>"; any other tool name as given. */
+export function toolLabel(name: string | null | undefined): string | null {
+  if (!name) return null
+  const m = /^mcp__(.+?)__(.+)$/.exec(name)
+  return m ? `mcp: ${m[1]}-${m[2]}` : name
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** "2026-11-03T10:00:00.000Z" -> "3 Nov" (the UTC day); anything else as given; null -> null. */
+export function shortDay(ts: string | null): string | null {
+  if (!ts) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ts)
+  if (!m) return ts
+  const month = MONTHS[Number(m[2]) - 1]
+  return month ? `${Number(m[3])} ${month}` : ts
+}
+
+/** "2026-11-03T10:03:00.000Z" -> "10:03" (UTC); anything else -> null. */
+export function clockOf(ts: string | null): string | null {
+  const m = ts ? /^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2})/.exec(ts) : null
+  return m ? m[1]! : null
+}
+
+/** Newest first by `started_at`; a row with no date goes last; the order of equal dates is kept. */
+export function newestFirst<T extends { started_at: string | null }>(rows: readonly T[]): T[] {
+  return rows
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => {
+      const x = a.r.started_at ?? ''
+      const y = b.r.started_at ?? ''
+      return x === y ? a.i - b.i : !x ? 1 : !y ? -1 : x < y ? 1 : -1
+    })
+    .map((e) => e.r)
+}
+
 /** The signals that are true on a row, in the order the index gives them. */
 export function trueSignals(signals: Record<string, boolean | null> | null): string[] {
   return Object.entries(signals ?? {})

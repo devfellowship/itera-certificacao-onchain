@@ -40,6 +40,11 @@ describe('studio theme css', () => {
     expect(css).toContain('--stu-k-write: var(--stu-warn);')
   })
 
+  it('carries the well token (S9 wall) and the joined toggle', () => {
+    expect(css).toContain('--stu-well: #050404;')
+    expect(css).toContain('.stu-toggle__item[aria-pressed=\'true\']')
+  })
+
   it('re-maps the app tokens only inside the .stu-theme scope', () => {
     const lines = css.split('\n').filter((l) => /^\s*--tma-[a-z-]+:/.test(l))
     expect(lines.length).toBeGreaterThan(10)

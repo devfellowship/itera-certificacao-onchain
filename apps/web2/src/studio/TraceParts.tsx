@@ -4,7 +4,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Card, Tip } from '../tma/ui'
-import { agentChip, traceErrorText, type PinStatus, type TaskSummary, type TraceRow } from './traces'
+import { agentChip, signalLabel, traceErrorText, type PinStatus, type TaskSummary, type TraceRow } from './traces'
 
 export type TraceLoaded<T> = { state: 'loading' } | { state: 'ok'; data: T } | { state: 'error'; error: unknown }
 
@@ -66,7 +66,7 @@ export function PinBadge({ pin }: { pin: PinStatus | null }) {
 export function WhyBadge({ why }: { why: string | null }) {
   if (!why) return null
   return (
-    <span className={`trc-why trc-why--${why === 'red' ? 'red' : 'other'}`} data-why={why}>
+    <span className="trc-why" data-why={why}>
       {why}
     </span>
   )
@@ -82,7 +82,7 @@ export function SignalChips({ signals, empty = 'none' }: { signals: Record<strin
     <span className="trc-signals">
       {on.map((k, i) => (
         <span key={k} data-signal={k}>
-          {k}
+          {signalLabel(k)}
           {i < on.length - 1 ? ',' : ''}
         </span>
       ))}

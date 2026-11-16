@@ -125,6 +125,34 @@ describe('S9 wall', () => {
     expect(c.querySelector('[data-testid="s9-legend"]')!.textContent).toMatch(/R read.*S search.*W write.*T test.*M mcp or agent.*X other or shell/)
   })
 
+  it('ends every row with one end cell after its last step, and keeps the end column', async () => {
+    const c = mountAt('/studio/trajectories')
+    await waitFor(() => rows(c).length === 5, 'rows')
+    for (const r of rows(c)) {
+      const cells = r.querySelector('[data-testid="s9-cells"]')!
+      const end = cells.querySelectorAll('.s9-cell-end')
+      expect(end).toHaveLength(1)
+      // It is the last child of the cells: after the last step.
+      expect(cells.lastElementChild).toBe(end[0])
+      expect(end[0]!.className).toContain(`s9-end-${endTone(r.dataset.status as TrajectoryRun['status'])}`)
+      // The step cells stay one per step: the end cell is not a step.
+      expect(cells.querySelectorAll('.s9-cell')).toHaveLength(cells.querySelectorAll('[data-kind]').length)
+      expect(r.querySelectorAll('.s9-endcell')).toHaveLength(1)
+    }
+    expect(rows(c).map((r) => r.querySelector('.s9-cell-end')!.getAttribute('data-end'))).toEqual(['pass', 'pass', 'fail', 'fail', 'other'])
+    // The legend marks the two end keys with a check and a cross; the copy cites no plan id.
+    const keys = [...c.querySelectorAll('.s9-legend__end, .s9-legend li:last-child')].map((x) => x.textContent!.replace(/\s+/g, ' ').trim())
+    expect(keys).toEqual(['✓ end: pass', '✗ end: fail'])
+    expect(c.querySelector('main')!.textContent).not.toMatch(/plan C\d|C5-T\d/)
+    // Compact and Comfortable are one joined toggle.
+    const toggle = c.querySelector('.s9-density')!
+    expect(toggle.classList.contains('stu-toggle')).toBe(true)
+    expect([...toggle.querySelectorAll('button')].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
+      ['Compact', 'true'],
+      ['Comfortable', 'false'],
+    ])
+  })
+
   it('outlines the first failed step, and only that step', async () => {
     const c = mountAt('/studio/trajectories')
     await waitFor(() => rows(c).length === 5, 'rows')
@@ -193,7 +221,7 @@ describe('S9 shapes and links', () => {
     const c = mountAt('/studio/trajectories')
     await waitFor(() => rows(c).length === 5, 'rows')
     expect(c.querySelector('[data-testid="s9-band"]')).toBeNull()
-    expect(c.querySelector('[data-testid="s9-no-shapes"]')!.textContent).toMatch(/not enough runs to name shapes; see plan C5-T8/)
+    expect(c.querySelector('[data-testid="s9-no-shapes"]')!.textContent).toBe('Runs are grouped by how they ended. Shape names show when enough runs share a shape.')
     const text = c.querySelector('main')!.textContent!
     for (const r of SHAPES_SPEC.shape_rules) expect(text, r.name).not.toContain(r.name)
   })

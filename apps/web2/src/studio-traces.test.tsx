@@ -265,7 +265,7 @@ describe('S2 trace picker', () => {
     expect(r[2]!.querySelector('[data-testid="trace-link"]')).toBeNull()
     expect(r[2]!.querySelector('[data-testid="trace-no-file"]')!.textContent).toBe('no trajectory file')
     // Source and pins.
-    expect(c.querySelector('[data-testid="trace-source"]')!.textContent).toBe('Selection day 2026-11-02. Pins exist for this day.')
+    expect(c.querySelector('[data-testid="trace-source"]')!.textContent).toBe('Selection day 2026-11-02. Pins exist for this day. Newest first on each page.')
     // Studio is active in the nav.
     expect([...c.querySelectorAll('nav a[aria-current="page"]')].map((a) => a.textContent).join(' ')).toMatch(/Studio/)
     // No HTML injection path.
@@ -284,6 +284,42 @@ describe('S2 trace picker', () => {
     await waitFor(() => serveCalls().length > 0 && traceRows(f).length > 0, 'filtered')
     expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces?limit=50&l2_class=fix`])
     expect(f.querySelector('[data-filter="l2_class"] [aria-current="true"]')!.textContent).toBe('fix')
+  })
+
+  it('reads in plain words: filter labels, no underscore in a value, one signal label map, who line and date order', async () => {
+    const list = {
+      ...LIST,
+      rows: [
+        row({ started_at: '2026-11-01T10:00:00.000Z', signals: { ci_rerun: true, red_ci: true }, model: 'opus-medium' }),
+        row({ session_id: SID_B, identifier: 'DFL-00002', started_at: '2026-11-10T09:00:00.000Z', signals: { abandoned: true, revert: true }, mode: 'trace_review' }),
+        row({ session_id: SID_C, identifier: 'DFL-00003', started_at: '2026-11-03T09:00:00.000Z', signals: { something_new: true } }),
+      ],
+    }
+    const c = mountAt('/studio/traces?mode=trace_review', { list: [200, list] })
+    await waitFor(() => traceRows(c).length > 0, 'rows')
+    // Filter group labels are words; the URL parameters keep the field keys.
+    expect([...c.querySelectorAll('[data-filter]')].map((f) => [f.getAttribute('data-filter'), f.querySelector('.stu-label')!.textContent])).toEqual([
+      ['l2_class', 'Use case'],
+      ['why', 'Picked for'],
+      ['mode', 'Mode'],
+    ])
+    const mode = c.querySelector('[data-filter="mode"] [data-filter-value="trace_review"]')!
+    expect(mode.textContent).toBe('trace review')
+    expect(mode.getAttribute('href')).toBe('/studio/traces?mode=trace_review')
+    // Newest first on each page.
+    expect(traceRows(c).map((r) => r.dataset.sessionId)).toEqual([SID_B, SID_C, SID_A])
+    // One label map for the chips and the panel line; an unknown key reads with a space.
+    const sig = (r: HTMLElement) => [...r.querySelectorAll('[data-signal]')].map((x) => x.textContent)
+    expect(sig(traceRows(c)[0]!)).toEqual(['abandoned,', 'revert'])
+    expect(sig(traceRows(c)[1]!)).toEqual(['something new'])
+    expect(sig(traceRows(c)[2]!)).toEqual(['re-run,', 'red CI'])
+    expect(c.textContent).not.toMatch(/ci_rerun|red_ci/)
+    const panel = c.querySelector<HTMLElement>('[data-testid="trace-focus"]')!
+    expect(panel.textContent).toContain('Signal: abandoned, revert')
+    // The who line is one short date on one line.
+    expect(panel.querySelector('[data-field="who-line"]')!.textContent).toBe('Claude Code · fixture-model · 10 Nov')
+    // The why chip is neutral for every value, including "red".
+    expect(c.querySelector('.trc-why--red')).toBeNull()
   })
 
   it('passes why, mode and offset from the URL', async () => {
@@ -352,7 +388,7 @@ describe('S3 trace view', () => {
     expect(s.querySelector('h1')!.textContent).toBe('fixture-session-title')
     expect(s.querySelector('[data-field="wall"]')!.textContent).toBe('5m 0s')
     expect(s.querySelector('[data-field="active"]')!.textContent).toBe('2m 5s')
-    expect(s.querySelector('[data-field="runs"]')!.textContent).toBe('2 (1 subagent)')
+    expect(s.querySelector('[data-field="runs"]')!.textContent).toBe('2 · 1 subagent')
     expect(s.querySelector('[data-field="tool_calls"]')!.textContent).toBe('3')
     expect(s.querySelector('[data-field="errors"]')!.textContent).toBe('1')
     expect(s.querySelector('[data-field="cost"]')!.textContent).toBe('$1.23')
@@ -373,7 +409,7 @@ describe('S3 trace view', () => {
     act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-tab-calls"]')!.click())
     // First failure panel.
     const ff = c.querySelector('[data-first-failure]')!
-    expect(ff.textContent).toContain(SUB)
+    expect(c.querySelector('[data-testid="trace-technical"]')!.textContent).toContain(SUB)
     expect(ff.textContent).toContain('test-run')
     expect(ff.textContent).toContain('fixture-preview-failed-step')
     // Steps: main run first, ok/failed markers, one first-failure step.
@@ -436,6 +472,43 @@ describe('S3 trace view', () => {
     await waitFor(() => !!c.querySelector('[data-first-failure]'), 'ff')
     expect(c.querySelector('[data-first-failure]')!.textContent).toContain('No failed step.')
     expect(c.querySelector('[data-first-failure-step]')).toBeNull()
+  })
+
+  it('S3 reads like the artboard: crumb ends with the title, a Step heading, one muted line, no repeated key list', async () => {
+    const mcp = { ...TRACE.runs[1]!.spans[0]!, tool: 'mcp__fleet__ci-check', ok: false, intent: 'ci-read', target_kind: null, ts: '2026-11-01T10:03:00.000Z' }
+    const trace = { ...TRACE, runs: [{ ...TRACE.runs[1]!, spans: [mcp, TRACE.runs[1]!.spans[1]!] }], first_failure: { agent_id: null, ...mcp }, summary: { ...TRACE.summary!, n_subagent_runs: 0, n_runs: 1 } }
+    const c = mountAt(`/studio/traces/${SID_A}`, { trace: [200, trace] })
+    await waitFor(() => !!c.querySelector('[data-trace-summary]'), 'summary')
+    // The crumb: Studio / traces / use case / title.
+    const crumb = c.querySelector('[data-testid="trace-crumb"]')!
+    expect(crumb.textContent).toBe('Studio / traces / build / fixture-session-title')
+    expect(crumb.textContent).not.toContain(SID_A.slice(0, 8))
+    // The runs tile shows subagents only when there are any.
+    expect(c.querySelector('[data-field="runs"]')!.textContent).toBe('1')
+    // An MCP tool reads as "mcp: server-tool" in the waterfall, in the panel line and in the details.
+    expect(c.querySelector('[data-trace-step] .trc-wf__tool')!.textContent).toBe('mcp: fleet-ci-check')
+    expect(c.textContent).not.toContain('mcp__')
+    // The panel: a Barlow "Step 01" heading, then the card with one muted line and no key list.
+    const heading = c.querySelector('.trc-aside .trc-stepblock .trc-aside__title')!
+    expect(heading.tagName).toBe('H2')
+    expect(heading.textContent).toBe('Step 00')
+    const card = c.querySelector('[data-testid="trace-first-failure"]')!
+    expect(card.querySelector('dl')).toBeNull()
+    expect(card.querySelector('[data-testid="trace-first-failure-line"]')!.textContent).toBe('mcp: fleet-ci-check · ci-read · 10:03')
+    expect(card.textContent).not.toMatch(/step \d/)
+    // The full list lives in Technical details, and a row with no value is left out.
+    const tech = c.querySelector('[data-testid="trace-technical"]')!
+    expect(tech.closest('details')).not.toBeNull()
+    const keys = [...tech.querySelectorAll('dt')].map((d) => d.textContent)
+    expect(keys).toEqual(expect.arrayContaining(['Agent', 'Step', 'Tool', 'Intent', 'Time', 'Harness']))
+    expect(keys).not.toContain('Target kind')
+    // The view toggle is one joined group with the pressed state on the active item.
+    const toggle = c.querySelector('.trc-views')!
+    expect(toggle.classList.contains('stu-toggle')).toBe(true)
+    expect([...toggle.querySelectorAll('button')].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
+      ['Waterfall', 'true'],
+      ['Where time went', 'false'],
+    ])
   })
 
   it('shows the 404 state', async () => {
