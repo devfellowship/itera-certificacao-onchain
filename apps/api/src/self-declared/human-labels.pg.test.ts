@@ -113,6 +113,16 @@ describe.skipIf(!URL_)("PgHumanLabelStore on Postgres (0023 and 0024 applied)", 
     expect(await store.runTenant(randomUUID())).toBeNull();
   });
 
+  it("queues the run with the disagreement and the folded steps, while only a workflow label exists", async () => {
+    const q = await store.queue(TENANT, JUDGE, LABELER, 50);
+    expect(q).toHaveLength(1);
+    expect(q[0]).toMatchObject({
+      runId, caseKey: `${tag}-review`, useCaseKey: "fix/red-ci", modelId: MODEL, disagree: true,
+      judge: { pass: true }, workflow: { pass: false, labeler: "workflow:reverted" }, mine: null,
+    });
+    expect(q[0]!.steps.map((s) => s.ok)).toEqual([true, false]);
+    expect(await store.queue(`${TENANT}-other`, JUDGE, LABELER, 50)).toEqual([]);
+  });
   it("writes a label on the human label grader and reads it back", async () => {
     const w = await store.insert({ tenant: TENANT, runId, judgeId: JUDGE, pass: true, reasonCode: "other", labeler: LABELER });
     expect(w).toMatchObject({ runId, judgeId: JUDGE, pass: true, reasonCode: "other", labeler: LABELER });
@@ -127,14 +137,18 @@ describe.skipIf(!URL_)("PgHumanLabelStore on Postgres (0023 and 0024 applied)", 
     expect(await store.labels(runId, `${TENANT}-other`)).toEqual([]);
   });
 
-  it("queues the run with the disagreement, the folded steps and the caller's label", async () => {
-    const q = await store.queue(TENANT, JUDGE, LABELER, 50);
-    expect(q).toHaveLength(1);
-    expect(q[0]).toMatchObject({
-      runId, caseKey: `${tag}-review`, useCaseKey: "fix/red-ci", modelId: MODEL, disagree: true,
-      judge: { pass: true }, workflow: { pass: false, labeler: "workflow:reverted" }, mine: { pass: true, labeler: LABELER },
-    });
-    expect(q[0]!.steps.map((s) => s.ok)).toEqual([true, false]);
-    expect(await store.queue(`${TENANT}-other`, JUDGE, LABELER, 50)).toEqual([]);
+  it("a person's label under judge A takes the run out of queue A and leaves it in queue B", async () => {
+    const OTHER = "external-block-handling";
+    const w = await store.insert({ tenant: TENANT, runId, judgeId: JUDGE, pass: true, reasonCode: "other", labeler: LABELER });
+    expect(w.judgeId).toBe(JUDGE);
+    // Queue A: the run is gone, for the labeler and for any other caller. Queue B: the run is still there.
+    expect(await store.queue(TENANT, JUDGE, LABELER, 50)).toEqual([]);
+    expect(await store.queue(TENANT, JUDGE, `person:${randomUUID()}`, 50)).toEqual([]);
+    const b = await store.queue(TENANT, OTHER, LABELER, 50);
+    expect(b.map((r) => r.runId)).toEqual([runId]);
+    // A label under B closes B too. The two queues are independent.
+    await store.insert({ tenant: TENANT, runId, judgeId: OTHER, pass: false, reasonCode: null, labeler: LABELER });
+    expect(await store.queue(TENANT, OTHER, LABELER, 50)).toEqual([]);
   });
+
 });

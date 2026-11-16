@@ -58,7 +58,7 @@ export const RATE_LIMIT = {
  * - `DFL_SUPABASE_URL`: the DFL Supabase project that issues the DFL token.
  * - `DFL_SUPABASE_ANON_KEY`: the public anon key of that project (never the service role). When it
  *   is absent, `POST /auth/dfl/exchange` answers `503 dfl_auth_not_configured`.
- * - `TMA_MIN_IAM_LEVEL` (default 0): the lowest DFL IAM level that may log in. 0 = any DFL user.
+ * - `TMA_MIN_IAM_LEVEL` (default 0): the lowest DFL IAM level that may log in AND use any route (auth/iam-level-guard.ts). 0 = any DFL user.
  */
 export const DEFAULT_DFL_SUPABASE_URL = "https://yoojxnggaxcqtsyjdrdx.supabase.co";
 
