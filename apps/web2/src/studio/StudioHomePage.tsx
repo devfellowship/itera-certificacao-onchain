@@ -48,6 +48,10 @@ export function StudioHomePage({ cases }: { cases?: StudioCase[] }) {
             Compare
           </Link>
           {' · '}
+          <Link to="/studio/calibration" data-testid="studio-calibration-link">
+            Calibration
+          </Link>
+          {' · '}
           <Link to="/studio/review" data-testid="studio-review-link">
             Review
           </Link>
