@@ -7,6 +7,10 @@
 // at a time: a request waits for the one before it.
 //
 // Routes:
+// Fixture principals (task S2S3-FIXTURE-PRINCIPAL): a principal of `auth.fixturePrincipals` reads the synthetic
+// tree of `fixtureSources` and NEVER the real sources. `sourcesFor()` is the one place that picks the sources of
+// a login, for every content route; unknown or missing = refused, never real. A fixture principal gets no dry run.
+//
 //   GET /v1/health                      no login; `{ok: true}` and nothing else
 //   GET /v1/traces?limit&offset&l2_class&why&mode     S2: candidate traces with pin status and task summary
 //   GET /v1/traces/:session_id[?agent_id=...]          S3: session summary, runs with steps, first failure
@@ -14,15 +18,19 @@
 //        Same login as the GET routes; JSON body <= 256 KB (413); one dry run at a time (429); 504 after the timeout;
 //        a code grader runs in a network namespace (unshare -rn), 503 network_sandbox_unavailable when there is none.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { checkLogin, type AuthDeps } from './auth.js';
+import { checkLogin, principalConflicts, type AuthDeps, type PrincipalKind } from './auth.js';
 import { getTrace, listTraces, NotFound, type StudioSources } from './content.js';
+import { assertDisjointSources } from './fixture.js';
 import { DRY_RUN_MAX_BODY, DRY_RUN_PATH, DRY_RUN_TIMEOUT_MS, DryRunRefused, parseDryRunBody, probeNetworkSandbox, runDryRun, type DryRunOptions } from './dry-run.js';
 
 /** The only address the service binds. A wider bind needs a code change and a review, not a flag. */
 export const BIND_HOST = '127.0.0.1';
 
 export interface StudioServerOptions {
+  /** The REAL sources: only a principal of `auth.allowPrincipals` reads them. */
   sources: StudioSources;
+  /** The synthetic fixture tree (fixture.ts): only a principal of `auth.fixturePrincipals` reads it. */
+  fixtureSources?: StudioSources;
   auth: AuthDeps;
   /** Browser origins that may call the service (CORS), e.g. https://testmyagent.com. */
   allowOrigins: ReadonlySet<string>;
@@ -52,6 +60,21 @@ function textParam(raw: string | null): string | undefined | null {
   return /^[A-Za-z0-9_.:-]{1,64}$/.test(raw) ? raw : null;
 }
 
+/**
+ * THE one place that picks the sources of a login. A fixture principal gets the fixture tree, or nothing when the
+ * serve has none; a real principal gets the real sources; anything else gets nothing. Never real by default.
+ */
+export function sourcesFor(login: { kind: PrincipalKind }, opts: Pick<StudioServerOptions, 'sources' | 'fixtureSources'>): StudioSources | null {
+  switch (login.kind) {
+    case 'fixture':
+      return opts.fixtureSources ?? null;
+    case 'real':
+      return opts.sources;
+    default:
+      return null;
+  }
+}
+
 /** The answer to one request. `authorization` is the raw header. Pure apart from the reads. */
 export async function route(method: string, rawUrl: string, authorization: string | string[] | undefined, opts: StudioServerOptions): Promise<Answer> {
   const url = new URL(rawUrl, 'http://studio.invalid');
@@ -65,6 +88,8 @@ export async function route(method: string, rawUrl: string, authorization: strin
 
   const login = await checkLogin(authorization, opts.auth);
   if (!login.ok) return json(login.status, { error: login.reason });
+  const sources = sourcesFor(login, opts);
+  if (!sources) return json(403, { error: 'no_sources_for_principal' });
 
   try {
     if (traceMatch[1] === undefined) {
@@ -74,7 +99,7 @@ export async function route(method: string, rawUrl: string, authorization: strin
       const why = textParam(url.searchParams.get('why'));
       const mode = textParam(url.searchParams.get('mode'));
       if (limit === null || offset === null || l2_class === null || why === null || mode === null) return json(400, { error: 'bad_query' });
-      return json(200, listTraces(opts.sources, { limit, offset, ...(l2_class ? { l2_class } : {}), ...(why ? { why } : {}), ...(mode ? { mode } : {}) }));
+      return json(200, listTraces(sources, { limit, offset, ...(l2_class ? { l2_class } : {}), ...(why ? { why } : {}), ...(mode ? { mode } : {}) }));
     }
     let sessionId: string;
     try {
@@ -83,7 +108,7 @@ export async function route(method: string, rawUrl: string, authorization: strin
       return json(400, { error: 'bad_session_id' });
     }
     const agentId = url.searchParams.get('agent_id') ?? undefined;
-    return json(200, getTrace(opts.sources, sessionId, agentId));
+    return json(200, getTrace(sources, sessionId, agentId));
   } catch (e) {
     if (e instanceof NotFound) return json(e.code.startsWith('bad_') ? 400 : 404, { error: e.code });
     return json(500, { error: 'read_failed' });
@@ -125,6 +150,11 @@ export async function dryRunRoute(req: IncomingMessage, opts: StudioServerOption
   if (!login.ok) {
     req.resume();
     return json(login.status, { error: login.reason });
+  }
+  // The dry run reads the grader library of the host and runs grader code: real principals only.
+  if (login.kind !== 'real') {
+    req.resume();
+    return json(403, { error: 'fixture_principal_refused', message: 'a fixture principal gets no dry run' });
   }
   const declared = Number(req.headers['content-length'] ?? '0');
   const body = Number.isFinite(declared) && declared > DRY_RUN_MAX_BODY ? ({ ok: false } as const) : await readBody(req, DRY_RUN_MAX_BODY);
@@ -226,6 +256,17 @@ export function handler(opts: StudioServerOptions): (req: IncomingMessage, res: 
 
 /** Start the service on 127.0.0.1:<port>. Resolves when it listens. Port 0 picks a free port (tests). */
 export function startStudioServer(port: number, opts: StudioServerOptions): Promise<Server> {
+  // A principal on both lists would be neither real nor fixture: refuse to start (checkLogin also refuses it).
+  const conflicts = principalConflicts(opts.auth);
+  if (conflicts.length > 0) return Promise.reject(new Error(`principal on both the real and the fixture list: ${conflicts.join(', ')}`));
+  if ((opts.auth.fixturePrincipals?.size ?? 0) > 0 && !opts.fixtureSources) return Promise.reject(new Error('fixture principals need fixture sources'));
+  if (opts.fixtureSources) {
+    try {
+      assertDisjointSources(opts.sources, opts.fixtureSources);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
   // Probe the network namespace of POST /grade/dry-run at start (cached); a dry run reads the cached answer.
   if (opts.dryRun?.graderRoot && !opts.dryRun.networkSandbox?.probe) void probeNetworkSandbox();
   const server = createServer(handler(opts));
