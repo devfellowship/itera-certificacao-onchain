@@ -26,5 +26,6 @@ export function loadErrorText(status: number): string {
   if (status === 503) return 'Eval results are not available yet: the result store is not migrated on this server.'
   if (status === 404) return 'Not found. It does not exist, or it belongs to another account.'
   if (status === 401) return 'Your session ended. Sign in again.'
+  if (status === 403) return 'Your DFL account has no access to this data. The studio is for DFL members.'
   return 'The studio could not load this data. Reload the page to try again.'
 }

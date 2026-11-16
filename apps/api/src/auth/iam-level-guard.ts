@@ -15,8 +15,11 @@ import { verifyPrincipalToken } from "./principal.js";
  *
  * - `minIamLevel` 0 (the default) skips the lookup: no query, no change of behaviour.
  * - `siws` principals and requests without a valid session skip it (the route answers 401 itself).
- * - A principal without a `users` row, or with a null level, counts as level 0 (fail closed). The person signs
- *   in again: the exchange reads the level from DFL and stores it.
+ * - A principal without a `users` row, or with a null level, is refused with `401 {error: "iam_level_unknown"}`
+ *   (fail closed). A null level means the login did not read the level: the session predates the gate (before the
+ *   gate, the exchange stored no level). 401, not 403: the web client clears a session on 401 and signs in again, and
+ *   that new exchange reads the level from DFL and stores it. A 403 here left a member on an error page until the
+ *   24 h session ran out (incident 2026-11-16, the S13 review page of a superadmin whose last login was before the gate).
  * - A PASS is cached per principal (30 s by default). A refusal is never cached, so a person who signs in again (the
  *   exchange stores the new level) is let in at once; a refused principal costs one primary-key read per request, behind
  *   the rate limiters.
@@ -47,13 +50,14 @@ export function createIamLevelGuard(options: IamLevelGuardOptions): RequestHandl
   const now = options.now ?? Date.now;
   const cache = new Map<string, { level: number; expiresAt: number }>();
 
-  async function levelOf(principalId: string, min: number): Promise<number> {
+  /** The stored level, or null when no login stored one (no row, or a null level). */
+  async function levelOf(principalId: string, min: number): Promise<number | null> {
     const at = now();
     const hit = cache.get(principalId);
     if (hit && hit.expiresAt > at && hit.level >= min) return hit.level;
     const row = await users.get(principalId);
-    const level = row?.iamLevel ?? 0;
-    if (level >= min) {
+    const level = row?.iamLevel ?? null;
+    if (level !== null && level >= min) {
       if (cache.size >= MAX_CACHE_ENTRIES) cache.clear();
       cache.set(principalId, { level, expiresAt: at + ttlMs });
     } else {
@@ -93,7 +97,8 @@ export function createIamLevelGuard(options: IamLevelGuardOptions): RequestHandl
     }
     levelOf(principal.id, min).then(
       (level) => {
-        if (level < min) res.status(403).json({ error: "iam_level_too_low" });
+        if (level === null) res.status(401).json({ error: "iam_level_unknown" });
+        else if (level < min) res.status(403).json({ error: "iam_level_too_low" });
         else next();
       },
       (e: unknown) => {

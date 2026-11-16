@@ -123,6 +123,13 @@ describe('DFL callback', () => {
     expect(consoleText(spies)).not.toContain(SECRET_DFL)
   })
 
+  it('names the member gate when the exchange answers 403 iam_level_too_low', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json(403, { error: 'iam_level_too_low' })))
+    const container = mountApp('/auth/dfl/callback')
+    await flush()
+    expect(container.querySelector('[data-testid="dfl-callback-error"]')?.textContent).toContain('The studio is for DFL members.')
+  })
+
   it('shows the error state on a network failure and on a missing token', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
     const container = mountApp('/auth/dfl/callback')
