@@ -255,3 +255,187 @@ export function prUrl(pr: unknown): string | null {
 export function traceHref(sessionId: string, agentId?: string | null): string {
   return `/studio/traces/${encodeURIComponent(sessionId)}${agentId ? `?${new URLSearchParams({ agent_id: agentId }).toString()}` : ''}`
 }
+
+// ---------- Pure helpers of the S2 / S3 screens (UI-S2S3S9; canvas artboards "S2 Trace picker" and "S3 Trace view") ----------
+
+/** The step kinds of the S3 waterfall legend. `err` is not a kind: a failed call is drawn red whatever its kind. */
+export type SpanKind = 'read' | 'search' | 'write' | 'test' | 'tool' | 'other'
+
+const READ_TOOLS = new Set(['read', 'glob', 'ls', 'notebookread'])
+const SEARCH_TOOLS = new Set(['grep', 'websearch', 'webfetch', 'toolsearch'])
+const WRITE_TOOLS = new Set(['edit', 'write', 'multiedit', 'notebookedit', 'applypatch', 'apply_patch'])
+
+/** The kind of one span, from its tool, intent and family. Nothing is guessed from the preview text. */
+export function spanKind(s: Pick<TraceSpan, 'tool' | 'intent' | 'family'>): SpanKind {
+  const tool = (s.tool ?? '').toLowerCase()
+  const intent = (s.intent ?? '').toLowerCase()
+  const family = (s.family ?? '').toLowerCase()
+  if (/test/.test(intent)) return 'test'
+  if (tool.startsWith('mcp') || family === 'mcp' || tool === 'task' || tool === 'agent') return 'tool'
+  if (READ_TOOLS.has(tool) || /read/.test(intent)) return 'read'
+  if (SEARCH_TOOLS.has(tool) || /search/.test(intent)) return 'search'
+  if (WRITE_TOOLS.has(tool) || /edit|write/.test(intent)) return 'write'
+  return 'other'
+}
+
+/** A duration in ms -> "850 ms" / "2.4 s" / "41 s" / "7 min" / "1h 5m". */
+export function fmtMs(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms)) return '—'
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  const s = ms / 1000
+  if (s < 10) return `${s.toFixed(1)} s`
+  if (s < 60) return `${Math.round(s)} s`
+  const m = s / 60
+  if (m < 60) return `${m < 10 && s % 60 ? m.toFixed(1) : Math.round(m)} min`
+  return `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`
+}
+
+const toMs = (ts: string | null): number | null => {
+  if (!ts) return null
+  const n = Date.parse(ts)
+  return Number.isFinite(n) ? n : null
+}
+
+export interface WaterfallStep {
+  type: 'step'
+  /** Index in the whole trace, in display order; the key and the selection id. */
+  id: string
+  run: number
+  span: TraceSpan
+  kind: SpanKind
+  failed: boolean
+  /** Percent of the trace extent, or null when the span has no timestamp. */
+  left: number | null
+  width: number | null
+}
+export interface WaterfallRun {
+  type: 'run'
+  id: string
+  run: TraceRun
+  left: number | null
+  width: number | null
+}
+export type WaterfallRow = WaterfallRun | WaterfallStep
+
+export interface Waterfall {
+  /** Extent of the trace in ms (0 when no timestamp exists). */
+  totalMs: number
+  rows: WaterfallRow[]
+  steps: number
+}
+
+/** Lays the runs and their spans on one time axis. `runs` must already be in display order. */
+export function buildWaterfall(runs: readonly TraceRun[]): Waterfall {
+  const starts: number[] = []
+  const ends: number[] = []
+  for (const r of runs) {
+    const a = toMs(r.started_at)
+    if (a !== null) {
+      starts.push(a)
+      ends.push(toMs(r.ended_at) ?? (r.duration_s !== null ? a + r.duration_s * 1000 : a))
+    }
+    for (const s of r.spans) {
+      const t = toMs(s.ts)
+      if (t === null) continue
+      starts.push(t)
+      ends.push(toMs(s.ts_end) ?? t + (s.dur_ms ?? 0))
+    }
+  }
+  const t0 = starts.length ? Math.min(...starts) : 0
+  const totalMs = starts.length ? Math.max(...ends) - t0 : 0
+  const pct = (ms: number) => (totalMs > 0 ? Math.min(100, Math.max(0, ((ms - t0) / totalMs) * 100)) : 0)
+  const rows: WaterfallRow[] = []
+  let n = 0
+  runs.forEach((run, ri) => {
+    const a = toMs(run.started_at)
+    const dur = run.duration_s !== null ? run.duration_s * 1000 : null
+    rows.push({ type: 'run', id: `run:${ri}`, run, left: a !== null && totalMs > 0 ? pct(a) : null, width: a !== null && dur !== null && totalMs > 0 ? Math.max(0.5, (dur / totalMs) * 100) : null })
+    for (const span of run.spans) {
+      const t = toMs(span.ts)
+      rows.push({
+        type: 'step',
+        id: `step:${n++}`,
+        run: ri,
+        span,
+        kind: spanKind(span),
+        failed: span.ok === false,
+        left: t !== null && totalMs > 0 ? pct(t) : null,
+        width: t !== null && totalMs > 0 ? Math.max(0.4, ((span.dur_ms ?? 0) / totalMs) * 100) : null,
+      })
+    }
+  })
+  return { totalMs, rows, steps: n }
+}
+
+export interface ProfileLine {
+  key: string
+  label: string
+  calls: number
+  ms: number
+  /** Percent of the wall time, at least 1 when the line has time. */
+  pct: number
+}
+
+/**
+ * Where the wall time went. Tool time comes from the span durations, by kind. "Between calls" is the wall time that no
+ * call explains: the model thinking or a person answering. The trace does not tell which, so the line says both.
+ */
+export function buildProfile(runs: readonly TraceRun[], wallS: number | null): { lines: ProfileLine[]; slowest: TraceSpan[]; wallMs: number } {
+  const wallMs = wallS !== null && wallS > 0 ? wallS * 1000 : 0
+  const labels: Record<SpanKind, string> = { read: 'Read', search: 'Search', write: 'Edit', test: 'Tests', tool: 'Tool calls (MCP, agents)', other: 'Other calls (shell)' }
+  const by = new Map<SpanKind, { calls: number; ms: number }>()
+  const all: TraceSpan[] = []
+  for (const r of runs) for (const s of r.spans) {
+    all.push(s)
+    const k = spanKind(s)
+    const cur = by.get(k) ?? { calls: 0, ms: 0 }
+    cur.calls += 1
+    cur.ms += s.dur_ms ?? 0
+    by.set(k, cur)
+  }
+  const toolMs = [...by.values()].reduce((a, v) => a + v.ms, 0)
+  const lines: ProfileLine[] = [...by].map(([k, v]) => ({ key: k, label: labels[k], calls: v.calls, ms: v.ms, pct: 0 }))
+  const between = wallMs > toolMs ? wallMs - toolMs : 0
+  if (between > 0) lines.push({ key: 'between', label: 'Between calls', calls: 0, ms: between, pct: 0 })
+  const base = Math.max(wallMs, toolMs)
+  for (const l of lines) l.pct = base > 0 && l.ms > 0 ? Math.max(1, Math.round((l.ms / base) * 100)) : 0
+  lines.sort((a, b) => b.ms - a.ms || a.label.localeCompare(b.label))
+  const slowest = [...all].filter((s) => (s.dur_ms ?? 0) > 0).sort((a, b) => (b.dur_ms ?? 0) - (a.dur_ms ?? 0)).slice(0, 3)
+  return { lines, slowest, wallMs }
+}
+
+/** The signals that are true on a row, in the order the index gives them. */
+export function trueSignals(signals: Record<string, boolean | null> | null): string[] {
+  return Object.entries(signals ?? {})
+    .filter(([, v]) => v === true)
+    .map(([k]) => k)
+}
+
+/** "2026-11-01T10:00:00.000Z" -> "2026-11-01"; anything else as given; null -> null. */
+export function dayOf(ts: string | null): string | null {
+  if (!ts) return null
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(ts)
+  return m ? m[1]! : ts
+}
+
+export type Replay = 'yes' | 'partly' | 'no' | 'unpinned'
+
+/** The "replayable" cell: a replay needs a complete pin. `replayable: false` always wins. */
+export function replayOf(r: Pick<TraceRow, 'replayable' | 'pin'>): Replay {
+  if (r.replayable === false) return 'no'
+  if (!r.pin) return 'unpinned'
+  return r.pin.complete === true ? 'yes' : 'partly'
+}
+
+export type HarnessKey = 'cc' | 'cx' | 'oc' | 'al' | 'other'
+
+/** The avatar of a row's agent: its letters and ground. ALIEN01 is a host, so it wins over the harness. */
+export function agentChip(r: Pick<TraceRow, 'executor' | 'harness' | 'host'>): { key: HarnessKey; letters: string; name: string } {
+  const text = `${r.host ?? ''} ${r.executor ?? ''} ${r.harness ?? ''}`.toLowerCase()
+  const raw = r.executor ?? r.harness ?? r.host ?? 'agent'
+  if (/alien/.test(text)) return { key: 'al', letters: 'A1', name: 'ALIEN01' }
+  if (/claude/.test(text)) return { key: 'cc', letters: 'CC', name: 'Claude Code' }
+  if (/codex/.test(text)) return { key: 'cx', letters: 'CX', name: 'Codex' }
+  if (/opencode/.test(text)) return { key: 'oc', letters: 'OC', name: 'opencode' }
+  return { key: 'other', letters: (raw.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toUpperCase(), name: raw }
+}

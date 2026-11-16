@@ -3,8 +3,8 @@
  * Plain text only: every value goes through React escaping. No dangerouslySetInnerHTML.
  */
 import { useEffect, useState } from 'react'
-import { Card } from '../tma/ui'
-import { traceErrorText, type PinStatus, type TaskSummary } from './traces'
+import { Card, Tip } from '../tma/ui'
+import { agentChip, traceErrorText, type PinStatus, type TaskSummary, type TraceRow } from './traces'
 
 export type TraceLoaded<T> = { state: 'loading' } | { state: 'ok'; data: T } | { state: 'error'; error: unknown }
 
@@ -72,20 +72,52 @@ export function WhyBadge({ why }: { why: string | null }) {
   )
 }
 
-/** The true signals as small chips. */
-export function SignalChips({ signals }: { signals: Record<string, boolean | null> | null }) {
+/** The true signals as plain words, comma separated; "none" when there is none (canvas "signal" column). */
+export function SignalChips({ signals, empty = 'none' }: { signals: Record<string, boolean | null> | null; empty?: string }) {
   const on = Object.entries(signals ?? {})
     .filter(([, v]) => v === true)
     .map(([k]) => k)
-  if (on.length === 0) return null
+  if (on.length === 0) return <span className="trc-none">{empty}</span>
   return (
-    <span className="trc-chips">
-      {on.map((k) => (
-        <span key={k} className="trc-chip" data-signal={k}>
+    <span className="trc-signals">
+      {on.map((k, i) => (
+        <span key={k} data-signal={k}>
           {k}
+          {i < on.length - 1 ? ',' : ''}
         </span>
       ))}
     </span>
+  )
+}
+
+/** Agent avatar: two letters on the harness ground (canvas S2 "agent" column). */
+export function AgentAvatar({ row }: { row: Pick<TraceRow, 'executor' | 'harness' | 'host'> }) {
+  const a = agentChip(row)
+  return (
+    <span className={`trc-avatar trc-avatar--${a.key}`} aria-hidden="true">
+      {a.letters}
+    </span>
+  )
+}
+
+export function InfoIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </svg>
+  )
+}
+
+/** The (i) button of the canvas with its tooltip. */
+export function InfoTip({ text, label }: { text: string; label: string }) {
+  return (
+    <Tip text={text} className="trc-info">
+      <span aria-label={label}>
+        <InfoIcon />
+      </span>
+    </Tip>
   )
 }
 

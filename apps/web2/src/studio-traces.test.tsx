@@ -214,31 +214,45 @@ describe('S2 trace picker', () => {
     expect(r).toHaveLength(LIST.rows.length)
     expect(c.querySelector('h1')!.textContent).toBe('Traces')
     expect(c.textContent).toContain('not from the TMA server')
-    // Task summary: Before / Expected / Outcome, labelled; a null field shows a dash.
-    const ts = r[0]!.querySelector('[data-task-summary]')!
+    // The focus panel starts on the first row: task summary Before / Expected / Outcome, labelled.
+    const focus = () => c.querySelector<HTMLElement>('[data-testid="trace-focus"]')!
+    expect(r[0]!.getAttribute('data-focused')).toBe('true')
+    const ts = focus().querySelector('[data-task-summary]')!
     expect([...ts.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['Before', 'Expected', 'Outcome'])
     expect(ts.querySelector('[data-field="before"]')!.textContent).toBe('fixture-before-text')
     expect(ts.querySelector('[data-field="expected"]')!.textContent).toBe('fixture-expected-text')
     expect(ts.querySelector('[data-field="outcome"]')!.textContent).toBe('fixture-outcome-text')
-    const ts2 = r[1]!.querySelector('[data-task-summary]')!
+    // The row shows the Before text next to the task id.
+    expect(r[0]!.textContent).toContain('fixture-before-text')
+    // Pin states, in the panel of the focused row (a click focuses a row; a null field shows a dash).
+    expect(focus().querySelector('[data-pin]')!.getAttribute('data-pin')).toBe('incomplete')
+    expect(focus().querySelector('[data-pin]')!.textContent).toBe('pinned incomplete (2 missing)')
+    expect(focus().textContent).toContain('fixture-executor / claude-code / fixture-host')
+    act(() => r[1]!.click())
+    expect(r[1]!.getAttribute('data-focused')).toBe('true')
+    expect(r[0]!.getAttribute('data-focused')).toBeNull()
+    const ts2 = focus().querySelector('[data-task-summary]')!
     expect(ts2.querySelector('[data-field="before"]')!.textContent).toBe('—')
     expect(ts2.querySelector('[data-field="outcome"]')!.textContent).toBe('—')
-    expect(r[2]!.querySelector('[data-task-summary]')).toBeNull()
-    // Signal chips: only the true ones.
+    expect(focus().querySelector('[data-pin]')!.textContent).toBe('pinned complete')
+    act(() => r[2]!.click())
+    expect(focus().querySelector('[data-task-summary]')).toBeNull()
+    expect(focus().textContent).toContain('No task summary.')
+    expect(focus().querySelector('[data-pin]')!.textContent).toBe('not pinned')
+    expect(focus().querySelector('[data-testid="trace-open"]')).toBeNull()
+    // Signals: only the true ones, as words.
     expect([...r[0]!.querySelectorAll('[data-signal]')].map((x) => x.getAttribute('data-signal'))).toEqual(['ci_rerun'])
     expect([...r[1]!.querySelectorAll('[data-signal]')].map((x) => x.getAttribute('data-signal'))).toEqual(['revert', 'ci_rerun'])
     expect(r[3]!.querySelectorAll('[data-signal]')).toHaveLength(0)
-    // Pin states.
-    expect(r[0]!.querySelector('[data-pin]')!.getAttribute('data-pin')).toBe('incomplete')
-    expect(r[0]!.querySelector('[data-pin]')!.textContent).toBe('pinned incomplete (2 missing)')
-    expect(r[1]!.querySelector('[data-pin]')!.textContent).toBe('pinned complete')
-    expect(r[2]!.querySelector('[data-pin]')!.textContent).toBe('not pinned')
+    expect(r[3]!.textContent).toContain('none')
+    // The replayable column follows the pin.
+    expect(r.map((x) => x.querySelector('[data-replay]')!.getAttribute('data-replay'))).toEqual(['partly', 'yes', 'unpinned', 'unpinned'])
     // Why badge, labels.
     expect(r[0]!.querySelector('[data-why]')!.textContent).toBe('red')
     expect(r[1]!.querySelector('[data-why]')!.textContent).toBe('sample')
     expect(r[0]!.textContent).toContain('DFL-00001')
-    expect(r[0]!.textContent).toContain('fixture-executor / claude-code / fixture-host')
-    expect(r[0]!.textContent).toContain('2026-11-01 10:00:00')
+    expect(r[0]!.textContent).toContain('Claude Code · fixture-model')
+    expect(r[0]!.textContent).toContain('2026-11-01')
     expect(r[2]!.textContent).toContain(SID_B.slice(0, 8))
     expect(r[3]!.textContent).toContain('task-only-id')
     // PR link only for an object with a github.com https URL.
@@ -335,22 +349,29 @@ describe('S3 trace view', () => {
     expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces/${SID_A}`])
     const s = c.querySelector('[data-trace-summary]')!
     expect(s.textContent).toContain('fixture-session-title')
-    expect(s.textContent).toContain('2026-11-01 10:00:00')
-    expect(s.textContent).toContain('5m 0s')
-    expect(s.textContent).toContain('2m 5s')
+    expect(s.querySelector('h1')!.textContent).toBe('fixture-session-title')
+    expect(s.querySelector('[data-field="wall"]')!.textContent).toBe('5m 0s')
+    expect(s.querySelector('[data-field="active"]')!.textContent).toBe('2m 5s')
     expect(s.querySelector('[data-field="runs"]')!.textContent).toBe('2 (1 subagent)')
+    expect(s.querySelector('[data-field="tool_calls"]')!.textContent).toBe('3')
+    expect(s.querySelector('[data-field="errors"]')!.textContent).toBe('1')
     expect(s.querySelector('[data-field="cost"]')!.textContent).toBe('$1.23')
-    // Top 8 tools, by count.
-    const tools = s.querySelector('[data-field="tool_counts"]')!.textContent!
+    // The Summary tab: session, top 8 tools by count, index, task summary with Outcome, candidate info.
+    expect(c.querySelector('[data-testid="trace-summary-tab"]')).toBeNull()
+    act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-tab-summary"]')!.click())
+    const tab = c.querySelector('[data-testid="trace-summary-tab"]')!
+    expect(tab.textContent).toContain('2026-11-01 10:00:00')
+    expect(tab.textContent).toContain('5m 0s')
+    const tools = tab.querySelector('[data-field="tool_counts"]')!.textContent!
     expect(tools.startsWith('Read 9 · Bash 3')).toBe(true)
     expect(tools.split(' · ')).toHaveLength(8)
     expect(c.querySelector('[data-testid="trace-index"]')!.textContent).toContain('fixture-host')
-    // Task summary with Outcome, candidate info.
     const ts = c.querySelector('[data-testid="trace-candidate"] [data-task-summary]')!
     expect(ts.querySelector('[data-field="outcome"]')!.textContent).toBe('fixture-outcome-text')
     expect(c.querySelector('[data-testid="trace-candidate"] [data-pin]')!.textContent).toBe('pinned incomplete (2 missing)')
     expect(c.querySelector('[data-testid="trace-candidate"] [data-why]')!.textContent).toBe('red')
-    // First failure card.
+    act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-tab-calls"]')!.click())
+    // First failure panel.
     const ff = c.querySelector('[data-first-failure]')!
     expect(ff.textContent).toContain(SUB)
     expect(ff.textContent).toContain('test-run')
@@ -364,26 +385,44 @@ describe('S3 trace view', () => {
     const marked = c.querySelectorAll('[data-first-failure-step]')
     expect(marked).toHaveLength(1)
     expect(marked[0]).toBe(steps[2])
-    expect(steps[0]!.textContent).toContain('fixture-preview-step-0')
+    expect(c.querySelector('[data-testid="trace-shown"]')!.textContent).toBe('showing 3 of 3 calls')
+    // A click on another step opens it in the side panel, with its preview.
+    expect(c.querySelector('[data-testid="trace-step-panel"]')).toBeNull()
+    act(() => steps[0]!.click())
+    const panel = c.querySelector('[data-testid="trace-step-panel"]')!
+    expect(panel.textContent).toContain('fixture-preview-step-0')
+    expect(steps[0]!.getAttribute('data-step-ok')).toBe('true')
     // Back link to S2.
     expect(c.querySelector('[data-testid="trace-back"]')!.getAttribute('href')).toBe('/studio/traces')
   })
 
-  it('a long preview is clipped with a local "more" toggle', async () => {
-    const c = mountAt(`/studio/traces/${SID_A}`)
+  it('a long preview of a chosen step is clipped with a local "more" toggle; the first failure shows its preview whole', async () => {
+    const long = 'fixture-long-line-1\nline 2\nline 3\nline 4\nline 5'
+    const main = TRACE.runs[1]!
+    const trace = { ...TRACE, runs: [TRACE.runs[0]!, { ...main, spans: [{ ...main.spans[0]!, preview: long }, main.spans[1]!] }] }
+    const c = mountAt(`/studio/traces/${SID_A}`, { trace: [200, trace] })
     await waitFor(() => c.querySelectorAll('[data-trace-step]').length === 3, 'steps')
-    const failed = c.querySelector<HTMLElement>('[data-first-failure-step]')!
-    const pre = failed.querySelector('[data-testid="step-preview"]')!
-    expect(pre.className).toBe('trc-preview')
-    const more = failed.querySelector<HTMLButtonElement>('[data-testid="step-more"]')!
-    expect(more.textContent).toBe('more')
+    // The first failure is open in the side panel; its preview is whole and has no toggle.
+    expect(c.querySelector('[data-first-failure] pre')!.textContent).toContain('fixture-preview-failed-step')
+    expect(c.querySelector('[data-first-failure] [data-testid="step-more"]')).toBeNull()
+    const rowsEl = [...c.querySelectorAll<HTMLElement>('[data-trace-step]')]
     const before = calls.length
+    act(() => rowsEl[0]!.click())
+    const panel = c.querySelector('[data-testid="trace-step-panel"]')!
+    const pre = panel.querySelector('[data-testid="step-preview"]')!
+    expect(pre.className).toBe('trc-preview')
+    const more = panel.querySelector<HTMLButtonElement>('[data-testid="step-more"]')!
+    expect(more.textContent).toBe('more')
     act(() => more.click())
     expect(pre.className).toContain('trc-preview--open')
     expect(more.textContent).toBe('less')
     expect(calls.length).toBe(before)
     // A short preview has no toggle.
-    expect(c.querySelector('[data-trace-step]')!.querySelector('[data-testid="step-more"]')).toBeNull()
+    act(() => rowsEl[1]!.click())
+    expect(c.querySelector('[data-testid="trace-step-panel"] [data-testid="step-more"]')).toBeNull()
+    // Choosing the first failure again shows the failure panel alone.
+    act(() => rowsEl[2]!.click())
+    expect(c.querySelector('[data-testid="trace-step-panel"]')).toBeNull()
   })
 
   it('sends agent_id from the URL', async () => {
