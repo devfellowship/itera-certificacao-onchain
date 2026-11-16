@@ -210,6 +210,22 @@ describe('S7 result diff', () => {
     expect(q(c, 'studio-diff-page')).not.toBeNull()
   })
 
+  it('follows the canvas artboard: themed page, bar, head row, sections, honest gap, tone per aligned step', async () => {
+    const c = await ready('/studio/diff?baseRun=rb-2&run=rv-2')
+    const page = q(c, 'studio-diff-page')!
+    expect(page.classList.contains('stu-theme')).toBe(true)
+    expect(page.querySelector('.stu-crumb--current')?.textContent).toBe('compare runs')
+    expect(page.querySelector('h1')?.textContent).toBe('Compare runs')
+    expect([...page.querySelectorAll('.df-sec__title')].map((t) => t.textContent)).toEqual(['Result', 'Outputs per data type', 'Tool calls'])
+    expect(q(c, 's7-base-status')!.textContent).toBe('pass')
+    expect(q(c, 's7-case-link')!.getAttribute('href')).toBe(`/studio/cases/${CASE}`)
+    // What the data does not carry is named, not drawn.
+    expect(q(c, 's7-gap')!.textContent).toContain('final reply')
+    // Aligned steps: same, inserted, changed, removed; each side cell carries its tone.
+    const tones = qa(c, 's7-step').map((r) => [...r.querySelectorAll('td')].map((td) => td.className.replace('df-step df-step--', '')))
+    expect(tones).toEqual([['same', 'same'], ['none', 'add'], ['chg', 'chg'], ['del', 'none']])
+  })
+
   it('from ?baseRun&run: rows per data type rendered by the run page renderers, Expected, steps, links', async () => {
     const c = await ready('/studio/diff?baseRun=rb-2&run=rv-2')
     expect(qa(c, 's7-row').map((r) => r.dataset.kind)).toEqual(['diff', 'json', 'markdown'])
