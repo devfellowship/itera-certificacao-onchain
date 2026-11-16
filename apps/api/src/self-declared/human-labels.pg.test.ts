@@ -110,9 +110,10 @@ describe.skipIf(!URL_)("PgHumanLabelStore on Postgres (0023 and 0024 applied)", 
   it("returns the redacted steps of the run with tool, target, status and timing, and nothing for another tenant", async () => {
     const steps = await store.steps(runId, TENANT);
     expect(steps.map((x) => x.seq)).toEqual([1, 2]);
-    expect(steps[0]).toMatchObject({ tool: "Read", target: "lib/add.js", status: "ok", durationMs: 1000 });
-    expect(steps[1]).toMatchObject({ tool: "Bash", target: "npm test", status: "error", errorClass: "tool_error" });
-    expect((await store.queue(TENANT, JUDGE, LABELER, 50))[0]!.steps.map((x) => x.seq)).toEqual([1, 2]);
+    expect(steps[0]).toMatchObject({ tool: "Read", target: "lib/add.js", status: "ok", durationMs: 1000, kind: "read" });
+    expect(steps[1]).toMatchObject({ tool: "Bash", target: "npm test", status: "error", errorClass: "tool_error", kind: "test" });
+    // The upload is tma-trajectory/1 (no stored kind): the queue boxes carry the derived kind too.
+    expect((await store.queue(TENANT, JUDGE, LABELER, 50))[0]!.steps).toEqual([{ seq: 1, kind: "read", ok: true }, { seq: 2, kind: "test", ok: false }]);
     expect(await store.steps(runId, `${TENANT}-other`)).toEqual([]);
   });
 

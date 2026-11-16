@@ -70,7 +70,13 @@ function StepTimeline({ runId, selected, onSelect }: { runId: string; selected: 
               <button type="button" className="rvw-rowbtn" onClick={() => onSelect(x.seq)} aria-pressed={on}>
                 <span className="rvw-step">{kindLetter(x.kind)}</span> <strong>{x.tool}</strong> <span className="tma-mono">{x.target ?? ''}</span>
                 {x.status !== 'ok' && <span className="tma-muted"> {x.status ?? 'unknown'}</span>}
-                {x.durationMs !== null && <span className="tma-muted"> {fmtDuration(x.durationMs)}</span>}
+                {x.durationMs !== null && (
+                  <span className={x.durationMs >= LONG_GAP_MS ? 'rvw-dur--long' : 'tma-muted'} data-testid={x.durationMs >= LONG_GAP_MS ? 'review-step-long' : undefined}>
+                    {' '}
+                    {x.durationMs >= LONG_GAP_MS ? 'ran ' : ''}
+                    {fmtDuration(x.durationMs)}
+                  </span>
+                )}
               </button>
             </li>
           )

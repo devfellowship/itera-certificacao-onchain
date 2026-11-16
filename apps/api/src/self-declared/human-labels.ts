@@ -26,6 +26,7 @@
  */
 import { createHash } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
+import { hostedStepKindOf } from "@itera/contracts";
 import type { Pool } from "pg";
 import { requirePrincipal } from "../auth/middleware.js";
 import type { Principal } from "../auth/adapters/types.js";
@@ -110,6 +111,17 @@ export interface StepDetail {
   turnOrigin: string | null;
 }
 export const STEPS_MAX = 2000;
+
+/** The step kind that S13 shows. The kind the uploader stored (tma-trajectory/2) wins. A tma-trajectory/1 upload (every
+ * recorded Claude Code session so far) stores none, so the kind is derived from the tool and the redacted target, the way
+ * the hosted back-fill does (contracts/step-kind.js). Claude Code names its sub-agent tool `Agent`. */
+export function displayKind(stored: string | null, tool: string, target: string | null): string {
+  if (stored) return stored;
+  const name = tool.toLowerCase();
+  if (name === "agent") return "agent";
+  if (name === "notebookedit") return "write";
+  return hostedStepKindOf(tool, target);
+}
 
 export interface HumanLabelStore {
   ready(): Promise<boolean>;
@@ -214,7 +226,7 @@ export class PgHumanLabelStore implements HumanLabelStore {
               ${latest("$2", "g.kind = 'judge'")} as judge,
               ${latest("$4", "g.kind = 'human' and gr.labeler like 'workflow:%'")} as workflow,
               ${latest("$4", "g.kind = 'human' and gr.labeler = $3")} as mine,
-              (select coalesce(json_agg(json_build_object('seq', a.seq, 'kind', a.step_kind, 'ok', a.ok) order by a.seq), '[]'::json)
+              (select coalesce(json_agg(json_build_object('seq', a.seq, 'kind', a.step_kind, 'tool', a.tool, 'target', a.target, 'ok', a.ok) order by a.seq), '[]'::json)
                  from public.run_actions a where a.run_id = t.id) as steps
          from t`,
       [tenant, judgeId, labeler, labelGraderId(judgeId)],
@@ -227,7 +239,9 @@ export class PgHumanLabelStore implements HumanLabelStore {
         runId: String(r.id), caseKey: String(r.case_key), useCaseKey: String(r.use_case_key), originPinSha256: orNull(r.origin_pin_sha256),
         taskSummary: ts ? { before: orNull(ts.before), expected: orNull(ts.expected) } : null,
         modelId: orNull(r.model_id), status: String(r.status), startedAt: iso(r.started_at),
-        steps: Array.isArray(r.steps) ? (r.steps as ReviewRun["steps"]) : [],
+        steps: Array.isArray(r.steps)
+          ? (r.steps as Array<{ seq: number; kind: string | null; tool: string; target: string | null; ok: boolean | null }>).map((x) => ({ seq: x.seq, kind: displayKind(x.kind, x.tool, x.target), ok: x.ok }))
+          : [],
         judge, workflow, mine: verdict(r.mine),
         disagree: judge !== null && workflow !== null && judge.pass !== workflow.pass,
       };
@@ -245,7 +259,7 @@ export class PgHumanLabelStore implements HumanLabelStore {
     );
     const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
     return rows.map((r: Record<string, unknown>) => ({
-      seq: Number(r.seq), tool: String(r.tool), target: orNull(r.target), kind: orNull(r.step_kind), status: orNull(r.status),
+      seq: Number(r.seq), tool: String(r.tool), target: orNull(r.target), kind: displayKind(orNull(r.step_kind), String(r.tool), orNull(r.target)), status: orNull(r.status),
       errorClass: orNull(r.error_class), durationMs: num(r.duration_ms), startedMs: num(r.started_ms), turnOrigin: orNull(r.turn_origin),
     }));
   }

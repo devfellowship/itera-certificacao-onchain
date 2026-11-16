@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueSessionToken } from "../auth/session.js";
 import {
-  createHumanLabelsRouter, humanLabelDigest, labelerOf, queueOrder, type HumanLabel, type StepDetail, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
+  createHumanLabelsRouter, displayKind, humanLabelDigest, labelerOf, queueOrder, type HumanLabel, type StepDetail, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
 } from "./human-labels.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -155,6 +155,23 @@ describe("helpers", () => {
       run("d", { startedAt: "2026-11-15T11:00:00.000Z" }),
     ]);
     expect(out.map((r) => r.runId)).toEqual(["c", "d", "b", "a"]);
+  });
+});
+
+describe("displayKind", () => {
+  it("keeps a stored kind and derives the others from the tool and the redacted target", () => {
+    expect(displayKind("test", "Bash", "ls")).toBe("test");
+    expect(displayKind(null, "Read", "lib/add.js")).toBe("read");
+    expect(displayKind(null, "Edit", "lib/add.js")).toBe("write");
+    expect(displayKind(null, "Write", "lib/add.js")).toBe("write");
+    expect(displayKind(null, "Grep", "foo")).toBe("search");
+    expect(displayKind(null, "Bash", "npm run test")).toBe("test");
+    expect(displayKind(null, "Bash", "git commit")).toBe("write");
+    expect(displayKind(null, "Bash", "gh pr view")).toBe("shell");
+    expect(displayKind(null, "mcp__dfl__get_plan", null)).toBe("mcp");
+    expect(displayKind(null, "Skill", "plan-tasks")).toBe("mcp");
+    expect(displayKind(null, "Agent", null)).toBe("agent");
+    expect(displayKind(null, "Monitor", null)).toBe("other");
   });
 });
 
