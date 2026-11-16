@@ -194,6 +194,15 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # C6-T3: the human label store (S13) through the real SQL — a trace_review upload in a random tenant gives the
+      # run; a label reads back on the label-<judge>@1.0.0 grader with its labeler; the review queue shows the judge vs
+      # workflow disagreement; another tenant reads nothing. It deletes its fixtures.
+      - name: Human label store test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/self-declared/human-labels.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       # C4-T4: the hosted worker's finish writes the same record as an upload — run_actions rows with status and
       # args_sha256, runs.infra_ok, one grader_results row, a grader registry row reused by the next run; the
       # old shape when 0023 is absent; a refused trajectory never loses the run result. It deletes its fixtures.
