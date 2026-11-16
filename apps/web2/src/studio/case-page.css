@@ -1,0 +1,45 @@
+/* S4 test case, on the canvas artboard (UI-S4S6S7). Tokens from theme.css only. */
+.cs-tags { margin-top: var(--stu-gap-2); }
+.stu-chip--static { min-height: 28px; padding: 0 10px; cursor: default; }
+.stu-chip--static:hover { border-color: var(--stu-line); color: var(--stu-text-2); }
+a.stu-chip { text-decoration: none; }
+
+.cs-trace { display: flex; align-items: center; gap: var(--stu-gap-3); flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-surface); }
+.cs-trace__mark { flex: none; width: 26px; height: 26px; border-radius: 7px; background: var(--stu-line-strong); color: var(--stu-text); font-size: 10px; font-weight: 600; line-height: 26px; text-align: center; }
+.cs-trace__text { display: flex; flex-direction: column; min-width: 0; color: var(--stu-text); font-weight: 500; }
+.cs-trace__link { margin-left: auto; }
+
+.cs-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.cs-mode { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); color: var(--stu-text-muted); }
+.cs-mode--on { border-color: var(--stu-line-hover); background: var(--stu-raised); }
+.cs-mode input { margin: 3px 0 0; accent-color: var(--stu-text-2); }
+.cs-mode b { display: block; font-weight: 500; color: var(--stu-text); }
+.cs-mode__sub { display: block; color: var(--stu-text-muted); }
+
+/* Steps 2 and 3 sit side by side on a wide screen, one under the other on a narrow one. */
+.cs-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 26px 40px; align-items: start; }
+.cs-field { display: flex; flex-direction: column; gap: 6px; }
+.cs-quote { padding: 12px 14px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-surface); color: var(--stu-text); font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cs-quote--plain { color: var(--stu-text-2); font-size: var(--stu-fs-body); }
+
+.cs-table { border: 1px solid var(--stu-line); border-radius: var(--stu-radius); overflow: hidden; }
+.cs-table__head, .cs-table__row { display: grid; grid-template-columns: minmax(96px, 160px) minmax(0, 1fr); column-gap: var(--stu-gap-4); padding: 0 14px; align-items: center; }
+.cs-table__head { padding-top: 8px; padding-bottom: 8px; background: var(--stu-surface); border-bottom: 1px solid var(--stu-line); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); }
+.cs-th { display: inline-flex; align-items: center; gap: 3px; }
+.cs-table__row { min-height: 36px; padding-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--stu-line); }
+.cs-table__row:last-child { border-bottom: 0; }
+.cs-table__k { color: var(--stu-text-2); }
+.cs-table__v { color: var(--stu-text-muted); overflow-wrap: anywhere; min-width: 0; }
+
+.cs-graders { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.cs-grader { display: flex; flex-direction: column; gap: var(--stu-gap-1); padding: 12px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); min-width: 0; }
+.cs-grader__top { display: flex; align-items: center; gap: var(--stu-gap-2); color: var(--stu-text); font-weight: 500; overflow-wrap: anywhere; }
+.cs-grader__kind { margin-left: auto; font-weight: 400; color: var(--stu-text-muted); font-size: 12px; }
+
+.cs-variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 10px; }
+.cs-variant { display: flex; flex-direction: column; gap: var(--stu-gap-2); padding: 14px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-surface); min-width: 0; }
+.cs-variant__title { margin: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 15px; font-weight: 600; color: var(--stu-text); }
+.cs-variant__agent { margin: 0; overflow-wrap: anywhere; }
+.cs-variant__stats { margin: 0; color: var(--stu-text-2); }
+.cs-runs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.cs-runs .stu-chip { gap: 7px; }

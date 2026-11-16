@@ -1,0 +1,106 @@
+/*
+ * Page chrome of the studio canvas screens (UI-S4S6S7). Tokens only: every color comes from theme.css (--stu-*).
+ * A page puts `stu-theme` and `stu-page` on its <main>; the bar, the body and the pieces below lay it out like the artboards.
+ */
+.tma-page.stu-page { max-width: none; padding: 0 0 80px; gap: 0; }
+/* The app shell keeps a 1024px floor for the desktop screens (tma/ui/ui.css). These pages reflow, so they lift it. */
+.tma-app:has(.stu-page) { min-width: 0; }
+
+.stu-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--stu-gap-2) var(--stu-gap-3);
+  min-height: 52px;
+  padding: var(--stu-gap-2) 24px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--stu-line);
+}
+.stu-bar__actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-2); }
+.stu-crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; color: var(--stu-text-muted); min-width: 0; }
+.stu-crumbs a { color: var(--stu-text-muted); }
+.stu-crumbs a:hover { color: var(--stu-text); }
+.stu-crumb { overflow-wrap: anywhere; }
+.stu-crumb--current { color: var(--stu-text); font-weight: 500; overflow-wrap: anywhere; }
+.stu-crumbs__sep { color: var(--stu-line-hover); }
+
+.stu-body { padding: 28px 40px; display: flex; flex-direction: column; gap: 26px; min-width: 0; box-sizing: border-box; }
+.stu-body--tight { gap: 20px; }
+@media (max-width: 720px) {
+  .stu-bar { padding: var(--stu-gap-2) var(--stu-gap-4); }
+  .stu-body { padding: 20px var(--stu-gap-4); gap: 22px; }
+}
+
+.stu-titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-2); min-width: 0; }
+.stu-titlerow h1 { overflow-wrap: anywhere; }
+.stu-titlerow__actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: var(--stu-gap-2); }
+.stu-theme .stu-lead { margin: var(--stu-gap-1) 0 0; max-width: 72ch; color: var(--stu-text-muted); }
+
+/* (i): the shared Tip, on the canvas look */
+.stu-theme .stu-info { color: var(--stu-text-muted); width: 22px; height: 22px; justify-content: center; border-radius: var(--stu-radius); }
+.stu-theme .stu-info:hover { color: var(--stu-text); }
+.stu-theme .tma-tip__bubble {
+  background: var(--stu-raised);
+  border: 1px solid var(--stu-line-strong);
+  border-radius: var(--stu-radius);
+  color: var(--stu-text-2);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: none;
+}
+
+/* Numbered step */
+.stu-step { display: flex; flex-direction: column; gap: var(--stu-gap-3); min-width: 0; }
+.stu-step__title { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; color: var(--stu-text); }
+.stu-step__n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  border: 1px solid var(--stu-line-strong);
+  border-radius: 999px;
+  color: var(--stu-text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* A link that reads as text with an underline (artboard: "Change", row links) */
+.stu-theme .stu-link { color: var(--stu-text-2); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--stu-line-hover); }
+.stu-theme .stu-link:hover { color: var(--stu-accent-hover); }
+a.stu-btn { text-decoration: none; }
+.stu-theme a.stu-btn--primary:hover { color: var(--stu-on-accent); }
+
+/* Gap note: a field the artboard shows and the API does not return */
+.stu-gap { color: var(--stu-text-muted); font-size: 12px; }
+
+/* Copy command on the canvas look (shared CopyCommand, inside a themed page only) */
+.stu-theme .stu-copy { gap: var(--stu-gap-2); }
+.stu-theme .stu-copy__btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--stu-line-strong);
+  border-radius: var(--stu-radius);
+  color: var(--stu-text-2);
+  font-weight: 500;
+}
+.stu-theme .stu-copy__btn:hover { border-color: var(--stu-line-hover); color: var(--stu-text); }
+.stu-theme .stu-copy__pre {
+  border: 1px solid var(--stu-line);
+  border-radius: var(--stu-radius);
+  background: var(--stu-surface);
+  color: var(--stu-text-2);
+  font-family: var(--stu-font-mono);
+  font-size: 12px;
+}
+
+/* Load and empty states */
+.stu-theme .stu-state { padding: var(--stu-gap-4); border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-surface); display: flex; flex-direction: column; gap: var(--stu-gap-2); }
+
+/* On a phone the app nav wraps instead of pushing the page sideways (same pattern as .w2-hint-page in tma/ui/ui.css). */
+@media (max-width: 720px) {
+  .tma-app:has(.stu-page) .tma-nav { height: auto; padding: 10px 16px; flex-wrap: wrap; gap: 8px; }
+  .tma-app:has(.stu-page) .tma-nav__left { flex-wrap: wrap; gap: 8px 16px; }
+  .tma-app:has(.stu-page) .tma-nav__links { flex-wrap: wrap; gap: 8px 16px; }
+}

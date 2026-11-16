@@ -186,10 +186,31 @@ describe('S4 test case', () => {
     const c = mountAt(`/studio/cases/${CASE}`)
     await waitFor(() => !!c.querySelector('[data-task-summary]'), 'summary')
     const s = c.querySelector('[data-task-summary]')!
-    expect([...s.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['Before', 'Expected'])
+    expect([...s.querySelectorAll('[data-summary-label]')].map((d) => d.textContent)).toEqual(['Before', 'Expected'])
     expect(s.textContent).toContain('Duplicate webhook events create two orders.')
     expect(s.textContent).toContain('One order per event id.')
     expect(c.querySelector('main')!.textContent).not.toMatch(/outcome/i)
+  })
+
+  it('follows the canvas artboard: themed page, trail bar, three numbered steps, read-only mode, honest gaps', async () => {
+    const c = mountAt(`/studio/cases/${CASE}`)
+    await waitFor(() => !!c.querySelector('[data-testid="case-key"]'), 'case')
+    const page = c.querySelector('[data-testid="studio-case-page"]')!
+    expect(page.classList.contains('stu-theme')).toBe(true)
+    expect(page.classList.contains('stu-page')).toBe(true)
+    expect(page.querySelector('.stu-crumb--current')?.textContent).toBe('webhook-dup-001')
+    expect(page.querySelector('[data-testid="studio-back"]')?.getAttribute('href')).toBe('/studio')
+    expect([...page.querySelectorAll('.stu-step__title')].map((h) => h.textContent)).toEqual(['1Start from a real trace', '2The problem', '3Expected output and graders'])
+    const radios = [...page.querySelectorAll<HTMLInputElement>('[data-testid="case-modes"] input[type="radio"]')]
+    expect(radios.map((r) => [r.checked, r.disabled])).toEqual([[true, true], [false, true]])
+    expect(page.querySelector('[data-testid="summary-before"]')?.textContent).toBe('Duplicate webhook events create two orders.')
+    expect(page.querySelector('[data-testid="summary-expected"]')?.textContent).toBe('One order per event id.')
+    // The artboard fields the API does not return are named, not invented.
+    expect(page.querySelector('[data-testid="case-gap-trace"]')?.textContent).toContain('not on the case')
+    expect(page.querySelector('[data-testid="case-gap-context"]')?.textContent).toContain('digest only')
+    // The experiment builder link sits in the title row.
+    expect(page.querySelector('.stu-titlerow [data-testid="case-experiment-link"]')).not.toBeNull()
+    expect(page.querySelectorAll('[data-testid="case-run-link"] .stu-dot--ok')).toHaveLength(2)
   })
 
   it('copies the exact command with navigator.clipboard, and keeps a selectable <pre>', async () => {
