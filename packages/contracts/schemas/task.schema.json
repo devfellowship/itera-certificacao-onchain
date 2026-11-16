@@ -76,6 +76,11 @@
           "description": "argv run in the workspace before any test, on the trusted side, with network. Lifecycle scripts never run: the evaluator always adds --ignore-scripts for npm. Default: npm ci.",
           "$ref": "#/$defs/argv"
         },
+        "lockfile": {
+          "description": "Lockfile policy driver (plan 20261112-dfl-os-eval-cases-from-real-tasks ADR-5). registry-only (default): every package-lock.json entry resolves to the npm registry and a local link is refused. workspace-links: an npm workspace link is allowed when its resolved path stays inside environment/ and names a directory with a package.json; every other entry keeps the registry rule.",
+          "enum": ["registry-only", "workspace-links"],
+          "default": "registry-only"
+        },
         "allow_internet": {
           "description": "Harbor name. Grading never has network on testmyagent; only false is accepted.",
           "const": false
@@ -133,10 +138,10 @@
     "tests": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["public", "hidden"],
+      "required": ["hidden"],
       "properties": {
         "public": {
-          "description": "Directory copied into the agent workspace at the same relative path.",
+          "description": "Directory copied into the agent workspace at the same relative path. Optional (ADR-5): without it no public suite runs, and both public suites are recorded with state not_declared. The hidden tests stay required.",
           "$ref": "#/$defs/relPath"
         },
         "hidden": {

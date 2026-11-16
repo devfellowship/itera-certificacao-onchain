@@ -11,8 +11,10 @@ export interface TestCaseResult {
  * - report_mismatch: the report disagrees with the verifier exit code (exit 0 with failures, or a
  *   non-zero exit with no failure). The report file is written inside the grading container, so a
  *   mismatch is treated as possible tampering, never as a score.
+ * - not_declared: task.json declares no public tests (ADR-5), so the public suites never ran. It is
+ *   not an error and not a zero-test run.
  */
-export type SuiteState = 'ok' | 'no_report' | 'timeout' | 'report_mismatch' | 'skipped';
+export type SuiteState = 'ok' | 'no_report' | 'timeout' | 'report_mismatch' | 'skipped' | 'not_declared';
 
 export interface TestSuiteResult {
   total: number;

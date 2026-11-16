@@ -23,15 +23,28 @@ solution/*.patch     reference solution, for the validation gate only (Harbor: s
 | `metadata` | `[metadata]` | free form; `metadata.tags.{tools,concepts}` |
 | `instruction` | `instruction.md` | path of the Markdown prompt |
 | `environment.{dir,install,allow_internet,cpus,memory_mb}` | `[environment]` | `allow_internet` must be `false`; `install` default `npm ci` (always `--ignore-scripts`) |
-| `tests.{public,hidden}` | `tests/` | two directories, mounted at the same relative path |
+| `tests.{public,hidden}` | `tests/` | two directories, mounted at the same relative path (`public` optional since 0.4.0) |
 | `solution.patch` | `solution/` | unified diff against `environment/` |
 | `editable_paths`, `protected_paths` | — | globs; a changed file must match an editable glob and no protected glob, or the run is `invalid` |
 | `verifier.{cmd,report,timeout_sec}` | `[verifier] timeout_sec` + `tests/test.sh` | argv, no shell; `{tests}` → the suite directory, `{report}` → the report path; report format `vitest-json` |
 | `agent.timeout_sec` | `[agent] timeout_sec` | |
 | `est_minutes` | — | shown in the catalog |
 
+### Drivers (evaluator 0.4.0, plan `20261112-dfl-os-eval-cases-from-real-tasks` ADR-5)
+
+Optional `task.json` fields that let a real repository be a task without code in the kit. Each field
+is optional; without it the task grades exactly as before.
+
+| Field | Values | Default | Effect |
+|---|---|---|---|
+| `environment.lockfile` | `registry-only`, `workspace-links` | `registry-only` | `workspace-links` allows an npm workspace `link` entry whose `resolved` path stays inside `environment/` and names a directory with a `package.json`. A link that escapes `environment/` (`..`, an absolute path, a URL) is still refused. Every other entry keeps the registry rule. |
+| `tests.public` | a directory, or absent | required before 0.4.0 | Absent: no public suite runs; both public suites are recorded with state `not_declared`, the gate and the run status use the hidden suite alone. `tests.hidden` stays required. |
+
+Every change to evaluator source gets a new minor of `EVALUATOR_VERSION` (= the `hidden-tests` grader
+version) and so a new code digest (`evaluatorDigest`, recursive over `src/`, tests left out).
+
 `loadTask()` also refuses: a path outside the bundle, a symbolic link or special file anywhere,
-`.npmrc` / `.yarnrc`, a lockfile entry resolved outside `registry.npmjs.org`, and
+`.npmrc` / `.yarnrc`, a lockfile entry resolved outside `registry.npmjs.org` (a workspace link only under `environment.lockfile = workspace-links`), and
 `protected_paths` that do not cover both test directories.
 
 ## Grading

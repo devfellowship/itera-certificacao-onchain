@@ -116,7 +116,9 @@ export async function validateTask(opts: { taskDir: string; executor?: SuiteExec
   const pub = first.tests.public_after_patch;
   const hid = first.tests.hidden;
   const passes = (s: TestSuiteResult) => s.state === 'ok' && s.total > 0 && s.passed === s.total;
-  const solved = first.patch_scope.allowed && first.errors.length === 0 && passes(pub) && passes(hid);
+  // ADR-5: a task without public tests needs only the hidden suite to pass.
+  const publicOk = pub.state === 'not_declared' || passes(pub);
+  const solved = first.patch_scope.allowed && first.errors.length === 0 && publicOk && passes(hid);
   result.checks.solution_passes = {
     ok: solved,
     detail: solved

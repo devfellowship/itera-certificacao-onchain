@@ -55,10 +55,16 @@ export function allHiddenPassed(hidden: Pick<EvidenceManifest['tests']['hidden']
   return hidden.total > 0 && hidden.passed === hidden.total && hidden.failed === 0;
 }
 
-/** Names of the suites that executed no test at all. */
+/**
+ * Names of the suites that executed no test at all. A public suite with state `not_declared` (the
+ * task declares no public tests, plan 20261112-dfl-os-eval-cases-from-real-tasks ADR-5) is not a
+ * zero-test run: it was never asked for. The hidden suite always counts.
+ */
 export function zeroTestSuites(manifest: EvidenceManifest): string[] {
   const t = manifest.tests;
-  return (['public_baseline', 'public_after_patch', 'hidden'] as const).filter((k) => !t[k] || t[k].total === 0);
+  return (['public_baseline', 'public_after_patch', 'hidden'] as const).filter(
+    (k) => !t[k] || (t[k].total === 0 && !(k !== 'hidden' && t[k].state === 'not_declared')),
+  );
 }
 
 /**
