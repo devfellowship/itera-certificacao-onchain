@@ -47,6 +47,10 @@ export function StudioHomePage({ cases }: { cases?: StudioCase[] }) {
           <Link to="/studio/compare" data-testid="studio-compare-link">
             Compare
           </Link>
+          {' · '}
+          <Link to="/studio/review" data-testid="studio-review-link">
+            Review
+          </Link>
           {/* C5-T6: S2 reads from `tma studio serve`; the link shows only when its URL is set. */}
           {STUDIO_SERVE_URL && (
             <>
