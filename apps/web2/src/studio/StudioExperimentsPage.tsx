@@ -147,13 +147,6 @@ function Cell({ c, variant, baseRuns, best }: { c: MatrixCase; variant: EvalVari
           {s.pass} / {s.counted}
         </span>
         {isBase && <Badge tone="neutral">baseline</Badge>}
-        {best && (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label="best" className="stu-ok mx-cell__best">
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
-        )}
-      </div>
-      <div className="mx-cell__line">
         {first ? (
           <Link to={evaluationHref(first)} data-testid="s6-cell-link" className="stu-link mx-cell__rate">
             {passRateText(s)}
@@ -161,10 +154,21 @@ function Cell({ c, variant, baseRuns, best }: { c: MatrixCase; variant: EvalVari
         ) : (
           <span className="mx-cell__rate">{passRateText(s)}</span>
         )}
-        {verdict && <VerdictMark verdict={verdict} />}
+        {best && (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label="best" className="stu-ok mx-cell__best">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        )}
       </div>
-      <details className="mx-more">
-        <summary>repeats, score, origin</summary>
+      <div className="mx-cell__line">
+        {verdict && <VerdictMark verdict={verdict} />}
+        {!isBase && c.baselineId && (
+          <Link to={studioHref('S7', { case: c.caseId, base: c.baselineId, variant: variant.id })} data-testid="s6-diff-link" className="stu-label stu-link" title={`Compare the runs of ${variant.label} with the baseline`}>
+            compare runs
+          </Link>
+        )}
+        <details className="mx-more">
+        <summary>details</summary>
         <dl className="mx-cell__nums">
           <dt>repeats</dt>
           <dd data-testid="s6-n">{s.n}</dd>
@@ -187,7 +191,8 @@ function Cell({ c, variant, baseRuns, best }: { c: MatrixCase; variant: EvalVari
             </Link>
           ))}
         </div>
-      </details>
+        </details>
+      </div>
     </td>
   )
 }
@@ -221,14 +226,18 @@ function AgentRow({ label, values }: { label: string; values: string[] }) {
           <span className="mx-metric__v mx-metric__v--mono">{v}</span>
         </td>
       ))}
+      <Fill />
     </tr>
   )
 }
 
+/** The cell under the dashed "add" column: it keeps the hairline of the row going to the table edge. */
+const Fill = () => <td className="mx-fill" aria-hidden="true" />
+
 function GroupHead({ title, cols }: { title: string; cols: number }) {
   return (
     <tr className="mx-group">
-      <th colSpan={cols + 1} scope="colgroup">
+      <th colSpan={cols + 2} scope="colgroup">
         {title}
       </th>
     </tr>
@@ -317,6 +326,15 @@ function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter
                   </span>
                 </th>
               ))}
+              <th scope="col" className="mx-addcol" data-testid="s6-add-column">
+                <Link to={studioHref('S5', { agent: agentFilter, case: caseFilter })} className="mx-add">
+                  <span className="mx-add__plus" aria-hidden="true">
+                    +
+                  </span>
+                  <span className="mx-add__title">Add another agent variant</span>
+                  <span className="stu-label">same {m.cases.length} test {m.cases.length === 1 ? 'case' : 'cases'}</span>
+                </Link>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -328,6 +346,7 @@ function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter
               {totals.map((t, i) => (
                 <Metric key={i} big value={rateOf(t) == null ? 'no counted run' : `${rateOf(t)}%`} sub={t.interval ? `${t.pass} of ${t.counted} · 90% CI ${Math.round(t.interval.lo)}–${Math.round(t.interval.hi)}` : undefined} best={bestRate === i} />
               ))}
+              <Fill />
             </tr>
             {showVersus && (
               <tr className="mx-row">
@@ -345,6 +364,7 @@ function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter
                     />
                   ),
                 )}
+                <Fill />
               </tr>
             )}
             <tr className="mx-row">
@@ -354,6 +374,7 @@ function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter
               {totals.map((t, i) => (
                 <Metric key={i} value={t.meanScore == null ? '—' : fmtScore(Math.round(t.meanScore * 10) / 10)} best={bestScore === i} />
               ))}
+              <Fill />
             </tr>
             <tr className="mx-row">
               <th scope="row" className="mx-rowhead">
@@ -362,6 +383,7 @@ function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter
               {totals.map((t, i) => (
                 <Metric key={i} value={String(t.n)} sub={`on ${t.cases} ${t.cases === 1 ? 'case' : 'cases'}`} />
               ))}
+              <Fill />
             </tr>
             <tr className="mx-row">
               <th scope="row" className="mx-rowhead">
@@ -370,6 +392,7 @@ function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter
               {totals.map((t, i) => (
                 <Metric key={i} value={String(t.infra)} sub={t.infra ? 'not scored' : undefined} best={lessInfra === i} />
               ))}
+              <Fill />
             </tr>
 
             <GroupHead title="Agent" cols={cols} />
@@ -395,21 +418,12 @@ function MatrixView({ data, agentFilter, caseFilter }: { data: Data; agentFilter
                       {c.caseKey}
                     </Link>
                     <span className="stu-label">{c.useCaseKey}</span>
-                    <span className="stu-tags">
-                      {c.baselineId &&
-                        m.variants
-                          .filter((v) => v.id !== c.baselineId && c.cells.has(v.id))
-                          .map((v) => (
-                            <Link key={v.id} to={studioHref('S7', { case: c.caseId, base: c.baselineId, variant: v.id })} data-testid="s6-diff-link" className="stu-label stu-link">
-                              {`diff ${v.label} vs baseline`}
-                            </Link>
-                          ))}
-                      {!c.baselineId && <span className="stu-label">no baseline on this case</span>}
-                    </span>
+                    {!c.baselineId && <span className="stu-label">no baseline on this case</span>}
                   </th>
                   {m.variants.map((v, i) => (
                     <Cell key={v.id} c={c} variant={v} baseRuns={baseRuns} best={best === i} />
                   ))}
+                  <Fill />
                 </tr>
               )
             })}

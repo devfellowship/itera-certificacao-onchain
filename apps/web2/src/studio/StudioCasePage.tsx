@@ -146,9 +146,9 @@ function CaseView({ detail, runs }: { detail: EvalCaseDetail; runs: EvalRunsResp
         <div className="stu-tags cs-tags" data-testid="case-use-case">
           <span className="stu-chip stu-chip--sm stu-chip--static">{type}</span>
           {subtype && <span className="stu-chip stu-chip--sm stu-chip--static">{subtype}</span>}
-          <Badge tone="neutral" testId="case-mode">
+          <span className="stu-chip stu-chip--sm stu-chip--static" data-testid="case-mode">
             {modeText}
-          </Badge>
+          </span>
         </div>
       </div>
 

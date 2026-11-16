@@ -1,12 +1,21 @@
 /* S6 experiment result, on the canvas artboard "S6 Experiment result: base vs variant" (UI-S4S6S7). Tokens from theme.css only. */
 .mx-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .mx-scroll { overflow-x: auto; min-width: 0; }
-.mx-table.stu-table { table-layout: fixed; min-width: calc(180px + var(--mx-cols, 2) * 300px); border-collapse: separate; border-spacing: 0; font-size: var(--stu-fs-body); }
-:where(.mx-table) th, :where(.mx-table) td { border-top: 0; padding: 0; text-align: left; vertical-align: middle; }
+.mx-table.stu-table { table-layout: fixed; min-width: calc(180px + var(--mx-cols, 2) * 380px + 200px); border-collapse: separate; border-spacing: 0; font-size: var(--stu-fs-body); }
+/* The shared `.stu-table th, .stu-table td` (padding 8px 20px, a top border) has specificity 0,1,1. Every rule that sets the padding of a matrix cell
+   carries the table class too (0,2,1), so it wins whatever the load order, and no two of them set the same cell. Do not wrap the table class in :where(): its zero weight loses to the shared rule. */
+.mx-table.stu-table th, .mx-table.stu-table td { border-top: 0; text-align: left; vertical-align: top; }
+.mx-table td.mx-fill { padding: 0; }
 .mx-table > thead > tr > th:first-child, .mx-table th.mx-rowhead { width: 180px; }
+.mx-table > thead > tr > th.mx-agent { width: 380px; }
 
-.mx-corner { padding: 0; }
-.mx-agent { padding: 0 10px 16px 0; vertical-align: top; font-weight: 400; }
+.mx-table th.mx-corner { padding: 0; }
+.mx-table th.mx-agent { padding: 0 10px 16px 0; vertical-align: top; font-weight: 400; }
+.mx-table th.mx-addcol { padding: 0 0 16px 0; vertical-align: top; font-weight: 400; }
+.mx-add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; box-sizing: border-box; height: 100%; min-height: 96px; padding: 12px; border: 1px dashed var(--stu-line-strong); border-radius: var(--stu-radius); color: var(--stu-text-2); text-align: center; text-decoration: none; }
+.mx-add:hover { border-color: var(--stu-line-hover); color: var(--stu-text); }
+.mx-add__plus { font-size: 18px; line-height: 1; color: var(--stu-text-muted); }
+.mx-add__title { font-weight: 500; }
 .mx-agent .mx-agent__row, .mx-agent .mx-agent__ver { display: flex; }
 .mx-agent .mx-agent__row { gap: 12px; align-items: center; padding: 14px 14px 6px; border: 1px solid var(--stu-line-strong); border-bottom: 0; border-radius: var(--stu-radius) var(--stu-radius) 0 0; background: var(--stu-surface); }
 .mx-agent .mx-agent__ver { padding: 0 14px 14px; border: 1px solid var(--stu-line-strong); border-top: 0; border-radius: 0 0 var(--stu-radius) var(--stu-radius); background: var(--stu-surface); overflow-wrap: anywhere; }
@@ -17,11 +26,11 @@
 .mx-agent__name .tma-muted { font-family: var(--stu-font-sans); font-size: 12px; font-weight: 400; }
 .mx-agent__role { color: var(--stu-text-muted); font-size: 12px; }
 
-.mx-group th { padding: 14px 0 6px; border-bottom: 1px solid var(--stu-line); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); font-weight: 400; color: var(--stu-text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.mx-table .mx-group th { padding: 14px 0 6px; border-bottom: 1px solid var(--stu-line); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); font-weight: 400; color: var(--stu-text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
 .mx-row > * { border-bottom: 1px solid var(--stu-surface); }
-.mx-rowhead { padding: 8px 12px 8px 0; font-weight: 400; color: var(--stu-text-muted); white-space: nowrap; }
+.mx-table th.mx-rowhead { padding: 8px 12px 8px 0; font-weight: 400; color: var(--stu-text-muted); white-space: nowrap; }
 .mx-changed { margin-left: 6px; height: 18px; padding: 0 6px; display: inline-flex; align-items: center; border-radius: 999px; background: var(--stu-warn-soft); color: var(--stu-warn); font-size: 10px; }
-.mx-metric { position: relative; padding: 8px 28px 8px 10px; min-height: 44px; color: var(--stu-text); }
+.mx-table td.mx-metric { position: relative; padding: 8px 28px 8px 10px; min-height: 44px; color: var(--stu-text); }
 .mx-metric__v { font-variant-numeric: tabular-nums; }
 .mx-metric__v--big { font-size: 20px; font-weight: 600; }
 .mx-metric__v--mono { font-family: var(--stu-font-mono); font-size: 12px; color: var(--stu-text-2); overflow-wrap: anywhere; }
@@ -31,13 +40,15 @@
 .mx-metric__best, .mx-cell__best { position: absolute; right: 8px; top: 12px; }
 
 .mx-row--case > * { vertical-align: top; }
-.mx-rowhead--case { display: table-cell; padding-top: 12px; white-space: normal; }
+.mx-table th.mx-rowhead--case { display: table-cell; padding-top: 12px; white-space: normal; }
 .mx-rowhead--case > * { display: block; }
 .mx-rowhead--case .stu-tags { display: flex; margin-top: 2px; }
-.mx-cell { position: relative; padding: 10px 28px 10px 10px; min-width: 0; }
+.mx-table td.mx-cell { position: relative; padding: 8px 28px 8px 10px; min-width: 0; }
 .mx-cell--best { background: var(--stu-accent-soft); }
+.mx-cell--best .mx-cell__count { color: var(--stu-ok); }
 .mx-cell--empty { color: var(--stu-text-muted); }
-.mx-cell__top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mx-cell__top { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; }
+.mx-cell__top .mx-cell__rate { margin-top: 0; color: var(--stu-text-muted); }
 .mx-cell__count { font-size: 14px; font-variant-numeric: tabular-nums; color: var(--stu-text); }
 .mx-cell__rate { display: inline-block; margin-top: 2px; font-size: 12px; }
 .mx-cell__nums { display: flex; flex-wrap: wrap; gap: 0 10px; margin: 4px 0; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); }
@@ -58,11 +69,17 @@
 .mx-select { height: 30px; padding: 0 8px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-bg); color: var(--stu-text-2); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); max-width: 100%; }
 .mx-cell .tma-badge { font-size: 11px; padding: 1px 6px; }
 .mx-cell .stu-tags { margin-top: 4px; }
-/* On a phone the matrix scrolls sideways inside its own container; the row names stay in view. */
-.mx-table th.mx-rowhead { position: sticky; left: 0; z-index: 1; background: var(--stu-bg); }
-.mx-cell__line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
-.mx-cell__line .mx-cell__rate { margin-top: 0; color: var(--stu-text-muted); }
-.mx-more { margin-top: 2px; }
+/* The matrix scrolls sideways inside its own container when it is wider than the screen; the row names stay in view. The ground is the page ground, so a scrolled cell does not show through. */
+.mx-table th.mx-rowhead, .mx-table th.mx-corner { position: sticky; left: 0; z-index: 1; background: var(--stu-bg); }
+@media (max-width: 720px) {
+  .mx-table.stu-table { min-width: calc(120px + var(--mx-cols, 2) * 300px + 200px); }
+  .mx-table > thead > tr > th:first-child, .mx-table th.mx-rowhead { width: 120px; }
+  .mx-table > thead > tr > th.mx-agent { width: 300px; }
+  .mx-table th.mx-rowhead { white-space: normal; padding-right: 8px; }
+}
+.mx-cell__line { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; margin-top: 4px; }
+.mx-more { margin-top: 0; }
+.mx-more[open] { flex: 1 0 100%; }
 .mx-more > summary { cursor: pointer; color: var(--stu-text-muted); font-size: var(--stu-fs-label); font-family: var(--stu-font-mono); list-style: none; }
 .mx-more > summary::-webkit-details-marker { display: none; }
 .mx-more > summary::before { content: '+ '; }

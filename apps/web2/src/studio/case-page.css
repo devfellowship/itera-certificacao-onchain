@@ -12,12 +12,15 @@ a.stu-chip { text-decoration: none; }
 .cs-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
 .cs-mode { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); color: var(--stu-text-muted); }
 .cs-mode--on { border-color: var(--stu-line-hover); background: var(--stu-raised); }
-.cs-mode input { margin: 3px 0 0; accent-color: var(--stu-text-2); }
+.cs-mode input { margin: 3px 0 0; flex: none; }
+/* The radios are disabled (the page is read only). A disabled native radio is greyed by the browser whatever the colors, so it is drawn here: the selected one in the text color. */
+.cs-mode input[type='radio'] { appearance: none; -webkit-appearance: none; box-sizing: border-box; width: 16px; height: 16px; border: 1.5px solid var(--stu-text-muted); border-radius: 999px; background: transparent; }
+.cs-mode input[type='radio']:checked { border-color: var(--stu-text); background: radial-gradient(circle, var(--stu-text) 0 4px, transparent 5px); }
 .cs-mode b { display: block; font-weight: 500; color: var(--stu-text); }
 .cs-mode__sub { display: block; color: var(--stu-text-muted); }
 
-/* Steps 2 and 3 sit side by side on a wide screen, one under the other on a narrow one. */
-.cs-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 26px 40px; align-items: start; }
+/* Steps 2 and 3 stack at full width, as on the artboard: the environment table gets the whole row. */
+.cs-pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 26px 0; align-items: start; }
 .cs-field { display: flex; flex-direction: column; gap: 6px; }
 .cs-quote { padding: 12px 14px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-surface); color: var(--stu-text); font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .cs-quote--plain { color: var(--stu-text-2); font-size: var(--stu-fs-body); }

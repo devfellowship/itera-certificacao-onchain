@@ -1,12 +1,16 @@
 /* S7 result diff, on the canvas artboard "S7 Result diff per data type" (UI-S4S6S7). Tokens from theme.css only. */
 .df-scroll { overflow-x: auto; min-width: 0; }
 .df-table { min-width: 900px; }
-.df-head { display: grid; grid-template-columns: 200px repeat(2, minmax(0, 1fr)); column-gap: 20px; align-items: stretch; padding-bottom: 12px; }
+.df-head { display: grid; grid-template-columns: 200px repeat(2, minmax(0, 1fr)); column-gap: 0; align-items: stretch; padding-bottom: 12px; }
+/* The 20 px gutter between the cards is a margin on the card, so the outputs table below (a 200 px head column, then cells with a 20 px left padding) keeps the same column edges. */
+.df-head > .df-side { margin-left: 20px; }
+/* With an Expected column in the outputs table, the head and the result grid get the same fourth track, so the variant column starts at the same x in all three. */
+.df-table--exp .df-head, .df-table--exp .df-grid { grid-template-columns: 200px repeat(2, minmax(0, 1fr)) max(240px, 26%); }
 .df-case, .df-side { display: flex; min-width: 0; padding: 12px 14px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-surface); box-sizing: border-box; }
 .df-case { align-items: center; gap: 12px; }
 .df-case__mark { flex: none; width: 36px; height: 36px; border-radius: 9px; background: var(--stu-line); color: var(--stu-text-2); display: flex; align-items: center; justify-content: center; }
 .df-case__text { display: flex; flex-direction: column; min-width: 0; }
-.df-case__key { font-family: var(--stu-font-display); font-size: 20px; font-weight: 600; line-height: 1.15; color: var(--stu-text); overflow-wrap: anywhere; }
+.df-case__key { display: block; font-family: var(--stu-font-display); font-size: 20px; font-weight: 600; line-height: 1.15; color: var(--stu-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 a.df-case__key:hover { color: var(--stu-accent-hover); }
 .df-side { flex-direction: column; gap: var(--stu-gap-2); }
 .df-side__row { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -23,22 +27,43 @@ a.df-case__key:hover { color: var(--stu-accent-hover); }
 .df-sec__count { color: var(--stu-text-muted); font-size: 12px; }
 .df-gap { margin: 6px 0 0; }
 
-.df-grid { display: grid; grid-template-columns: 200px repeat(2, minmax(0, 1fr)); column-gap: 20px; align-items: stretch; border-bottom: 1px solid var(--stu-surface); }
+.df-grid { display: grid; grid-template-columns: 200px repeat(2, minmax(0, 1fr)); column-gap: 0; align-items: stretch; border-bottom: 1px solid var(--stu-surface); }
 .df-grid__k { padding: 8px 0; color: var(--stu-text-2); align-self: center; }
-.df-cell { padding: 8px 10px; align-self: center; }
+.df-cell { margin-left: 20px; padding: 8px 10px; align-self: stretch; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.df-cell--pass { background: var(--stu-accent-soft); }
+.df-cell__icon { flex: none; }
 
 .df-outputs, .df-steps { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .df-outputs th, .df-outputs td, .df-steps th, .df-steps td { text-align: left; vertical-align: top; padding: 8px 10px; border: 0; border-bottom: 1px solid var(--stu-surface); }
 .df-outputs thead th, .df-steps thead th { padding-top: 10px; padding-bottom: 6px; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); font-weight: 400; color: var(--stu-text-muted); border-bottom: 1px solid var(--stu-line); overflow-wrap: anywhere; }
-.df-outputs tbody th { width: 200px; padding-left: 0; font-weight: 400; color: var(--stu-text-2); }
-.df-outputs thead th:first-child { padding-left: 0; }
-.df-expected { min-width: 240px; width: 26%; background: var(--stu-surface); border-left: 1px solid var(--stu-line); }
+.df-outputs tbody th { padding-left: 0; font-weight: 400; color: var(--stu-text-2); }
+/* table-layout: fixed reads the column widths from the HEADER row, so the 200 px of the first column goes on its head cell. */
+.df-outputs thead th:first-child, .df-steps thead th:first-child { width: 200px; box-sizing: border-box; padding-left: 0; }
+.df-outputs tbody td, .df-steps tbody td, .df-outputs thead th:not(:first-child), .df-steps thead th:not(:first-child) { padding-left: 20px; }
+.df-outputs thead th.df-expected-head { width: 26%; min-width: 240px; box-sizing: border-box; }
+.df-expected { min-width: 240px; background: var(--stu-surface); border-left: 1px solid var(--stu-line); }
 .df-none { color: var(--stu-text-muted); }
 
-.df-steps th.df-step__word { width: 200px; padding-left: 0; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); font-weight: 400; color: var(--stu-text-muted); }
+.df-steps th.df-step__word { padding-left: 0; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); font-weight: 400; color: var(--stu-text-muted); }
 .df-step { font-family: var(--stu-font-mono); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; color: var(--stu-text-2); }
 .df-step__dot { margin-right: 8px; width: 7px; height: 7px; vertical-align: 1px; }
 .df-step--chg { background: var(--stu-warn-soft); color: var(--stu-text); }
 .df-step--add { background: var(--stu-accent-soft); }
 .df-step--del { background: var(--stu-bad-soft); }
 .df-step--none { color: var(--stu-text-muted); }
+
+/* Under 720 px the tables stack: one card per row, labelled Base / Variant, with no sideways scroller. */
+@media (max-width: 720px) {
+  .df-table { min-width: 0; }
+  .df-table .df-head, .df-table .df-grid { grid-template-columns: minmax(0, 1fr); row-gap: var(--stu-gap-2); }
+  .df-head > .df-side, .df-cell { margin-left: 0; }
+  .df-grid__k { padding-bottom: 0; }
+  .df-cell::before { flex: 0 0 100%; content: attr(data-label); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); }
+  .df-outputs, .df-outputs tbody, .df-outputs tr, .df-outputs th, .df-outputs td, .df-steps, .df-steps tbody, .df-steps tr, .df-steps th, .df-steps td { display: block; width: auto; min-width: 0; }
+  .df-outputs thead, .df-steps thead { display: none; }
+  .df-outputs tbody th, .df-steps tbody th.df-step__word { padding: 12px 0 4px; border-bottom: 0; }
+  .df-outputs tbody td, .df-steps tbody td { padding: 4px 0; border-bottom: 0; }
+  .df-outputs tbody td::before, .df-steps tbody td::before { content: attr(data-label); display: block; margin-bottom: 4px; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); }
+  .df-outputs tbody tr, .df-steps tbody tr { padding-bottom: 8px; border-bottom: 1px solid var(--stu-surface); }
+  .df-outputs td.df-expected { border-left: 0; padding: 8px 10px; }
+}
