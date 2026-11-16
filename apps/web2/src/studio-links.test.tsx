@@ -198,6 +198,23 @@ describe('studio links on the old pages (C5-T2)', () => {
     )
     const href = (c: HTMLElement, id: string) => c.querySelector(`[data-testid="${id}"]`)?.getAttribute('href')
 
+    // A local agent (the owner of uploaded eval runs) has no public profile: its page carries the forward links too.
+    const baseFetch = globalThis.fetch as ReturnType<typeof vi.fn>
+    const baseImpl = baseFetch.getMockImplementation()!
+    baseFetch.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname
+      if (path === '/agents/agent-2/profile') return json(404, { error: 'not_found' })
+      if (path === '/agents/agent-2') return json(200, { agent: { id: 'agent-2', name: 'Local Agent', connector: 'local', model: 'opencode-go/x', providerKey: 'p', harness: 'opencode', visibility: 'private' } })
+      return baseImpl(input)
+    })
+    const local = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/agents/agent-2'] })} />)
+    await waitFor(() => !!local.querySelector('[data-testid="local-agent-detail"]'), 'local agent page')
+    expect(href(local, 'studio-variants')).toBe('/studio/experiments/new?agent=agent-2')
+    expect(href(local, 'studio-experiments')).toBe('/studio/experiments?agent=agent-2')
+    act(() => root?.unmount())
+    document.body.innerHTML = ''
+    baseFetch.mockImplementation(baseImpl)
+
     // S5 with an ?agent= filter and no uploaded run: the agent page link still exists.
     const s5 = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/studio/experiments/new?agent=agent-1'] })} />)
     await waitFor(() => !!s5.querySelector('[data-testid="experiment-agent-link"]'), 'S5 agent link')
