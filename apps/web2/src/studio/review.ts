@@ -68,7 +68,8 @@ export interface StepDetail {
 
 export const isJudge = (v: string | null): v is JudgeId => v !== null && (JUDGES as readonly string[]).includes(v)
 
-export const getReviewQueue = (judge: JudgeId) => request<{ judge: string; runs: ReviewRun[] }>('/review-queue', { query: { judge } })
+export const getReviewQueue = (judge: JudgeId, limit?: number) =>
+  request<{ judge: string; runs: ReviewRun[] }>('/review-queue', { query: limit ? { judge, limit: String(limit) } : { judge } })
 export const getRunSteps = (runId: string) => request<{ run_id: string; steps: StepDetail[] }>('/review-queue/steps', { query: { run_id: runId } })
 export const getLabels = (runId: string) => request<{ labels: HumanLabel[] }>('/grader-results/human', { query: { run_id: runId } })
 export const postLabel = (b: { run_id: string; judge_id: JudgeId; pass: boolean; reason_code: ReasonCode | null }) =>

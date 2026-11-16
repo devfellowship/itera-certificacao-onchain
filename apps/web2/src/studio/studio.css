@@ -368,3 +368,18 @@
 /* .stu-row (theme.css) sets `padding` as a shorthand and loads after this file's bare rule would, at the same
    specificity, so a bare `.rvw-call--bad` lost and the failed row sat 10px left of the others (UI-S13 judge). Two classes win. */
 .stu-row.rvw-call--bad { box-shadow: inset 2px 0 0 var(--stu-bad); padding: var(--stu-gap-2) 10px; margin: 0 -10px; }
+
+/* C6-T6: S11 judge calibration and S11a AI judge. Read only. */
+.cal-body { display: flex; flex-direction: column; gap: 12px; }
+.cal-counts { padding: 0; }
+.cal-measured { display: flex; flex-direction: column; gap: 12px; }
+.cal-measured__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cal-rate { display: flex; flex-direction: column; gap: 4px; }
+.cal-rate__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.cal-rate__value { font-size: 20px; font-weight: 600; }
+.cal-track { position: relative; height: 10px; border-radius: 5px; background: var(--tma-line); overflow: visible; }
+.cal-fill { height: 100%; border-radius: 5px; background: var(--tma-text-muted); }
+.cal-fill--ok { background: var(--tma-success, #1a7f4b); }
+.cal-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: currentColor; }
+.cal-matrix { max-width: 420px; }
+.cal-matrix td { font-variant-numeric: tabular-nums; }

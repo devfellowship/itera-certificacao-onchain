@@ -10,7 +10,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
-export type StudioScreen = 'S2' | 'S4' | 'S5' | 'S6' | 'S7' | 'S8' | 'S9' | 'S10'
+export type StudioScreen = 'S2' | 'S4' | 'S5' | 'S6' | 'S7' | 'S8' | 'S9' | 'S10' | 'S11'
 
 // S2 (C5-T6) is the trace picker. S3 (/studio/traces/:sessionId) is parametric and not listed: S2 rows link to it.
 export const STUDIO_SCREENS: Record<StudioScreen, { path: string; built: boolean }> = {
@@ -22,6 +22,8 @@ export const STUDIO_SCREENS: Record<StudioScreen, { path: string; built: boolean
   S8: { path: '/studio/compare', built: true },
   S9: { path: '/studio/trajectories', built: true },
   S10: { path: '/studio/graders', built: true },
+  // C6-T6: S11 judge calibration. S11a (/studio/calibration/:judgeId) is parametric and not listed: S11 cards link to it.
+  S11: { path: '/studio/calibration', built: true },
 }
 
 type Params = Record<string, string | null | undefined>

@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card } from '../tma/ui'
+import { StudioLink } from './links'
 import { failedState, listGraderVersions, shortDigest, type GraderVersionItem, type Loaded } from './graders'
 import './studio.css'
 
@@ -68,6 +69,11 @@ export function GraderLibraryPage() {
       <div className="stu-head">
         <h1 className="tma-h1">Graders</h1>
         <p className="stu-sub">Grader versions that graded your results. Read only.</p>
+        <p className="tma-body-sm">
+          <StudioLink screen="S11" testId="graders-calibration-link">
+            Judge calibration
+          </StudioLink>
+        </p>
       </div>
       {s.state === 'loading' && <p className="tma-body-sm tma-muted">Loading graders…</p>}
       {s.state === 'ready' && <GraderLibraryView items={s.data} />}

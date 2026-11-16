@@ -8,7 +8,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Card, CardHeader } from '../tma/ui'
+import { STUDIO_SCREENS } from './links'
 import { failedState, getGraderVersion, gradeCommand, shortDigest, type GraderVersionDetail, type Loaded } from './graders'
+import { isKnownJudge } from './calibration'
 import { GraderDryRunPanel } from './GraderDryRunPanel'
 import { GraderEmpty } from './GraderLibraryPage'
 import './studio.css'
@@ -73,6 +75,16 @@ export function GraderDetailView({
             <dd>{pct(g.tpr)}</dd>
             <dt>TNR</dt>
             <dd>{pct(g.tnr)}</dd>
+            {STUDIO_SCREENS.S11.built && isKnownJudge(g.graderId) && (
+              <>
+                <dt>Calibration</dt>
+                <dd>
+                  <Link to={`/studio/calibration/${encodeURIComponent(g.graderId)}?version=${encodeURIComponent(g.semver)}`} data-testid="grader-calibration-link">
+                    Open this judge
+                  </Link>
+                </dd>
+              </>
+            )}
             {g.rubricSha256 && (<><dt>Rubric</dt><dd className="tma-mono" title={g.rubricSha256}>{shortDigest(g.rubricSha256)}</dd></>)}
             {g.calibration && (
               <>

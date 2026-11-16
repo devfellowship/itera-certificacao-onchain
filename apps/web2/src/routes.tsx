@@ -29,6 +29,8 @@ import { TaskEditorPage } from './pages/TaskEditorPage'
 import { TaskProfilePage } from './pages/TaskProfilePage'
 import { TasksPage } from './pages/TasksPage'
 import { UserPage } from './pages/UserPage'
+import { CalibrationJudgePage } from './studio/CalibrationJudgePage'
+import { CalibrationPage } from './studio/CalibrationPage'
 import { GraderDetailPage } from './studio/GraderDetailPage'
 import { GraderLibraryPage } from './studio/GraderLibraryPage'
 import { StudioCasePage } from './studio/StudioCasePage'
@@ -122,6 +124,9 @@ export const routes: RouteObject[] = [
           { path: '/studio/compare', element: <StudioComparePage /> },
           // C6-T3: S13 review queue, the one studio write (a human label, POST /grader-results/human).
           { path: '/studio/review', element: <StudioReviewPage /> },
+          // C6-T6: S11 judge calibration and S11a AI judge. Read only.
+          { path: '/studio/calibration', element: <CalibrationPage /> },
+          { path: '/studio/calibration/:judgeId', element: <CalibrationJudgePage /> },
           // C8-T3: S12 routing per use case (plan 20261112-tma-c8-routing-from-evals). Writes only the verdict (ADR-1).
           { path: '/studio/routing/:useCase', element: <StudioRoutingPage /> },
         ],
