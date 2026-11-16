@@ -1,11 +1,12 @@
 import cors from "cors";
 import express, { type Express } from "express";
-import { CORS_ALLOWED_ORIGINS, TRUST_PROXY_HOPS } from "./config.js";
+import { CORS_ALLOWED_ORIGINS, TRUST_PROXY_HOPS, dflAuthConfigFromEnv } from "./config.js";
 import { createHealthHandler, type HealthDeps } from "./http/health.js";
 import { createVersionHandler } from "./http/version.js";
 import { createRateLimiters } from "./http/rate-limit.js";
 import { createAuthRouter } from "./http/auth.js";
 import { createAccountGuard } from "./auth/account-guard.js";
+import { createIamLevelGuard } from "./auth/iam-level-guard.js";
 import type { DflAuthDeps } from "./auth/adapters/dfl.js";
 import { createCredentialsRouter } from "./http/credentials-router.js";
 import { createEvaluationRequestsRouter } from "./http/evaluation-requests-router.js";
@@ -288,6 +289,8 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   app.use(createRateLimiters());
   // ADR-9 kill switch: `users.disabled` → 403 account_disabled on every write route of a dfl principal.
   if (options.dflAuth?.users) app.use(createAccountGuard({ users: options.dflAuth.users }));
+  // C6-S13-GATE: TMA_MIN_IAM_LEVEL on every route, not only at login (a session older than the gate gets 403 iam_level_too_low).
+  if (options.dflAuth?.users) app.use(createIamLevelGuard({ users: options.dflAuth.users, config: options.dflAuth.config ?? (() => dflAuthConfigFromEnv()) }));
   // L5: a revoked CLI session (a token with a `sid`) is refused before any router, the 4 MiB one included.
   const cliGuard = options.cliAuth ? createCliSessionGuard({ store: options.cliAuth.store, now: options.cliAuth.now }) : null;
   if (cliGuard) app.use(cliGuard);
