@@ -349,8 +349,9 @@ a.s9-row:hover { background: var(--tma-line); }
 .rvw-step--bad { outline: 2px solid #c0392b; opacity: 1; }
 .rvw-gap { padding: 0 6px; opacity: 0.7; }
 .rvw-chip { min-height: 36px; padding: 6px 12px; border: 1px solid currentColor; border-radius: 18px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.rvw-chip--on { background: currentColor; }
-.rvw-chip--on, .rvw-chip--on .rvw-key { color: var(--tma-bg, #fff); }
+/* The selected chip uses explicit tokens: `background: currentColor` with a changed `color` resolved both to the page background. */
+.rvw-chip--on { background: var(--tma-primary); border-color: var(--tma-primary); }
+.rvw-chip--on, .rvw-chip--on .rvw-key { color: var(--tma-on-primary); }
 .rvw-key { font-family: var(--tma-font-mono, monospace); font-size: 11px; opacity: 0.7; }
 .rvw-actions > * { flex: 1 1 30%; min-height: 44px; }
 .rvw-question { font-weight: 600; margin: 0; }
