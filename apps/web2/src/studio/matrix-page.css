@@ -60,3 +60,11 @@
 .mx-cell .stu-tags { margin-top: 4px; }
 /* On a phone the matrix scrolls sideways inside its own container; the row names stay in view. */
 .mx-table th.mx-rowhead { position: sticky; left: 0; z-index: 1; background: var(--stu-bg); }
+.mx-cell__line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
+.mx-cell__line .mx-cell__rate { margin-top: 0; color: var(--stu-text-muted); }
+.mx-more { margin-top: 2px; }
+.mx-more > summary { cursor: pointer; color: var(--stu-text-muted); font-size: var(--stu-fs-label); font-family: var(--stu-font-mono); list-style: none; }
+.mx-more > summary::-webkit-details-marker { display: none; }
+.mx-more > summary::before { content: '+ '; }
+.mx-more[open] > summary::before { content: '- '; }
+.mx-more > summary:hover { color: var(--stu-text); }

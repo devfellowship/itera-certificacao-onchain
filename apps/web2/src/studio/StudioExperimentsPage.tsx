@@ -153,36 +153,41 @@ function Cell({ c, variant, baseRuns, best }: { c: MatrixCase; variant: EvalVari
           </svg>
         )}
       </div>
-      {first ? (
-        <Link to={evaluationHref(first)} data-testid="s6-cell-link" className="stu-link mx-cell__rate">
-          {passRateText(s)}
-        </Link>
-      ) : (
-        <span className="mx-cell__rate">{passRateText(s)}</span>
-      )}
-      <dl className="mx-cell__nums">
-        <dt>repeats</dt>
-        <dd data-testid="s6-n">{s.n}</dd>
-        <dt>pass</dt>
-        <dd data-testid="s6-pass">
-          {s.pass} of {s.counted}
-        </dd>
-        <dt>mean score</dt>
-        <dd data-testid="s6-mean">{fmtScore(s.meanScore == null ? null : Math.round(s.meanScore * 10) / 10)}</dd>
-        <dt>infra failures</dt>
-        <dd data-testid="s6-infra" className={s.infra ? 'stu-warn' : undefined}>
-          {s.infra}
-        </dd>
-      </dl>
-      <div className="stu-tags">
-        <OriginMark origin={s.origin} />
-        {verdict && <VerdictMark verdict={verdict} />}
-        {more.map((e) => (
-          <Link key={e} to={evaluationHref(e)} className="stu-label stu-link" data-testid="s6-cell-more">
-            {e.slice(0, 8)}
+      <div className="mx-cell__line">
+        {first ? (
+          <Link to={evaluationHref(first)} data-testid="s6-cell-link" className="stu-link mx-cell__rate">
+            {passRateText(s)}
           </Link>
-        ))}
+        ) : (
+          <span className="mx-cell__rate">{passRateText(s)}</span>
+        )}
+        {verdict && <VerdictMark verdict={verdict} />}
       </div>
+      <details className="mx-more">
+        <summary>repeats, score, origin</summary>
+        <dl className="mx-cell__nums">
+          <dt>repeats</dt>
+          <dd data-testid="s6-n">{s.n}</dd>
+          <dt>pass</dt>
+          <dd data-testid="s6-pass">
+            {s.pass} of {s.counted}
+          </dd>
+          <dt>mean score</dt>
+          <dd data-testid="s6-mean">{fmtScore(s.meanScore == null ? null : Math.round(s.meanScore * 10) / 10)}</dd>
+          <dt>infra failures</dt>
+          <dd data-testid="s6-infra" className={s.infra ? 'stu-warn' : undefined}>
+            {s.infra}
+          </dd>
+        </dl>
+        <div className="stu-tags">
+          <OriginMark origin={s.origin} />
+          {more.map((e) => (
+            <Link key={e} to={evaluationHref(e)} className="stu-label stu-link" data-testid="s6-cell-more">
+              {e.slice(0, 8)}
+            </Link>
+          ))}
+        </div>
+      </details>
     </td>
   )
 }
