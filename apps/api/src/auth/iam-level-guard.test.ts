@@ -33,6 +33,7 @@ const humanLabels: { store: HumanLabelStore; tenant: string } = {
     },
     labels: async () => [],
     queue: async () => [run],
+    steps: async () => [],
   },
 };
 
@@ -120,6 +121,12 @@ describe("TMA_MIN_IAM_LEVEL on every route", () => {
     await get(QUEUE, t);
     expect(countingGets).toBe(after);
     expect(IAM_LEVEL_CACHE_TTL_MS).toBe(30_000);
+  });
+  it("lets a refused principal in at once after a new login stored a higher level (a refusal is not cached)", async () => {
+    const t = dflToken(DENY);
+    expect((await get(QUEUE, t)).status).toBe(403);
+    await seed(DENY, 50);
+    expect((await get(QUEUE, t)).status).toBe(200);
   });
   it("answers 503 and caches nothing when the users store fails", async () => {
     (users as UsersStore).get = async () => {

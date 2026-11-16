@@ -107,6 +107,15 @@ describe.skipIf(!URL_)("PgHumanLabelStore on Postgres (0023 and 0024 applied)", 
     await pool.end();
   });
 
+  it("returns the redacted steps of the run with tool, target, status and timing, and nothing for another tenant", async () => {
+    const steps = await store.steps(runId, TENANT);
+    expect(steps.map((x) => x.seq)).toEqual([1, 2]);
+    expect(steps[0]).toMatchObject({ tool: "Read", target: "lib/add.js", status: "ok", durationMs: 1000 });
+    expect(steps[1]).toMatchObject({ tool: "Bash", target: "npm test", status: "error", errorClass: "tool_error" });
+    expect((await store.queue(TENANT, JUDGE, LABELER, 50))[0]!.steps.map((x) => x.seq)).toEqual([1, 2]);
+    expect(await store.steps(runId, `${TENANT}-other`)).toEqual([]);
+  });
+
   it("is ready after 0024 and names the tenant of the run's case", async () => {
     expect(await store.ready()).toBe(true);
     expect(await store.runTenant(runId)).toEqual({ tenant: TENANT });

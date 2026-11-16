@@ -10,6 +10,8 @@
  *                                  the judge result of the same run carries `<judge_id>`), pass, score 100 | 0, weight 0, hard_gate false, decisive false,
  *                                  infra_ok true, labeler = the caller (labelerOf), reason_code. 201 with the row.
  *   GET  /grader-results/human     ?run_id=<uuid>: the human labels of one run, newest first.
+ *   GET  /review-queue/steps       ?run_id=<uuid>: the redacted steps of one run (tool, target, status, duration, start in ms), the
+ *                                  detail behind the step boxes of S13. Same tenant checks as the labels.
  *   GET  /review-queue             ?judge=<id>[&limit=1..200]: the trace_review runs of the tenant that no person has
  *                                  labeled yet for that judge (a label under judge A keeps the run in the queue of judge B;
  *                                  a `workflow:` label does not close it), each with the task summary, the folded step kinds, the judge verdict, the workflow
@@ -83,7 +85,7 @@ export interface ReviewRun {
   status: string;
   startedAt: string;
   /** The folded trajectory: one step kind per step (null on an old row) and its ok flag. */
-  steps: Array<{ kind: string | null; ok: boolean | null }>;
+  steps: Array<{ seq: number; kind: string | null; ok: boolean | null }>;
   judge: Verdict | null;
   workflow: Verdict | null;
   mine: Verdict | null;
@@ -93,12 +95,29 @@ export interface ReviewRun {
 /** null = no such run; tenant null = a run with no eval case. */
 export type RunTenant = { tenant: string | null } | null;
 
+/** One step of a run, as the uploader redacted it (tma-trajectory): the tool, a redacted target (a path, a command's
+ * program and sub-command, a host), the outcome, the duration and the start in ms from the start of the run.
+ * No arguments, no tool output and no prompt text: they never left the host (parent Q-T9 = A). */
+export interface StepDetail {
+  seq: number;
+  tool: string;
+  target: string | null;
+  kind: string | null;
+  status: string | null;
+  errorClass: string | null;
+  durationMs: number | null;
+  startedMs: number | null;
+  turnOrigin: string | null;
+}
+export const STEPS_MAX = 2000;
+
 export interface HumanLabelStore {
   ready(): Promise<boolean>;
   runTenant(runId: string): Promise<RunTenant>;
   insert(row: { tenant: string; runId: string; judgeId: string; pass: boolean; reasonCode: ReasonCode | null; labeler: string }): Promise<HumanLabel>;
   labels(runId: string, tenant: string): Promise<HumanLabel[]>;
   queue(tenant: string, judgeId: string, labeler: string, limit: number): Promise<ReviewRun[]>;
+  steps(runId: string, tenant: string): Promise<StepDetail[]>;
 }
 
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
@@ -195,7 +214,7 @@ export class PgHumanLabelStore implements HumanLabelStore {
               ${latest("$2", "g.kind = 'judge'")} as judge,
               ${latest("$4", "g.kind = 'human' and gr.labeler like 'workflow:%'")} as workflow,
               ${latest("$4", "g.kind = 'human' and gr.labeler = $3")} as mine,
-              (select coalesce(json_agg(json_build_object('kind', a.step_kind, 'ok', a.ok) order by a.seq), '[]'::json)
+              (select coalesce(json_agg(json_build_object('seq', a.seq, 'kind', a.step_kind, 'ok', a.ok) order by a.seq), '[]'::json)
                  from public.run_actions a where a.run_id = t.id) as steps
          from t`,
       [tenant, judgeId, labeler, labelGraderId(judgeId)],
@@ -208,12 +227,27 @@ export class PgHumanLabelStore implements HumanLabelStore {
         runId: String(r.id), caseKey: String(r.case_key), useCaseKey: String(r.use_case_key), originPinSha256: orNull(r.origin_pin_sha256),
         taskSummary: ts ? { before: orNull(ts.before), expected: orNull(ts.expected) } : null,
         modelId: orNull(r.model_id), status: String(r.status), startedAt: iso(r.started_at),
-        steps: Array.isArray(r.steps) ? (r.steps as Array<{ kind: string | null; ok: boolean | null }>) : [],
+        steps: Array.isArray(r.steps) ? (r.steps as ReviewRun["steps"]) : [],
         judge, workflow, mine: verdict(r.mine),
         disagree: judge !== null && workflow !== null && judge.pass !== workflow.pass,
       };
     });
     return queueOrder(runs).slice(0, limit);
+  }
+
+  async steps(runId: string, tenant: string): Promise<StepDetail[]> {
+    const { rows } = await this.pool().query(
+      `select a.seq, a.tool, a.target, a.step_kind, a.status, a.error_class, a.duration_ms, a.started_ms, a.turn_origin
+         from public.run_actions a join public.runs r on r.id = a.run_id join public.eval_cases c on c.id = r.case_id
+        where a.run_id = $1 and c.tenant = $2 and c.mode = 'trace_review'
+        order by a.seq limit ${STEPS_MAX}`,
+      [runId, tenant],
+    );
+    const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+    return rows.map((r: Record<string, unknown>) => ({
+      seq: Number(r.seq), tool: String(r.tool), target: orNull(r.target), kind: orNull(r.step_kind), status: orNull(r.status),
+      errorClass: orNull(r.error_class), durationMs: num(r.duration_ms), startedMs: num(r.started_ms), turnOrigin: orNull(r.turn_origin),
+    }));
   }
 }
 
@@ -284,6 +318,14 @@ export function createHumanLabelsRouter(deps: HumanLabelsRouterDeps): Router {
       if (!Number.isInteger(n) || n < 1) throw new Refusal(400, "invalid_query", `limit is an integer from 1 to ${QUEUE_MAX_LIMIT}`);
       const runs = await deps.store.queue(tenant(), judge, labelerOf(req.principal!), Math.min(n, QUEUE_MAX_LIMIT));
       res.json({ judge, judges: LABEL_JUDGE_IDS, runs });
+    })().catch(fail(res, next));
+  });
+
+  router.get("/review-queue/steps", requirePrincipal, (req: Request, res: Response, next: NextFunction) => {
+    (async () => {
+      await guard(req);
+      const runId = await runOfTenant(req.query.run_id);
+      res.json({ run_id: runId, steps: await deps.store.steps(runId, tenant()) });
     })().catch(fail(res, next));
   });
 

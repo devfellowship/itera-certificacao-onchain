@@ -17,7 +17,9 @@ import { verifyPrincipalToken } from "./principal.js";
  * - `siws` principals and requests without a valid session skip it (the route answers 401 itself).
  * - A principal without a `users` row, or with a null level, counts as level 0 (fail closed). The person signs
  *   in again: the exchange reads the level from DFL and stores it.
- * - The lookup is cached per principal (30 s by default). A change of level takes effect within one TTL.
+ * - A PASS is cached per principal (30 s by default). A refusal is never cached, so a person who signs in again (the
+ *   exchange stores the new level) is let in at once; a refused principal costs one primary-key read per request, behind
+ *   the rate limiters.
  * - When the users store fails, the request is refused with 503 (fail closed) and nothing is cached.
  *
  * Mounted once in app.ts, before the routers, so no route can forget it.
@@ -45,14 +47,18 @@ export function createIamLevelGuard(options: IamLevelGuardOptions): RequestHandl
   const now = options.now ?? Date.now;
   const cache = new Map<string, { level: number; expiresAt: number }>();
 
-  async function levelOf(principalId: string): Promise<number> {
+  async function levelOf(principalId: string, min: number): Promise<number> {
     const at = now();
     const hit = cache.get(principalId);
-    if (hit && hit.expiresAt > at) return hit.level;
+    if (hit && hit.expiresAt > at && hit.level >= min) return hit.level;
     const row = await users.get(principalId);
     const level = row?.iamLevel ?? 0;
-    if (cache.size >= MAX_CACHE_ENTRIES) cache.clear();
-    cache.set(principalId, { level, expiresAt: at + ttlMs });
+    if (level >= min) {
+      if (cache.size >= MAX_CACHE_ENTRIES) cache.clear();
+      cache.set(principalId, { level, expiresAt: at + ttlMs });
+    } else {
+      cache.delete(principalId);
+    }
     return level;
   }
 
@@ -85,7 +91,7 @@ export function createIamLevelGuard(options: IamLevelGuardOptions): RequestHandl
       next();
       return;
     }
-    levelOf(principal.id).then(
+    levelOf(principal.id, min).then(
       (level) => {
         if (level < min) res.status(403).json({ error: "iam_level_too_low" });
         else next();

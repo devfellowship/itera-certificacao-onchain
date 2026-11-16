@@ -36,7 +36,7 @@ export interface ReviewRun {
   modelId: string | null
   status: string
   startedAt: string
-  steps: Array<{ kind: string | null; ok: boolean | null }>
+  steps: Array<{ seq: number; kind: string | null; ok: boolean | null }>
   judge: Verdict | null
   workflow: Verdict | null
   mine: Verdict | null
@@ -53,9 +53,23 @@ export interface HumanLabel {
   gradedAt: string
 }
 
+/** One redacted step (GET /review-queue/steps): the tool, a redacted target, the outcome and the timing. No arguments and no output. */
+export interface StepDetail {
+  seq: number
+  tool: string
+  target: string | null
+  kind: string | null
+  status: string | null
+  errorClass: string | null
+  durationMs: number | null
+  startedMs: number | null
+  turnOrigin: string | null
+}
+
 export const isJudge = (v: string | null): v is JudgeId => v !== null && (JUDGES as readonly string[]).includes(v)
 
 export const getReviewQueue = (judge: JudgeId) => request<{ judge: string; runs: ReviewRun[] }>('/review-queue', { query: { judge } })
+export const getRunSteps = (runId: string) => request<{ run_id: string; steps: StepDetail[] }>('/review-queue/steps', { query: { run_id: runId } })
 export const getLabels = (runId: string) => request<{ labels: HumanLabel[] }>('/grader-results/human', { query: { run_id: runId } })
 export const postLabel = (b: { run_id: string; judge_id: JudgeId; pass: boolean; reason_code: ReasonCode | null }) =>
   request<HumanLabel>('/grader-results/human', { method: 'POST', body: JSON.stringify(b) })
@@ -83,3 +97,26 @@ export async function pinIndex(opts: TraceFetchOptions = {}, maxPages = 10): Pro
   }
   return out
 }
+
+/** 1.2 s, 45 s, 3 min 10 s, 1 h 5 min. null stays null. */
+export function fmtDuration(ms: number | null): string | null {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return null
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)} s`
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s} s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return s % 60 === 0 ? `${m} min` : `${m} min ${s % 60} s`
+  const h = Math.floor(m / 60)
+  return m % 60 === 0 ? `${h} h` : `${h} h ${m % 60} min`
+}
+
+/** The idle time between the end of the previous step and the start of this one (ms), or null when either timing is missing. */
+export function gapBefore(prev: StepDetail | undefined, cur: StepDetail): number | null {
+  if (!prev || prev.startedMs === null || cur.startedMs === null) return null
+  const end = prev.startedMs + (prev.durationMs ?? 0)
+  return Math.max(0, cur.startedMs - end)
+}
+
+/** A gap of this size or more is shown as an idle stretch of the agent (a wait, or a pause between turns). */
+export const LONG_GAP_MS = 30_000

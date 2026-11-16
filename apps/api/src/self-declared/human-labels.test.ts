@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueSessionToken } from "../auth/session.js";
 import {
-  createHumanLabelsRouter, humanLabelDigest, labelerOf, queueOrder, type HumanLabel, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
+  createHumanLabelsRouter, humanLabelDigest, labelerOf, queueOrder, type HumanLabel, type StepDetail, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
 } from "./human-labels.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -44,6 +44,14 @@ class FakeStore implements HumanLabelStore {
   }
   async labels(runId: string) {
     return this.rows.filter((r) => r.runId === runId);
+  }
+  stepsFor: string[] = [];
+  async steps(runId: string): Promise<StepDetail[]> {
+    this.stepsFor.push(runId);
+    return [
+      { seq: 1, tool: "Bash", target: "gh pr view", kind: "shell", status: "ok", errorClass: null, durationMs: 1200, startedMs: 0, turnOrigin: "agent" },
+      { seq: 2, tool: "Bash", target: "sleep", kind: "shell", status: "ok", errorClass: null, durationMs: 600000, startedMs: 5000, turnOrigin: "agent" },
+    ];
   }
   async queue(...args: unknown[]) {
     this.queueArgs = args;
@@ -147,5 +155,25 @@ describe("helpers", () => {
       run("d", { startedAt: "2026-11-15T11:00:00.000Z" }),
     ]);
     expect(out.map((r) => r.runId)).toEqual(["c", "d", "b", "a"]);
+  });
+});
+
+describe("GET /review-queue/steps", () => {
+  it("returns the redacted steps of a run of the tenant, in order, with the timing fields", async () => {
+    const r = await call("GET", `/review-queue/steps?run_id=${RUN}`, human);
+    expect(r.status).toBe(200);
+    expect(r.json.run_id).toBe(RUN);
+    expect(r.json.steps.map((s: StepDetail) => s.seq)).toEqual([1, 2]);
+    expect(r.json.steps[1]).toMatchObject({ tool: "Bash", target: "sleep", durationMs: 600000, startedMs: 5000 });
+    expect(Object.keys(r.json.steps[0]).sort()).toEqual(["durationMs", "errorClass", "kind", "seq", "startedMs", "status", "target", "tool", "turnOrigin"]);
+  });
+  it("refuses a run of another tenant (403), a run with no case (409), an unknown or malformed id (404), a siws login (403)", async () => {
+    expect((await call("GET", `/review-queue/steps?run_id=${RUN_OTHER}`, human)).status).toBe(403);
+    expect((await call("GET", `/review-queue/steps?run_id=${RUN_NO_CASE}`, human)).status).toBe(409);
+    expect((await call("GET", `/review-queue/steps?run_id=4b6f3c2e-1d4a-4c8e-9f00-123456789abc`, human)).status).toBe(404);
+    expect((await call("GET", `/review-queue/steps?run_id=nope`, human)).status).toBe(404);
+    expect((await call("GET", `/review-queue/steps?run_id=${RUN}`, siws)).status).toBe(403);
+    expect((await call("GET", `/review-queue/steps?run_id=${RUN}`)).status).toBe(401);
+    expect(store.stepsFor).toEqual([]);
   });
 });
