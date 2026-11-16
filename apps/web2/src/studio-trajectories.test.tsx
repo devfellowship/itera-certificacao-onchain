@@ -15,7 +15,7 @@ import { saveSession } from './auth/sessionStorage'
 import { DEFAULT_FLEET_WALL_URL } from './config'
 import { routes } from './routes'
 import { TrajectoriesView } from './studio/StudioTrajectoriesPage'
-import { SHAPES_SPEC, pathTree, sortRuns, type TrajectoriesResponse, type TrajectoryRun } from './studio/trajectories'
+import { SHAPES_SPEC, axisTicks, bandStats, endTone, longestFirst, pathTree, rateTone, rowHeight, sortRuns, wallGroups, wallWidth, type TrajectoriesResponse, type TrajectoryRun } from './studio/trajectories'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -104,15 +104,23 @@ const rows = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>('[data-test
 const letters = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>('[data-kind]')].map((x) => x.dataset.kind).join('')
 
 describe('S9 wall', () => {
-  it('renders one row per run with one cell per step letter, sorted by status then length', async () => {
+  it('renders one row per run with one cell per step letter, grouped by outcome, longest first in a group', async () => {
     const c = mountAt('/studio/trajectories')
     await waitFor(() => !!c.querySelector('[data-testid="s9-wall"]'), 'wall')
     expect(calls).toContain('/trajectories')
     const r = rows(c)
     expect(r).toHaveLength(5)
-    expect(r.map((x) => x.dataset.runId)).toEqual(['r-short', 'r-long', 'r-upload', 'r-fail', 'r-timeout'])
-    expect(r.map(letters)).toEqual(['RW', 'RSWWT', 'SW', 'RSWT', 'RM'])
+    expect(r.map((x) => x.dataset.runId)).toEqual(['r-long', 'r-short', 'r-fail', 'r-upload', 'r-timeout'])
+    expect(r.map(letters)).toEqual(['RSWWT', 'RW', 'RSWT', 'SW', 'RM'])
     expect(r.map((x) => x.querySelector('[data-testid="s9-status"]')!.textContent)).toEqual(['pass', 'pass', 'fail', 'fail', 'timeout'])
+    // One group per outcome (not a shape band), each with its label: name, runs, step range.
+    const groups = [...c.querySelectorAll<HTMLElement>('[data-testid="s9-group"]')]
+    expect(groups.map((g) => g.dataset.outcome)).toEqual(['pass', 'fail', 'timeout'])
+    expect(groups[0]!.querySelector('.s9-band__label')!.textContent).toBe('Passed2 runs2-5 steps')
+    expect(groups[1]!.querySelector('.s9-band__label')!.textContent).toBe('Failed2 runs2-4 steps')
+    // The end cell shows how the run ended; the status is also in the row title.
+    expect(r.map((x) => x.querySelector('.s9-endcell')!.className.split(' ').pop())).toEqual(['s9-end-pass', 's9-end-pass', 's9-end-fail', 's9-end-fail', 's9-end-other'])
+    expect(r[0]!.getAttribute('title')).toBe('pass · 5 steps · hosted')
     // The legend holds the six letters of the spec alphabet.
     expect(c.querySelector('[data-testid="s9-legend"]')!.textContent).toMatch(/R read.*S search.*W write.*T test.*M mcp or agent.*X other or shell/)
   })
@@ -198,10 +206,43 @@ describe('S9 shapes and links', () => {
       runs: [run('a', 'RW', 'pass', null, { shape: 'straight' }), run('b', 'SR', 'pass', null, { shape: 'search-first' }), run('c', 'RRR', 'fail', 1, { shape: 'straight' })],
     }
     const c = mountView(<TrajectoriesView data={data} spec={spec} />)
+    // A shape band shows its pass rate; the rows inside run longest first.
+    expect(c.querySelector('[data-testid="s9-group"]')).toBeNull()
+    expect([...c.querySelectorAll('.s9-band__label')].map((l) => l.textContent)).toEqual(['search-first1 run · 100% pass2 steps', 'straight2 runs · 50% pass2-3 steps'])
+    expect([...c.querySelectorAll<HTMLElement>('[data-testid="s9-band"]')[1]!.querySelectorAll<HTMLElement>('[data-testid="s9-row"]')].map((r) => r.dataset.runId)).toEqual(['c', 'a'])
     const bands = [...c.querySelectorAll<HTMLElement>('[data-testid="s9-band"]')]
     expect(bands.map((b) => b.dataset.shape)).toEqual(['search-first', 'straight'])
     expect(bands[1]!.querySelectorAll('[data-testid="s9-row"]')).toHaveLength(2)
     expect(c.querySelector('[data-testid="s9-no-shapes"]')).toBeNull()
+  })
+
+  it('rows are 3 to 8 px high in compact mode and 14 px when comfortable is chosen', async () => {
+    const c = mountAt('/studio/trajectories')
+    await waitFor(() => rows(c).length === 5, 'rows')
+    const band = () => c.querySelector<HTMLElement>('[data-testid="s9-group"]')!
+    expect(band().style.getPropertyValue('--s9-rh')).toBe('8px')
+    const chips = [...c.querySelectorAll<HTMLButtonElement>('.s9-density button')]
+    expect(chips.map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'false'])
+    act(() => chips[1]!.click())
+    expect(band().style.getPropertyValue('--s9-rh')).toBe('14px')
+  })
+
+  it('the origin filter is a link row that keeps the other query parameters', async () => {
+    const c = mountAt('/studio/trajectories?agent=a1&origin=hosted')
+    await waitFor(() => rows(c).length === 5, 'rows')
+    const links = [...c.querySelectorAll<HTMLAnchorElement>('[data-testid="s9-filters"] a')]
+    expect(links.map((a) => [a.dataset.origin, a.getAttribute('href'), a.getAttribute('aria-current')])).toEqual([
+      ['all', '/studio/trajectories?agent=a1', null],
+      ['hosted', '/studio/trajectories?agent=a1&origin=hosted', 'true'],
+      ['self_declared', '/studio/trajectories?agent=a1&origin=self_declared', null],
+    ])
+  })
+
+  it('draws the step axis with ticks on the shared scale', async () => {
+    const c = mountAt('/studio/trajectories')
+    await waitFor(() => rows(c).length === 5, 'rows')
+    expect([...c.querySelectorAll('.s9-axis__tick')].map((t) => t.textContent)).toEqual(['step 1', 'step 5'])
+    expect(c.querySelector('.s9-chart__in')!.getAttribute('style')).toContain('--s9-max: 5')
   })
 
   it('marks Studio active in the nav and the studio home links to S9', async () => {
@@ -241,6 +282,20 @@ describe('S9 states', () => {
   it('says when the list is cut', () => {
     const c = mountView(<TrajectoriesView data={{ ...DATA, truncated: true, limit: 300 }} />)
     expect(c.querySelector('[data-testid="s9-truncated"]')!.textContent).toBe('Showing the newest 300 runs.')
+  })
+
+  it('wall helpers: groups, stats, ticks, row height and rate tone', () => {
+    const rs = [run('a', 'RRR'), run('b', 'R', 'fail', 0), run('c', 'RR')]
+    expect(wallGroups(sortRuns(rs), SHAPES_SPEC).map((g) => [g.key, g.kind, g.runs.map((r) => r.id)])).toEqual([['pass', 'outcome', ['a', 'c']], ['fail', 'outcome', ['b']]])
+    expect(bandStats(rs)).toEqual({ n: 3, passRate: 2 / 3, minSteps: 1, maxSteps: 3 })
+    expect(bandStats([])).toEqual({ n: 0, passRate: 0, minSteps: 0, maxSteps: 0 })
+    expect(wallWidth(rs)).toBe(3)
+    expect(wallWidth([])).toBe(1)
+    expect([axisTicks(1), axisTicks(15), axisTicks(40), axisTicks(400)]).toEqual([[1], [1, 5, 10, 15], [1, 5, 10, 15, 20, 25, 30, 35, 40], [1, 50, 100, 150, 200, 250, 300, 350, 400]])
+    expect([rowHeight(1), rowHeight(71), rowHeight(128), rowHeight(1000)]).toEqual([8, 4, 3, 3])
+    expect([rateTone(0.91), rateTone(0.68), rateTone(0.45)]).toEqual(['ok', 'warn', 'bad'])
+    expect([endTone('pass'), endTone('fail'), endTone('timeout')]).toEqual(['pass', 'fail', 'other'])
+    expect(longestFirst(rs).map((r) => r.id)).toEqual(['a', 'c', 'b'])
   })
 
   it('sortRuns puts unknown statuses last and keeps id order on ties', () => {

@@ -111,3 +111,71 @@ export function pathTree(nodes: readonly PathMapNode[], edges: ReadonlyArray<{ f
   for (const n of byPath.values()) n.children.sort(order)
   return [...byPath.values()].filter((n) => !hasParent.has(n.path)).sort(order)
 }
+
+// ---------- Layout helpers of the S9 wall (UI-S2S3S9; canvas artboard "S9 Trajectory anatomy") ----------
+
+/** How a run ended on the wall's end strip: green pass, red fail, amber for a timeout or an error. */
+export type EndTone = 'pass' | 'fail' | 'other'
+export const endTone = (s: RunStatus): EndTone => (s === 'pass' ? 'pass' : s === 'fail' ? 'fail' : 'other')
+
+/** Longest first, then id: the order of the rows inside a band. */
+export function longestFirst(runs: readonly TrajectoryRun[]): TrajectoryRun[] {
+  return [...runs].sort((a, b) => b.steps - a.steps || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+export interface WallGroup {
+  key: string
+  /** `shape` bands exist only while the spec names shapes; `outcome` groups are the fallback (the status is real data). */
+  kind: 'shape' | 'outcome'
+  label: string
+  runs: TrajectoryRun[]
+}
+
+const OUTCOME_LABEL: Record<RunStatus, string> = { pass: 'Passed', fail: 'Failed', timeout: 'Timed out', invalid: 'Invalid', infra_error: 'Infra error' }
+
+/** The wall's bands: one per shape when the spec names shapes, else one per outcome (pass, fail, ...). Runs longest first. */
+export function wallGroups(runs: readonly TrajectoryRun[], spec: ShapesSpecView): WallGroup[] {
+  if (spec.named_shapes) return shapeBands(runs, spec).map((b) => ({ key: b.shape, kind: 'shape', label: b.shape, runs: longestFirst(b.runs) }))
+  const by = new Map<RunStatus, TrajectoryRun[]>()
+  for (const r of runs) by.set(r.status, [...(by.get(r.status) ?? []), r])
+  const rank = (s: RunStatus) => {
+    const i = STATUS_ORDER.indexOf(s)
+    return i < 0 ? STATUS_ORDER.length : i
+  }
+  return [...by].sort(([a], [b]) => rank(a) - rank(b)).map(([s, list]) => ({ key: s, kind: 'outcome', label: OUTCOME_LABEL[s] ?? s, runs: longestFirst(list) }))
+}
+
+export interface BandStats {
+  n: number
+  /** 0..1 */
+  passRate: number
+  minSteps: number
+  maxSteps: number
+}
+
+export function bandStats(runs: readonly TrajectoryRun[]): BandStats {
+  const steps = runs.map((r) => r.steps)
+  return {
+    n: runs.length,
+    passRate: runs.length ? runs.filter((r) => r.status === 'pass').length / runs.length : 0,
+    minSteps: steps.length ? Math.min(...steps) : 0,
+    maxSteps: steps.length ? Math.max(...steps) : 0,
+  }
+}
+
+/** The step count of the widest row on the wall (the shared x scale of every band). At least 1. */
+export const wallWidth = (runs: readonly TrajectoryRun[]): number => Math.max(1, ...runs.map((r) => r.kinds.length))
+
+/** Axis ticks (1-based step numbers): 1, then every 5, 10, 20, 50 or 100 steps, at most 9 ticks. */
+export function axisTicks(max: number): number[] {
+  const step = [5, 10, 20, 50, 100].find((s) => max / s <= 8) ?? 100
+  const ticks = [1]
+  for (let t = step; t <= max; t += step) ticks.push(t)
+  return ticks
+}
+
+/** Row height in px of a band: 3 to 8 px, so a band stays near 320 px tall. */
+export const rowHeight = (n: number): number => Math.min(8, Math.max(3, Math.floor(320 / Math.max(1, n))))
+
+/** The pass rate as a tone: 80% and up is good, 50% and up needs a look, below that is bad. */
+export const rateTone = (rate: number): 'ok' | 'warn' | 'bad' => (rate >= 0.8 ? 'ok' : rate >= 0.5 ? 'warn' : 'bad')
