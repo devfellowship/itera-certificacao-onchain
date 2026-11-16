@@ -166,6 +166,30 @@ describe('S6 experiment result', () => {
     expect(q(c, 'nav-studio')!.getAttribute('aria-current')).toBe('page')
   })
 
+  it('follows the canvas artboard: themed page, bar, one column per variant, three row groups, honest gap', async () => {
+    const c = mountAt(`/studio/experiments?agent=${AGENT}`)
+    await waitFor(() => qa(c, 's6-cell').length === 2, 'the cells')
+    const page = q(c, 'studio-experiments-page')!
+    expect(page.classList.contains('stu-theme')).toBe(true)
+    expect(page.querySelector('.stu-crumb--current')?.textContent).toBe('experiments')
+    expect(page.querySelector('h1')?.textContent).toBe('Base agent vs agent variant')
+    expect([...page.querySelectorAll('.mx-group th')].map((h) => h.textContent)).toEqual(['Key metrics', 'Agent', 'Per test case'])
+    expect(page.querySelectorAll('thead th[scope="col"]')).toHaveLength(3)
+    // Key metrics pool the dataset: base 2 of 3, variant 2 of 2 (the infra failure is left out).
+    const keyRows = [...page.querySelectorAll('tbody tr.mx-row')].slice(0, 5).map((r) => r.textContent)
+    expect(keyRows[0]).toContain('67%')
+    expect(keyRows[0]).toContain('100%')
+    expect(page.querySelectorAll('.mx-metric--best')[0]?.textContent).toContain('100%')
+    // The dots: pass, pass, fail for the baseline; the infra failure is a ring, not a fail.
+    const dots = (cell: HTMLElement) => [...cell.querySelectorAll('.mx-dot')].map((d) => d.className.replace('mx-dot mx-dot--', ''))
+    expect(dots(qa(c, 's6-cell')[0]!)).toEqual(['pass', 'pass', 'fail'])
+    expect(dots(qa(c, 's6-cell')[1]!)).toEqual(['pass', 'pass', 'infra'])
+    // What the API does not return is named, not drawn.
+    expect(q(c, 's6-gap')!.textContent).toContain('Cost, tokens and wall time')
+    expect(q(c, 's6-add-variant')!.getAttribute('href')).toBe(`/studio/experiments/new?agent=${AGENT}`)
+    expect(q(c, 's6-bar-diff')!.getAttribute('href')).toBe(`/studio/diff?case=${CASE}&base=v-base&variant=v-skill`)
+  })
+
   it('an infra failure counts apart even when the API sends infraOk false with status fail', async () => {
     const runs = RUNS.map((r) => (r.id === 'rv-3' ? { ...r, status: 'fail', infraOk: false, score: 0 } : r))
     const c = mountAt('/studio/experiments', { runs: [200, { runs, limit: 500, truncated: false }] })
