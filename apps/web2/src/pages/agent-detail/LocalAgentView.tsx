@@ -11,6 +11,7 @@ import { api } from '../../lib/api'
 import type { Agent, EvaluationListItem } from '../../lib/api'
 import { AgentAvatar, AgentOriginPill, Badge, Breadcrumb, Button, Card, ModelLabel, SelfDeclaredBadge, StatusChip, Table, TableEmpty, isSelfDeclared, routeOfAgent, type Column } from '../../tma/ui'
 import { TaskName } from '../../tma/task-filter'
+import { StudioLink } from '../../studio/links'
 import { TmaCliSteps } from './TmaCliSteps'
 import './local-agent-view.css'
 
@@ -97,6 +98,15 @@ export function LocalAgentView({ agent }: { agent: Agent }) {
             )}
           </span>
           {agent.description && <p className="lav-desc">{agent.description}</p>}
+          {/* Studio links (C5-FIX-LINKS): a local agent is the owner of the uploaded eval runs, so it needs the same forward links as a hosted one. */}
+          <div className="tad-studio-links">
+            <StudioLink screen="S5" params={{ agent: agent.id }} testId="studio-variants">
+              Variants
+            </StudioLink>
+            <StudioLink screen="S6" params={{ agent: agent.id }} testId="studio-experiments">
+              Experiments
+            </StudioLink>
+          </div>
         </div>
       </div>
 
