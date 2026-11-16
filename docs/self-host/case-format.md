@@ -117,7 +117,7 @@ It is never a pass and never a fail.
     "written_by": "claude-main",
     "written_at": "2026-11-12T18:30:00Z"
   },
-  "graders": [{ "id": "hidden-tests", "version": "0.5.0", "weight": 1, "hard_gate": true }],
+  "graders": [{ "id": "hidden-tests", "version": "0.6.0", "weight": 1, "hard_gate": true }],
   "split": "none",
   "source": "synthetic"
 }

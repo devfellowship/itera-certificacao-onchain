@@ -14,9 +14,10 @@ import type { EvalLog, ExecutorInfo, Score, TestSuiteResult } from './types.js';
  * The evaluator version = the `hidden-tests` grader version. Every change to grader code gets a new
  * minor (plan 20261112-dfl-os-eval-cases-from-real-tasks ADR-5): 0.4.0 adds the lockfile policy
  * driver and optional public tests; 0.5.0 adds report drivers (node-test-tap), the repo-paths test
- * layout and verifier.cwd. 0.3.0 and 0.4.0 are never re-used for other code.
+ * layout and verifier.cwd; 0.6.0 adds the build driver (environment.build). 0.3.0, 0.4.0 and 0.5.0
+ * are never re-used for other code.
  */
-export const EVALUATOR_VERSION = '0.5.0';
+export const EVALUATOR_VERSION = '0.6.0';
 export const DEFAULT_INSTALL = ['npm', 'ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'];
 const INSTALL_TIMEOUT_MS = 180_000;
 
@@ -142,7 +143,8 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
   const startedAt = new Date().toISOString();
   const errors: string[] = [];
   const verifier = task.contract.verifier;
-  const timeoutMs = verifier.timeout_sec * 1000;
+  const build = task.contract.environment.build;
+  const timeoutMs = (verifier.timeout_sec + (build?.timeout_sec ?? 0)) * 1000;
   const limits = { cpus: task.contract.environment.cpus, memoryMb: task.contract.environment.memory_mb };
 
   const workDir = await mkdtemp(join(tmpdir(), 'itera-eval-'));
@@ -151,7 +153,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
   const runSuite = async (label: string, which: 'public' | 'hidden'): Promise<TestSuiteResult> => {
     const testsDir = which === 'public' ? task.contract.tests.public! : task.contract.tests.hidden;
     const argv = resolveCmd(verifier.cmd, suiteTests(task, which));
-    const res = await executor.runSuite({ label, workspaceDir: ws, argv, timeoutMs, limits, ...(verifier.cwd ? { cwd: verifier.cwd } : {}), ...(verifierImage ? { image: verifierImage } : {}) });
+    const res = await executor.runSuite({ label, workspaceDir: ws, argv, timeoutMs, limits, ...(verifier.cwd ? { cwd: verifier.cwd } : {}), ...(build ? { build: { argv: build.cmd, outputs: build.outputs } } : {}), ...(verifierImage ? { image: verifierImage } : {}) });
     const { suite, error } = interpretRun(res, verifier.report);
     if (error) errors.push(`${label}: ${error}`);
     // Reports carry absolute paths of the grading host or container (/tmp/itera-eval-…). The

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { parseNodeTestTapText, parseReport } from './reports.js';
-import { EVALUATOR_VERSION, runEvaluation, workspaceRelative } from './runner.js';
+import { runEvaluation, workspaceRelative } from './runner.js';
 import { interpretRun, resolveCmd } from './suite.js';
 import { loadTask, suiteTests } from './task.js';
 import { validateTask } from './validate.js';
@@ -161,10 +161,6 @@ async function monorepoTask(edit: (task: Record<string, any>) => void = () => un
 }
 
 describe('repo-paths layout + verifier.cwd + node-test-tap (monorepo case)', () => {
-  it('is version 0.5.0 of the hidden-tests grader', () => {
-    expect(EVALUATOR_VERSION).toBe('0.5.0');
-  });
-
   it('loads the task: test files at their repo paths, {tests} relative to verifier.cwd', async () => {
     const task = await loadTask(await monorepoTask());
     expect(task.mount).toBe('repo-paths');
