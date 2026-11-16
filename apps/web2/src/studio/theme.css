@@ -31,6 +31,18 @@
   --stu-warn: #e8c170;
   --stu-warn-soft: #3a3020;
   --stu-merged: #b48cf2;
+  /* Step kinds (S3 waterfall, S9 wall; canvas TraceView and Trajectory): read, search, write, test, tool call; failed = --stu-bad */
+  --stu-k-read: #8fb3e8;
+  --stu-k-search: #b8a5e3;
+  --stu-k-write: var(--stu-warn);
+  --stu-k-test: #7ad6cd;
+  --stu-k-tool: #e3a5c7;
+  --stu-k-other: var(--stu-line-hover);
+  /* Agent avatar grounds (S2 trace picker): Claude Code, Codex, opencode, ALIEN01 */
+  --stu-av-cc: #4a3328;
+  --stu-av-cx: #26302e;
+  --stu-av-oc: #2a2a36;
+  --stu-av-al: #1f3326;
   /* Type scale: page title 28 (Barlow Condensed), section 13/500, body 13, mono label 11, button 15 */
   --stu-font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --stu-font-display: 'Barlow Condensed', 'Inter', system-ui, sans-serif;
