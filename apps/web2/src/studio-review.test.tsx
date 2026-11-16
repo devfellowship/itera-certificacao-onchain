@@ -139,10 +139,19 @@ describe('S13 canvas layout (UI-S13)', () => {
     expect(c.querySelector('h1')!.textContent).toBe('Waits use a watcher, not polling in the session?')
     expect(q(c, 'review-card')!.contains(c.querySelector('h1'))).toBe(true)
     const titles = [...c.querySelectorAll('h2.stu-section__title')].map((h) => h.firstChild?.textContent)
-    expect(titles).toEqual(['Context', 'What the agent did', 'Judge says'])
+    expect(titles).toEqual(['Context', 'Last 4 calls', 'Judge says'])
     expect(c.querySelector('.rvw-actions')!.querySelectorAll('button')).toHaveLength(3)
     expect(q(c, 'review-pass')!.className).toContain('stu-btn--primary')
     expect(c.querySelector('[role="tooltip"]')!.textContent).toContain('teaches and checks the AI judge')
+  })
+
+  it('lists the last calls of the run under the section, from the steps endpoint, with the failed one marked', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-last-calls'), 'last calls')
+    const rows = [...c.querySelectorAll('[data-testid="review-last-calls"] li')]
+    expect(rows.map((r) => r.textContent)).toEqual(['Bashgh pr view', 'Bashgh run watcherror'])
+    expect(rows[1]!.className).toContain('rvw-call--bad')
+    expect(calls.filter((x) => x.path.startsWith('/review-queue/steps')).length).toBe(1)
   })
 
   it('keeps the keys: 1-4 pick a reason (aria-pressed), f sends fail with it, d defers without a write', async () => {

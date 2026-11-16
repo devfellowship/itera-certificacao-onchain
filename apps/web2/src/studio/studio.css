@@ -399,3 +399,6 @@ a.s9-row:hover { background: var(--tma-line); }
   .tma-app:has(.rvw-page) .tma-nav__left { flex-wrap: wrap; gap: 8px 16px; }
   .tma-app:has(.rvw-page) .tma-page { padding-left: 16px; padding-right: 16px; }
 }
+.rvw-last { list-style: none; margin: 0; padding: 0; }
+.rvw-call .rvw-target { color: var(--stu-text-2); font-family: inherit; font-size: var(--stu-fs-body); }
+.rvw-call--bad { box-shadow: inset 2px 0 0 var(--stu-bad); padding-left: 10px; padding-right: 10px; margin: 0 -10px; }

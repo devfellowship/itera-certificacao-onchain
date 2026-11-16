@@ -48,8 +48,28 @@ function Verdict({ v, testId }: { v: Verdict | null; testId: string }) {
 const verdictTone = (v: Verdict | null) => (v === null ? 'neutral' : v.pass ? 'success' : 'danger')
 
 /** The detail behind the step boxes: every step in order, with the idle time before it, and the opened step in full. */
-function StepTimeline({ runId, selected, onSelect }: { runId: string; selected: number | null; onSelect: (seq: number) => void }) {
-  const loaded = useStudioLoad(() => getRunSteps(runId), [runId])
+type StepsLoad = ReturnType<typeof useStudioLoad<{ run_id: string; steps: StepDetail[] }>>
+
+/** The last four calls of the run (the canvas "Last 4 calls"): the tool, the redacted target, and a red bar on a failed call. */
+function LastCalls({ loaded }: { loaded: StepsLoad }) {
+  if (loaded.state === 'loading') return <p className="stu-label">Loading the calls…</p>
+  if (loaded.state === 'error') return <p className="stu-label" data-testid="review-last-error">{loadErrorText(loaded.status)}</p>
+  const last = loaded.data.steps.slice(-4)
+  if (last.length === 0) return <p className="stu-label">No steps stored for this run.</p>
+  return (
+    <ol className="rvw-last" data-testid="review-last-calls" aria-label="Last 4 calls">
+      {last.map((x) => (
+        <li key={x.seq} className={`stu-row rvw-call${x.status !== 'ok' ? ' rvw-call--bad' : ''}`}>
+          <span className="stu-row__key">{x.tool}</span>
+          <span className="rvw-target">{x.target ?? '—'}</span>
+          {x.status !== 'ok' && <span className="stu-bad rvw-status">{x.status ?? 'unknown'}</span>}
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function StepTimeline({ loaded, selected, onSelect }: { loaded: StepsLoad; selected: number | null; onSelect: (seq: number) => void }) {
   const rowRef = useRef<HTMLLIElement | null>(null)
   useEffect(() => {
     rowRef.current?.scrollIntoView?.({ block: 'nearest' })
@@ -115,11 +135,12 @@ function StepTimeline({ runId, selected, onSelect }: { runId: string; selected: 
 function FoldedSteps({ runId, steps }: { runId: string; steps: ReviewRun['steps'] }) {
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
+  const loaded = useStudioLoad(() => getRunSteps(runId), [runId])
   useEffect(() => {
     setOpen(false)
     setSelected(null)
   }, [runId])
-  if (steps.length === 0) return <Section title="What the agent did"><p className="stu-label">No structural trajectory on this run.</p></Section>
+  if (steps.length === 0) return <Section title="Last 4 calls"><p className="stu-label">No structural trajectory on this run.</p></Section>
   const f = foldSteps(steps)
   const pick = (seq: number) => {
     setSelected(seq)
@@ -140,7 +161,8 @@ function FoldedSteps({ runId, steps }: { runId: string; steps: ReviewRun['steps'
     </button>
   )
   return (
-    <Section title="What the agent did" meta={`${steps.length} steps`}>
+    <Section title="Last 4 calls" meta={`${steps.length} steps`}>
+      <LastCalls loaded={loaded} />
       <div className="rvw-steps" data-testid="review-steps" aria-label={`${steps.length} steps`}>
         {f.head.map(cell)}
         {f.hidden > 0 && (
@@ -151,9 +173,9 @@ function FoldedSteps({ runId, steps }: { runId: string; steps: ReviewRun['steps'
         {f.tail.map((s, i) => cell(s, i + 1000))}
       </div>
       <button type="button" className="rvw-toggle" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="review-steps-toggle">
-        {open ? 'Hide the steps' : `Show the steps (${steps.length})`}
+        {open ? 'Hide the steps' : `Show all ${steps.length} steps`}
       </button>
-      {open && <StepTimeline runId={runId} selected={selected} onSelect={setSelected} />}
+      {open && <StepTimeline loaded={loaded} selected={selected} onSelect={setSelected} />}
     </Section>
   )
 }
