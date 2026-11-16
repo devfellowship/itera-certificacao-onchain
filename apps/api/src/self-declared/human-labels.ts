@@ -10,8 +10,9 @@
  *                                  the judge result of the same run carries `<judge_id>`), pass, score 100 | 0, weight 0, hard_gate false, decisive false,
  *                                  infra_ok true, labeler = the caller (labelerOf), reason_code. 201 with the row.
  *   GET  /grader-results/human     ?run_id=<uuid>: the human labels of one run, newest first.
- *   GET  /review-queue             ?judge=<id>[&limit=1..200]: the trace_review runs of the tenant for one judge mode,
- *                                  each with the task summary, the folded step kinds, the judge verdict, the workflow
+ *   GET  /review-queue             ?judge=<id>[&limit=1..200]: the trace_review runs of the tenant that no person has
+ *                                  labeled yet for that judge (a label under judge A keeps the run in the queue of judge B;
+ *                                  a `workflow:` label does not close it), each with the task summary, the folded step kinds, the judge verdict, the workflow
  *                                  label and the caller's own label. Order: judge and workflow label disagree first
  *                                  (failure-driven sampling, book p132), then runs the caller has not labeled, newest
  *                                  first.
@@ -184,6 +185,11 @@ export class PgHumanLabelStore implements HumanLabelStore {
            from public.runs r join public.eval_cases c on c.id = r.case_id
            left join public.eval_variants v on v.id = r.variant_id
           where c.tenant = $1 and c.mode = 'trace_review'
+            -- The queue of a judge holds the runs that no person has labeled yet for THIS judge. A workflow label is a
+            -- weak signal and does not close the review. Both rubrics apply to every run, so the other judge keeps the run.
+            and not exists (
+              select 1 from public.grader_results hl join public.grader_versions hg on hg.id = hl.grader_version_id and hg.tenant = hl.tenant
+               where hl.run_id = r.id and hl.tenant = $1 and hg.grader_id = $4 and hg.kind = 'human' and coalesce(hl.labeler, '') not like 'workflow:%')
           order by r.started_at desc, r.id limit 1000)
        select t.*,
               ${latest("$2", "g.kind = 'judge'")} as judge,
