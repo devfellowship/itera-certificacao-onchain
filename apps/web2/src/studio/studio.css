@@ -355,3 +355,11 @@ a.s9-row:hover { background: var(--tma-line); }
 .rvw-actions > * { flex: 1 1 30%; min-height: 44px; }
 .rvw-question { font-weight: 600; margin: 0; }
 @media (hover: none) { .rvw-key { display: none; } }
+/* The app shell keeps a 1024px floor for the desktop screens (tma/ui/ui.css). S13 is a phone screen,
+   so it lifts the floor, as the evaluation page does (.tma-app:has(.re-page)). */
+.tma-app:has(.rvw-page) { min-width: 0; }
+@media (max-width: 720px) {
+  .tma-app:has(.rvw-page) .tma-nav { height: auto; padding: 10px 16px; flex-wrap: wrap; gap: 8px; }
+  .tma-app:has(.rvw-page) .tma-nav__left { flex-wrap: wrap; gap: 8px 16px; }
+  .tma-app:has(.rvw-page) .tma-page { padding-left: 16px; padding-right: 16px; }
+}
