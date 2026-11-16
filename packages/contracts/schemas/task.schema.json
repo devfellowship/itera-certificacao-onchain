@@ -147,6 +147,18 @@
         "hidden": {
           "description": "Directory mounted at the same relative path in the grading container only, after the patch is frozen.",
           "$ref": "#/$defs/relPath"
+        },
+        "mount": {
+          "description": "Test layout driver (ADR-5). dir (default): each tests directory is copied to its own relative path and {tests} is that directory. repo-paths: the files of each tests directory go to their repository paths at the workspace root (the hidden ones after the patch is frozen, over any file there); {tests} must be a whole argv element and expands to the test files of the suite, relative to verifier.cwd. Every mapped file must match protected_paths.",
+          "enum": ["dir", "repo-paths"],
+          "default": "dir"
+        },
+        "files": {
+          "description": "repo-paths only: the globs that name the test files among the files of a tests directory (the others are helpers, copied but not passed). Default: **/*.test.* and **/*.spec.*.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9_.@+*?/-]+$" }
         }
       }
     },
@@ -177,7 +189,7 @@
       "items": { "$ref": "#/$defs/glob" }
     },
     "verifier": {
-      "description": "Harbor [verifier]. `cmd` is an argv (no shell) run in the workspace root of a grading container. {tests} is replaced by tests.public or tests.hidden, {report} by the path the report must be written to.",
+      "description": "Harbor [verifier]. `cmd` is an argv (no shell) run in verifier.cwd (default: the workspace root) of a grading container. {tests} is replaced by tests.public or tests.hidden, relative to verifier.cwd (with tests.mount repo-paths: by the test files of the suite), {report} by the path the report must be written to.",
       "type": "object",
       "additionalProperties": false,
       "required": ["cmd", "timeout_sec"],
@@ -190,9 +202,13 @@
           ]
         },
         "report": {
-          "description": "Format of the report file. vitest-json = the Jest-compatible JSON of vitest --reporter=json.",
-          "enum": ["vitest-json"],
+          "description": "Report driver: the format of the report file. vitest-json = the Jest-compatible JSON of vitest --reporter=json. node-test-tap = the TAP of node --test --test-reporter=tap --test-reporter-destination={report} (node:test). Each driver is cross-checked with the verifier exit code.",
+          "enum": ["vitest-json", "node-test-tap"],
           "default": "vitest-json"
+        },
+        "cwd": {
+          "description": "Driver (ADR-5): the directory, relative to the workspace root, that the verifier command runs in (for example one package of a monorepo, so its own test config applies). Default: the workspace root.",
+          "$ref": "#/$defs/relPath"
         },
         "image": {
           "description": "Optional grading image, pinned by digest, for a verifier that needs more than the default sandbox image (for example headless Chromium and axe-core). Only Itera grader images are accepted: ghcr.io/devfellowship/testmyagent-grader-<name>@sha256:<digest> (built from graders/<name>/ in this repository). Absent = the runner's default sandbox image.",

@@ -7,15 +7,16 @@ import { checkPatchScope } from './patch-scope.js';
 import { computeScore, hiddenRatioScore, runScorers, SCORE_VERSION, SCORERS } from './score.js';
 import { MCP_STATE_WEIGHT, mcpStateScore, type McpServerEvidence } from './mcp-state.js';
 import { EMPTY_SUITE, interpretRun, localExecutor, resolveCmd, type SuiteExecutor } from './suite.js';
-import { addTests, hashDirectory, loadTask, materializeWorkspace, scenarioDir, type LoadedTask } from './task.js';
+import { addTests, hashDirectory, loadTask, materializeWorkspace, scenarioDir, suiteTests, type LoadedTask } from './task.js';
 import type { EvalLog, ExecutorInfo, Score, TestSuiteResult } from './types.js';
 
 /**
  * The evaluator version = the `hidden-tests` grader version. Every change to grader code gets a new
  * minor (plan 20261112-dfl-os-eval-cases-from-real-tasks ADR-5): 0.4.0 adds the lockfile policy
- * driver and optional public tests. 0.3.0 is never re-used for other code.
+ * driver and optional public tests; 0.5.0 adds report drivers (node-test-tap), the repo-paths test
+ * layout and verifier.cwd. 0.3.0 and 0.4.0 are never re-used for other code.
  */
-export const EVALUATOR_VERSION = '0.4.0';
+export const EVALUATOR_VERSION = '0.5.0';
 export const DEFAULT_INSTALL = ['npm', 'ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'];
 const INSTALL_TIMEOUT_MS = 180_000;
 
@@ -116,9 +117,14 @@ export function limitationsFor(executor: ExecutorInfo, task: LoadedTask): string
   return out;
 }
 
-/** "/tmp/itera-eval-x/workspace/tests/hidden/a.test.ts" -> "tests/hidden/a.test.ts". */
-export function workspaceRelative(file: string, testsDir: string): string {
+/**
+ * "/tmp/itera-eval-x/workspace/tests/hidden/a.test.ts" -> "tests/hidden/a.test.ts". With the
+ * repo-paths layout, `testFiles` (workspace-relative) names the files: the one the path ends with.
+ */
+export function workspaceRelative(file: string, testsDir: string, testFiles: readonly string[] = []): string {
   const posix = file.split('\\').join('/');
+  const known = testFiles.find((t) => posix === t || posix.endsWith(`/${t}`));
+  if (known) return known;
   const idx = posix.lastIndexOf(`/${testsDir}/`);
   if (idx >= 0) return posix.slice(idx + 1);
   if (posix.startsWith(`${testsDir}/`)) return posix;
@@ -142,13 +148,15 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
   const workDir = await mkdtemp(join(tmpdir(), 'itera-eval-'));
   const ws = join(workDir, 'workspace');
 
-  const runSuite = async (label: string, testsDir: string): Promise<TestSuiteResult> => {
-    const res = await executor.runSuite({ label, workspaceDir: ws, argv: resolveCmd(verifier.cmd, testsDir), timeoutMs, limits, ...(verifierImage ? { image: verifierImage } : {}) });
+  const runSuite = async (label: string, which: 'public' | 'hidden'): Promise<TestSuiteResult> => {
+    const testsDir = which === 'public' ? task.contract.tests.public! : task.contract.tests.hidden;
+    const argv = resolveCmd(verifier.cmd, suiteTests(task, which));
+    const res = await executor.runSuite({ label, workspaceDir: ws, argv, timeoutMs, limits, ...(verifier.cwd ? { cwd: verifier.cwd } : {}), ...(verifierImage ? { image: verifierImage } : {}) });
     const { suite, error } = interpretRun(res, verifier.report);
     if (error) errors.push(`${label}: ${error}`);
     // Reports carry absolute paths of the grading host or container (/tmp/itera-eval-…). The
     // manifest keeps only the workspace-relative path of each test file.
-    suite.cases = suite.cases.map((c) => ({ ...c, file: workspaceRelative(c.file, testsDir) }));
+    suite.cases = suite.cases.map((c) => ({ ...c, file: workspaceRelative(c.file, testsDir, task.testFiles[which]) }));
     return suite;
   };
   const skipped = (): TestSuiteResult => ({ ...EMPTY_SUITE, cases: [], state: 'skipped' });
@@ -171,7 +179,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
     await git(['add', '-A'], ws);
     await git([...GIT_ID, 'commit', '-q', '-m', 'baseline'], ws);
 
-    const publicBaseline = publicDir === undefined ? notDeclared() : await runSuite('public-baseline', publicDir);
+    const publicBaseline = publicDir === undefined ? notDeclared() : await runSuite('public-baseline', 'public');
     const baselinePassingNames = new Set(publicBaseline.cases.filter((c) => c.passed).map((c) => c.name));
 
     // Freeze the patch. It is applied HERE, on the trusted side, with git: the scope verdict never
@@ -197,7 +205,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
       .map((m) => m[2]!);
     const patchScope = checkPatchScope(changedFiles, task.scope, symlinks);
 
-    const publicAfterPatch = publicDir === undefined ? notDeclared() : apply.code === 0 ? await runSuite('public-after-patch', publicDir) : skipped();
+    const publicAfterPatch = publicDir === undefined ? notDeclared() : apply.code === 0 ? await runSuite('public-after-patch', 'public') : skipped();
 
     const regressionCandidates = publicAfterPatch.cases.filter((c) => baselinePassingNames.has(c.name));
     const regressionRatio =
@@ -210,9 +218,10 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
       // executor, which runs in place; the sandbox executor never writes back to this directory).
       await git(['checkout', '--', '.'], ws);
       await git(['clean', '-fdq'], ws);
-      await rm(join(ws, task.contract.tests.hidden), { recursive: true, force: true });
+      // mount dir: a fresh hidden directory. mount repo-paths: the hidden files go over the tree.
+      if (task.mount === 'dir') await rm(join(ws, task.contract.tests.hidden), { recursive: true, force: true });
       await addTests(task, ws, 'hidden');
-      hidden = await runSuite('hidden', task.contract.tests.hidden);
+      hidden = await runSuite('hidden', 'hidden');
     }
 
     const mcpEvidence = options.mcp && options.mcp.length > 0 ? options.mcp : null;

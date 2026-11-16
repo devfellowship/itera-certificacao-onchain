@@ -7,7 +7,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExecutorInfo, SuiteState, TestSuiteResult } from './types.js';
-import { parseVitestJsonText } from './vitest-report.js';
+import { DEFAULT_REPORT_FORMAT, parseReport, type ReportFormat } from './reports.js';
 
 export const REPORT_PLACEHOLDER = '{report}';
 export const TESTS_PLACEHOLDER = '{tests}';
@@ -19,6 +19,11 @@ export interface SuiteRunRequest {
   workspaceDir: string;
   /** argv with {tests} already resolved; {report} is resolved by the executor. */
   argv: string[];
+  /**
+   * task.json verifier.cwd (ADR-5): the directory, relative to the workspace root, that the command
+   * runs in. Absent = the workspace root. The schema allows no `..` segment and no absolute path.
+   */
+  cwd?: string;
   timeoutMs: number;
   /** Resource request from task.json environment; the executor caps it with its own limits. */
   limits?: { cpus?: number; memoryMb?: number };
@@ -43,23 +48,32 @@ export interface SuiteExecutor {
 
 export const EMPTY_SUITE: TestSuiteResult = { total: 0, passed: 0, failed: 0, cases: [] };
 
-export function resolveCmd(cmd: readonly string[], testsDir: string): string[] {
-  return cmd.map((a) => a.split(TESTS_PLACEHOLDER).join(testsDir));
+/**
+ * Replace {tests}. A string (tests.mount dir) replaces every occurrence. A list (tests.mount
+ * repo-paths: the test files) replaces an argv element that is exactly {tests} by one element per
+ * file; {tests} inside a longer element is refused there (loadTask refuses it first).
+ */
+export function resolveCmd(cmd: readonly string[], tests: string | readonly string[]): string[] {
+  if (typeof tests === 'string') return cmd.map((a) => a.split(TESTS_PLACEHOLDER).join(tests));
+  return cmd.flatMap((a) => {
+    if (a === TESTS_PLACEHOLDER) return [...tests];
+    if (a.includes(TESTS_PLACEHOLDER)) throw new Error('with tests.mount repo-paths, {tests} must be a whole argv element');
+    return [a];
+  });
 }
 
 /**
  * Turn a verifier run into a suite result. Counts are trusted only when the report parses AND
  * agrees with the exit code: vitest exits 0 if and only if every test passed.
  */
-export function interpretRun(run: SuiteRunResult, format: 'vitest-json' = 'vitest-json'): { suite: TestSuiteResult; error: string | null } {
+export function interpretRun(run: SuiteRunResult, format: ReportFormat = DEFAULT_REPORT_FORMAT): { suite: TestSuiteResult; error: string | null } {
   const meta = { exit_code: run.exitCode, duration_ms: run.durationMs };
   const empty = (state: SuiteState) => ({ ...EMPTY_SUITE, cases: [], state, ...meta });
   if (run.timedOut) return { suite: empty('timeout'), error: `verifier timed out after ${Math.round(run.durationMs / 1000)} s` };
   if (run.report === null) return { suite: empty('no_report'), error: `verifier wrote no report (exit ${run.exitCode}): ${run.stderrTail.slice(-300)}` };
   let parsed: TestSuiteResult;
   try {
-    if (format !== 'vitest-json') throw new Error(`unknown report format ${format}`);
-    parsed = parseVitestJsonText(run.report);
+    parsed = parseReport(run.report, format);
   } catch (err) {
     return { suite: empty('no_report'), error: `verifier report does not parse: ${err instanceof Error ? err.message : String(err)}` };
   }
@@ -86,7 +100,7 @@ export function localExecutor(): SuiteExecutor {
       const argv = req.argv.map((a) => a.split(REPORT_PLACEHOLDER).join(reportPath));
       const started = Date.now();
       try {
-        const res = await spawnWithTimeout(argv, req.workspaceDir, req.timeoutMs);
+        const res = await spawnWithTimeout(argv, req.cwd ? join(req.workspaceDir, req.cwd) : req.workspaceDir, req.timeoutMs);
         const report = await readFile(reportPath, 'utf-8').catch(() => null);
         return { ...res, durationMs: Date.now() - started, report };
       } finally {

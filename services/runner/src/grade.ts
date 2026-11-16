@@ -72,8 +72,18 @@ export function graderImage(config: SandboxConfig, image?: string): string {
   return image;
 }
 
+/** task.json verifier.cwd (ADR-5): a workspace-relative directory; the schema pattern, checked again here. */
+const REL_DIR = /^(?!\/)(?!.*(^|\/)\.\.(\/|$))[A-Za-z0-9_.@+-]+(\/[A-Za-z0-9_.@+-]+)*$/;
+
+/** The container working directory of one verifier run: the workspace, or verifier.cwd inside it. */
+export function graderWorkdir(cwd?: string): string {
+  if (cwd === undefined || cwd === '' || cwd === '.') return GRADER_WORKDIR;
+  if (!REL_DIR.test(cwd)) throw new Error(`verifier.cwd is not a workspace-relative directory: ${cwd.slice(0, 120)}`);
+  return `${GRADER_WORKDIR}/${cwd}`;
+}
+
 /** `docker create` arguments for one verifier run. */
-export function buildGraderArgs(opts: { name: string; config: SandboxConfig; argv: string[]; limits?: SuiteRunRequest['limits']; image?: string }): string[] {
+export function buildGraderArgs(opts: { name: string; config: SandboxConfig; argv: string[]; limits?: SuiteRunRequest['limits']; image?: string; cwd?: string }): string[] {
   const mem = `${cap(opts.limits?.memoryMb, memoryMb(opts.config.memory))}m`;
   const cpus = String(cap(opts.limits?.cpus, Number(opts.config.cpus) || 2));
   const argv = opts.argv.map((a) => a.split('{report}').join(GRADER_REPORT));
@@ -99,7 +109,7 @@ export function buildGraderArgs(opts: { name: string; config: SandboxConfig; arg
     '-e', 'CI=1',
     '-e', 'NPM_CONFIG_OFFLINE=true',
     '-e', 'NPM_CONFIG_UPDATE_NOTIFIER=false',
-    '-w', GRADER_WORKDIR,
+    '-w', graderWorkdir(opts.cwd),
     '--entrypoint', argv[0]!,
     graderImage(opts.config, opts.image),
     ...argv.slice(1),
@@ -161,7 +171,7 @@ export function sandboxExecutor(opts: { runId: string; config: SandboxConfig }):
         await stageWorkspace(req.workspaceDir, stage);
         await exec('docker', ['rm', '-fv', name]);
         await ensureImage(graderImage(opts.config, req.image));
-        const created = await exec('docker', buildGraderArgs({ name, config: opts.config, argv: req.argv, limits: req.limits, image: req.image }));
+        const created = await exec('docker', buildGraderArgs({ name, config: opts.config, argv: req.argv, limits: req.limits, image: req.image, cwd: req.cwd }));
         if (created.code !== 0) throw new Error(`grader create failed: ${created.stderr.slice(0, 300)}`);
         const ws = await pipe({ cmd: 'tar', args: ['-C', stage, '-cf', '-', 'w'] }, { cmd: 'docker', args: ['cp', '-', `${name}:/workspace`] });
         const out = await pipe({ cmd: 'tar', args: ['-C', join(stage, 'out'), '-cf', '-', '.'] }, { cmd: 'docker', args: ['cp', '-', `${name}:/out`] });

@@ -30,7 +30,18 @@ export interface LoadedTask {
     solution: string;
   };
   scope: ScopeRules;
+  /** Test layout driver (task.json tests.mount, ADR-5). */
+  mount: TestMount;
+  /**
+   * tests.mount repo-paths: the test files of each suite, workspace-relative (= their path inside the
+   * tests directory). tests.mount dir: empty lists ({tests} is the directory).
+   */
+  testFiles: { public: string[]; hidden: string[] };
 }
+
+export type TestMount = 'dir' | 'repo-paths';
+/** repo-paths: the files of a tests directory that are test files when task.json names no tests.files. */
+export const DEFAULT_TEST_FILE_GLOBS = ['**/*.test.*', '**/*.spec.*'];
 
 function inside(root: string, rel: string): string {
   const abs = resolve(root, rel);
@@ -167,11 +178,36 @@ export async function loadTask(taskDir: string): Promise<LoadedTask> {
   }
 
   const scope: ScopeRules = { editable: contract.editable_paths, protected: contract.protected_paths };
-  for (const testsDir of declaredTestDirs(contract)) {
-    const probe = `${testsDir}/probe.test.ts`;
-    if (!matchesAny(probe, scope.protected)) {
-      throw new TaskError(`protected_paths must cover ${testsDir}/ (a patch could otherwise rewrite the tests)`);
+  const mount: TestMount = contract.tests.mount ?? 'dir';
+  const testFiles: LoadedTask['testFiles'] = { public: [], hidden: [] };
+  if (mount === 'dir') {
+    for (const testsDir of declaredTestDirs(contract)) {
+      const probe = `${testsDir}/probe.test.ts`;
+      if (!matchesAny(probe, scope.protected)) {
+        throw new TaskError(`protected_paths must cover ${testsDir}/ (a patch could otherwise rewrite the tests)`);
+      }
     }
+  } else {
+    // repo-paths: each file of a tests directory goes to its own path in the workspace, so each of
+    // those paths must be protected, and each test file must sit under verifier.cwd.
+    if (contract.verifier.cmd.some((a) => a !== '{tests}' && a.includes('{tests}'))) {
+      throw new TaskError('with tests.mount repo-paths, {tests} must be a whole argv element (it expands to the test files)');
+    }
+    const globs = contract.tests.files ?? DEFAULT_TEST_FILE_GLOBS;
+    const cwd = contract.verifier.cwd;
+    for (const which of ['public', 'hidden'] as const) {
+      const src = which === 'public' ? paths.publicTests : paths.hiddenTests;
+      if (src === null) continue;
+      const files = await listFiles(src, SKIP_GENERATED);
+      for (const f of files) {
+        if (!matchesAny(f, scope.protected)) throw new TaskError(`protected_paths must cover ${f} (tests.mount repo-paths puts the ${which} test file there)`);
+      }
+      testFiles[which] = files.filter((f) => matchesAny(f, globs));
+      for (const t of testFiles[which]) {
+        if (cwd !== undefined && !t.startsWith(`${cwd}/`)) throw new TaskError(`the ${which} test file ${t} is outside verifier.cwd (${cwd})`);
+      }
+    }
+    if (testFiles.hidden.length === 0) throw new TaskError('tests.hidden holds no test file (see tests.files)');
   }
   if (contract.tests.public === contract.tests.hidden) throw new TaskError('tests.public and tests.hidden must differ');
   await checkLockfile(paths.environment, contract.environment.lockfile ?? DEFAULT_LOCKFILE_POLICY);
@@ -182,7 +218,21 @@ export async function loadTask(taskDir: string): Promise<LoadedTask> {
     contractDigest: createHash('sha256').update(raw).digest('hex'),
     paths,
     scope,
+    mount,
+    testFiles,
   };
+}
+
+/**
+ * The value of {tests} for one suite, relative to verifier.cwd: the tests directory (mount dir), or
+ * the list of test files (mount repo-paths).
+ */
+export function suiteTests(task: LoadedTask, which: 'public' | 'hidden'): string | string[] {
+  const cwd = task.contract.verifier.cwd ?? '.';
+  if (task.mount === 'repo-paths') return task.testFiles[which].map((f) => posix.relative(cwd, f));
+  const dir = which === 'public' ? task.contract.tests.public : task.contract.tests.hidden;
+  if (dir === undefined) throw new TaskError('task.json declares no public tests');
+  return cwd === '.' ? dir : posix.relative(cwd, dir);
 }
 
 /** The test directories that task.json declares: the hidden one, and the public one when present. */
@@ -221,6 +271,11 @@ export async function addTests(task: LoadedTask, workspace: string, which: 'publ
   const rel = which === 'public' ? task.contract.tests.public : task.contract.tests.hidden;
   const src = which === 'public' ? task.paths.publicTests : task.paths.hiddenTests;
   if (rel === undefined || src === null) return; // no public tests declared (ADR-5)
+  if (task.mount === 'repo-paths') {
+    // Each file goes to its own repository path, over any file the workspace holds there.
+    await cp(src, workspace, { recursive: true, force: true });
+    return;
+  }
   const dst = inside(workspace, rel);
   await mkdir(dst, { recursive: true });
   await cp(src, dst, { recursive: true, force: true });

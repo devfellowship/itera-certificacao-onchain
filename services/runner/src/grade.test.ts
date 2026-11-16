@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildGraderArgs, GRADER_REPORT, GRADER_UID, graderImage, stageWorkspace } from './grade.js';
+import { buildGraderArgs, GRADER_REPORT, GRADER_UID, GRADER_WORKDIR, graderImage, graderWorkdir, stageWorkspace } from './grade.js';
 import { defaultSandboxConfig } from './sandbox.js';
 
 const argv = ['npx', 'vitest', 'run', 'tests/hidden', '--reporter=json', '--outputFile={report}'];
@@ -15,6 +15,13 @@ describe('buildGraderArgs', () => {
     expect(flags).not.toMatch(/docker\.sock|-v |--volume|KEY|TOKEN|SECRET|DATABASE_URL|--env-file|--privileged/i);
     // Only anonymous volumes: no host path is mounted.
     for (const m of args.filter((_, i) => args[i - 1] === '--mount')) expect(m).toMatch(/^type=volume,dst=\/(workspace|out)$/);
+  });
+  it('runs in the workspace, or in verifier.cwd inside it (ADR-5), never outside', () => {
+    expect(args[args.indexOf('-w') + 1]).toBe(GRADER_WORKDIR);
+    const inPkg = buildGraderArgs({ name: 'x', config: defaultSandboxConfig({}), argv, cwd: 'packages/lib' });
+    expect(inPkg[inPkg.indexOf('-w') + 1]).toBe(`${GRADER_WORKDIR}/packages/lib`);
+    expect(graderWorkdir('.')).toBe(GRADER_WORKDIR);
+    for (const bad of ['../x', 'a/../../x', '/etc', 'a\\b', 'a b']) expect(() => graderWorkdir(bad)).toThrow(/not a workspace-relative directory/);
   });
   it('runs as the grader uid, which is neither root nor the agent uid', () => {
     expect(args).toEqual(expect.arrayContaining(['--user', `${GRADER_UID}:${GRADER_UID}`]));
