@@ -364,7 +364,8 @@
             "no_report",
             "timeout",
             "report_mismatch",
-            "skipped"
+            "skipped",
+            "not_declared"
           ]
         },
         "cases": {

@@ -44,6 +44,17 @@ describe('finalStatus — zero tests is never a pass', () => {
     expect(finalStatus(agent, manifest)).toBe('infra_error');
     expect(statusError('infra_error', manifest, [])).toBe(`grading inconclusive: no test executed in ${k}`);
   });
+  it('a task without public tests (state not_declared, ADR-5) is graded on the hidden suite alone', () => {
+    const notDeclared = { ...suite(0), state: 'not_declared' as const };
+    const manifest = m({ public_baseline: notDeclared, public_after_patch: notDeclared });
+    expect(zeroTestSuites(manifest)).toEqual([]);
+    expect(finalStatus(agent, manifest)).toBe('pass');
+    expect(finalStatus(agent, m({ public_baseline: notDeclared, public_after_patch: notDeclared, hidden: suite(5, 3) }, 60))).toBe('fail');
+    // not_declared never excuses an empty hidden suite.
+    const hiddenEmpty = m({ public_baseline: notDeclared, public_after_patch: notDeclared, hidden: { ...suite(0), state: 'not_declared' } });
+    expect(zeroTestSuites(hiddenEmpty)).toEqual(['hidden']);
+    expect(finalStatus(agent, hiddenEmpty)).toBe('infra_error');
+  });
   it('timeout, fail (empty patch) and invalid (scope) keep their meaning', () => {
     expect(finalStatus({ ...agent, timedOut: true }, m())).toBe('timeout');
     expect(finalStatus({ ...agent, patch: '' }, m())).toBe('fail');

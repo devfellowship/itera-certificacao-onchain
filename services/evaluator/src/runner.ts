@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { checkPatchScope } from './patch-scope.js';
 import { computeScore, hiddenRatioScore, runScorers, SCORE_VERSION, SCORERS } from './score.js';
 import { MCP_STATE_WEIGHT, mcpStateScore, type McpServerEvidence } from './mcp-state.js';
@@ -10,7 +10,12 @@ import { EMPTY_SUITE, interpretRun, localExecutor, resolveCmd, type SuiteExecuto
 import { addTests, hashDirectory, loadTask, materializeWorkspace, scenarioDir, type LoadedTask } from './task.js';
 import type { EvalLog, ExecutorInfo, Score, TestSuiteResult } from './types.js';
 
-export const EVALUATOR_VERSION = '0.3.0';
+/**
+ * The evaluator version = the `hidden-tests` grader version. Every change to grader code gets a new
+ * minor (plan 20261112-dfl-os-eval-cases-from-real-tasks ADR-5): 0.4.0 adds the lockfile policy
+ * driver and optional public tests. 0.3.0 is never re-used for other code.
+ */
+export const EVALUATOR_VERSION = '0.4.0';
 export const DEFAULT_INSTALL = ['npm', 'ci', '--include=dev', '--no-audit', '--no-fund', '--ignore-scripts'];
 const INSTALL_TIMEOUT_MS = 180_000;
 
@@ -80,7 +85,11 @@ export async function evaluatorDigest(): Promise<string> {
   if (evaluatorDigestCache) return evaluatorDigestCache;
   const dir = import.meta.dirname;
   const hash = createHash('sha256');
-  const files = (await readdir(dir)).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts')).sort();
+  // Recursive (driver sub-folders count): relative POSIX paths, sorted, tests left out.
+  const files = (await readdir(dir, { recursive: true }))
+    .map((f) => f.split(sep).join('/'))
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+    .sort();
   for (const f of files) {
     hash.update(f);
     hash.update(await readFile(join(dir, f)));
@@ -143,6 +152,9 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
     return suite;
   };
   const skipped = (): TestSuiteResult => ({ ...EMPTY_SUITE, cases: [], state: 'skipped' });
+  // ADR-5: a task without public tests runs no public suite; the manifest says so explicitly.
+  const publicDir = task.contract.tests.public;
+  const notDeclared = (): TestSuiteResult => ({ ...EMPTY_SUITE, cases: [], state: 'not_declared' });
 
   try {
     // The agent-visible workspace: environment/ + public tests. Hashed before any install.
@@ -159,7 +171,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
     await git(['add', '-A'], ws);
     await git([...GIT_ID, 'commit', '-q', '-m', 'baseline'], ws);
 
-    const publicBaseline = await runSuite('public-baseline', task.contract.tests.public);
+    const publicBaseline = publicDir === undefined ? notDeclared() : await runSuite('public-baseline', publicDir);
     const baselinePassingNames = new Set(publicBaseline.cases.filter((c) => c.passed).map((c) => c.name));
 
     // Freeze the patch. It is applied HERE, on the trusted side, with git: the scope verdict never
@@ -185,7 +197,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
       .map((m) => m[2]!);
     const patchScope = checkPatchScope(changedFiles, task.scope, symlinks);
 
-    const publicAfterPatch = apply.code === 0 ? await runSuite('public-after-patch', task.contract.tests.public) : skipped();
+    const publicAfterPatch = publicDir === undefined ? notDeclared() : apply.code === 0 ? await runSuite('public-after-patch', publicDir) : skipped();
 
     const regressionCandidates = publicAfterPatch.cases.filter((c) => baselinePassingNames.has(c.name));
     const regressionRatio =
@@ -293,7 +305,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
           { solver: 'install', params: { cmd: installCmd } },
           { solver: 'agent', params: {} },
           ...(mcpEvidence ? [{ solver: 'mcp_state', params: { servers: mcpEvidence.map((m) => m.server) } }] : []),
-          { solver: 'verifier', params: { cmd: verifier.cmd, suites: ['public-baseline', 'public-after-patch', 'hidden'] } },
+          { solver: 'verifier', params: { cmd: verifier.cmd, suites: publicDir === undefined ? ['hidden'] : ['public-baseline', 'public-after-patch', 'hidden'] } },
         ],
       },
       results: {

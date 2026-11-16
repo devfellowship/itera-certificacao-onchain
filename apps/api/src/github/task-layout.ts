@@ -110,7 +110,8 @@ export async function readTaskLayout(
     { key: "taskJson", path: "task.json", present: true },
     { key: "instruction", path: c.instruction, present: fileAt(c.instruction) },
     { key: "environment", path: c.environment.dir, present: filesIn(c.environment.dir) > 0, files: filesIn(c.environment.dir) },
-    { key: "testsPublic", path: c.tests.public, present: filesIn(c.tests.public) > 0, files: filesIn(c.tests.public) },
+    // ADR-5 (plan 20261112-dfl-os-eval-cases-from-real-tasks): public tests are optional; a task without them has no entry.
+    ...(c.tests.public === undefined ? [] : [{ key: "testsPublic" as const, path: c.tests.public, present: filesIn(c.tests.public) > 0, files: filesIn(c.tests.public) }]),
     { key: "testsHidden", path: c.tests.hidden, present: filesIn(c.tests.hidden) > 0, files: filesIn(c.tests.hidden) },
     { key: "solution", path: c.solution.patch, present: fileAt(c.solution.patch) },
   ];

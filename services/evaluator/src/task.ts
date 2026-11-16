@@ -2,7 +2,7 @@
 // workspaces from it. The contract is schemas/task.schema.json in packages/contracts.
 import { createHash } from 'node:crypto';
 import { cp, lstat, mkdir, readFile, readdir } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { validateTaskContract, type TaskContract } from '@itera/contracts';
 import { matchesAny } from './glob.js';
 import type { ScopeRules } from './patch-scope.js';
@@ -24,7 +24,8 @@ export interface LoadedTask {
   paths: {
     instruction: string;
     environment: string;
-    publicTests: string;
+    /** Null when task.json declares no public tests (ADR-5: public tests are optional). */
+    publicTests: string | null;
     hiddenTests: string;
     solution: string;
   };
@@ -71,8 +72,37 @@ export async function hashDirectory(dir: string): Promise<string> {
   return hash.digest('hex');
 }
 
-/** Refuse a lockfile that resolves a package outside the allowed registries (git, file, http URLs). */
-export async function checkLockfile(environmentDir: string): Promise<void> {
+/** The lockfile policy drivers (task.json environment.lockfile, ADR-5). */
+export type LockfilePolicy = 'registry-only' | 'workspace-links';
+export const DEFAULT_LOCKFILE_POLICY: LockfilePolicy = 'registry-only';
+
+/**
+ * Where an npm workspace link points, or why it is refused. `resolved` must be a relative POSIX
+ * path (no URL, no absolute path, no backslash) that stays inside environment/ after normalization,
+ * and it must name a real directory (not a symbolic link) that holds a package.json.
+ */
+export async function checkWorkspaceLink(environmentDir: string, name: string, resolved: unknown): Promise<void> {
+  const refuse = (why: string) => new TaskError(`package-lock.json links ${name} ${why}; not allowed`);
+  if (typeof resolved !== 'string' || resolved === '') throw refuse('without a resolved path');
+  if (resolved.includes('\\') || resolved.includes(':') || isAbsolute(resolved) || posix.isAbsolute(resolved)) throw refuse('to a path that is not relative');
+  const rel = posix.normalize(resolved);
+  if (rel === '.' || rel === '..' || rel.startsWith('../')) throw refuse('to a path outside environment/');
+  const root = resolve(environmentDir);
+  const target = resolve(root, normalize(rel));
+  if (!target.startsWith(root + sep)) throw refuse('to a path outside environment/');
+  const st = await lstat(target).catch(() => null);
+  if (!st || !st.isDirectory()) throw refuse('to a path that is not a directory in environment/');
+  const pkg = await lstat(join(target, 'package.json')).catch(() => null);
+  if (!pkg || !pkg.isFile()) throw refuse('to a directory without a package.json');
+}
+
+/**
+ * Refuse a lockfile that resolves a package outside the allowed registries (git, file, http URLs).
+ * Policy `registry-only` (the default) also refuses every local link. Policy `workspace-links`
+ * allows an npm workspace link that stays inside environment/ (checkWorkspaceLink); a link that
+ * escapes it is still refused.
+ */
+export async function checkLockfile(environmentDir: string, policy: LockfilePolicy = DEFAULT_LOCKFILE_POLICY): Promise<void> {
   const lockPath = join(environmentDir, 'package-lock.json');
   if (!(await exists(join(environmentDir, 'package.json')))) return;
   if (!(await exists(lockPath))) throw new TaskError('environment/package.json needs a package-lock.json (grading installs with npm ci)');
@@ -84,7 +114,11 @@ export async function checkLockfile(environmentDir: string): Promise<void> {
   }
   for (const [name, entry] of Object.entries(lock.packages ?? {})) {
     if (name === '') continue;
-    if (entry.link) throw new TaskError(`package-lock.json links a local package (${name}); not allowed`);
+    if (entry.link) {
+      if (policy !== 'workspace-links') throw new TaskError(`package-lock.json links a local package (${name}); not allowed`);
+      await checkWorkspaceLink(environmentDir, name, entry.resolved);
+      continue;
+    }
     if (typeof entry.resolved === 'string' && !ALLOWED_REGISTRY_PREFIXES.some((p) => (entry.resolved as string).startsWith(p))) {
       throw new TaskError(`package-lock.json resolves ${name} outside the npm registry`);
     }
@@ -112,12 +146,12 @@ export async function loadTask(taskDir: string): Promise<LoadedTask> {
   const paths = {
     instruction: inside(dir, contract.instruction),
     environment: inside(dir, contract.environment.dir),
-    publicTests: inside(dir, contract.tests.public),
+    publicTests: contract.tests.public === undefined ? null : inside(dir, contract.tests.public),
     hiddenTests: inside(dir, contract.tests.hidden),
     solution: inside(dir, contract.solution.patch),
   };
   for (const [key, path] of Object.entries(paths)) {
-    if (!(await exists(path))) throw new TaskError(`task.json names ${key} at ${relative(dir, path)}, which does not exist`);
+    if (path !== null && !(await exists(path))) throw new TaskError(`task.json names ${key} at ${relative(dir, path)}, which does not exist`);
   }
   // ADR-11: the seeded state of each MCP server must be in the bundle (the runner loads it; U29).
   for (const server of contract.environment.tools?.mcp ?? []) {
@@ -133,14 +167,14 @@ export async function loadTask(taskDir: string): Promise<LoadedTask> {
   }
 
   const scope: ScopeRules = { editable: contract.editable_paths, protected: contract.protected_paths };
-  for (const testsDir of [contract.tests.public, contract.tests.hidden]) {
+  for (const testsDir of declaredTestDirs(contract)) {
     const probe = `${testsDir}/probe.test.ts`;
     if (!matchesAny(probe, scope.protected)) {
       throw new TaskError(`protected_paths must cover ${testsDir}/ (a patch could otherwise rewrite the tests)`);
     }
   }
   if (contract.tests.public === contract.tests.hidden) throw new TaskError('tests.public and tests.hidden must differ');
-  await checkLockfile(paths.environment);
+  await checkLockfile(paths.environment, contract.environment.lockfile ?? DEFAULT_LOCKFILE_POLICY);
 
   return {
     dir,
@@ -149,6 +183,11 @@ export async function loadTask(taskDir: string): Promise<LoadedTask> {
     paths,
     scope,
   };
+}
+
+/** The test directories that task.json declares: the hidden one, and the public one when present. */
+export function declaredTestDirs(contract: TaskContract): string[] {
+  return contract.tests.public === undefined ? [contract.tests.hidden] : [contract.tests.public, contract.tests.hidden];
 }
 
 /**
@@ -181,6 +220,7 @@ export async function materializeWorkspace(task: LoadedTask, dest: string, opts:
 export async function addTests(task: LoadedTask, workspace: string, which: 'public' | 'hidden'): Promise<void> {
   const rel = which === 'public' ? task.contract.tests.public : task.contract.tests.hidden;
   const src = which === 'public' ? task.paths.publicTests : task.paths.hiddenTests;
+  if (rel === undefined || src === null) return; // no public tests declared (ADR-5)
   const dst = inside(workspace, rel);
   await mkdir(dst, { recursive: true });
   await cp(src, dst, { recursive: true, force: true });
@@ -191,7 +231,8 @@ export async function taskDigests(task: LoadedTask): Promise<Record<'contract' |
   return {
     contract: task.contractDigest,
     environment: await hashDirectory(task.paths.environment),
-    public_tests: await hashDirectory(task.paths.publicTests),
+    // No public tests declared: the digest of an empty directory (sha256 of nothing).
+    public_tests: task.paths.publicTests === null ? createHash('sha256').digest('hex') : await hashDirectory(task.paths.publicTests),
     hidden_tests: await hashDirectory(task.paths.hiddenTests),
     solution: createHash('sha256').update(await readFile(task.paths.solution)).digest('hex'),
   };

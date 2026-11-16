@@ -20,6 +20,8 @@ export interface TaskContract {
   environment: {
     dir: string;
     install?: string[];
+    /** Lockfile policy driver (ADR-5). Absent = registry-only. */
+    lockfile?: 'registry-only' | 'workspace-links';
     allow_internet?: false;
     cpus?: number;
     memory_mb?: number;
@@ -29,7 +31,8 @@ export interface TaskContract {
     secrets?: string[];
     resources?: { cpus?: number; memory_mb?: number; pids?: number };
   };
-  tests: { public: string; hidden: string };
+  /** `public` is optional (ADR-5): absent = no public suite. */
+  tests: { public?: string; hidden: string };
   solution: { patch: string };
   editable_paths: string[];
   protected_paths: string[];
