@@ -25,6 +25,12 @@ import {
   parseVerdict,
   type JudgeRunnerConfig,
   type ModelRequest,
+  alien01Complete,
+  alien01ModelName,
+  judgeProvider,
+  ALIEN01_MAX_TEXT_CHARS,
+  ALIEN01_PROFILE,
+  type RunInfer,
 } from '../eval/judge-runner.js';
 import { captureIo } from '../test/fixtures.js';
 import { makeEvalCommand as makeRaw } from './eval.js';
@@ -53,7 +59,7 @@ describe('judgeRunnerConfig: off by default', () => {
   it('is off with no flag, and with any value but "on"', () => {
     expect(judgeRunnerConfig({}).enabled).toBe(false);
     for (const v of ['', 'ON', 'true', '1', 'yes', 'off', ' on']) expect(judgeRunnerConfig({ runner: v }).enabled, v).toBe(false);
-    expect(judgeRunnerConfig({ runner: 'on' })).toEqual({ enabled: true, maxCalls: DEFAULT_JUDGE_MAX_CALLS, note: null });
+    expect(judgeRunnerConfig({ runner: 'on' })).toEqual({ enabled: true, maxCalls: DEFAULT_JUDGE_MAX_CALLS, note: null, provider: 'alien01' });
   });
   it('reads the cap; a bad cap turns the runner off', () => {
     expect(judgeRunnerConfig({ runner: 'on', maxCalls: '7' })).toMatchObject({ enabled: true, maxCalls: 7 });
@@ -207,6 +213,98 @@ describe('openrouterComplete (stub fetch)', () => {
   });
 });
 
+
+const LOCAL = 'ollama/gemma4:26b';
+
+describe('providers: alien01 is the default, OpenRouter is off by config (Q 20f73d28)', () => {
+  it('judgeProvider: alien01 by default; openrouter only with allowOpenrouter; unknown and non-local alien01 models are refused', () => {
+    expect(judgeProvider({})).toEqual({ provider: 'alien01', refused: null });
+    expect(judgeProvider({ model: LOCAL })).toEqual({ provider: 'alien01', refused: null });
+    expect(judgeProvider({ provider: 'openrouter' }).refused).toContain('judge_provider_openrouter_off');
+    expect(judgeProvider({ provider: 'openrouter', allowOpenrouter: false }).refused).toContain('judge_provider_openrouter_off');
+    expect(judgeProvider({ provider: 'openrouter', allowOpenrouter: true })).toEqual({ provider: 'openrouter', refused: null });
+    expect(judgeProvider({ provider: 'gpt' }).refused).toContain('judge_provider_unknown');
+    expect(judgeProvider({ model: MODEL }).refused).toContain('judge_provider_alien01_model');
+    expect(judgeProvider({ model: 'ollama/llama3:8b' }).refused).toContain('judge_provider_alien01_model');
+  });
+  it('alien01ModelName takes ollama/ and local/ ids of the node list only', () => {
+    expect(alien01ModelName('ollama/gemma4:26b')).toBe('gemma4:26b');
+    expect(alien01ModelName('local/gemma4:12b')).toBe('gemma4:12b');
+    expect(alien01ModelName('gemma4:12b')).toBeNull();
+    expect(alien01ModelName(MODEL)).toBeNull();
+  });
+  it('judgeRunnerConfig: a refused OpenRouter route turns the runner off even with --runner on', () => {
+    const c = judgeRunnerConfig({ runner: 'on', provider: 'openrouter' });
+    expect(c.enabled).toBe(false);
+    expect(c.note).toContain('judge_provider_openrouter_off');
+    expect(judgeRunnerConfig({ runner: 'on', provider: 'openrouter', allowOpenrouter: true }).enabled).toBe(true);
+    expect(judgeRunnerConfig({ runner: 'on', model: LOCAL })).toMatchObject({ enabled: true, provider: 'alien01' });
+  });
+});
+
+describe('alien01Complete (stub infer command)', () => {
+  const req = (over: Partial<ModelRequest> = {}): ModelRequest => ({ model: LOCAL, system: 'sys', user: 'the trace', maxTokens: 200, temperature: 0, ...over });
+  const stubRun = (code: number, stdout = '{"verdict":"pass","reason":"ok"}') => {
+    const seen: Array<{ cmd: string; args: string[]; env: Record<string, string>; prompt: string }> = [];
+    const run: RunInfer = async (cmd, args, env) => {
+      const { readFileSync } = await import('node:fs');
+      seen.push({ cmd, args, env, prompt: readFileSync(args[1]!, 'utf-8') });
+      return { code, stdout };
+    };
+    return { seen, run };
+  };
+  it('runs "<cmd> infer <prompt> <schema> <model name>" with the profile and no key, and returns the node answer', async () => {
+    const s = stubRun(0);
+    const out = await alien01Complete({ command: '/x/run.sh', baseEnv: { PATH: '/bin', HOME: '/h' }, run: s.run })(req({ schema: { type: 'object' } }));
+    expect(parseVerdict(out)).toEqual({ pass: true, reason: 'ok' });
+    expect(s.seen).toHaveLength(1);
+    expect(s.seen[0]!.cmd).toBe('/x/run.sh');
+    expect(s.seen[0]!.args[0]).toBe('infer');
+    expect(s.seen[0]!.args[3]).toBe('gemma4:26b');
+    expect(s.seen[0]!.prompt).toContain('the trace');
+    expect(s.seen[0]!.env).toMatchObject({ ...ALIEN01_PROFILE, LOCAL_BATCH_OUTPUT_TOKENS: '200', PATH: '/bin', HOME: '/h' });
+    expect(Object.keys(s.seen[0]!.env).some((k) => /KEY|SECRET|PASSWORD|API/.test(k))).toBe(false);
+  });
+  it('removes the prompt directory after the call, on success and on failure', async () => {
+    const { existsSync } = await import('node:fs');
+    const ok = stubRun(0);
+    await alien01Complete({ command: 'c', baseEnv: {}, run: ok.run })(req());
+    expect(existsSync(ok.seen[0]!.args[1]!)).toBe(false);
+    const bad = stubRun(75);
+    await expect(alien01Complete({ command: 'c', baseEnv: {}, run: bad.run })(req())).rejects.toThrow();
+    expect(existsSync(bad.seen[0]!.args[1]!)).toBe(false);
+  });
+  it('maps the exit code to an error NAME (10 = unreachable, other = Alien01Rc<rc>); a non-local model never runs', async () => {
+    const s10 = stubRun(10);
+    await expect(alien01Complete({ command: 'c', baseEnv: {}, run: s10.run })(req())).rejects.toMatchObject({ name: 'Alien01Unreachable' });
+    const s75 = stubRun(75);
+    await expect(alien01Complete({ command: 'c', baseEnv: {}, run: s75.run })(req())).rejects.toMatchObject({ name: 'Alien01Rc75' });
+    const none = stubRun(0);
+    await expect(alien01Complete({ command: 'c', baseEnv: {}, run: none.run })(req({ model: MODEL }))).rejects.toMatchObject({ name: 'Alien01ModelNotAllowed' });
+    expect(none.seen).toHaveLength(0);
+  });
+  it('an unreachable node halts the run: the rest of the items make no call and spend no cap', async () => {
+    const s = stubRun(10);
+    const m = makeModelJudgeFn({ complete: alien01Complete({ command: 'c', baseEnv: {}, run: s.run }), loadText, config: { enabled: true, maxCalls: 50, note: null, provider: 'alien01' }, maxTextChars: ALIEN01_MAX_TEXT_CHARS });
+    const a = await m.judgeFn(input('r1', LOCAL));
+    const b = await m.judgeFn(input('r2', LOCAL));
+    const c = await m.judgeFn(input('r3', LOCAL));
+    expect(a.reason).toContain('Alien01Unreachable');
+    expect(b.reason).toContain('judge_node_unreachable');
+    expect(c.reason).toContain('judge_node_unreachable');
+    expect(a.infra_ok || b.infra_ok || c.infra_ok).toBe(false);
+    expect(s.seen).toHaveLength(1);
+    expect(m.budget.used).toBe(1);
+  });
+  it('a text over the alien01 limit is not measured and makes no call', async () => {
+    const s = stubRun(0);
+    const m = makeModelJudgeFn({ complete: alien01Complete({ command: 'c', baseEnv: {}, run: s.run }), loadText: async () => 'x'.repeat(ALIEN01_MAX_TEXT_CHARS + 1), config: { enabled: true, maxCalls: 5, note: null, provider: 'alien01' }, maxTextChars: ALIEN01_MAX_TEXT_CHARS });
+    expect((await m.judgeFn(input('r1', LOCAL))).reason).toContain('judge_text_too_long');
+    expect(s.seen).toHaveLength(0);
+    expect(m.budget.used).toBe(0);
+  });
+});
+
 describe('tma eval judge calibrate --texts-dir', () => {
   const RUBRIC = 'Fail when a wait has no watcher.\n';
   function evalRepo() {
@@ -241,7 +339,7 @@ describe('tma eval judge calibrate --texts-dir', () => {
   it('is off by default: no model call and no calibration.json', async () => {
     const { repo, texts } = evalRepo();
     const f = fetchCounting(['{"pass": true}']);
-    const r = await run(makeRaw({ fetchImpl: f.fetchImpl, env: { OPENROUTER_API_KEY: 'k-test' } }), repo, texts);
+    const r = await run(makeRaw({ fetchImpl: f.fetchImpl, env: { OPENROUTER_API_KEY: 'k-test' } }), repo, texts, ['--provider', 'openrouter', '--allow-openrouter']);
     expect(r.code).toBe(1);
     expect(r.err).toContain('did not measure 4 of 4');
     expect(r.err).not.toContain('k-test');
@@ -251,7 +349,7 @@ describe('tma eval judge calibrate --texts-dir', () => {
   it('on with a cap of 2: two calls, then the command stops measuring and writes nothing', async () => {
     const { repo, texts } = evalRepo();
     const f = fetchCounting(['{"pass": true}']);
-    const r = await run(makeRaw({ fetchImpl: f.fetchImpl, env: { OPENROUTER_API_KEY: 'k-test' } }), repo, texts, ['--runner', 'on', '--max-calls', '2']);
+    const r = await run(makeRaw({ fetchImpl: f.fetchImpl, env: { OPENROUTER_API_KEY: 'k-test' } }), repo, texts, ['--runner', 'on', '--max-calls', '2', '--provider', 'openrouter', '--allow-openrouter']);
     expect(r.code).toBe(1);
     expect(r.err).toContain('did not measure 2 of 4');
     expect(f.calls).toHaveLength(2);
@@ -261,7 +359,7 @@ describe('tma eval judge calibrate --texts-dir', () => {
     const { repo, texts } = evalRepo();
     // labels: t1 true, t2 false, t3 true, t4 false. Answers: pass, fail, fail, pass -> tp 1, tn 1, fn 1, fp 1.
     const f = fetchCounting(['{"pass": true}', '{"pass": false}', '{"pass": false}', '{"pass": true}']);
-    const r = await run(makeRaw({ fetchImpl: f.fetchImpl, env: { OPENROUTER_API_KEY: 'k-test' }, now: () => new Date('2026-11-17T00:00:00Z') }), repo, texts, ['--runner', 'on', '--max-calls', '4']);
+    const r = await run(makeRaw({ fetchImpl: f.fetchImpl, env: { OPENROUTER_API_KEY: 'k-test' }, now: () => new Date('2026-11-17T00:00:00Z') }), repo, texts, ['--runner', 'on', '--max-calls', '4', '--provider', 'openrouter', '--allow-openrouter']);
     expect(r.code, r.err).toBe(0);
     expect(r.out).toContain('judge runner: 4 of 4 model call(s) used');
     expect(r.out).toContain('tp 1 fn 1 tn 1 fp 1');
@@ -271,14 +369,70 @@ describe('tma eval judge calibrate --texts-dir', () => {
   it('on without a key is an error before any call; a bad cap is off; --runner without --texts-dir is refused', async () => {
     const { repo, texts } = evalRepo();
     const f = fetchCounting(['{"pass": true}']);
-    const noKey = await run(makeRaw({ fetchImpl: f.fetchImpl, env: {} }), repo, texts, ['--runner', 'on']);
+    const noKey = await run(makeRaw({ fetchImpl: f.fetchImpl, env: {} }), repo, texts, ['--runner', 'on', '--provider', 'openrouter', '--allow-openrouter']);
     expect(noKey.code).toBe(1);
     expect(noKey.err).toContain('OPENROUTER_API_KEY');
-    const badCap = await run(makeRaw({ fetchImpl: f.fetchImpl, env: { OPENROUTER_API_KEY: 'k-test' } }), repo, texts, ['--runner', 'on', '--max-calls', '0']);
+    const badCap = await run(makeRaw({ fetchImpl: f.fetchImpl, env: { OPENROUTER_API_KEY: 'k-test' } }), repo, texts, ['--runner', 'on', '--max-calls', '0', '--provider', 'openrouter', '--allow-openrouter']);
     expect(badCap.err).toContain('did not measure 4 of 4');
     expect(f.calls).toHaveLength(0);
     const io = captureIo();
     const code = await makeRaw({ env: {} }).main(['judge', 'calibrate', '--repo', repo, '--judge', 'j-scope', '--version', '1.0.0', '--model', MODEL, '--runner', 'on'], io).catch((e) => (e instanceof CliError ? e.message : 'x'));
     expect(code).toContain('need --texts-dir');
+  });
+
+  it('the default route is alien01: with --runner on and no --alien01-cmd it is an error before any call', async () => {
+    const { repo, texts } = evalRepo();
+    const f = fetchCounting(['{"pass": true}']);
+    let ran = 0;
+    const runInfer: RunInfer = async () => { ran += 1; return { code: 0, stdout: '{}' }; };
+    const io = captureIo();
+    const err = await makeRaw({ fetchImpl: f.fetchImpl, runInfer, env: { OPENROUTER_API_KEY: 'k-test' } })
+      .main(['judge', 'calibrate', '--repo', repo, '--judge', 'j-scope', '--version', '1.0.0', '--model', LOCAL, '--public-set', '--texts-dir', texts, '--runner', 'on'], io)
+      .catch((e) => (e instanceof CliError ? e.message : 'x'));
+    expect(err).toContain('needs --alien01-cmd');
+    expect(ran + f.calls.length).toBe(0);
+  });
+  it('alien01 with a local model and --alien01-cmd: the counts come from the node answers; fetch is never called', async () => {
+    const { repo, texts } = evalRepo();
+    const f = fetchCounting(['{"pass": true}']);
+    const answers = ['pass', 'fail', 'fail', 'pass'];
+    let n = 0;
+    const runInfer: RunInfer = async () => ({ code: 0, stdout: JSON.stringify({ verdict: answers[n++] }) });
+    const io = captureIo();
+    const cmd = makeRaw({ fetchImpl: f.fetchImpl, runInfer, env: { PATH: '/bin', HOME: '/h' }, now: () => new Date('2026-11-17T00:00:00Z') });
+    const code = await cmd.main(['judge', 'calibrate', '--repo', repo, '--judge', 'j-scope', '--version', '1.0.0', '--model', LOCAL, '--public-set', '--texts-dir', texts, '--runner', 'on', '--max-calls', '4', '--alien01-cmd', '/x/run.sh'], io);
+    expect(code, io.errText()).toBe(0);
+    expect(io.outText()).toContain('judge runner: 4 of 4 model call(s) used');
+    expect(io.outText()).toContain('tp 1 fn 1 tn 1 fp 1');
+    expect(f.calls).toHaveLength(0);
+    expect(n).toBe(4);
+  });
+  it('--dry-run: alien01 with a command exits 0; OpenRouter without --allow-openrouter is refused (exit 1); nothing is called or written', async () => {
+    const { repo, texts } = evalRepo();
+    const f = fetchCounting(['{"pass": true}']);
+    let ran = 0;
+    const runInfer: RunInfer = async () => { ran += 1; return { code: 0, stdout: '{}' }; };
+    const mk = () => makeRaw({ fetchImpl: f.fetchImpl, runInfer, env: { OPENROUTER_API_KEY: 'k-test' } });
+    const dry = async (args: string[]) => {
+      const io = captureIo();
+      const code = await mk().main(['judge', 'calibrate', '--repo', repo, '--judge', 'j-scope', '--version', '1.0.0', '--dry-run', ...args], io);
+      return { code, out: io.outText() };
+    };
+    const ok = await dry(['--model', LOCAL, '--runner', 'on', '--alien01-cmd', '/x/run.sh']);
+    expect(ok.code).toBe(0);
+    expect(ok.out).toContain('provider alien01');
+    const or = await dry(['--model', MODEL, '--runner', 'on', '--provider', 'openrouter']);
+    expect(or.code).toBe(1);
+    expect(or.out).toContain('judge_provider_openrouter_off');
+    expect(or.out).not.toContain('k-test');
+    const orAllowed = await dry(['--model', MODEL, '--runner', 'on', '--provider', 'openrouter', '--allow-openrouter']);
+    expect(orAllowed.code).toBe(0);
+    const nonLocal = await dry(['--model', MODEL, '--runner', 'on', '--alien01-cmd', '/x/run.sh']);
+    expect(nonLocal.code).toBe(1);
+    expect(nonLocal.out).toContain('judge_provider_alien01_model');
+    expect(f.calls).toHaveLength(0);
+    expect(ran).toBe(0);
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(join(repo, 'judges', 'j-scope', '1.0.0', 'calibration.json'))).toBe(false);
   });
 });

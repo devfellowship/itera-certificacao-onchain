@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueSessionToken } from "../auth/session.js";
 import {
-  createHumanLabelsRouter, displayKind, humanLabelDigest, labelerOf, labelStrength, queueOrder, type HumanLabel, type StepDetail, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
+  createHumanLabelsRouter, displayKind, humanLabelDigest, labelerOf, labelStrength, queueOrder, splitOf, taskIdOfSlug, type HumanLabel, type StepDetail, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
 } from "./human-labels.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -21,7 +21,7 @@ const siws = issueSessionToken("5ZWj7a1f8tWkjBESHKgrLmXshuXxqeY9SYcfbshpAqPG", D
 
 const run = (id: string, over: Partial<ReviewRun>): ReviewRun => ({
   runId: id, caseKey: "c", useCaseKey: "build/feature", originPinSha256: null, taskSummary: null, modelId: null, status: "pass",
-  startedAt: "2026-11-15T10:00:00.000Z", steps: [], judge: null, workflow: null, mine: null, disagree: false, ...over,
+  startedAt: "2026-11-15T10:00:00.000Z", steps: [], judge: null, workflow: null, mine: null, disagree: false, split: null, ...over,
 });
 
 class FakeStore implements HumanLabelStore {
@@ -207,6 +207,32 @@ describe("helpers", () => {
   });
   it("labelerOf is fail closed", () => {
     expect(labelerOf({ id: ALICE, kind: "dfl", actorType: "unknown" })).toBe(`user:${UUID}`);
+  });
+  it("queueOrder puts the test split first, then dev, train and unknown; inside a split disagreements, unlabeled, newest", () => {
+    const out = queueOrder([
+      run("u", { startedAt: "2026-11-15T20:00:00.000Z", split: null }),
+      run("tr", { startedAt: "2026-11-15T19:00:00.000Z", split: "train", disagree: true }),
+      run("dv", { startedAt: "2026-11-15T18:00:00.000Z", split: "dev", disagree: true }),
+      run("t-old", { startedAt: "2026-11-15T01:00:00.000Z", split: "test" }),
+      run("t-new", { startedAt: "2026-11-15T02:00:00.000Z", split: "test" }),
+      run("t-dis", { startedAt: "2026-11-15T00:00:00.000Z", split: "test", disagree: true }),
+    ]);
+    expect(out.map((r) => r.runId)).toEqual(["t-dis", "t-new", "t-old", "dv", "tr", "u"]);
+  });
+  it("splitOf is the dfl-evals calibration_split.py rule (vectors from ci/calibration_split.py assign, seed 20261112, 20/40/40)", () => {
+    const vectors: Array<[string, string, string]> = [["async-wait-lifecycle", "6adaacbe-fa3c-41be-8c46-b319dc1e5ff0", "test"], ["async-wait-lifecycle", "6adaacbe-fa3c-41be-8c46-b319dc1e5ff2", "dev"], ["async-wait-lifecycle", "6adaacbe-fa3c-41be-8c46-b319dc1e5ff4", "train"], ["async-wait-lifecycle", "6adaacbe-fa3c-41be-8c46-b319dc1e5ff7", "train"], ["external-block-handling", "6adaacbe-fa3c-41be-8c46-b319dc1e5ff0", "dev"], ["external-block-handling", "6adaacbe-fa3c-41be-8c46-b319dc1e5ff3", "test"], ["external-block-handling", "6adaacbe-fa3c-41be-8c46-b319dc1e5ff7", "dev"]];
+    for (const [judge, task, want] of vectors) expect(splitOf(judge, task)).toBe(want);
+    // another seed moves at least one task (the seed is part of the key)
+    expect(vectors.some(([judge, task, want]) => splitOf(judge, task, "7") !== want)).toBe(true);
+    // the split is per judge: one task is not in the same part for both judges
+    expect(splitOf("async-wait-lifecycle", "6adaacbe-fa3c-41be-8c46-b319dc1e5ff0")).not.toBe(splitOf("external-block-handling", "6adaacbe-fa3c-41be-8c46-b319dc1e5ff0"));
+  });
+  it("taskIdOfSlug reads the recorded task slug of review-batch and nothing else", () => {
+    expect(taskIdOfSlug("dfl-task-6adaacbe-fa3c-41be-8c46-b319dc1e5ff0")).toBe("6adaacbe-fa3c-41be-8c46-b319dc1e5ff0");
+    expect(taskIdOfSlug("tma-task-abc")).toBe("abc");
+    expect(taskIdOfSlug("task-0123456789abcdef")).toBeNull();
+    expect(taskIdOfSlug("")).toBeNull();
+    expect(taskIdOfSlug(null)).toBeNull();
   });
   it("queueOrder puts disagreements first, then unlabeled, then newest", () => {
     const v = { pass: true, labeler: null, gradedAt: "x" };

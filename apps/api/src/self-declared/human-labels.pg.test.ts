@@ -13,7 +13,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { validateLocalResultV3, type LocalResultV3 } from "@itera/contracts";
 import { resetSchemaFeatures } from "../domain/schema-features.js";
-import { humanLabelDigest, LABEL_GRADER_SEMVER, labelGraderId, PgHumanLabelStore } from "./human-labels.js";
+import { humanLabelDigest, LABEL_GRADER_SEMVER, labelGraderId, PgHumanLabelStore, splitOf } from "./human-labels.js";
 import { PgSelfDeclaredStore } from "./store.pg.js";
 
 const URL_ = process.env.ITERA_PG_TEST_URL;
@@ -136,6 +136,14 @@ describe.skipIf(!URL_)("PgHumanLabelStore on Postgres (0023 and 0024 applied)", 
     });
     expect(q[0]!.steps.map((s) => s.ok)).toEqual([true, false]);
     expect(await store.queue(`${TENANT}-other`, JUDGE, LABELER, 50)).toEqual([]);
+  });
+  it("gives each queued run the split of its task for the judge (null when the task slug is not a recorded task)", async () => {
+    expect((await store.queue(TENANT, JUDGE, LABELER, 50))[0]!.split).toBeNull();
+    const rec = randomUUID();
+    await pool.query(`update public.tasks set slug = $2 where id = $1`, [taskId, `dfl-task-${rec}`]);
+    const q = await store.queue(TENANT, JUDGE, LABELER, 50);
+    expect(q[0]!.split).toBe(splitOf(JUDGE, rec));
+    expect((await store.queue(TENANT, "external-block-handling", LABELER, 50))[0]!.split).toBe(splitOf("external-block-handling", rec));
   });
   it("writes a label on the human label grader and reads it back", async () => {
     const w = await store.insert({ tenant: TENANT, runId, judgeId: JUDGE, pass: true, reasonCode: "other", labeler: LABELER });

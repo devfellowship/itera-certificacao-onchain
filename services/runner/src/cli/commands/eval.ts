@@ -8,7 +8,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { flag, flagList, has, numberFlag, parseArgs, required, type ParsedArgs } from '../args.js';
 import type { Command, Io } from '../command.js';
-import { apiUrl, CliError, userModelKey } from '../env.js';
+import { apiUrl, childEnv, CliError, userModelKey } from '../env.js';
 import { checkAgentId } from '../result.js';
 import { loadSessionFile, requireSession } from '../session.js';
 import { postResult } from './upload.js';
@@ -28,12 +28,14 @@ import { proveGrader } from '../eval/prove.js';
 import { calibrateJudge } from '../eval/calibrate.js';
 import { JUDGE_LABELS_USAGE, judgeLabelsMain } from '../eval/calibration-labels.js';
 import type { JudgeFn } from '../eval/judge.js';
-import { judgeRunnerConfig, makeModelJudgeFn, openrouterComplete } from '../eval/judge-runner.js';
+import { ALIEN01_ANSWER_SCHEMA, ALIEN01_MAX_TEXT_CHARS, alien01Complete, judgeRunnerConfig, makeModelJudgeFn, openrouterComplete, type RunInfer } from '../eval/judge-runner.js';
 
 /** The deps of the eval command: the run deps plus the judge of `tma eval judge calibrate`. */
 export interface EvalCommandDeps extends EvalDeps {
   /** The JudgeFn of `tma eval judge calibrate` (a test passes a fake; the default does not measure). */
   judgeFn?: JudgeFn;
+  /** The infer command of the alien01 judge route (a test passes a fake; the default runs the command without a shell). */
+  runInfer?: RunInfer;
   /** The wait of `tma eval judge labels` after a 429 (a test passes a fake). */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -69,8 +71,9 @@ const GRADER_PROVE_USAGE = `usage: tma eval grader prove <grader dir> [--out <pr
 
 const JUDGE_CALIBRATE_USAGE = `usage: tma eval judge calibrate --judge <id> --version <semver> --model <model id> [--repo <eval repo>]
                                 [--labels-dir <dir>] [--judges-dir <dir>] [--public-set]
-                                [--texts-dir <dir> [--runner on] [--max-calls <n>]] [--split dev|test]
-                                [--verdicts-out <file>]
+                                [--texts-dir <dir> [--runner on] [--max-calls <n>] [--provider alien01|openrouter]
+                                 [--alien01-cmd <alien01-node run.sh>] [--allow-openrouter]] [--split dev|test]
+                                [--verdicts-out <file>] [--dry-run]
   Measures the judge against the human labels sets/calibration/<id>/{train,dev,test}.jsonl ({"id","label"} lines or
   dfl-evals tma-calibration-label/1 rows; a weak row in test is refused) and writes
   judges/<id>/<semver>/calibration.json {n_labels, n_test, tp, fn, tn, fp, realigned_at}.
@@ -80,8 +83,13 @@ const JUDGE_CALIBRATE_USAGE = `usage: tma eval judge calibrate --judge <id> --ve
                   (95 % bootstrap interval, self/other family). The case set is private by
   default: a judge model outside the private-text list (A11 Q1 = B) is refused. --public-set lifts that.
   --texts-dir     the folder of the item texts (<dir>/<id>.txt for label id <id>); it asks for the model runner.
-  --runner on     the model runner is OFF unless you give this. Then the judge calls the model through OpenRouter with
-                  your OPENROUTER_API_KEY, at temperature 0.
+  --runner on     the model runner is OFF unless you give this. Then the judge calls the model at temperature 0.
+  --provider      the route of the model call. alien01 (the default): the owner's own node, a local model
+                  (ollama/gemma4:12b or ollama/gemma4:26b) through "<--alien01-cmd> infer"; no key; a text over
+                  ${ALIEN01_MAX_TEXT_CHARS} characters is not measured. openrouter: OFF by config (Tainan, Q 20f73d28,
+                  2026-11-17): it needs --provider openrouter AND --allow-openrouter, then your OPENROUTER_API_KEY.
+  --dry-run       check the provider, the model and the cap and print the plan. No model call, no label read, no write.
+                  Exit 1 when the provider is refused (OpenRouter without --allow-openrouter) or the runner is not on.
   --max-calls     the most model calls of one command (default 50, at most 1000): one call per test item, no retry.
                   Off or over the cap, an item is not measured and no calibration.json is written.`;
 
@@ -384,18 +392,35 @@ async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise
   const [sub, ...rest] = argv;
   if (sub === 'labels') return judgeLabelsMain(rest, io, deps);
   if (sub !== 'calibrate') throw new CliError(`${sub ? `unknown eval judge command: ${sub}` : 'give an eval judge command'}\n${JUDGE_CALIBRATE_USAGE}\n\n${JUDGE_LABELS_USAGE}`);
-  const a = parseArgs(rest, { judge: {}, version: {}, model: {}, repo: {}, 'labels-dir': {}, 'judges-dir': {}, 'public-set': { boolean: true }, 'texts-dir': {}, runner: {}, 'max-calls': {}, split: {}, 'verdicts-out': {} });
+  const a = parseArgs(rest, { judge: {}, version: {}, model: {}, repo: {}, 'labels-dir': {}, 'judges-dir': {}, 'public-set': { boolean: true }, 'texts-dir': {}, runner: {}, 'max-calls': {}, split: {}, 'verdicts-out': {}, provider: {}, 'alien01-cmd': {}, 'allow-openrouter': { boolean: true }, 'dry-run': { boolean: true } });
+  const model = required(a, 'model', JUDGE_CALIBRATE_USAGE);
+  const flagsOf = { runner: flag(a, 'runner'), maxCalls: flag(a, 'max-calls'), provider: flag(a, 'provider'), allowOpenrouter: has(a, 'allow-openrouter'), model };
+  if (has(a, 'dry-run')) {
+    const c = judgeRunnerConfig(flagsOf);
+    const cmd = flag(a, 'alien01-cmd');
+    io.out(`judge runner plan: provider ${c.provider}, model ${model}, cap ${c.maxCalls} call(s), runner ${c.enabled ? 'on' : 'off'}${c.provider === 'alien01' ? `, infer command ${cmd ? 'given' : 'not given'}` : ''}`);
+    if (c.note) io.out(`refused: ${c.note}`);
+    io.out('dry run: no model call, no label read, nothing written');
+    return c.enabled && (c.provider !== 'alien01' || Boolean(cmd)) ? 0 : 1;
+  }
   let judgeFn = deps.judgeFn;
   let spent: (() => string) | null = null;
   const textsDir = flag(a, 'texts-dir');
   if (!textsDir && (flag(a, 'runner') !== undefined || flag(a, 'max-calls') !== undefined)) throw new CliError('--runner and --max-calls need --texts-dir');
   if (!judgeFn && textsDir) {
-    const config = judgeRunnerConfig({ runner: flag(a, 'runner'), maxCalls: flag(a, 'max-calls') });
-    const apiKey = config.enabled ? userModelKey('openrouter', deps.env ?? process.env) : '';
+    const config = judgeRunnerConfig(flagsOf);
+    const env = deps.env ?? process.env;
+    const alien = config.provider === 'alien01';
+    const cmd = flag(a, 'alien01-cmd');
+    if (config.enabled && alien && !cmd) throw new CliError('the alien01 route needs --alien01-cmd <path of the alien01-node run.sh>');
+    const apiKey = config.enabled && !alien ? userModelKey('openrouter', env) : '';
     const dir = resolve(textsDir);
     const made = makeModelJudgeFn({
-      complete: openrouterComplete({ apiKey, fetchImpl: deps.fetchImpl }),
+      complete: alien
+        ? alien01Complete({ command: cmd ?? '', baseEnv: childEnv(env), run: deps.runInfer })
+        : openrouterComplete({ apiKey, fetchImpl: deps.fetchImpl }),
       config,
+      ...(alien ? { maxTextChars: ALIEN01_MAX_TEXT_CHARS, schema: ALIEN01_ANSWER_SCHEMA } : {}),
       publicText: has(a, 'public-set'),
       loadText: async (handle) => {
         if (!/^[A-Za-z0-9_.-]{1,120}$/.test(handle) || handle.startsWith('.')) throw new Error('bad handle');
@@ -409,7 +434,7 @@ async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise
     repo: flag(a, 'repo') ?? process.cwd(),
     judgeId: required(a, 'judge', JUDGE_CALIBRATE_USAGE),
     version: required(a, 'version', JUDGE_CALIBRATE_USAGE),
-    model: required(a, 'model', JUDGE_CALIBRATE_USAGE),
+    model,
     publicSet: has(a, 'public-set'),
     labelsDir: flag(a, 'labels-dir'),
     judgesDir: flag(a, 'judges-dir'),

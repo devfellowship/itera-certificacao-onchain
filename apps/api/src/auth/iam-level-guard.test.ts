@@ -21,7 +21,7 @@ const siwsToken = issueSessionToken("5ZWj7a1f8tWkjBESHKgrLmXshuXxqeY9SYcfbshpAqP
 
 const run: ReviewRun = {
   runId: "1b6f3c2e-1d4a-4c8e-9f00-123456789abc", caseKey: "c", useCaseKey: "build/feature", originPinSha256: null, taskSummary: null, modelId: null,
-  status: "pass", startedAt: "2026-11-15T10:00:00.000Z", steps: [], judge: null, workflow: null, mine: null, disagree: false,
+  status: "pass", startedAt: "2026-11-15T10:00:00.000Z", steps: [], judge: null, workflow: null, mine: null, disagree: false, split: null,
 };
 const humanLabels: { store: HumanLabelStore; tenant: string } = {
   tenant: "devfellowship",
