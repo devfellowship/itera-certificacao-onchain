@@ -66,10 +66,15 @@ const GRADER_PROVE_USAGE = `usage: tma eval grader prove <grader dir> [--out <pr
 
 const JUDGE_CALIBRATE_USAGE = `usage: tma eval judge calibrate --judge <id> --version <semver> --model <model id> [--repo <eval repo>]
                                 [--labels-dir <dir>] [--judges-dir <dir>] [--public-set]
-                                [--texts-dir <dir> [--runner on] [--max-calls <n>]]
-  Measures the judge against the human labels sets/calibration/<id>/{train,dev,test}.jsonl ({"id","label"} lines)
-  and writes judges/<id>/<semver>/calibration.json {n_labels, n_test, tp, fn, tn, fp, realigned_at}.
-  The judge answers the test split; the rubric is judges/<id>/<semver>/rubric.md. The case set is private by
+                                [--texts-dir <dir> [--runner on] [--max-calls <n>]] [--split dev|test]
+                                [--verdicts-out <file>]
+  Measures the judge against the human labels sets/calibration/<id>/{train,dev,test}.jsonl ({"id","label"} lines or
+  dfl-evals tma-calibration-label/1 rows; a weak row in test is refused) and writes
+  judges/<id>/<semver>/calibration.json {n_labels, n_test, tp, fn, tn, fp, realigned_at}.
+  The judge answers the test split; the rubric is judges/<id>/<semver>/rubric.md.
+  --split dev     answer the dev split instead (hand iteration): prints TPR and TNR, writes NO calibration.json.
+  --verdicts-out  one {"run_id","verdict"} line per measured item: the input of dfl-evals calibration_metrics.py
+                  (95 % bootstrap interval, self/other family). The case set is private by
   default: a judge model outside the private-text list (A11 Q1 = B) is refused. --public-set lifts that.
   --texts-dir     the folder of the item texts (<dir>/<id>.txt for label id <id>); it asks for the model runner.
   --runner on     the model runner is OFF unless you give this. Then the judge calls the model through OpenRouter with
@@ -373,7 +378,7 @@ async function graderMain(argv: string[], io: Io): Promise<number> {
 async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise<number> {
   const [sub, ...rest] = argv;
   if (sub !== 'calibrate') throw new CliError(`${sub ? `unknown eval judge command: ${sub}` : 'give an eval judge command'}\n${JUDGE_CALIBRATE_USAGE}`);
-  const a = parseArgs(rest, { judge: {}, version: {}, model: {}, repo: {}, 'labels-dir': {}, 'judges-dir': {}, 'public-set': { boolean: true }, 'texts-dir': {}, runner: {}, 'max-calls': {} });
+  const a = parseArgs(rest, { judge: {}, version: {}, model: {}, repo: {}, 'labels-dir': {}, 'judges-dir': {}, 'public-set': { boolean: true }, 'texts-dir': {}, runner: {}, 'max-calls': {}, split: {}, 'verdicts-out': {} });
   let judgeFn = deps.judgeFn;
   let spent: (() => string) | null = null;
   const textsDir = flag(a, 'texts-dir');
@@ -403,9 +408,20 @@ async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise
     labelsDir: flag(a, 'labels-dir'),
     judgesDir: flag(a, 'judges-dir'),
     judgeFn,
+    split: flag(a, 'split') as 'dev' | 'test' | undefined,
+    verdictsOut: flag(a, 'verdicts-out'),
     now: deps.now,
   });
   if (spent) io.out(spent());
+  const m = r.measured;
+  const rate = (x: number | null) => (x === null ? 'n/a' : x.toFixed(4));
+  io.out(`judge calibration (${m.split} split): n ${m.n}, tp ${m.tp} fn ${m.fn} tn ${m.tn} fp ${m.fp}, TPR ${rate(m.tpr)} TNR ${rate(m.tnr)}`);
+  if (r.verdictsFile) io.out(`verdicts: ${r.verdictsFile}`);
+  if (r.calibration === null) {
+    io.out(`${m.split} split: no calibration.json is written (the gate reads the test split only)`);
+    io.out(r.gate === null ? 'dev: both rates >= 0.90; run the test split once on this version' : `dev: under the bar (${r.gate})`);
+    return 0;
+  }
   const k = r.calibration;
   io.out(`judge calibration: n_labels ${k.n_labels}, n_test ${k.n_test}, tp ${k.tp} fn ${k.fn} tn ${k.tn} fp ${k.fp}`);
   io.out(r.gate === null ? 'gate: decisive allowed (TPR and TNR >= 0.90)' : `gate: side signal only (${r.gate})`);
