@@ -450,6 +450,26 @@ tma eval judge calibrate --judge <id> --version <semver> --model <model id> --re
 ```
 
 The text of label id `<id>` is the file `<folder>/<id>.txt`.
+
+### Build the item texts
+
+A real run is too long for the local judge model: its prompt must fit 12,288 bytes.
+This command folds each recorded session of a review batch into one text that fits:
+
+```bash
+tma eval judge texts --judge <id> --version <semver> --repo <eval repo folder> --batch rows.jsonl --labels labels.jsonl --out <folder>
+```
+
+The fold keeps the task prompt, the final report and the timeline events that the rubric names.
+For `async-wait-lifecycle` these are waits, polls, background starts, wakes, ends of turn, merges and deploys.
+For `external-block-handling` these are failed steps, block signals, retries, gate steps and CI reads.
+Each elided part is one marker with a count per kind, for example `[… 12 elided: read 9, wait* 3 …]`.
+A kind with `*` is a kind that the rubric names.
+The same session and judge version give the same bytes.
+The budget is the relay limit minus the judge prompt and its rubric; `--budget <bytes>` may lower it.
+`--labels` is the output of `tma eval judge labels`: each labeled run gets the file `<run id>.txt`.
+Without `--labels`, each file is `<case key>.txt`.
+The folder is mode 700 and each file is mode 600. The command prints counts and digests, never run text.
 The runner is off unless you give `--runner on`.
 It calls the model through OpenRouter with your own `OPENROUTER_API_KEY`, at temperature 0.
 `--max-calls` is the most model calls of one command (default 50, at most 1000).
