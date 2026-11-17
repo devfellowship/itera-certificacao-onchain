@@ -66,7 +66,17 @@ test('studio compatibility links work forward and way back, no 404, no page erro
   await expect(page.getByTestId('s8-row').first(), 'S8 agent row (CONTROL: the fixture agent)').toBeVisible({ timeout: 30_000 })
   await hop(page, 's8-agent-link', /\/agents\/[^/]+$/, 'studio-variants')
 
-  // Forward from an /evaluations row to S6 (CONTROL: the smoke user has the fixture evaluations).
-  await open(page, '/evaluations', 'row-studio-experiments')
+  // Forward from an /evaluations row to S6 (CONTROL: the smoke user has the fixture evaluations). The testid is per
+  // row by design: every evaluation row carries its own link to S6 filtered by its agent, so the page holds many.
+  // The spec does not hide that with a blind .first(): it proves that the page lists at least one row link (CONTROL),
+  // that EVERY row link targets S6 with an agent id, and only then clicks the first one.
+  await page.goto('/evaluations')
+  await expectMounted(page)
+  const rowLinks = page.getByTestId('row-studio-experiments')
+  await expect(rowLinks.first(), '/evaluations row link (CONTROL: at least one row)').toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('not-found'), '404 page at /evaluations').toHaveCount(0)
+  const rowHrefs = await rowLinks.evaluateAll((els) => els.map((el) => el.getAttribute('href')))
+  expect(rowHrefs.length, 'row links on /evaluations').toBeGreaterThan(0)
+  for (const rowHref of rowHrefs) expect(rowHref, 'every /evaluations row link targets S6 for an agent').toMatch(/^\/studio\/experiments\?agent=[^&]+$/)
   await hop(page, 'row-studio-experiments', /\/studio\/experiments\?agent=/, 'studio-experiments-page')
 })
