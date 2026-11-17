@@ -26,6 +26,7 @@ import { readVariant } from '../eval/variant.js';
 import { dryRunGrade } from '../eval/dry-run.js';
 import { proveGrader } from '../eval/prove.js';
 import { calibrateJudge } from '../eval/calibrate.js';
+import { JUDGE_LABELS_USAGE, judgeLabelsMain } from '../eval/calibration-labels.js';
 import type { JudgeFn } from '../eval/judge.js';
 import { judgeRunnerConfig, makeModelJudgeFn, openrouterComplete } from '../eval/judge-runner.js';
 
@@ -33,6 +34,8 @@ import { judgeRunnerConfig, makeModelJudgeFn, openrouterComplete } from '../eval
 export interface EvalCommandDeps extends EvalDeps {
   /** The JudgeFn of `tma eval judge calibrate` (a test passes a fake; the default does not measure). */
   judgeFn?: JudgeFn;
+  /** The wait of `tma eval judge labels` after a 429 (a test passes a fake). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const CASE_USAGE = `usage: tma eval case --case <case.json> --dest <dir> [--task-dir <bundle>] [--recorded <patch>] [--clone]
@@ -124,7 +127,7 @@ const REVIEW_BATCH_USAGE = `usage: tma eval review-batch --batch <rows.jsonl> --
   --dry-run       build every body and ask the API with ?dry_run=1 (when logged in); nothing is stored`;
 
 const USAGE = [
-  'usage: tma eval <case|run|grade|diff|trajectory|upload|review-batch|workflow-labels|grader prove|judge calibrate> ...   (the eval kit: plan C3)',
+  'usage: tma eval <case|run|grade|diff|trajectory|upload|review-batch|workflow-labels|grader prove|judge calibrate|judge labels> ...   (the eval kit: plan C3)',
   '',
   CASE_USAGE,
   '',
@@ -145,6 +148,8 @@ const USAGE = [
   GRADER_PROVE_USAGE,
   '',
   JUDGE_CALIBRATE_USAGE,
+  '',
+  JUDGE_LABELS_USAGE,
 ].join('\n');
 
 /** The copy command of the next step, as the studio shows it (umbrella ADR-30, ADR-31). */
@@ -377,7 +382,8 @@ async function graderMain(argv: string[], io: Io): Promise<number> {
 
 async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise<number> {
   const [sub, ...rest] = argv;
-  if (sub !== 'calibrate') throw new CliError(`${sub ? `unknown eval judge command: ${sub}` : 'give an eval judge command'}\n${JUDGE_CALIBRATE_USAGE}`);
+  if (sub === 'labels') return judgeLabelsMain(rest, io, deps);
+  if (sub !== 'calibrate') throw new CliError(`${sub ? `unknown eval judge command: ${sub}` : 'give an eval judge command'}\n${JUDGE_CALIBRATE_USAGE}\n\n${JUDGE_LABELS_USAGE}`);
   const a = parseArgs(rest, { judge: {}, version: {}, model: {}, repo: {}, 'labels-dir': {}, 'judges-dir': {}, 'public-set': { boolean: true }, 'texts-dir': {}, runner: {}, 'max-calls': {}, split: {}, 'verdicts-out': {} });
   let judgeFn = deps.judgeFn;
   let spent: (() => string) | null = null;
