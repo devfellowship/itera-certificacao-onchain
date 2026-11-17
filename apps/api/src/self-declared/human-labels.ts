@@ -22,9 +22,11 @@
  *   GET  /review-queue             ?judge=<id>[&limit=1..200]: the trace_review runs of the tenant that no person has
  *                                  labeled yet for that judge (a label under judge A keeps the run in the queue of judge B;
  *                                  a `workflow:` label does not close it), each with the task summary, the folded step kinds, the judge verdict, the workflow
- *                                  label and the caller's own label. Order: judge and workflow label disagree first
- *                                  (failure-driven sampling, book p132), then runs the caller has not labeled, newest
- *                                  first.
+ *                                  label and the caller's own label, and its `split` for that judge (train, dev or test, or null
+ *                                  when the task is unknown). Order (Tainan, Q 0a6c8599 = B, 2026-11-17): test-split runs
+ *                                  first, then dev, then train, then the rest; inside a split, judge and workflow label
+ *                                  disagree first (failure-driven sampling, book p132), then runs the caller has not
+ *                                  labeled, newest first.
  *
  * Tenancy: a run belongs to the tenant of its eval case. A run of another tenant → 403 run_other_tenant; a run with no
  * case → 409 run_has_no_case; an unknown or malformed run id → 404. A siws login → 403 not_a_dfl_login.
@@ -63,6 +65,31 @@ export function labelStrength(labeler: string | null): LabelStrength | null {
   return null;
 }
 const CASE_KEY_RE = /^[a-z0-9][a-z0-9_-]{2,62}$/;
+/** The calibration split of a task for one judge: the same rule as devfellowship/dfl-evals ci/calibration_split.py
+ * (sha256 of "<seed>:<judge id>:<task id>", first 8 bytes over 2^64, against the cumulative ratios 20/40/40). The seed is the
+ * one of the C6 splits (plan 20261112-tma-c6-judge-calibration). A task goes to one part, so the queue and the later
+ * calibration split agree on which runs are test runs. */
+export const SPLIT_SEED = "20261112";
+export const SPLIT_RATIOS = [20, 40, 40] as const;
+export type SplitName = "train" | "dev" | "test";
+export function splitOf(judgeId: string, taskId: string, seed: string = SPLIT_SEED): SplitName {
+  const d = createHash("sha256").update(`${seed}:${judgeId}:${taskId}`, "utf8").digest();
+  const x = Number(d.readBigUInt64BE(0)) / 2 ** 64;
+  const total = SPLIT_RATIOS.reduce((a, b) => a + b, 0);
+  const parts: SplitName[] = ["train", "dev", "test"];
+  let acc = 0;
+  for (let i = 0; i < 3; i++) {
+    acc += SPLIT_RATIOS[i]! / total;
+    if (x < acc) return parts[i]!;
+  }
+  return "test";
+}
+/** The task id of a recorded task slug (`dfl-task-<id>` or `tma-task-<id>`, review-batch recordedTaskRef), or null. */
+export function taskIdOfSlug(slug: string | null): string | null {
+  const m = slug ? /^(?:dfl|tma)-task-([0-9a-z][0-9a-z-]{2,119})$/.exec(slug) : null;
+  return m ? m[1]! : null;
+}
+const SPLIT_RANK: Record<string, number> = { test: 0, dev: 1, train: 2 };
 export const QUEUE_DEFAULT_LIMIT = 50;
 export const QUEUE_MAX_LIMIT = 200;
 
@@ -112,6 +139,8 @@ export interface ReviewRun {
   workflow: Verdict | null;
   mine: Verdict | null;
   disagree: boolean;
+  /** The split of the run's task for the queue's judge; null when the task id is unknown. */
+  split: SplitName | null;
 }
 
 /** null = no such run; tenant null = a run with no eval case. */
@@ -164,9 +193,10 @@ function verdict(v: unknown): Verdict | null {
   return { pass: Boolean(o.pass), labeler: orNull(o.labeler), gradedAt: iso(o.at) };
 }
 
-/** Disagreements first, then runs without the caller's label, then newest first. */
+/** Test split first, then dev, train, unknown; inside a split: disagreements, runs without the caller's label, newest. */
 export function queueOrder(runs: ReviewRun[]): ReviewRun[] {
-  return [...runs].sort((a, b) => Number(b.disagree) - Number(a.disagree) || Number(a.mine !== null) - Number(b.mine !== null) || b.startedAt.localeCompare(a.startedAt));
+  const rank = (r: ReviewRun) => (r.split ? SPLIT_RANK[r.split]! : 3);
+  return [...runs].sort((a, b) => rank(a) - rank(b) || Number(b.disagree) - Number(a.disagree) || Number(a.mine !== null) - Number(b.mine !== null) || b.startedAt.localeCompare(a.startedAt));
 }
 
 export class PgHumanLabelStore implements HumanLabelStore {
@@ -245,9 +275,10 @@ export class PgHumanLabelStore implements HumanLabelStore {
        order by gr.graded_at desc, gr.id limit 1)`;
     const { rows } = await this.pool().query(
       `with t as (
-         select r.id, r.status, r.started_at, c.case_key, c.use_case_key, c.origin_pin_sha256, c.task_summary, v.model_id
+         select r.id, r.status, r.started_at, c.case_key, c.use_case_key, c.origin_pin_sha256, c.task_summary, v.model_id, tk.slug as task_slug
            from public.runs r join public.eval_cases c on c.id = r.case_id
            left join public.eval_variants v on v.id = r.variant_id
+           left join public.tasks tk on tk.id = c.task_id
           where c.tenant = $1 and c.mode = 'trace_review'
             -- The queue of a judge holds the runs that no person has labeled yet for THIS judge. A workflow label is a
             -- weak signal and does not close the review. Both rubrics apply to every run, so the other judge keeps the run.
@@ -267,6 +298,7 @@ export class PgHumanLabelStore implements HumanLabelStore {
     const runs: ReviewRun[] = rows.map((r: Record<string, unknown>) => {
       const judge = verdict(r.judge);
       const workflow = verdict(r.workflow);
+      const taskId = taskIdOfSlug(orNull(r.task_slug));
       const ts = r.task_summary && typeof r.task_summary === "object" ? (r.task_summary as Record<string, unknown>) : null;
       return {
         runId: String(r.id), caseKey: String(r.case_key), useCaseKey: String(r.use_case_key), originPinSha256: orNull(r.origin_pin_sha256),
@@ -277,6 +309,7 @@ export class PgHumanLabelStore implements HumanLabelStore {
           : [],
         judge, workflow, mine: verdict(r.mine),
         disagree: judge !== null && workflow !== null && judge.pass !== workflow.pass,
+        split: taskId ? splitOf(judgeId, taskId) : null,
       };
     });
     return queueOrder(runs).slice(0, limit);

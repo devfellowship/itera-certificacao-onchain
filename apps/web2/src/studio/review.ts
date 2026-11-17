@@ -41,6 +41,8 @@ export interface ReviewRun {
   workflow: Verdict | null
   mine: Verdict | null
   disagree: boolean
+  /** The calibration split of the run's task for this judge (the queue lists test first); null when unknown. */
+  split?: 'train' | 'dev' | 'test' | null
 }
 
 export interface HumanLabel {
