@@ -1,4 +1,4 @@
-// `tma eval case|run|grade|diff|trajectory|upload|grader prove|judge calibrate` (plan 20261112-tma-c3-eval-repo-kit-docs T3, T4, ADR-4): the eval kit.
+// `tma eval case|run|campaign|grade|diff|trajectory|upload|grader prove|judge calibrate` (plan 20261112-tma-c3-eval-repo-kit-docs T3, T4, ADR-4): the eval kit.
 // A case manifest (tma-case/1, from the private eval repo) becomes a case folder on the host; a variant
 // runs N times in the TMA sandbox; the case graders grade each run by id@version; diff compares a
 // variant with the baseline. Everything stays on the host until `tma eval upload` (T4) sends the numbers,
@@ -21,6 +21,8 @@ import type { LocalResultV2Plus } from '@itera/contracts';
 import type { RunAction } from '../../types.js';
 import { buildCaseFolder, CASE_RUNS_DIR, loadCaseFolder } from '../eval/case.js';
 import { evalDiff } from '../eval/diff.js';
+import { campaignState, chargeCampaign, initCampaign, MAX_CAMPAIGN_RUNS, statusLine } from '../eval/campaign.js';
+import { checkModelId } from './run.js';
 import { gradeRecorded, regrade, runDirs, runVariant, summaryTable, type EvalDeps } from '../eval/runs.js';
 import { readVariant } from '../eval/variant.js';
 import { dryRunGrade } from '../eval/dry-run.js';
@@ -47,14 +49,26 @@ const CASE_USAGE = `usage: tma eval case --case <case.json> --dest <dir> [--task
   --recorded  trace_review: the recorded output (a patch file); linked, not copied
   --clone     replay from the pin: clone pin.repo at pin.base_sha into input/ with your own git`;
 
-const RUN_USAGE = `usage: tma eval run --case <case dir> --variant <variant.json> [--repeat 1-10]
+const RUN_USAGE = `usage: tma eval run --case <case dir> --variant <variant.json> [--repeat 1-10] [--campaign <campaign.json>]
   Runs the variant N times in the TMA sandbox and grades each run with the case graders.
+  --campaign  charge the N runs to a campaign (tma eval campaign) BEFORE the first run: at the run cap, nothing starts.
   Output: <case dir>/${CASE_RUNS_DIR}/<variant sha256[:12]>/ (prediction.md, summary.json, one folder per run).
   A variant file (tma-variant/1):
     {"schema":"tma-variant/1","label":"...","kind":"patch","patch":"solution.patch","change_kind":"none","is_baseline":true,"prediction":null}
     {"schema":"tma-variant/1","label":"...","kind":"agent","agent":{"agent_dir":"./agent","model":"<model id>"},
      "change_kind":"rules","is_baseline":false,"prediction":"what you expect against the baseline"}
   kind patch needs no key ("patch": null = no change). kind agent needs your key, as tma run.`;
+
+const CAMPAIGN_USAGE = `usage: tma eval campaign init --file <campaign.json> --name <name> --max-runs <n> [--paid-before <n>]
+       tma eval campaign status --file <campaign.json>
+       tma eval campaign charge --file <campaign.json> --runs <n> [--model <model id>]
+  A run-count cap for a campaign. A subscription plan bills 0 dollars per run, so a money cap cannot stop it.
+  init    writes the config (tma-campaign/1): max_runs is the hard cap; --paid-before is the count of paid runs
+          that happened before the ledger and that it cannot see.
+  charge  records n runs in the ledger next to the config, or refuses (exit 1) and writes nothing when used + n
+          would pass max_runs. A driver that runs a model outside the kit calls this before each run.
+  status  prints the runs against the cap and the paid runs against the 200 of the A11 budget. A paid run is a
+          run of a model that is not local and not a fleet Claude model. The ledger is the one source of both counts.`;
 
 const GRADE_USAGE = `usage: tma eval grade --case <case dir> [--run <run dir>]... [--variant-dir <dir>] [--dry-run [--trace <file>]]
   Grades again with the case graders and ADDS a grading to each run (the old ones stay).
@@ -135,11 +149,13 @@ const REVIEW_BATCH_USAGE = `usage: tma eval review-batch --batch <rows.jsonl> --
   --dry-run       build every body and ask the API with ?dry_run=1 (when logged in); nothing is stored`;
 
 const USAGE = [
-  'usage: tma eval <case|run|grade|diff|trajectory|upload|review-batch|workflow-labels|grader prove|judge calibrate|judge labels> ...   (the eval kit: plan C3)',
+  'usage: tma eval <case|run|campaign|grade|diff|trajectory|upload|review-batch|workflow-labels|grader prove|judge calibrate|judge labels> ...   (the eval kit: plan C3)',
   '',
   CASE_USAGE,
   '',
   RUN_USAGE,
+  '',
+  CAMPAIGN_USAGE,
   '',
   GRADE_USAGE,
   '',
@@ -179,14 +195,50 @@ async function caseMain(argv: string[], io: Io): Promise<number> {
 }
 
 async function runMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
-  const a = parseArgs(argv, { case: {}, variant: {}, repeat: {} });
+  const a = parseArgs(argv, { case: {}, variant: {}, repeat: {}, campaign: {} });
   const c = await loadCaseFolder(required(a, 'case', RUN_USAGE));
   const v = await readVariant(required(a, 'variant', RUN_USAGE));
   const repeat = numberFlag(a, 'repeat', { min: 1, max: 10, integer: true }) ?? 1;
+  const campaign = flag(a, 'campaign');
+  if (campaign) {
+    // The cap comes before the sandbox, the key check and the first model call: at the cap nothing starts.
+    const state = chargeCampaign(campaign, { runs: repeat, model: v.file.kind === 'agent' ? v.file.agent!.model : null, now: (deps.now ?? (() => new Date()))() });
+    io.err(`[tma eval] ${statusLine(state)}`);
+  }
   const { variantDir, summary } = await runVariant({ c, v, repeat, deps, log: (l) => io.err(l) });
   io.out(summaryTable(summary));
   io.out(`runs: ${variantDir} (outputs and evidence stay on this host)`);
   return summary.runs.slice(-repeat).every((r) => r.infra_ok) ? 0 : 1;
+}
+
+async function campaignMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
+  const [sub, ...rest] = argv;
+  if (sub === 'init') {
+    const a = parseArgs(rest, { file: {}, name: {}, 'max-runs': {}, 'paid-before': {} });
+    const maxRuns = numberFlag(a, 'max-runs', { min: 1, max: MAX_CAMPAIGN_RUNS, integer: true });
+    if (maxRuns === undefined) throw new CliError(`--max-runs is required\n${CAMPAIGN_USAGE}`);
+    const file = required(a, 'file', CAMPAIGN_USAGE);
+    const c = initCampaign(file, { name: required(a, 'name', CAMPAIGN_USAGE), maxRuns, paidRunsBefore: numberFlag(a, 'paid-before', { min: 0, max: 200, integer: true }) });
+    io.out(`campaign ${c.name} written to ${resolve(file)}: cap ${c.max_runs} run(s), ${c.paid_runs_before} paid run(s) before the ledger`);
+    return 0;
+  }
+  if (sub === 'status') {
+    const a = parseArgs(rest, { file: {} });
+    io.out(statusLine(campaignState(required(a, 'file', CAMPAIGN_USAGE))));
+    return 0;
+  }
+  if (sub === 'charge') {
+    const a = parseArgs(rest, { file: {}, runs: {}, model: {} });
+    const runs = numberFlag(a, 'runs', { min: 1, max: MAX_CAMPAIGN_RUNS, integer: true });
+    if (runs === undefined) throw new CliError(`--runs is required\n${CAMPAIGN_USAGE}`);
+    const model = flag(a, 'model');
+    if (model !== undefined) checkModelId(model);
+    const state = chargeCampaign(required(a, 'file', CAMPAIGN_USAGE), { runs, model: model ?? null, now: (deps.now ?? (() => new Date()))() });
+    io.out(`charged ${runs} run(s)${model ? ` of ${model}` : ''}`);
+    io.out(statusLine(state));
+    return 0;
+  }
+  throw new CliError(`${sub ? `unknown eval campaign command: ${sub}` : 'give an eval campaign command'}\n${CAMPAIGN_USAGE}`);
 }
 
 async function gradeMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
@@ -479,6 +531,8 @@ export function makeEvalCommand(deps: EvalCommandDeps = {}): Command {
           return caseMain(rest, io);
         case 'run':
           return runMain(rest, io, deps);
+        case 'campaign':
+          return campaignMain(rest, io, deps);
         case 'grade':
           return gradeMain(rest, io, deps);
         case 'diff':
