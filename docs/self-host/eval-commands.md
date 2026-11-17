@@ -387,6 +387,26 @@ The rubric is `judges/<id>/<semver>/rubric.md`.
 The command needs a test split.
 A label id may be in one split only.
 
+### The judge runner
+
+By default no model is called.
+Each test item then is "not measured", and the command writes no `calibration.json`.
+To measure with a model, give the folder of the item texts and switch the runner on:
+
+```bash
+tma eval judge calibrate --judge <id> --version <semver> --model <model id> --repo <eval repo folder> --texts-dir <folder> --runner on --max-calls 100
+```
+
+The text of label id `<id>` is the file `<folder>/<id>.txt`.
+The runner is off unless you give `--runner on`.
+It calls the model through OpenRouter with your own `OPENROUTER_API_KEY`, at temperature 0.
+`--max-calls` is the most model calls of one command (default 50, at most 1000).
+The runner makes one call per test item and does not retry.
+After the cap, an item is not measured and the command makes no more calls.
+A model answer that is not one JSON object with a boolean `pass` is not measured.
+The command prints how many calls it used.
+The model must pass the private-text list unless you give `--public-set`.
+
 On success the command prints:
 
 ```text

@@ -4,8 +4,9 @@
 // be decisive: a case entry with `decisive: true` counts only when the judge version record
 // `<judgesDir>/<id>/<version>/calibration.json` shows TPR >= 0.90 AND TNR >= 0.90 on its test split.
 // Else the result is a side signal (decisive = false) and `reason` says why.
-// The model call sits behind an injectable JudgeFn. This kit is not wired to a model runner yet: the
-// default JudgeFn answers infra_ok = false (judge_runner_not_configured).
+// The model call sits behind an injectable JudgeFn. The default JudgeFn answers infra_ok = false
+// (judge_runner_not_configured). A model runner (off by default, with a call cap) is in judge-runner.ts;
+// `tma eval judge calibrate --texts-dir <dir> --runner on` uses it.
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';

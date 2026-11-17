@@ -8,7 +8,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { flag, flagList, has, numberFlag, parseArgs, required, type ParsedArgs } from '../args.js';
 import type { Command, Io } from '../command.js';
-import { apiUrl, CliError } from '../env.js';
+import { apiUrl, CliError, userModelKey } from '../env.js';
 import { checkAgentId } from '../result.js';
 import { loadSessionFile, requireSession } from '../session.js';
 import { postResult } from './upload.js';
@@ -27,6 +27,7 @@ import { dryRunGrade } from '../eval/dry-run.js';
 import { proveGrader } from '../eval/prove.js';
 import { calibrateJudge } from '../eval/calibrate.js';
 import type { JudgeFn } from '../eval/judge.js';
+import { judgeRunnerConfig, makeModelJudgeFn, openrouterComplete } from '../eval/judge-runner.js';
 
 /** The deps of the eval command: the run deps plus the judge of `tma eval judge calibrate`. */
 export interface EvalCommandDeps extends EvalDeps {
@@ -65,10 +66,16 @@ const GRADER_PROVE_USAGE = `usage: tma eval grader prove <grader dir> [--out <pr
 
 const JUDGE_CALIBRATE_USAGE = `usage: tma eval judge calibrate --judge <id> --version <semver> --model <model id> [--repo <eval repo>]
                                 [--labels-dir <dir>] [--judges-dir <dir>] [--public-set]
+                                [--texts-dir <dir> [--runner on] [--max-calls <n>]]
   Measures the judge against the human labels sets/calibration/<id>/{train,dev,test}.jsonl ({"id","label"} lines)
   and writes judges/<id>/<semver>/calibration.json {n_labels, n_test, tp, fn, tn, fp, realigned_at}.
   The judge answers the test split; the rubric is judges/<id>/<semver>/rubric.md. The case set is private by
-  default: a judge model outside the private-text list (A11 Q1 = B) is refused. --public-set lifts that.`;
+  default: a judge model outside the private-text list (A11 Q1 = B) is refused. --public-set lifts that.
+  --texts-dir     the folder of the item texts (<dir>/<id>.txt for label id <id>); it asks for the model runner.
+  --runner on     the model runner is OFF unless you give this. Then the judge calls the model through OpenRouter with
+                  your OPENROUTER_API_KEY, at temperature 0.
+  --max-calls     the most model calls of one command (default 50, at most 1000): one call per test item, no retry.
+                  Off or over the cap, an item is not measured and no calibration.json is written.`;
 
 const DIFF_USAGE = `usage: tma eval diff <baseline> <variant>
   Two variant folders (<case>/${CASE_RUNS_DIR}/<sha12>), two run folders, or two files.
@@ -366,7 +373,27 @@ async function graderMain(argv: string[], io: Io): Promise<number> {
 async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise<number> {
   const [sub, ...rest] = argv;
   if (sub !== 'calibrate') throw new CliError(`${sub ? `unknown eval judge command: ${sub}` : 'give an eval judge command'}\n${JUDGE_CALIBRATE_USAGE}`);
-  const a = parseArgs(rest, { judge: {}, version: {}, model: {}, repo: {}, 'labels-dir': {}, 'judges-dir': {}, 'public-set': { boolean: true } });
+  const a = parseArgs(rest, { judge: {}, version: {}, model: {}, repo: {}, 'labels-dir': {}, 'judges-dir': {}, 'public-set': { boolean: true }, 'texts-dir': {}, runner: {}, 'max-calls': {} });
+  let judgeFn = deps.judgeFn;
+  let spent: (() => string) | null = null;
+  const textsDir = flag(a, 'texts-dir');
+  if (!textsDir && (flag(a, 'runner') !== undefined || flag(a, 'max-calls') !== undefined)) throw new CliError('--runner and --max-calls need --texts-dir');
+  if (!judgeFn && textsDir) {
+    const config = judgeRunnerConfig({ runner: flag(a, 'runner'), maxCalls: flag(a, 'max-calls') });
+    const apiKey = config.enabled ? userModelKey('openrouter', deps.env ?? process.env) : '';
+    const dir = resolve(textsDir);
+    const made = makeModelJudgeFn({
+      complete: openrouterComplete({ apiKey, fetchImpl: deps.fetchImpl }),
+      config,
+      publicText: has(a, 'public-set'),
+      loadText: async (handle) => {
+        if (!/^[A-Za-z0-9_.-]{1,120}$/.test(handle) || handle.startsWith('.')) throw new Error('bad handle');
+        return readFile(resolve(dir, `${handle}.txt`), 'utf-8');
+      },
+    });
+    judgeFn = made.judgeFn;
+    spent = () => `judge runner: ${made.budget.used} of ${made.budget.cap} model call(s) used`;
+  }
   const r = await calibrateJudge({
     repo: flag(a, 'repo') ?? process.cwd(),
     judgeId: required(a, 'judge', JUDGE_CALIBRATE_USAGE),
@@ -375,9 +402,10 @@ async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise
     publicSet: has(a, 'public-set'),
     labelsDir: flag(a, 'labels-dir'),
     judgesDir: flag(a, 'judges-dir'),
-    judgeFn: deps.judgeFn,
+    judgeFn,
     now: deps.now,
   });
+  if (spent) io.out(spent());
   const k = r.calibration;
   io.out(`judge calibration: n_labels ${k.n_labels}, n_test ${k.n_test}, tp ${k.tp} fn ${k.fn} tn ${k.tn} fp ${k.fp}`);
   io.out(r.gate === null ? 'gate: decisive allowed (TPR and TNR >= 0.90)' : `gate: side signal only (${r.gate})`);
