@@ -267,6 +267,37 @@ describe('tma eval run', () => {
   });
 });
 
+describe('tma eval run --campaign', () => {
+  const cap = async (max: number) => {
+    const { dir, src } = await builtCase();
+    const cmd = makeEvalCommand(fakes().deps);
+    const campaign = join(tmp('camp'), 'c.campaign.json');
+    expect(await cmd.main(['campaign', 'init', '--file', campaign, '--name', `cap${max}`, '--max-runs', String(max)], captureIo())).toBe(0);
+    return { dir, cmd, campaign, v: variant(src, 's', { kind: 'patch', patch: null }) };
+  };
+
+  it('charges the repeats before the first run; exactly at the cap runs, the N+1th run is refused', async () => {
+    const { dir, cmd, campaign, v } = await cap(3);
+    const io = captureIo();
+    expect(await cmd.main(['run', '--case', dir, '--variant', v, '--repeat', '3', '--campaign', campaign], io), io.errText()).toBe(0);
+    expect(io.errText()).toContain('3 of 3 runs used');
+    expect(runFolders(variantDirs(dir)[0]!)).toHaveLength(3);
+    const over = captureIo();
+    expect(await cmd.main(['run', '--case', dir, '--variant', v, '--campaign', campaign], over)).toBe(1);
+    expect(over.errText()).toMatch(/campaign_cap: 3 of 3 runs used/);
+    expect(runFolders(variantDirs(dir)[0]!)).toHaveLength(3);
+  });
+
+  it('a repeat that would pass the cap starts nothing: no run folder, no ledger line', async () => {
+    const { dir, cmd, campaign, v } = await cap(1);
+    const over = captureIo();
+    expect(await cmd.main(['run', '--case', dir, '--variant', v, '--repeat', '2', '--campaign', campaign], over)).toBe(1);
+    expect(over.errText()).toMatch(/campaign_cap/);
+    expect(variantDirs(dir)).toEqual([]);
+    expect(existsSync(campaign.replace(/\.json$/, '') + '.ledger.jsonl')).toBe(false);
+  });
+});
+
 describe('tma eval grade', () => {
   it('a re-grade ADDS a grading to each run; the old one stays', async () => {
     const { dir, src } = await builtCase();

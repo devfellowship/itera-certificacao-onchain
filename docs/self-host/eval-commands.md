@@ -216,6 +216,28 @@ tma eval run --case "$CASE" --variant ./my.variant.json --repeat 3
 The format of the variant file is in [`case-format.md`](case-format.md).
 An agent run writes `trajectory.json` next to `run.json`.
 
+## Cap a campaign
+
+A model on a subscription plan bills 0 dollars per run, so a cost cap cannot stop a campaign.
+A campaign has a run-count cap instead.
+The config holds the hard cap; the ledger next to it counts the runs.
+
+```bash
+tma eval campaign init --file ./c7.campaign.json --name c7-build-mcp-tool --max-runs 45 --paid-before 9
+tma eval run --case "$CASE" --variant ./my.variant.json --repeat 3 --campaign ./c7.campaign.json
+tma eval campaign charge --file ./c7.campaign.json --runs 1 --model zai-coding-plan/glm-5.3
+tma eval campaign status --file ./c7.campaign.json
+```
+
+`tma eval run --campaign` charges the repeats before the first run starts.
+The run that would pass `max_runs` is refused with `campaign_cap`, and nothing starts or is written.
+A driver that runs a model outside the kit calls `charge` before each run.
+A paid run is a run of a model that is not local and not a fleet Claude model.
+`status` prints the runs against the cap and the paid runs against the 200 of the A11 budget.
+The ledger is the one source of both counts.
+`--paid-before` is the count of paid runs from before the ledger existed.
+A paid run that would pass 200 is refused with `paid_cap`.
+
 ## Upload a replay case
 
 ```bash

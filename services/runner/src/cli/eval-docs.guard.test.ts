@@ -14,7 +14,7 @@ export function usageBySubcommand(usage: string): Map<string, string> {
   const out = new Map<string, string>();
   for (const block of usage.split('\n\n')) {
     for (const m of block.matchAll(/^\s*(?:usage: )?tma eval (grader prove|judge calibrate|review-batch|workflow-labels|[a-z]+)\b/gm)) {
-      if (m[1] === 'case' || ['run', 'grade', 'diff', 'trajectory', 'upload', 'review-batch', 'workflow-labels', 'grader prove', 'judge calibrate'].includes(m[1]!)) {
+      if (m[1] === 'case' || ['run', 'campaign', 'grade', 'diff', 'trajectory', 'upload', 'review-batch', 'workflow-labels', 'grader prove', 'judge calibrate'].includes(m[1]!)) {
         out.set(m[1]!, `${out.get(m[1]!) ?? ''}\n${block}`);
       }
     }
@@ -90,7 +90,7 @@ describe('docs/self-host/eval-commands.md follows the eval USAGE', () => {
   const doc = readFileSync(DOC, 'utf-8');
 
   it('the USAGE has a section for each subcommand', () => {
-    expect([...usageBySubcommand(usage).keys()].sort()).toEqual(['case', 'diff', 'grade', 'grader prove', 'judge calibrate', 'review-batch', 'run', 'trajectory', 'upload', 'workflow-labels']);
+    expect([...usageBySubcommand(usage).keys()].sort()).toEqual(['campaign', 'case', 'diff', 'grade', 'grader prove', 'judge calibrate', 'review-batch', 'run', 'trajectory', 'upload', 'workflow-labels']);
   });
 
   it('the doc has tma eval commands to check', () => {
