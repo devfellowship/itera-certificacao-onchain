@@ -8,6 +8,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { Command } from '../command.js';
 import { CliError } from '../env.js';
 import type { JudgeFn } from '../eval/judge.js';
+import { judgeInstruction } from '../eval/calibrate.js';
+import { parseVerdict } from '../eval/judge-runner.js';
 import { captureIo } from '../test/fixtures.js';
 import { makeEvalCommand as makeRaw, type EvalCommandDeps } from './eval.js';
 
@@ -86,6 +88,35 @@ function expected(a: number, b: number) {
 
 const args = (repo: string, extra: string[] = []) => ['judge', 'calibrate', '--repo', repo, '--judge', JUDGE, '--version', '0.1.0', '--model', 'anthropic/claude-sonnet-5.5', ...extra];
 const calFile = (repo: string) => join(repo, 'judges', JUDGE, '0.1.0', 'calibration.json');
+
+describe('the judge reads its prompt.md with the rubric in the slot (C6-T5)', () => {
+  it('calibrate sends prompt.md with {{rubric}} filled; without prompt.md it sends the rubric alone', async () => {
+    const repo = evalRepo();
+    const seen: string[] = [];
+    const fn: JudgeFn = async (i) => { seen.push(i.rubric); return { infra_ok: true, pass: truth(numOf(i.outputHandle)), reason: null }; };
+    expect(await makeEvalCommand({ judgeFn: fn }).main(args(repo, ['--split', 'dev']), captureIo())).toBe(0);
+    expect(new Set(seen)).toEqual(new Set(['RUBRIC: fail when the session polls CI in its own turn.']));
+    writeFileSync(join(repo, 'judges', JUDGE, '0.1.0', 'prompt.md'), 'PROMPT-HEAD\n\n{{rubric}}\n\nPROMPT-TAIL');
+    seen.length = 0;
+    expect(await makeEvalCommand({ judgeFn: fn }).main(args(repo, ['--split', 'dev']), captureIo())).toBe(0);
+    expect(new Set(seen)).toEqual(new Set(['PROMPT-HEAD\n\nRUBRIC: fail when the session polls CI in its own turn.\n\nPROMPT-TAIL']));
+  });
+
+  it('judgeInstruction appends the rubric when the prompt has no slot', () => {
+    expect(judgeInstruction('P', 'R')).toBe('P\n\nR');
+    expect(judgeInstruction(null, 'R')).toBe('R');
+    expect(judgeInstruction('  ', 'R')).toBe('R');
+    expect(judgeInstruction('a {{rubric}} b {{rubric}}', ' R ')).toBe('a R b R');
+  });
+
+  it('parseVerdict reads the prompt.md answer form {"verdict", "reason_code"} as well as {"pass"}', () => {
+    expect(parseVerdict('{"verdict": "fail", "reason_code": "polled_in_session", "step": 4}')).toEqual({ pass: false, reason: 'polled_in_session' });
+    expect(parseVerdict('{"verdict": "pass", "reason_code": "watcher_ok", "step": null}')).toEqual({ pass: true, reason: 'watcher_ok' });
+    expect(parseVerdict('{"verdict": "maybe"}')).toBeNull();
+    expect(parseVerdict('{"verdict": true}')).toBeNull();
+    expect(parseVerdict('{"pass": true, "verdict": "fail"}')).toEqual({ pass: true, reason: null });
+  });
+});
 
 describe('tma eval judge calibrate on dfl-evals label rows (C6-T5)', () => {
   it('reads tma-calibration-label/1 rows: the item is the run_id, the counts are right, and calibration.json keeps its shape', async () => {

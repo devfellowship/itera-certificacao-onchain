@@ -102,6 +102,12 @@ export function parseLabels(text: string, where: string): LabelRow[] {
   return rows;
 }
 
+/** The text the judge reads as its rubric: prompt.md with the rubric in its {{rubric}} slot, or the rubric alone. */
+export function judgeInstruction(prompt: string | null, rubric: string): string {
+  if (prompt === null || prompt.trim() === '') return rubric;
+  return prompt.includes('{{rubric}}') ? prompt.split('{{rubric}}').join(rubric.trim()) : `${prompt.trimEnd()}\n\n${rubric.trim()}`;
+}
+
 async function readSplit(dir: string, split: Split): Promise<LabelRow[] | null> {
   const file = join(dir, `${split}.jsonl`);
   const text = await readFile(file, 'utf-8').catch(() => null);
@@ -158,8 +164,12 @@ export async function calibrateJudge(input: {
       owner.set(r.id, s);
     }
   }
-  const rubric = await readFile(join(judgesDir, input.judgeId, input.version, 'rubric.md'), 'utf-8').catch(() => null);
-  if (rubric === null) throw new CliError(`no rubric: ${join(judgesDir, input.judgeId, input.version, 'rubric.md')}`);
+  const rubricText = await readFile(join(judgesDir, input.judgeId, input.version, 'rubric.md'), 'utf-8').catch(() => null);
+  if (rubricText === null) throw new CliError(`no rubric: ${join(judgesDir, input.judgeId, input.version, 'rubric.md')}`);
+  // A dfl-evals judge version is its prompt AND its rubric (C6-T1): when prompt.md exists, the judge gets the prompt
+  // with the rubric in its {{rubric}} slot (or after it), so the calibration measures the judge that the version names.
+  const promptText = await readFile(join(judgesDir, input.judgeId, input.version, 'prompt.md'), 'utf-8').catch(() => null);
+  const rubric = judgeInstruction(promptText, rubricText);
 
   const judgeFn = input.judgeFn ?? unconfiguredJudgeFn;
   let tp = 0, fn = 0, tn = 0, fp = 0;
