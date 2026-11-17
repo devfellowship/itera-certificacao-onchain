@@ -55,6 +55,8 @@ export const ALIEN01_PROFILE: Readonly<Record<string, string>> = {
 /** The most characters of one item text for the local model: (4096 context - 1024 output - about 600 for the rubric and
  * the frame) tokens at about 3 characters a token. A longer text is refused, not cut (the same rule as the cap above). */
 export const ALIEN01_MAX_TEXT_CHARS = 7_000;
+/** The most bytes of one prompt file that the ALIEN01 relay takes (the system text, the judge prompt and the text; C6-FOLD). */
+export const ALIEN01_RELAY_PROMPT_MAX_BYTES = 12_288;
 export const ALIEN01_TIMEOUT_MS = 620_000;
 
 export interface JudgeRunnerConfig {
@@ -140,6 +142,19 @@ const SYSTEM = [
   'pass = true means the run does NOT show the failure mode. pass = false means it shows the failure mode.',
 ].join('\n');
 
+/** The bytes of the prompt file of one call: what alien01Complete writes (`<system>\n\n<user>\n`). */
+export function judgePromptBytes(rubric: string, expected: string, text: string): number {
+  return Buffer.byteLength(`${SYSTEM}\n\n${judgePrompt(rubric, expected, text)}\n`, 'utf8');
+}
+
+/**
+ * The most bytes of one judge text for the alien01 route: the relay limit minus the frame (the system text and the judge
+ * prompt with its rubric), and never more than ALIEN01_MAX_TEXT_CHARS. `tma eval judge texts` folds each run to this.
+ */
+export function alien01TextBudget(rubric: string, expected = ''): number {
+  return Math.min(ALIEN01_MAX_TEXT_CHARS, ALIEN01_RELAY_PROMPT_MAX_BYTES - judgePromptBytes(rubric, expected, ''));
+}
+
 export function judgePrompt(rubric: string, expected: string, text: string): string {
   return [
     '<rubric>', rubric.trim(), '</rubric>',
@@ -192,6 +207,8 @@ export interface ModelJudgeOptions {
   maxTextChars?: number;
   /** The JSON schema of the answer, passed to the model call. */
   schema?: object;
+  /** The most bytes of the whole prompt file (the alien01 relay: ALIEN01_RELAY_PROMPT_MAX_BYTES). A larger prompt is refused, not cut. */
+  maxPromptBytes?: number;
 }
 
 export interface ModelJudge {
@@ -217,6 +234,9 @@ export function makeModelJudgeFn(o: ModelJudgeOptions): ModelJudge {
     }
     if (text.length === 0) return notMeasured('judge_text_empty: the text under judgment is empty');
     if (text.length > maxChars) return notMeasured(`judge_text_too_long: more than ${maxChars} characters`);
+    if (o.maxPromptBytes !== undefined && judgePromptBytes(input.rubric, input.expected, text) > o.maxPromptBytes) {
+      return notMeasured(`judge_prompt_too_large: the prompt is over ${o.maxPromptBytes} bytes; fold the text with tma eval judge texts`);
+    }
     // The node was unreachable on an earlier item of this run: no more calls, and the cap is not spent.
     if (halted) return notMeasured('judge_node_unreachable: the node did not answer earlier in this run; no call was made');
     // The cap is spent BEFORE the call, so a thrown call still counts: no loop can outrun the cap.

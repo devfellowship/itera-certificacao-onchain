@@ -30,7 +30,8 @@ import { proveGrader } from '../eval/prove.js';
 import { calibrateJudge } from '../eval/calibrate.js';
 import { JUDGE_LABELS_USAGE, judgeLabelsMain } from '../eval/calibration-labels.js';
 import type { JudgeFn } from '../eval/judge.js';
-import { ALIEN01_ANSWER_SCHEMA, ALIEN01_MAX_TEXT_CHARS, alien01Complete, judgeRunnerConfig, makeModelJudgeFn, openrouterComplete, type RunInfer } from '../eval/judge-runner.js';
+import { ALIEN01_ANSWER_SCHEMA, ALIEN01_MAX_TEXT_CHARS, ALIEN01_RELAY_PROMPT_MAX_BYTES, alien01Complete, judgeRunnerConfig, makeModelJudgeFn, openrouterComplete, type RunInfer } from '../eval/judge-runner.js';
+import { JUDGE_TEXTS_USAGE, judgeTextsMain } from '../eval/judge-texts.js';
 
 /** The deps of the eval command: the run deps plus the judge of `tma eval judge calibrate`. */
 export interface EvalCommandDeps extends EvalDeps {
@@ -106,7 +107,8 @@ const JUDGE_CALIBRATE_USAGE = `usage: tma eval judge calibrate --judge <id> --ve
   --runner on     the model runner is OFF unless you give this. Then the judge calls the model at temperature 0.
   --provider      the route of the model call. alien01 (the default): the owner's own node, a local model
                   (ollama/gemma4:12b or ollama/gemma4:26b) through "<--alien01-cmd> infer"; no key; a text over
-                  ${ALIEN01_MAX_TEXT_CHARS} characters is not measured. openrouter: OFF by config (Tainan, Q 20f73d28,
+                  ${ALIEN01_MAX_TEXT_CHARS} characters, or a prompt over ${ALIEN01_RELAY_PROMPT_MAX_BYTES} bytes (the relay limit), is not
+                  measured: fold the texts first with "tma eval judge texts". openrouter: OFF by config (Tainan, Q 20f73d28,
                   2026-11-17): it needs --provider openrouter AND --allow-openrouter, then your OPENROUTER_API_KEY.
   --dry-run       check the provider, the model and the cap and print the plan. No model call, no label read, no write.
                   Exit 1 when the provider is refused (OpenRouter without --allow-openrouter) or the runner is not on.
@@ -155,7 +157,7 @@ const REVIEW_BATCH_USAGE = `usage: tma eval review-batch --batch <rows.jsonl> --
   --dry-run       build every body and ask the API with ?dry_run=1 (when logged in); nothing is stored`;
 
 const USAGE = [
-  'usage: tma eval <case|run|campaign|grade|diff|trajectory|upload|review-batch|workflow-labels|grader prove|judge calibrate|judge labels> ...   (the eval kit: plan C3)',
+  'usage: tma eval <case|run|campaign|grade|diff|trajectory|upload|review-batch|workflow-labels|grader prove|judge calibrate|judge labels|judge texts> ...   (the eval kit: plan C3)',
   '',
   CASE_USAGE,
   '',
@@ -180,6 +182,8 @@ const USAGE = [
   JUDGE_CALIBRATE_USAGE,
   '',
   JUDGE_LABELS_USAGE,
+  '',
+  JUDGE_TEXTS_USAGE,
 ].join('\n');
 
 /** The copy command of the next step, as the studio shows it (umbrella ADR-30, ADR-31). */
@@ -478,7 +482,8 @@ async function graderMain(argv: string[], io: Io): Promise<number> {
 async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise<number> {
   const [sub, ...rest] = argv;
   if (sub === 'labels') return judgeLabelsMain(rest, io, deps);
-  if (sub !== 'calibrate') throw new CliError(`${sub ? `unknown eval judge command: ${sub}` : 'give an eval judge command'}\n${JUDGE_CALIBRATE_USAGE}\n\n${JUDGE_LABELS_USAGE}`);
+  if (sub === 'texts') return judgeTextsMain(rest, io);
+  if (sub !== 'calibrate') throw new CliError(`${sub ? `unknown eval judge command: ${sub}` : 'give an eval judge command'}\n${JUDGE_CALIBRATE_USAGE}\n\n${JUDGE_LABELS_USAGE}\n\n${JUDGE_TEXTS_USAGE}`);
   const a = parseArgs(rest, { judge: {}, version: {}, model: {}, repo: {}, 'labels-dir': {}, 'judges-dir': {}, 'public-set': { boolean: true }, 'texts-dir': {}, runner: {}, 'max-calls': {}, split: {}, 'verdicts-out': {}, provider: {}, 'alien01-cmd': {}, 'allow-openrouter': { boolean: true }, 'dry-run': { boolean: true } });
   const model = required(a, 'model', JUDGE_CALIBRATE_USAGE);
   const flagsOf = { runner: flag(a, 'runner'), maxCalls: flag(a, 'max-calls'), provider: flag(a, 'provider'), allowOpenrouter: has(a, 'allow-openrouter'), model };
@@ -507,7 +512,7 @@ async function judgeMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise
         ? alien01Complete({ command: cmd ?? '', baseEnv: childEnv(env), run: deps.runInfer })
         : openrouterComplete({ apiKey, fetchImpl: deps.fetchImpl }),
       config,
-      ...(alien ? { maxTextChars: ALIEN01_MAX_TEXT_CHARS, schema: ALIEN01_ANSWER_SCHEMA } : {}),
+      ...(alien ? { maxTextChars: ALIEN01_MAX_TEXT_CHARS, maxPromptBytes: ALIEN01_RELAY_PROMPT_MAX_BYTES, schema: ALIEN01_ANSWER_SCHEMA } : {}),
       publicText: has(a, 'public-set'),
       loadText: async (handle) => {
         if (!/^[A-Za-z0-9_.-]{1,120}$/.test(handle) || handle.startsWith('.')) throw new Error('bad handle');
