@@ -21,7 +21,7 @@ import type { LocalResultV2Plus } from '@itera/contracts';
 import type { RunAction } from '../../types.js';
 import { buildCaseFolder, CASE_RUNS_DIR, loadCaseFolder } from '../eval/case.js';
 import { evalDiff } from '../eval/diff.js';
-import { campaignState, chargeCampaign, initCampaign, MAX_CAMPAIGN_RUNS, statusLine } from '../eval/campaign.js';
+import { campaignState, chargeCampaign, initCampaign, MAX_CAMPAIGN_RUNS, MAX_TOKEN_CAP, parseTokenCapFlag, recordTokens, statusLine } from '../eval/campaign.js';
 import { checkModelId } from './run.js';
 import { gradeRecorded, regrade, runDirs, runVariant, summaryTable, type EvalDeps } from '../eval/runs.js';
 import { readVariant } from '../eval/variant.js';
@@ -59,16 +59,22 @@ const RUN_USAGE = `usage: tma eval run --case <case dir> --variant <variant.json
      "change_kind":"rules","is_baseline":false,"prediction":"what you expect against the baseline"}
   kind patch needs no key ("patch": null = no change). kind agent needs your key, as tma run.`;
 
-const CAMPAIGN_USAGE = `usage: tma eval campaign init --file <campaign.json> --name <name> --max-runs <n> [--paid-before <n>]
+const CAMPAIGN_USAGE = `usage: tma eval campaign init --file <campaign.json> --name <name> --max-runs <n> [--paid-before <n>] [--token-cap <provider>=<tokens>]...
        tma eval campaign status --file <campaign.json>
-       tma eval campaign charge --file <campaign.json> --runs <n> [--model <model id>]
+       tma eval campaign charge --file <campaign.json> --runs <n> [--model <model id>] [--provider <label>]
+       tma eval campaign record --file <campaign.json> --provider <label> --tokens-in <n> --tokens-out <n> [--cache-read <n>] [--cache-write <n>] [--model <model id>]
   A run-count cap for a campaign. A subscription plan bills 0 dollars per run, so a money cap cannot stop it.
   init    writes the config (tma-campaign/1): max_runs is the hard cap; --paid-before is the count of paid runs
-          that happened before the ledger and that it cannot see.
+          that happened before the ledger and that it cannot see. --token-cap sets the most tokens the campaign may
+          use with one provider label (for example claude-code=2000000); every token kind counts.
   charge  records n runs in the ledger next to the config, or refuses (exit 1) and writes nothing when used + n
-          would pass max_runs. A driver that runs a model outside the kit calls this before each run.
-  status  prints the runs against the cap and the paid runs against the 200 of the A11 budget. A paid run is a
-          run of a model that is not local and not a fleet Claude model. The ledger is the one source of both counts.`;
+          would pass max_runs. A driver that runs a model outside the kit calls this before each run. With token
+          caps, --provider is required for a model run; for a capped provider the charge is refused while a charged
+          run has no token record, or when the recorded tokens plus n times the largest recorded run pass the cap.
+  record  writes the tokens of the last charged run of a provider, after the model call (tma-campaign-tokens/1).
+  status  prints the runs against the cap, the paid runs against the 200 of the A11 budget and the tokens per
+          provider. A paid run is a run of a model that is not local and not a fleet Claude model. The ledger is
+          the one source of every count.`;
 
 const GRADE_USAGE = `usage: tma eval grade --case <case dir> [--run <run dir>]... [--variant-dir <dir>] [--dry-run [--trace <file>]]
   Grades again with the case graders and ADDS a grading to each run (the old ones stay).
@@ -214,12 +220,19 @@ async function runMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> 
 async function campaignMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
   const [sub, ...rest] = argv;
   if (sub === 'init') {
-    const a = parseArgs(rest, { file: {}, name: {}, 'max-runs': {}, 'paid-before': {} });
+    const a = parseArgs(rest, { file: {}, name: {}, 'max-runs': {}, 'paid-before': {}, 'token-cap': { repeat: true } });
     const maxRuns = numberFlag(a, 'max-runs', { min: 1, max: MAX_CAMPAIGN_RUNS, integer: true });
     if (maxRuns === undefined) throw new CliError(`--max-runs is required\n${CAMPAIGN_USAGE}`);
     const file = required(a, 'file', CAMPAIGN_USAGE);
-    const c = initCampaign(file, { name: required(a, 'name', CAMPAIGN_USAGE), maxRuns, paidRunsBefore: numberFlag(a, 'paid-before', { min: 0, max: 200, integer: true }) });
-    io.out(`campaign ${c.name} written to ${resolve(file)}: cap ${c.max_runs} run(s), ${c.paid_runs_before} paid run(s) before the ledger`);
+    const tokenCaps: Record<string, number> = {};
+    for (const t of flagList(a, 'token-cap')) {
+      const [p, n] = parseTokenCapFlag(t);
+      if (p in tokenCaps) throw new CliError(`--token-cap ${p} is given twice`);
+      tokenCaps[p] = n;
+    }
+    const c = initCampaign(file, { name: required(a, 'name', CAMPAIGN_USAGE), maxRuns, paidRunsBefore: numberFlag(a, 'paid-before', { min: 0, max: 200, integer: true }), tokenCaps });
+    const caps = Object.entries(c.token_caps ?? {}).map(([p, n]) => `${p} ${n} tokens`);
+    io.out(`campaign ${c.name} written to ${resolve(file)}: cap ${c.max_runs} run(s), ${c.paid_runs_before} paid run(s) before the ledger${caps.length ? `; token caps: ${caps.join(', ')}` : ''}`);
     return 0;
   }
   if (sub === 'status') {
@@ -228,13 +241,35 @@ async function campaignMain(argv: string[], io: Io, deps: EvalDeps): Promise<num
     return 0;
   }
   if (sub === 'charge') {
-    const a = parseArgs(rest, { file: {}, runs: {}, model: {} });
+    const a = parseArgs(rest, { file: {}, runs: {}, model: {}, provider: {} });
     const runs = numberFlag(a, 'runs', { min: 1, max: MAX_CAMPAIGN_RUNS, integer: true });
     if (runs === undefined) throw new CliError(`--runs is required\n${CAMPAIGN_USAGE}`);
     const model = flag(a, 'model');
     if (model !== undefined) checkModelId(model);
-    const state = chargeCampaign(required(a, 'file', CAMPAIGN_USAGE), { runs, model: model ?? null, now: (deps.now ?? (() => new Date()))() });
-    io.out(`charged ${runs} run(s)${model ? ` of ${model}` : ''}`);
+    const provider = flag(a, 'provider');
+    const state = chargeCampaign(required(a, 'file', CAMPAIGN_USAGE), { runs, model: model ?? null, provider, now: (deps.now ?? (() => new Date()))() });
+    io.out(`charged ${runs} run(s)${model ? ` of ${model}` : ''}${provider ? ` to ${provider}` : ''}`);
+    io.out(statusLine(state));
+    return 0;
+  }
+  if (sub === 'record') {
+    const a = parseArgs(rest, { file: {}, provider: {}, model: {}, 'tokens-in': {}, 'tokens-out': {}, 'cache-read': {}, 'cache-write': {} });
+    const n = (k: string, req: boolean): number | undefined => {
+      const v = numberFlag(a, k, { min: 0, max: MAX_TOKEN_CAP, integer: true });
+      if (req && v === undefined) throw new CliError(`--${k} is required\n${CAMPAIGN_USAGE}`);
+      return v;
+    };
+    const model = flag(a, 'model');
+    if (model !== undefined) checkModelId(model);
+    const state = recordTokens(required(a, 'file', CAMPAIGN_USAGE), {
+      provider: required(a, 'provider', CAMPAIGN_USAGE),
+      model: model ?? null,
+      tokensIn: n('tokens-in', true)!,
+      tokensOut: n('tokens-out', true)!,
+      cacheRead: n('cache-read', false),
+      cacheWrite: n('cache-write', false),
+      now: (deps.now ?? (() => new Date()))(),
+    });
     io.out(statusLine(state));
     return 0;
   }

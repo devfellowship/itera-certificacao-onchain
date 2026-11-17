@@ -238,6 +238,36 @@ The ledger is the one source of both counts.
 `--paid-before` is the count of paid runs from before the ledger existed.
 A paid run that would pass 200 is refused with `paid_cap`.
 
+### Cap the tokens per provider
+
+A subscription plan (Claude Code, Codex) also bills 0 dollars, so a comparison can cap the tokens per provider.
+A provider label names the account that pays, for example `claude-code`, `codex` or `zai`.
+
+```bash
+tma eval campaign init --file ./c7t5.campaign.json --name c7t5 --max-runs 15 --token-cap claude-code=2000000 --token-cap codex=2000000
+tma eval campaign charge --file ./c7t5.campaign.json --runs 1 --model anthropic/claude-sonnet-5.5 --provider claude-code
+tma eval campaign record --file ./c7t5.campaign.json --provider claude-code --tokens-in 52000 --tokens-out 9000 --cache-read 800000 --cache-write 60000
+```
+
+Every token kind counts: input, output, cache read and cache write.
+With token caps, a charge for a model run must name its `--provider`.
+For a capped provider, `charge` is refused with `token_cap` while a charged run has no `record`.
+It is also refused when the recorded tokens plus n times the largest recorded run would pass the cap.
+The first run of a provider is the measure run.
+
+### A patch written outside the kit
+
+A driver that runs a harness on the host (Claude Code, Codex) grades the patch as a `patch` variant.
+The variant names its `producer`, so the run and the upload carry that harness, model and tokens:
+
+```json
+{"schema":"tma-variant/1","label":"sonnet r1","kind":"patch","patch":"model.patch","change_kind":"none","is_baseline":true,"prediction":null,
+ "producer":{"harness":"claude-code","model":"claude-sonnet-5-5","tokens_in":52000,"tokens_out":9000}}
+```
+
+The upload labels the agent with the producer harness and model, not with the model of the case pin.
+Two producers that write the same bytes are two variants.
+
 ## Upload a replay case
 
 ```bash

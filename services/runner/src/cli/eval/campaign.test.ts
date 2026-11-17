@@ -1,5 +1,6 @@
 // Tests of the campaign run-count cap (plan 20261112-tma-c7-model-comparison-per-use-case, C7-PREP).
 // Mutation proof: change `>` to `>=` in chargeCampaign (or drop the check) -> "the N+1th run is refused" goes red.
+// Token cap (C7-T5): drop `next > cap` (or the largest-run estimate) -> "the run that would pass the cap" goes red.
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { CliError } from '../env.js';
 import { captureIo } from '../test/fixtures.js';
 import { makeEvalCommand } from '../commands/eval.js';
-import { campaignState, chargeCampaign, initCampaign, ledgerPath, parseCampaign, statusLine } from './campaign.js';
+import { campaignState, chargeCampaign, initCampaign, ledgerPath, parseCampaign, parseTokenCapFlag, recordTokens, statusLine } from './campaign.js';
 
 const made: string[] = [];
 const file = (name = 'c.campaign.json') => {
@@ -77,6 +78,66 @@ describe('campaign run cap', () => {
   });
 });
 
+describe('campaign token cap per provider (C7-T5)', () => {
+  const SONNET = 'anthropic/claude-sonnet-5.5';
+  const capped = (cap = 2_000_000) => {
+    const f = file();
+    initCampaign(f, { name: 'tok', maxRuns: 45, tokenCaps: { 'claude-code': cap, codex: cap } });
+    return f;
+  };
+
+  it('every token kind counts, per provider, from the ledger', () => {
+    const f = capped();
+    chargeCampaign(f, { runs: 1, model: SONNET, provider: 'claude-code' });
+    const s = recordTokens(f, { provider: 'claude-code', model: SONNET, tokensIn: 1000, tokensOut: 200, cacheRead: 300_000, cacheWrite: 50_000 });
+    expect(s.tokens.find((t) => t.provider === 'claude-code')).toMatchObject({ cap: 2_000_000, runs_charged: 1, runs_recorded: 1, tokens_used: 351_200, max_run_tokens: 351_200 });
+    expect(s.tokens.find((t) => t.provider === 'codex')).toMatchObject({ tokens_used: 0, runs_charged: 0 });
+    expect(statusLine(s)).toContain('claude-code 351200 of 2000000 tokens (1 of 1 charged runs recorded)');
+  });
+
+  it('the run that would pass the cap (at the largest run so far) is refused, and nothing is written', () => {
+    const f = capped(1_000_000);
+    for (let i = 0; i < 2; i++) {
+      chargeCampaign(f, { runs: 1, model: SONNET, provider: 'claude-code' });
+      recordTokens(f, { provider: 'claude-code', model: SONNET, tokensIn: 300_000, tokensOut: 10_000 });
+    }
+    // 620k used; the next run at 310k would reach 930k: allowed. Then 930k + 310k > 1M: refused.
+    chargeCampaign(f, { runs: 1, model: SONNET, provider: 'claude-code' });
+    recordTokens(f, { provider: 'claude-code', model: SONNET, tokensIn: 300_000, tokensOut: 10_000 });
+    const before = readFileSync(ledgerPath(f), 'utf-8');
+    expect(() => chargeCampaign(f, { runs: 1, model: SONNET, provider: 'claude-code' })).toThrow(/token_cap: claude-code used 930000 of 1000000 tokens/);
+    expect(readFileSync(ledgerPath(f), 'utf-8')).toBe(before);
+    // Another provider has its own cap.
+    expect(chargeCampaign(f, { runs: 1, model: 'openai/gpt-5.6', provider: 'codex' }).used).toBe(4);
+  });
+
+  it('a charge waits for the token record of the last run; a record needs a charge; a capped campaign needs a provider', () => {
+    const f = capped();
+    expect(() => recordTokens(f, { provider: 'codex', model: null, tokensIn: 1, tokensOut: 1 })).toThrow(/no charged run of codex/);
+    chargeCampaign(f, { runs: 1, model: 'openai/gpt-5.6', provider: 'codex' });
+    expect(() => chargeCampaign(f, { runs: 1, model: 'openai/gpt-5.6', provider: 'codex' })).toThrow(/token_cap: codex has 1 charged run\(s\) with no token record/);
+    expect(() => chargeCampaign(f, { runs: 1, model: SONNET })).toThrow(/must name its --provider/);
+    // A patch variant calls no model: no provider needed. An uncapped provider (z.ai) is counted, not capped.
+    expect(chargeCampaign(f, { runs: 1, model: null }).used).toBe(2);
+    chargeCampaign(f, { runs: 1, model: GLM, provider: 'zai' });
+    expect(chargeCampaign(f, { runs: 1, model: GLM, provider: 'zai' }).tokens.find((t) => t.provider === 'zai')).toMatchObject({ cap: null, runs_charged: 2 });
+  });
+
+  it('a used-up cap refuses even a first-size run, and bad caps are refused', () => {
+    const f = capped(100);
+    chargeCampaign(f, { runs: 1, model: SONNET, provider: 'claude-code' });
+    recordTokens(f, { provider: 'claude-code', model: SONNET, tokensIn: 100, tokensOut: 0 });
+    expect(() => chargeCampaign(f, { runs: 1, model: SONNET, provider: 'claude-code' })).toThrow(/token_cap/);
+    expect(() => parseCampaign('{"schema":"tma-campaign/1","name":"x","max_runs":2,"token_caps":{}}')).toThrow(/token_caps/);
+    expect(() => parseCampaign('{"schema":"tma-campaign/1","name":"x","max_runs":2,"token_caps":{"Claude Code":5}}')).toThrow(/provider/);
+    expect(() => parseCampaign('{"schema":"tma-campaign/1","name":"x","max_runs":2,"token_caps":{"codex":0}}')).toThrow(/token_caps.codex/);
+    expect(parseTokenCapFlag('claude-code=2000000')).toEqual(['claude-code', 2_000_000]);
+    expect(() => parseTokenCapFlag('claude-code')).toThrow(/--token-cap/);
+    writeFileSync(ledgerPath(f), `${readFileSync(ledgerPath(f), 'utf-8')}{"schema":"tma-campaign-tokens/1","provider":"codex","total":-1}\n`);
+    expect(() => campaignState(f)).toThrow(/tma-campaign-tokens\/1/);
+  });
+});
+
 describe('tma eval campaign', () => {
   const run = async (...argv: string[]) => {
     const io = captureIo();
@@ -101,5 +162,15 @@ describe('tma eval campaign', () => {
     expect(over.err).toMatch(/campaign_cap/);
     const status = await run('campaign', 'status', '--file', f);
     expect(status.out).toContain('2 of 2 runs used; paid runs 11 of 200');
+  });
+
+  it('init with token caps, charge with a provider, record, status', async () => {
+    const f = file();
+    expect((await run('campaign', 'init', '--file', f, '--name', 'tok', '--max-runs', '15', '--token-cap', 'claude-code=2000000', '--token-cap', 'codex=2000000')).out).toContain('token caps: claude-code 2000000 tokens, codex 2000000 tokens');
+    expect((await run('campaign', 'charge', '--file', f, '--runs', '1', '--model', 'anthropic/claude-sonnet-5.5')).err).toMatch(/must name its --provider/);
+    expect((await run('campaign', 'charge', '--file', f, '--runs', '1', '--model', 'anthropic/claude-sonnet-5.5', '--provider', 'claude-code')).code).toBe(0);
+    const rec = await run('campaign', 'record', '--file', f, '--provider', 'claude-code', '--tokens-in', '10', '--tokens-out', '5', '--cache-read', '1000', '--cache-write', '100');
+    expect(rec.code, rec.err).toBe(0);
+    expect((await run('campaign', 'status', '--file', f)).out).toContain('claude-code 1115 of 2000000 tokens (1 of 1 charged runs recorded); codex 0 of 2000000 tokens');
   });
 });

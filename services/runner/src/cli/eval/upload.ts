@@ -118,6 +118,16 @@ export interface UploadInput {
 
 /** The base agent of an upload: the flag, the case pin, or the agent variant itself. */
 async function resolveBaseAgent(input: UploadInput, v: VariantFile): Promise<AgentVersion> {
+  const base = await resolveBaseAgentOnly(input, v);
+  const p = v.kind === 'patch' ? v.producer : undefined;
+  if (!p) return base;
+  // The producer wrote the patch: the agent is its harness and model, on the rest of the base agent.
+  const model = catalogModelId(p.model);
+  if (!MODEL_ID.test(model)) throw new CliError(`producer model "${p.model.slice(0, 60)}" is not a model-catalog id (lab/model)`);
+  return { ...base, harness: p.harness, harness_version: null, harness_repo_sha: null, model_id: model };
+}
+
+async function resolveBaseAgentOnly(input: UploadInput, v: VariantFile): Promise<AgentVersion> {
   if (input.baseAgent) return input.baseAgent;
   const pin = input.c.manifest.pin?.record;
   if (pin && pin.format === 'tma-pin/1') return baseAgentFrom(pin, 'the case pin');
@@ -217,6 +227,7 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
   const first = (await readJson<RunRecord>(join(dirs[0]!, 'run.json')))!;
   const isAgent = v.kind === 'agent';
   const executorModel = isAgent ? v.agent!.model : base.model_id;
+  const producer = v.kind === 'patch' ? v.producer : undefined;
   const body = {
     format: LOCAL_RESULT_V2_FORMAT,
     agent_id: input.agentId,
@@ -224,7 +235,7 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
     metrics_shape: 'tma-score/1' as const,
     grader_version: EVALUATOR_VERSION,
     runner: { version: RUNNER_VERSION, execution: isAgent ? ('tma-sandbox' as const) : ('external' as const), profile: isAgent ? (first.profile ?? 'opencode') : null, sandbox_image_id: imageId },
-    executor: executorOf({ modelId: executorModel, harness: isAgent ? (first.profile ?? 'opencode') : 'patch', costSource: isAgent && runs.some((r) => r.cost_usd !== null) ? 'derived' : 'none' }),
+    executor: executorOf({ modelId: executorModel, harness: isAgent ? (first.profile ?? 'opencode') : (producer?.harness ?? 'patch'), costSource: isAgent && runs.some((r) => r.cost_usd !== null) ? 'derived' : 'none' }),
     ran_from: new Date(from).toISOString(),
     ran_to: new Date(to).toISOString(),
     summary: summarize(runs as unknown as ResultRow[]),

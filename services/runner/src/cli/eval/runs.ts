@@ -291,6 +291,9 @@ export async function runVariant(input: { c: LoadedCase; v: ResolvedVariant; rep
       };
     } else {
       log(`[tma eval] ${runId}: ${c.manifest.case_key} variant ${v.variantSha256.slice(0, 12)} (${v.file.label}) repeat ${already + n}, patch ${patch.length} bytes`);
+      const p = v.file.producer;
+      // A patch written outside the kit: the run carries the producer's model and tokens (no tool calls, no cost).
+      if (p) agentInfo = { model: p.model, tokens_in: p.tokens_in, tokens_out: p.tokens_out, cost_usd: null, agent_errors: [], actions: [] };
     }
     const runDir = join(variantDir, runId);
     const record: RunRecord = {
@@ -310,7 +313,7 @@ export async function runVariant(input: { c: LoadedCase; v: ResolvedVariant; rep
       sandbox_image_id: sandbox?.imageId ?? null,
     };
     await writeRun(runDir, record, patch, modelKey);
-    if (agentInfo) {
+    if (agentInfo && v.file.kind === 'agent') {
       // The structural trajectory of the agent run (T4): redacted targets, digests, no text.
       const trajectory = trajectoryFromActions(agentInfo.actions as RunAction[]);
       if (trajectory) await writeFile(join(runDir, TRAJECTORY_FILE), redact(json(trajectory), modelKey));

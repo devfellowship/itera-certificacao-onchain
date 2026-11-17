@@ -232,6 +232,7 @@ async function caseWithRuns(over: Record<string, unknown> = {}, variantOver: Rec
   }));
   mkdirSync(join(src, 'agent'));
   writeFileSync(join(src, 'agent', 'AGENTS.md'), '# rules\n');
+  writeFileSync(join(src, 'p.patch'), PATCH);
   writeFileSync(join(src, 'v.json'), JSON.stringify({ schema: 'tma-variant/1', label: 'stricter rules', kind: 'agent', agent: { agent_dir: 'agent', model: 'anthropic/claude-sonnet-4.5' }, change_kind: 'rules', is_baseline: false, prediction: PROMPT, ...variantOver }));
   const dir = join(tmp('case'), 'c');
   const cmd = makeEvalCommand(d);
@@ -315,6 +316,53 @@ describe('tma eval upload', () => {
     expect(await makeEvalCommand(deps({ env: loggedIn(), fetchImpl: f as unknown as typeof fetch })).main(['upload', '--case', dir, '--variant-dir', vdir, '--agent', AGENT], io2), io2.errText()).toBe(0);
     expect(io2.outText()).toMatch(/inserted\. Evaluation e0e0e0e0/);
     expect((f.mock.calls[0] as unknown as [string])[0]).toBe(`${API}/self-declared-results`);
+  });
+});
+
+describe('a patch written outside the kit names its producer (C7-T5)', () => {
+  it('the run records the producer model and tokens, and the upload labels the agent with it, not with the pin model', async () => {
+    const env = loggedIn();
+    const f = fakeApi();
+    const variants = [
+      { harness: 'codex', model: 'openai/gpt-5.6', tokens_in: 120_000, tokens_out: 3_000 },
+      { harness: 'opencode', model: 'glm-5.3', tokens_in: 90_000, tokens_out: null },
+    ];
+    const bodies: Array<Record<string, any>> = [];
+    for (const producer of variants) {
+      const { dir, vdir } = await caseWithRuns({}, { kind: 'patch', patch: 'p.patch', agent: undefined, change_kind: 'none', is_baseline: true, prediction: null, producer }, deps({ env: { ...env, OPENROUTER_API_KEY: KEY } }));
+      const run = JSON.parse(readFileSync(join(vdir, readdirSync(vdir, { withFileTypes: true }).find((e) => e.isDirectory())!.name, 'run.json'), 'utf-8'));
+      expect(run.agent).toMatchObject({ model: producer.model, tokens_in: producer.tokens_in, tokens_out: producer.tokens_out, cost_usd: null });
+      const io = captureIo();
+      expect(await makeEvalCommand(deps({ env, fetchImpl: f as unknown as typeof fetch })).main(['upload', '--case', dir, '--variant-dir', vdir, '--agent', AGENT, '--dry-run'], io), io.errText()).toBe(0);
+      bodies.push(JSON.parse(String((f.mock.calls.at(-1) as unknown as [string, RequestInit])[1].body)));
+    }
+    const [codex, glm] = bodies;
+    expect(codex!.variant.agent).toMatchObject({ harness: 'codex', model_id: 'openai/gpt-5.6', harness_version: null, rules_sha256: H('c') });
+    expect(codex!.executor).toMatchObject({ model_id: 'openai/gpt-5.6', harness: 'codex' });
+    expect(codex!.runs[0]).toMatchObject({ tokens_in: 120_000, tokens_out: 3_000 });
+    expect(glm!.variant.agent).toMatchObject({ harness: 'opencode', model_id: 'z-ai/glm-5.3' });
+    expect(glm!.executor.harness).toBe('opencode');
+    for (const b of bodies) expect(b.variant.agent.model_id).not.toBe(pin.model_id);
+  });
+
+  it('two producers that write the same bytes are two variants; a bad producer is refused', async () => {
+    const { readVariant } = await import('../eval/variant.js');
+    const src = tmp('prod');
+    writeFileSync(join(src, 'p.patch'), PATCH);
+    const write = (name: string, producer: unknown) => {
+      writeFileSync(join(src, name), JSON.stringify({ schema: 'tma-variant/1', label: 'x', kind: 'patch', patch: 'p.patch', change_kind: 'none', is_baseline: true, prediction: null, ...(producer === undefined ? {} : { producer }) }));
+      return join(src, name);
+    };
+    const a = await readVariant(write('a.json', { harness: 'claude-code', model: 'claude-sonnet-5-5', tokens_in: 1, tokens_out: 1 }));
+    const b = await readVariant(write('b.json', { harness: 'codex', model: 'openai/gpt-5.6', tokens_in: 1, tokens_out: 1 }));
+    const c = await readVariant(write('c.json', { harness: 'codex', model: 'openai/gpt-5.6', tokens_in: 9, tokens_out: 9 }));
+    const plain = await readVariant(write('d.json', undefined));
+    expect(a.variantSha256).not.toBe(b.variantSha256);
+    expect(b.variantSha256).toBe(c.variantSha256); // tokens describe the run, not the variant
+    expect(plain.variantSha256).not.toBe(a.variantSha256);
+    await expect(readVariant(write('e.json', { harness: 'patch', model: 'x/y', tokens_in: null, tokens_out: null }))).rejects.toThrow(/producer\/harness/);
+    await expect(readVariant(write('f.json', { harness: 'codex', model: 'x/y', tokens_in: -1, tokens_out: null }))).rejects.toThrow(/producer\/tokens_in/);
+    await expect(readVariant(write('g.json', { harness: 'codex', model: 'x/y', tokens_in: 1, tokens_out: 1, cost: 1 }))).rejects.toThrow(/producer\/cost: unknown key/);
   });
 });
 
