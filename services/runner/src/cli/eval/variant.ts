@@ -4,6 +4,10 @@
 //   - patch: a fixed output (a reference solution, a recorded output, or no change at all). No model,
 //            no key. The kit grades the patch as if an agent had written it.
 //   - agent: opencode in the TMA sandbox with an agent folder and a model (the `tma run` path).
+// A patch variant may name its `producer`: the harness and model that wrote the patch outside the kit (for
+// example Claude Code or Codex on the host), with the tokens of that one model run. The kit then records that
+// model and those tokens on the run, and the upload labels the agent with that harness and model, never with
+// the model of the case pin (C7-T5: a z.ai or Codex output must not show as the pin's Sonnet).
 //
 // variant_sha256 is the digest of what the run consumes (the patch bytes, or the agent files + model +
 // profile); the label and the prediction describe the variant and are not in it. A non-baseline variant
@@ -34,7 +38,20 @@ export interface VariantFile {
   patch?: string | null;
   /** kind agent: the agent folder (relative to the variant file), the model and the run profile. */
   agent?: { agent_dir: string; model: string; profile?: string };
+  /** kind patch: who wrote the patch outside the kit, and the tokens of that run (null = not reported). */
+  producer?: Producer;
 }
+
+export interface Producer {
+  harness: string;
+  model: string;
+  tokens_in: number | null;
+  tokens_out: number | null;
+}
+
+const PRODUCER_HARNESS = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const PRODUCER_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/;
+const MAX_PRODUCER_TOKENS = 4_000_000_000;
 
 export interface ResolvedVariant {
   file: VariantFile;
@@ -62,7 +79,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 export function variantErrors(v: unknown): string[] {
   const errors: string[] = [];
   if (!isObject(v)) return ['/: a variant is a JSON object'];
-  const allowed = ['schema', 'label', 'kind', 'change_kind', 'is_baseline', 'prediction', 'patch', 'agent'];
+  const allowed = ['schema', 'label', 'kind', 'change_kind', 'is_baseline', 'prediction', 'patch', 'agent', 'producer'];
   for (const k of Object.keys(v)) if (!allowed.includes(k)) errors.push(`/${k}: unknown key (a variant carries no environment, no key, no secret)`);
   if (v.schema !== VARIANT_FORMAT) errors.push(`/schema: must be ${VARIANT_FORMAT}`);
   if (typeof v.label !== 'string' || !LABEL.test(v.label)) errors.push('/label: 1 to 60 characters: letters, digits, space and . , : ; / ( ) + - _ % $ = & \' #');
@@ -81,7 +98,21 @@ export function variantErrors(v: unknown): string[] {
     if ('agent' in v) errors.push('/agent: only for kind agent');
     if (!('patch' in v)) errors.push('/patch: required for kind patch (a file, or null for the empty output)');
     else if (v.patch !== null && (typeof v.patch !== 'string' || v.patch.length === 0 || v.patch.length > 400)) errors.push('/patch: a file path, or null');
+    if ('producer' in v) {
+      const p = v.producer;
+      if (!isObject(p)) errors.push('/producer: {harness, model, tokens_in, tokens_out}');
+      else {
+        for (const k of Object.keys(p)) if (!['harness', 'model', 'tokens_in', 'tokens_out'].includes(k)) errors.push(`/producer/${k}: unknown key`);
+        if (typeof p.harness !== 'string' || !PRODUCER_HARNESS.test(p.harness) || p.harness === 'patch') errors.push('/producer/harness: a harness name such as claude-code, codex or opencode');
+        if (typeof p.model !== 'string' || !PRODUCER_MODEL.test(p.model)) errors.push('/producer/model: the model id the harness ran');
+        for (const k of ['tokens_in', 'tokens_out'] as const) {
+          const n = p[k];
+          if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > MAX_PRODUCER_TOKENS)) errors.push(`/producer/${k}: a token count, or null`);
+        }
+      }
+    }
   }
+  if (v.kind === 'agent' && 'producer' in v) errors.push('/producer: only for kind patch (an agent run records its own model and tokens)');
   if (v.kind === 'agent') {
     if ('patch' in v) errors.push('/patch: only for kind patch');
     const a = v.agent;
@@ -140,7 +171,10 @@ export async function readVariant(file: string): Promise<ResolvedVariant> {
       if (st.size > PATCH_MAX_BYTES) throw new CliError(`the variant patch is ${st.size} bytes; the limit is ${PATCH_MAX_BYTES}`);
       patchText = await readFile(p, 'utf-8');
     }
-    const variantSha256 = sha256(canonicalJson({ kind: 'patch', patch_sha256: sha256(patchText) }));
+    // The producer's harness and model are part of what the run measures: two models that write the same bytes are
+    // two variants. Tokens are not (they describe the run). A patch with no producer keeps its old digest.
+    const p = v.producer;
+    const variantSha256 = sha256(canonicalJson({ kind: 'patch', patch_sha256: sha256(patchText), ...(p ? { producer: { harness: p.harness, model: p.model } } : {}) }));
     return { file: v, path, variantSha256, predictionSha256, patchText, agentDir: null };
   }
   const agentDir = await checkAgentDir(resolve(base, v.agent!.agent_dir));
