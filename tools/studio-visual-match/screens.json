@@ -286,10 +286,7 @@
       "id": "S12",
       "title": "S12 Routing",
       "artboard": "Routing.dc.html",
-      "route": {
-        "from": "/studio/compare?use_case=verify/prod-verify",
-        "link": "^/studio/routing/."
-      },
+      "route": "/studio/routing",
       "actions": [
         {
           "id": "routes_table",
