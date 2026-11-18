@@ -61,13 +61,20 @@
 .trc-tablewrap { min-width: 0; overflow-x: auto; }
 .trc-table { min-width: 900px; }
 .trc-nowrap { white-space: nowrap; }
-.trc-row { display: grid; grid-template-columns: 92px 240px minmax(220px, 1fr) 130px 140px 110px; align-items: center; column-gap: var(--stu-gap-4); min-height: 40px; padding: 0 0 0 10px; border-bottom: 1px solid var(--stu-line); color: var(--stu-text-2); cursor: pointer; }
+.trc-row { display: grid; grid-template-columns: 28px 92px 240px minmax(220px, 1fr) 130px 140px 110px; align-items: center; column-gap: var(--stu-gap-4); min-height: 40px; padding: 0 0 0 10px; border-bottom: 1px solid var(--stu-line); color: var(--stu-text-2); cursor: pointer; }
 .trc-row:hover { background: var(--stu-surface); }
 .trc-row--on, .trc-row--on:hover { background: var(--stu-raised); box-shadow: inset 2px 0 0 var(--stu-accent); }
 .trc-row--head { min-height: 0; padding-bottom: 8px; border-bottom-color: var(--stu-line-strong); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); cursor: default; }
 .trc-row--head:hover { background: transparent; }
 .trc-row--head .trc-cell { display: inline-flex; align-items: center; gap: 3px; }
 .trc-cell { min-width: 0; }
+/* MT-05: the selection checkbox column and the "N selected · Clear" bar (artboard S2). */
+.trc-cell--check { display: inline-flex; align-items: center; }
+.trc-check-box { width: 15px; height: 15px; margin: 0; accent-color: var(--stu-accent); cursor: pointer; }
+.trc-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-3); padding: 8px 12px; border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); background: var(--stu-surface); }
+.trc-selbar__n { color: var(--stu-text); font-weight: 500; }
+.trc-selbar__clear { height: 28px; padding: 0 8px; border: 0; background: transparent; color: var(--stu-text-muted); font: inherit; cursor: pointer; }
+.trc-selbar__clear:hover { color: var(--stu-text); }
 .trc-cell--date { font-family: var(--stu-font-mono); font-size: 12px; color: var(--stu-text-muted); }
 .trc-cell--agent { display: inline-flex; align-items: center; gap: var(--stu-gap-2); color: var(--stu-text); }
 .trc-cell--task { display: flex; flex-direction: column; justify-content: center; padding: 4px 0; }

@@ -10,10 +10,12 @@
  * Filters (MT-02): one "Filters (n)" button with a dropdown, the active filters as removable chips, "+N more", "Clear
  * all". Rows (MT-04): the task id only, no "picked for" tag (it is a filter and a panel field); the header is the title
  * row only, the selection day moves into its (i).
+ * Selection (MT-05, first half): a checkbox column and the "N selected · Clear" bar. The "Build N cases" action waits on
+ * a decision (Plans App Q 3d291a2b): no write path turns a trace into an eval case yet.
  * Gaps against the artboard (the index has no such field or the studio has no such screen): the task title (the row
  * shows the task identifier), the merge state and CI result of the PR, the model size badge, the search box.
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Card } from '../tma/ui'
 import { useDismiss } from '../tma/ui/useDismiss'
@@ -72,7 +74,7 @@ function PrCell({ r }: { r: TraceRow }) {
   )
 }
 
-function TraceRowLine({ r, on, onFocus }: { r: TraceRow; on: boolean; onFocus: () => void }) {
+function TraceRowLine({ r, on, onFocus, checked, onToggle }: { r: TraceRow; on: boolean; onFocus: () => void; checked: boolean; onToggle: () => void }) {
   const a = agentChip(r)
   const day = dayOf(r.started_at)
   return (
@@ -85,6 +87,9 @@ function TraceRowLine({ r, on, onFocus }: { r: TraceRow; on: boolean; onFocus: (
       onClick={onFocus}
       onFocus={onFocus}
     >
+      <span role="cell" className="trc-cell trc-cell--check" onClick={(e) => e.stopPropagation()}>
+        <input type="checkbox" className="trc-check-box" aria-label={`Select ${rowLabel(r)}`} checked={checked} onChange={onToggle} data-testid="trace-select" />
+      </span>
       <span role="cell" className="trc-cell trc-cell--date" title={fmtTime(r.started_at)} data-field="started_at">
         {day ?? '—'}
       </span>
@@ -347,11 +352,23 @@ function Paging({ params, data }: { params: URLSearchParams; data: TraceList }) 
   )
 }
 
-function TraceTable({ rows, focusedKey, onFocus }: { rows: Array<{ r: TraceRow; k: string }>; focusedKey: string | null; onFocus: (k: string) => void }) {
+type Keyed = Array<{ r: TraceRow; k: string }>
+
+function TraceTable({ rows, focusedKey, onFocus, selected, onSelect }: { rows: Keyed; focusedKey: string | null; onFocus: (k: string) => void; selected: Set<string>; onSelect: (next: Set<string>) => void }) {
+  const all = rows.length > 0 && rows.every(({ k }) => selected.has(k))
+  const toggle = (k: string) => {
+    const next = new Set(selected)
+    if (next.has(k)) next.delete(k)
+    else next.add(k)
+    onSelect(next)
+  }
   return (
     <div className="trc-tablewrap">
       <div role="table" aria-label="Traces" className="trc-table">
         <div role="row" className="trc-row trc-row--head">
+          <span role="columnheader" className="trc-cell trc-cell--check">
+            <input type="checkbox" className="trc-check-box" aria-label="Select all traces on this page" checked={all} onChange={() => onSelect(all ? new Set() : new Set(rows.map(({ k }) => k)))} data-testid="trace-select-all" />
+          </span>
           {['date', 'agent', 'task', 'pr / ci', 'signal', 'replayable'].map((h) => (
             <span key={h} role="columnheader" className="trc-cell">
               {h}
@@ -360,7 +377,7 @@ function TraceTable({ rows, focusedKey, onFocus }: { rows: Array<{ r: TraceRow; 
           ))}
         </div>
         {rows.map(({ r, k }) => (
-          <TraceRowLine key={k} r={r} on={focusedKey === k} onFocus={() => onFocus(k)} />
+          <TraceRowLine key={k} r={r} on={focusedKey === k} onFocus={() => onFocus(k)} checked={selected.has(k)} onToggle={() => toggle(k)} />
         ))}
       </div>
     </div>
@@ -370,6 +387,7 @@ function TraceTable({ rows, focusedKey, onFocus }: { rows: Array<{ r: TraceRow; 
 export function StudioTracesPage() {
   const [params] = useSearchParams()
   const [focus, setFocus] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const offset = Number(params.get('offset') ?? '0')
   const q = {
     limit: TRACE_PAGE_SIZE,
@@ -379,6 +397,8 @@ export function StudioTracesPage() {
     mode: params.get('mode'),
   }
   const loaded = useTraceLoad(() => fetchTraceList(q), [q.offset, q.l2_class, q.why, q.mode])
+  // A selection belongs to one page of one query: a new page or filter starts empty.
+  useEffect(() => setSelected(new Set()), [q.offset, q.l2_class, q.why, q.mode])
   // Newest first on each page. The serve pages by its own order, so the date order holds inside a page only.
   const keyed = loaded.state === 'ok' ? newestFirst(loaded.data.rows).map((r, i) => ({ r, k: rowKey(r, i) })) : []
   const focused = keyed.find((x) => x.k === focus) ?? keyed[0] ?? null
@@ -409,12 +429,22 @@ export function StudioTracesPage() {
           ) : (
             <div data-testid="traces-list" className="trc-list">
               <FilterBar params={params} rows={loaded.data.rows} />
+              {selected.size > 0 && (
+                <div className="trc-selbar" data-testid="trace-selection">
+                  <span className="trc-selbar__n" data-testid="trace-selection-count">
+                    {selected.size} selected
+                  </span>
+                  <button type="button" className="trc-selbar__clear" onClick={() => setSelected(new Set())} data-testid="trace-selection-clear">
+                    Clear
+                  </button>
+                </div>
+              )}
               {loaded.data.rows.length === 0 ? (
                 <p className="tma-body-sm tma-muted" data-testid="traces-empty">
                   No candidate traces match these filters.
                 </p>
               ) : (
-                <TraceTable rows={keyed} focusedKey={focused?.k ?? null} onFocus={setFocus} />
+                <TraceTable rows={keyed} focusedKey={focused?.k ?? null} onFocus={setFocus} selected={selected} onSelect={setSelected} />
               )}
               <Paging params={params} data={loaded.data} />
             </div>

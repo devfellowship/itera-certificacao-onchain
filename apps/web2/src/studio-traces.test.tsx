@@ -357,6 +357,31 @@ describe('S2 trace picker', () => {
     expect(c.querySelector('.trc-why--red')).toBeNull()
   })
 
+  it('selects rows with the checkbox column: "N selected", select all on the page, Clear (MT-05, no build action yet)', async () => {
+    const c = mountAt('/studio/traces')
+    await waitFor(() => traceRows(c).length > 0, 'rows')
+    expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
+    const boxes = () => traceRows(c).map((r) => r.querySelector<HTMLInputElement>('[data-testid="trace-select"]')!)
+    const focusedBefore = traceRows(c)[0]!.getAttribute('data-focused')
+    act(() => boxes()[1]!.click())
+    act(() => boxes()[2]!.click())
+    expect(boxes().map((b) => b.checked)).toEqual([false, true, true, false])
+    expect(c.querySelector('[data-testid="trace-selection-count"]')!.textContent).toBe('2 selected')
+    // A checkbox click does not move the focused row.
+    expect(traceRows(c)[0]!.getAttribute('data-focused')).toBe(focusedBefore)
+    expect(c.querySelector('[data-testid="trace-selection"]')!.textContent).not.toMatch(/Build/)
+    const all = c.querySelector<HTMLInputElement>('[data-testid="trace-select-all"]')!
+    act(() => all.click())
+    expect(c.querySelector('[data-testid="trace-selection-count"]')!.textContent).toBe(`${LIST.rows.length} selected`)
+    expect(all.checked).toBe(true)
+    act(() => all.click())
+    expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
+    act(() => boxes()[0]!.click())
+    act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-selection-clear"]')!.click())
+    expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
+    expect(boxes().every((b) => !b.checked)).toBe(true)
+  })
+
   it('passes why, mode and offset from the URL', async () => {
     const c = mountAt('/studio/traces?why=red&mode=replay&offset=50')
     await waitFor(() => traceRows(c).length > 0, 'rows')
