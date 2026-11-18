@@ -38,3 +38,14 @@ error. Unit tests (offline, in CI): `node --test tools/studio-visual-match/lib.t
 
 Before the merge, `--dist apps/web2/dist` (after `npm run build -w @itera/web2`) serves the pages and assets of the live
 origin from the local build, while the API calls stay live. A redesign lane runs its screen that way, then again after the deploy, and puts the pair and the score in the PR or the plan.
+
+S2 and S3 read a `tma studio serve`, which prod reaches only on the tailnet. To check them on the host that runs the serve
+(127.0.0.1:8787, the smoke fixture principal reads a synthetic tree), build web2 for it and forward the browser's calls:
+
+```bash
+VITE_TMA_STUDIO_SERVE_URL=http://127.0.0.1:8787 npm run build -w @itera/web2
+npm run studio-visual-match -- --screen S2,S3 --dist apps/web2/dist --serve-url http://127.0.0.1:8787 --judge
+```
+
+`--serve-url` is needed because Chrome refuses a call from a public https page to a loopback address; the script answers
+that call itself and forwards it with the page's own `Authorization` header.

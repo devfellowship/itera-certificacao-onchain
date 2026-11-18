@@ -31,6 +31,8 @@
  *   --out <dir>           output dir (default tools/studio-visual-match/out, git-ignored)
  *   --anonymous           no sign-in
  *   --dist <dir>          serve the pages and assets of --base from a local web2 build (apps/web2/dist); the API stays live
+ *   --serve-url <url>     a `tma studio serve` the page was built for (VITE_TMA_STUDIO_SERVE_URL, e.g. http://127.0.0.1:8787): the
+ *                         browser's calls to it are forwarded by this script (Chrome blocks a public page -> loopback call)
  *   --chrome <path>       Chromium executable (CHROME_PATH; default Playwright's, else /usr/bin/google-chrome)
  * A screen with "optional" (a reason) whose route link is absent is UNAVAILABLE, not an error (S3: a fleet trace is
  * readable only through `tma studio serve` on the tailnet; the plan keeps S3 human-checkable).
@@ -72,6 +74,7 @@ function parseArgs(argv) {
     else if (k === '--anonymous') a.anonymous = true
     else if (k === '--chrome') a.chrome = v()
     else if (k === '--dist') a.dist = resolve(v())
+    else if (k === '--serve-url') a.serveUrl = v().replace(/\/$/, '')
     else if (k === '--help' || k === '-h') usage()
     else usage(`unknown option ${k}`)
   }
@@ -180,10 +183,31 @@ async function serveDist(ctx, base, dist) {
   })
 }
 
-async function captureLive(browser, base, s, sessionValue, dist) {
+/**
+ * --serve-url: Chrome refuses a call from a public https page to a loopback address (local network access). Playwright answers
+ * the call instead: the script forwards it to the serve with the page's own headers and hands back the body with CORS headers.
+ */
+async function proxyServe(ctx, serveUrl, origin) {
+  await ctx.route(`${serveUrl}/**`, async (route) => {
+    const req = route.request()
+    const cors = { 'access-control-allow-origin': origin, 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, OPTIONS', vary: 'origin' }
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors, body: '' })
+    const headers = {}
+    for (const h of ['authorization', 'accept']) if (req.headers()[h]) headers[h] = req.headers()[h]
+    try {
+      const r = await fetch(req.url(), { method: req.method(), headers: { ...headers, origin } })
+      return route.fulfill({ status: r.status, headers: { ...cors, 'content-type': r.headers.get('content-type') ?? 'application/json' }, body: Buffer.from(await r.arrayBuffer()) })
+    } catch {
+      return route.abort('connectionrefused')
+    }
+  })
+}
+
+async function captureLive(browser, base, s, sessionValue, dist, serveUrl) {
   const [w, h] = s.viewport
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1, colorScheme: 'dark', reducedMotion: 'reduce' })
   if (dist) await serveDist(ctx, base, dist)
+  if (serveUrl) await proxyServe(ctx, serveUrl, new URL(base).origin)
   if (sessionValue) await ctx.addInitScript((v) => { try { localStorage.setItem('tma2.session', v) } catch {} }, sessionValue)
   const page = await ctx.newPage()
   const errors = []
@@ -347,7 +371,7 @@ async function main() {
         writeFileSync(join(args.out, `${s.id}.design.png`), PNG.sync.write(dc))
 
         // live
-        const l = await captureLive(browser, args.base, s, sessionValue, args.dist)
+        const l = await captureLive(browser, args.base, s, sessionValue, args.dist, args.serveUrl)
         Object.assign(r, { url: l.url, mount: l.mount, pageErrors: l.pageErrors })
         const lc = crop(l.png, [0, l.chrome.top, l.png.width, l.png.height - l.chrome.top])
         writeFileSync(join(args.out, `${s.id}.live.png`), PNG.sync.write(lc))
