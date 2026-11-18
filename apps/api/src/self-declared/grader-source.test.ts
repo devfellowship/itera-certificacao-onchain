@@ -5,7 +5,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -13,7 +13,7 @@ import { dirname, join, sep } from "node:path";
 import express from "express";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { issueSessionToken } from "../auth/session.js";
-import { GitGraderSourceResolver, GitMirror, repoName, type StoredGraderVersion } from "./grader-source.js";
+import { evalsDeployKeyFromEnv, GitGraderSourceResolver, GitMirror, repoName, SourceUnavailableError, sshCommand, type StoredGraderVersion } from "./grader-source.js";
 import { createGraderVersionsRouter, type GraderVersionDetail, type GraderVersionsReader } from "./grader-versions.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -236,5 +236,62 @@ describe("GET /grader-versions/:id/source", () => {
 
   it("has no write path: every other method answers 405", async () => {
     for (const method of ["POST", "PUT", "PATCH", "DELETE"]) expect((await call(`/grader-versions/${GV}/source`, { method })).status).toBe(405);
+  });
+});
+
+describe("eval repo deploy key (C5-EVALS-KEY)", () => {
+  let dir = "";
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tma-evals-key-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("no key variable: no key hook", () => {
+    expect(evalsDeployKeyFromEnv({}, dir)).toBeUndefined();
+  });
+
+  it("TMA_EVALS_DEPLOY_KEY_B64: writes the decoded key once, mode 600, with a final newline", async () => {
+    const pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----";
+    const hook = evalsDeployKeyFromEnv({ TMA_EVALS_DEPLOY_KEY_B64: Buffer.from(pem).toString("base64") }, join(dir, "keys"))!;
+    const p1 = await hook();
+    const p2 = await hook();
+    expect(p2).toBe(p1);
+    expect(readFileSync(p1, "utf8")).toBe(`${pem}\n`);
+    expect(statSync(p1).mode & 0o777).toBe(0o600);
+  });
+
+  it("TMA_EVALS_DEPLOY_KEY_PATH wins and writes nothing", async () => {
+    const hook = evalsDeployKeyFromEnv({ TMA_EVALS_DEPLOY_KEY_PATH: "/run/key", TMA_EVALS_DEPLOY_KEY_B64: "eA==" }, join(dir, "keys"))!;
+    expect(await hook()).toBe("/run/key");
+    expect(existsSync(join(dir, "keys"))).toBe(false);
+  });
+
+  it("an SSH clone runs ssh with that key only, and the error names no URL", async () => {
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    const log = join(dir, "ssh-args");
+    writeFileSync(join(bin, "ssh"), `#!/bin/sh\necho "$@" > "${log}"\nexit 1\n`);
+    chmodSync(join(bin, "ssh"), 0o755);
+    const oldPath = process.env.PATH;
+    const oldHome = process.env.HOME;
+    process.env.PATH = `${bin}:${oldPath}`;
+    // A host git config may rewrite git@github.com: to https (insteadOf); the API container has none.
+    // GIT_CONFIG_GLOBAL needs git 2.32; an empty HOME works on every version.
+    process.env.HOME = dir;
+    try {
+      const mirror = new GitMirror("git@github.com:devfellowship/dfl-evals.git", join(dir, "evals.git"), { sshKey: async () => "/k/evals" });
+      expect(mirror.name).toBe("devfellowship/dfl-evals");
+      const err = await mirror.sync().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SourceUnavailableError);
+      expect(String((err as Error).message)).not.toContain("git@github.com");
+      const args = readFileSync(log, "utf8");
+      expect(args).toContain("-i /k/evals");
+      expect(args).toContain("IdentitiesOnly=yes");
+      expect(args).toContain("git@github.com");
+    } finally {
+      process.env.PATH = oldPath;
+      process.env.HOME = oldHome;
+    }
+    expect(sshCommand("/k/evals")).toContain('-i "/k/evals"');
   });
 });

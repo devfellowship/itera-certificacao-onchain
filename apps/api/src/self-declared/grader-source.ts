@@ -28,7 +28,7 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, mkdir, rm } from "node:fs/promises";
+import { access, chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -113,7 +113,7 @@ export class GitMirror {
   constructor(
     private readonly url: string,
     private readonly dir: string,
-    private readonly options: { branch?: string; minRefetchMs?: number; name?: string } = {},
+    private readonly options: { branch?: string; minRefetchMs?: number; name?: string; sshKey?: () => Promise<string> } = {},
   ) {
     this.name = options.name ?? repoName(url);
   }
@@ -122,7 +122,10 @@ export class GitMirror {
     return this.options.branch ?? "main";
   }
 
-  private run(args: string[], cwd?: string): Promise<Buffer> {
+  private async run(args: string[], cwd?: string): Promise<Buffer> {
+    // A private source (the eval repo) is read over SSH with a read-only deploy key: the key file is given to ssh only.
+    const keyPath = this.options.sshKey ? await this.options.sshKey() : null;
+    const sshEnv = keyPath ? { GIT_SSH_COMMAND: sshCommand(keyPath) } : {};
     return new Promise((resolve, reject) => {
       execFile(
         "git",
@@ -132,7 +135,7 @@ export class GitMirror {
           encoding: "buffer",
           maxBuffer: 64 * 1024 * 1024,
           timeout: GIT_TIMEOUT_MS,
-          env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "", SSH_ASKPASS: "" },
+          env: { ...process.env, ...sshEnv, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "", SSH_ASKPASS: "" },
         },
         (err, stdout) => {
           // stderr can hold the clone URL (and its credential): it never reaches the message.
@@ -417,12 +420,42 @@ export class GitGraderSourceResolver implements GraderSourceResolver {
   }
 }
 
+/** ssh for one key only: no agent, no other identity, GitHub host key accepted on first use (as domain/manifests-repo.ts). */
+export function sshCommand(keyPath: string): string {
+  return `ssh -i "${keyPath}" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=accept-new`;
+}
+
+/**
+ * The deploy key of the eval repo, as a file path for ssh. TMA_EVALS_DEPLOY_KEY_PATH names a file (local dev);
+ * TMA_EVALS_DEPLOY_KEY_B64 holds the private key, base64 encoded (production): it is written once per process, mode
+ * 600, into the clone dir. Neither set: no key (an https URL or a local path needs none). The key is never logged.
+ */
+export function evalsDeployKeyFromEnv(env: NodeJS.ProcessEnv, dir: string): (() => Promise<string>) | undefined {
+  const direct = env.TMA_EVALS_DEPLOY_KEY_PATH?.trim();
+  if (direct) return async () => direct;
+  const b64 = env.TMA_EVALS_DEPLOY_KEY_B64?.trim();
+  if (!b64) return undefined;
+  let written: Promise<string> | null = null;
+  return () => {
+    written ??= (async () => {
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      const path = join(dir, "evals-deploy-key");
+      const pem = Buffer.from(b64, "base64").toString("utf8");
+      await writeFile(path, pem.endsWith("\n") ? pem : `${pem}\n`, { mode: 0o600 });
+      await chmod(path, 0o600);
+      return path;
+    })();
+    return written;
+  };
+}
+
 export const DEFAULT_KIT_REPO_URL = "https://github.com/devfellowship/itera-certificacao-onchain.git";
 
 /**
  * The resolver of the API process. TMA_GRADER_SOURCE=off turns the route off (404). TMA_KIT_REPO_URL overrides the
- * public TMA repo; TMA_EVALS_REPO_URL (unset by default) names the eval repo, which is private: a URL with a read
- * credential, kept in the app env and never printed. TMA_GRADER_SOURCE_DIR holds the bare clones.
+ * public TMA repo; TMA_EVALS_REPO_URL (unset by default) names the eval repo, which is private: an SSH URL
+ * (git@github.com:devfellowship/dfl-evals.git) with a read-only deploy key in TMA_EVALS_DEPLOY_KEY_B64 (or
+ * TMA_EVALS_DEPLOY_KEY_PATH), kept in the app env and never printed. TMA_GRADER_SOURCE_DIR holds the bare clones.
  */
 export function graderSourceFromEnv(env: NodeJS.ProcessEnv = process.env): GraderSourceResolver | undefined {
   if ((env.TMA_GRADER_SOURCE ?? "").trim().toLowerCase() === "off") return undefined;
@@ -431,6 +464,6 @@ export function graderSourceFromEnv(env: NodeJS.ProcessEnv = process.env): Grade
   const evalsUrl = env.TMA_EVALS_REPO_URL?.trim();
   return new GitGraderSourceResolver({
     kit: new GitMirror(kitUrl, join(dir, "kit.git")),
-    ...(evalsUrl ? { evals: new GitMirror(evalsUrl, join(dir, "evals.git"), { name: env.TMA_EVALS_REPO_NAME?.trim() || repoName(evalsUrl) }) } : {}),
+    ...(evalsUrl ? { evals: new GitMirror(evalsUrl, join(dir, "evals.git"), { name: env.TMA_EVALS_REPO_NAME?.trim() || repoName(evalsUrl), sshKey: evalsDeployKeyFromEnv(env, join(dir, "keys")) }) } : {}),
   });
 }
