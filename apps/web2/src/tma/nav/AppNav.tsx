@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useSession } from '../../auth/session'
 import { LoginButton } from '../../pages/LoginButton'
 import { Avatar, Lockup } from '../ui'
+import { useDismiss } from '../ui/useDismiss'
 
 export type NavSection = 'agents' | 'evaluations' | 'tasks' | 'studio' | 'traces' | 'graders' | 'routing' | 'more'
 
@@ -102,28 +103,6 @@ export function MoreMenu({ active = false, defaultOpen = false }: { active?: boo
       )}
     </div>
   )
-}
-
-/** Close a menu on a pointer down outside it and on Escape (focus goes back to its trigger). */
-function useDismiss(open: boolean, ref: RefObject<HTMLElement | null>, close: () => void, triggerRef: RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) close()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        close()
-        triggerRef.current?.focus()
-      }
-    }
-    document.addEventListener('pointerdown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 }
 
 /** Account trigger and dropdown: identity stays in the menu to keep the navbar compact. */

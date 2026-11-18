@@ -30,11 +30,26 @@
 .trc-dot--pr { background: transparent; border: 1.5px solid var(--stu-text-muted); }
 .trc-dot--none { background: transparent; border: 1.5px dashed var(--stu-text-muted); }
 
-/* Filters: toggle chips, one group per filter */
-.trc-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-2) var(--stu-gap-4); }
-.trc-filter { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.trc-filter .stu-chip { min-height: 28px; text-decoration: none; border-radius: 999px; }
-.trc-clear { margin-left: auto; }
+/* Filters (MT-02, artboard S2): a "Filters (n)" button with a dropdown, removable chips, "+N more", "Clear all". */
+.trc-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-2); min-width: 0; }
+.trc-filters__fill { flex: 1; }
+.trc-fmenu { position: relative; display: inline-flex; }
+.trc-fbtn { height: 30px; flex: none; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); background: var(--stu-surface); color: var(--stu-text); font: inherit; white-space: nowrap; cursor: pointer; }
+.trc-fbtn:hover { border-color: var(--stu-line-hover); }
+.trc-fbtn__n { min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 999px; background: var(--stu-accent); color: var(--stu-on-accent); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.trc-fpanel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: 340px; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: var(--stu-gap-3); border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); background: var(--stu-raised); box-shadow: var(--tma-shadow-menu, none); }
+.trc-fgroup { display: flex; flex-direction: column; gap: 6px; }
+.trc-fopts { display: flex; flex-wrap: wrap; gap: 6px; }
+.trc-page a.trc-fopt { min-height: 26px; padding: 0 10px; display: inline-flex; align-items: center; border: 1px solid var(--stu-line); border-radius: 999px; color: var(--stu-text-2); white-space: nowrap; }
+.trc-page a.trc-fopt:hover { border-color: var(--stu-line-hover); color: var(--stu-text); }
+.trc-page a.trc-fopt--on { border-color: var(--stu-accent); color: var(--stu-text); }
+.trc-fchip { height: 28px; flex: none; padding: 0 4px 0 10px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--stu-line); border-radius: 999px; color: var(--stu-text-muted); white-space: nowrap; }
+.trc-fchip__v { color: var(--stu-text); }
+.trc-page a.trc-fchip__x { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; color: var(--stu-text-muted); }
+.trc-page a.trc-fchip__x:hover { color: var(--stu-text); background: var(--stu-raised); }
+.trc-fmore { height: 28px; flex: none; padding: 0 10px; border: 1px dashed var(--stu-line-strong); border-radius: 999px; background: transparent; color: var(--stu-text-muted); font: inherit; white-space: nowrap; cursor: pointer; }
+.trc-page a.trc-clear { height: 28px; padding: 0 8px; display: inline-flex; align-items: center; color: var(--stu-text-muted); white-space: nowrap; }
+.trc-page a.trc-clear:hover { color: var(--stu-text); }
 .trc-paging { display: flex; gap: var(--stu-gap-3); align-items: center; margin: 0; }
 
 /* S2 table + focused-row panel */
@@ -42,7 +57,7 @@
 /* The shell holds the whole page column (crumb, title, filters, table, paging) and the side panel next to it, so the
    panel is a full-height column from under the nav to the bottom of the viewport, as on the artboard. */
 .trc-shell { display: flex; flex-wrap: wrap; align-items: stretch; margin: 0 calc(-1 * var(--tma-app-gutter, 0px)); min-width: 0; min-height: calc(100vh - var(--tma-nav-height, 56px) - 1px); }
-.trc-col { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 28px var(--tma-app-gutter, 0px) 64px; }
+.trc-col { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 28px 40px 64px; }
 .trc-tablewrap { min-width: 0; overflow-x: auto; }
 .trc-table { min-width: 900px; }
 .trc-nowrap { white-space: nowrap; }
@@ -58,7 +73,6 @@
 .trc-cell--task { display: flex; flex-direction: column; justify-content: center; padding: 4px 0; }
 .trc-task-line { display: flex; align-items: center; gap: var(--stu-gap-2); min-width: 0; }
 .trc-task-id { font-weight: 500; color: var(--stu-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trc-task-before { font-size: 12px; color: var(--stu-text-muted); }
 .trc-pr { display: inline-flex; align-items: center; gap: var(--stu-gap-2); white-space: nowrap; }
 .trc-pr a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--stu-line-hover); }
 .trc-signals { display: inline-flex; flex-wrap: wrap; gap: 0 5px; color: var(--stu-text); }
@@ -187,7 +201,6 @@
   .trc-aside { border-left: 0; border-top: 1px solid var(--stu-line); padding: 20px 0; background: transparent; }
   .trc-aside--picker { max-width: none; padding: 0; }
   .trc-aside__in { position: static; max-height: none; min-height: 0; overflow: visible; padding: 20px 0; }
-  .trc-clear { margin-left: 0; }
   /* The table becomes a list: the task on its own line, the rest as a wrapped line under it. */
   .trc-table { min-width: 0; }
   .trc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--stu-gap-4); padding: 10px 0 10px 10px; }

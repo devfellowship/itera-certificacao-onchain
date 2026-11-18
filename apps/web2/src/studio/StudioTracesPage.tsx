@@ -7,14 +7,17 @@
  * Layout from the canvas artboard "S2 Trace picker": a table (date, agent, task, pr / ci, signal, replayable) and a
  * side panel for the focused row (task summary, replay lines, technical details, open the trace). The focused row is
  * the one you click or tab into; the first row is focused at first.
+ * Filters (MT-02): one "Filters (n)" button with a dropdown, the active filters as removable chips, "+N more", "Clear
+ * all". Rows (MT-04): the task id only, no "picked for" tag (it is a filter and a panel field); the header is the title
+ * row only, the selection day moves into its (i).
  * Gaps against the artboard (the index has no such field or the studio has no such screen): the task title (the row
- * shows the task identifier and the Before text), the merge state and CI result of the PR, the model size badge, the
- * row selection and "Build N cases" (S4 takes no trace yet), the "+N more" filters and the search box.
+ * shows the task identifier), the merge state and CI result of the PR, the model size badge, the search box.
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Card } from '../tma/ui'
-import { AgentAvatar, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, WhyBadge, dash, fmtTime, useTraceLoad } from './TraceParts'
+import { useDismiss } from '../tma/ui/useDismiss'
+import { AgentAvatar, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, dash, fmtTime, useTraceLoad } from './TraceParts'
 import { themeClass } from './theme'
 import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prUrl, replayOf, shortDay, signalLabel, traceHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
 import './studio.css'
@@ -72,7 +75,6 @@ function PrCell({ r }: { r: TraceRow }) {
 function TraceRowLine({ r, on, onFocus }: { r: TraceRow; on: boolean; onFocus: () => void }) {
   const a = agentChip(r)
   const day = dayOf(r.started_at)
-  const before = r.task_summary?.before ?? null
   return (
     <div
       role="row"
@@ -110,9 +112,7 @@ function TraceRowLine({ r, on, onFocus }: { r: TraceRow; on: boolean; onFocus: (
               </span>
             </>
           )}
-          <WhyBadge why={r.why} />
         </span>
-        {before && <span className="trc-task-before trc-ellip">{before}</span>}
       </span>
       <span role="cell" className="trc-cell trc-cell--pr">
         <PrCell r={r} />
@@ -187,6 +187,8 @@ function FocusPanel({ r }: { r: TraceRow }) {
           <dd data-field="l2_class">{dash(r.l2_class && plainValue(r.l2_class))}</dd>
           <dt>Mode</dt>
           <dd data-field="mode">{dash(r.mode && plainValue(r.mode))}</dd>
+          <dt>Picked for</dt>
+          <dd data-field="why">{dash(r.why && plainValue(r.why))}</dd>
           <dt>Started</dt>
           <dd>{fmtTime(r.started_at)}</dd>
           <dt>Pin</dt>
@@ -219,35 +221,101 @@ function hrefWith(params: URLSearchParams, change: Record<string, string | null>
   return `/studio/traces${s ? `?${s}` : ''}`
 }
 
+/** Chips shown before "+N more" (artboard S2: three chips, then "+4 more"). */
+const MAX_CHIPS = 3
+
+const FilterIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 6h18" />
+    <path d="M7 12h10" />
+    <path d="M10 18h4" />
+  </svg>
+)
+
+/**
+ * The S2 filter row (MT-02): one "Filters (n)" button that opens a dropdown with every filter group, the active filters
+ * as removable chips ("Use case: fix ×"), "+N more" past three chips, and "Clear all". The state stays in the URL.
+ */
 function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[] }) {
-  const active = FILTERS.filter((k) => params.get(k)).length
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  useDismiss(open, ref, () => setOpen(false), triggerRef)
+  const active = FILTERS.flatMap((k) => {
+    const v = params.get(k)
+    return v ? [{ k, v }] : []
+  })
+  const shown = active.slice(0, MAX_CHIPS)
+  const extra = active.length - shown.length
   return (
     <div className="trc-filters" data-testid="trace-filters">
-      {FILTERS.map((k: FilterKey) => {
-        const current = params.get(k)
-        const values = [...new Set([...rows.map((r) => r[k]).filter((v): v is string => !!v), ...(current ? [current] : [])])].sort()
-        return (
-          <span key={k} className="trc-filter" data-filter={k}>
-            <span className="stu-label">{FILTER_LABEL[k]}</span>
-            {[null, ...values].map((v) => {
-              const on = (v ?? null) === (current ?? null)
+      <div className="trc-fmenu" ref={ref}>
+        <button
+          ref={triggerRef}
+          type="button"
+          className="trc-fbtn"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          data-testid="trace-filters-button"
+        >
+          <FilterIcon />
+          Filters
+          {active.length > 0 && (
+            <span className="trc-fbtn__n" data-testid="trace-filters-count">
+              {active.length}
+            </span>
+          )}
+        </button>
+        {open && (
+          <div className="trc-fpanel" role="dialog" aria-label="Filters" data-testid="trace-filters-panel">
+            {FILTERS.map((k: FilterKey) => {
+              const current = params.get(k)
+              const values = [...new Set([...rows.map((r) => r[k]).filter((v): v is string => !!v), ...(current ? [current] : [])])].sort()
               return (
-                <Link
-                  key={v ?? '(all)'}
-                  to={hrefWith(params, { [k]: v, offset: null })}
-                  className={`stu-chip stu-chip--sm${on ? ' stu-chip--on' : ''}`}
-                  aria-current={on ? 'true' : undefined}
-                  data-filter-value={v ?? 'all'}
-                >
-                  {v === null ? 'all' : plainValue(v)}
-                </Link>
+                <div key={k} className="trc-fgroup" data-filter={k} role="group" aria-label={FILTER_LABEL[k]}>
+                  <span className="stu-label">{FILTER_LABEL[k]}</span>
+                  <div className="trc-fopts">
+                    {[null, ...values].map((v) => {
+                      const on = (v ?? null) === (current ?? null)
+                      return (
+                        <Link
+                          key={v ?? '(all)'}
+                          to={hrefWith(params, { [k]: v, offset: null })}
+                          className={`trc-fopt${on ? ' trc-fopt--on' : ''}`}
+                          aria-current={on ? 'true' : undefined}
+                          data-filter-value={v ?? 'all'}
+                          onClick={() => setOpen(false)}
+                        >
+                          {v === null ? 'all' : plainValue(v)}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
               )
             })}
-          </span>
-        )
-      })}
-      {active > 0 && (
-        <Link to={hrefWith(params, { l2_class: null, why: null, mode: null, offset: null })} className="stu-btn stu-btn--ghost trc-clear" data-testid="trace-clear">
+          </div>
+        )}
+      </div>
+      {shown.map(({ k, v }) => (
+        <span key={k} className="trc-fchip" data-chip={k}>
+          {FILTER_LABEL[k]}: <span className="trc-fchip__v">{plainValue(v)}</span>
+          <Link to={hrefWith(params, { [k]: null, offset: null })} className="trc-fchip__x" aria-label={`Remove filter ${FILTER_LABEL[k]}`} data-testid="trace-chip-remove">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </Link>
+        </span>
+      ))}
+      {extra > 0 && (
+        <button type="button" className="trc-fmore" onClick={() => setOpen(true)} data-testid="trace-filters-more">
+          +{extra} more
+        </button>
+      )}
+      <span className="trc-filters__fill" />
+      {active.length > 0 && (
+        <Link to={hrefWith(params, { l2_class: null, why: null, mode: null, offset: null })} className="trc-clear" data-testid="trace-clear">
           Clear all
         </Link>
       )}
@@ -319,12 +387,12 @@ export function StudioTracesPage() {
       <div className="trc-shell">
         <div className="trc-col">
           <div className="trc-head">
-            <p className="stu-label">
-              <Link to="/studio">Studio</Link> / traces
-            </p>
             <div className="trc-title">
               <h1 className="tma-h1">Traces</h1>
-              <InfoTip label="About traces" text={ABOUT} />
+              <InfoTip
+                label="About traces"
+                text={loaded.state === 'ok' ? `${ABOUT} Selection day ${loaded.data.source.selection_day}; ${loaded.data.source.pins ? 'pins exist for this day' : 'no pins for this day'}. Newest first on each page.` : ABOUT}
+              />
               {loaded.state === 'ok' && (
                 <span className="stu-label" data-testid="trace-total">
                   {loaded.data.total} {loaded.data.total === 1 ? 'trace' : 'traces'}
@@ -340,9 +408,6 @@ export function StudioTracesPage() {
             <TraceErrorCard error={loaded.error} testId="traces-error" />
           ) : (
             <div data-testid="traces-list" className="trc-list">
-              <p className="stu-label" data-testid="trace-source">
-                Selection day {loaded.data.source.selection_day}. {loaded.data.source.pins ? 'Pins exist for this day.' : 'No pins for this day.'} Newest first on each page.
-              </p>
               <FilterBar params={params} rows={loaded.data.rows} />
               {loaded.data.rows.length === 0 ? (
                 <p className="tma-body-sm tma-muted" data-testid="traces-empty">
