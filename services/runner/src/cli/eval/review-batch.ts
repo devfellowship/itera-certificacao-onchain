@@ -14,8 +14,17 @@
 //               batch answers `unchanged` for every row, and the API keeps one run per (case, variant, item, repeat).
 //   text        the session text, the prompt, the tool arguments and results stay on the host (Q-T9 = A): only the
 //               redacted structural trajectory leaves. A row's task_summary is sent only with --with-summary.
+//   judge run   (Q 5da071b7 = A, Tainan TG 32365, 2026-11-18) with a JudgeRun (--judges-dir, --judge-model, --judge-cmd,
+//               --runner on, --max-calls), each --judge of the row answers the folded session text (judge-text.ts, the
+//               same fold as `tma eval judge texts`) through the local command, and a MEASURED answer becomes one
+//               grader row of kind judge: code_sha256 = sha256(rubric.md) of the eval repo version (the digest the
+//               studio resolves in Git), decisive false (no calibration record allows more), and labeler
+//               `judge-model:<provider>:<model>`, so a reader never takes a Haiku verdict for the Sonnet judge of the
+//               same version. The run itself stays ungraded (infra_ok false): a side-signal judge never makes the
+//               run count in a comparison. The same case manifest and the same run key: the API adds the judge row
+//               to the run that the ungraded upload made (an update, not a new result).
 import { readFile } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { validatePin, type AgentVersion, type Trajectory } from '@itera/contracts';
 import { CliError } from '../env.js';
 import type { TaskRef } from '../tasks.js';
@@ -26,6 +35,11 @@ import type { RedactContext } from './redact.js';
 import { baseAgentFrom, catalogModelId } from './upload.js';
 import { canonicalJson } from './variant.js';
 import type { LocalResultV2Plus } from '@itera/contracts';
+import type { GraderEntry } from './trace-review.js';
+import { judgeInstruction } from './calibrate.js';
+import type { JudgeFn } from './judge.js';
+import { alien01TextBudget } from './judge-runner.js';
+import { foldSession, isFoldJudge, sessionReader } from './judge-text.js';
 
 export const REVIEW_BATCH_FORMAT = 'tma-review-batch/1';
 /** The prefix of the fixed names behind the digests of a recorded task. */
@@ -169,12 +183,84 @@ function contractSummary(s: ReviewBatchRow['task_summary']): { before: string; e
   return fits(s.before) && fits(s.expected) ? { before: s.before, expected: s.expected } : null;
 }
 
+/** One judge version of the eval repo, read for a judge run. */
+export interface JudgeVersion {
+  id: string;
+  version: string;
+  /** sha256 of rubric.md: the grader code digest of a judge (judge.ts makeJudgeGrader, the API judge-rubric/1 rule). */
+  rubricSha256: string;
+  /** prompt.md with the rubric in its {{rubric}} slot: what the model reads (the same text as judge calibrate). */
+  instruction: string;
+  /** The fold budget of the text (the same as `tma eval judge texts`). */
+  budget: number;
+}
+
+/** A judge run of review-batch: the judge answers each row through the JudgeFn (a local command, off by default). */
+export interface JudgeRun {
+  judgeFn: JudgeFn;
+  /** The judge model (catalog id). It is recorded on each result as the labeler. */
+  model: string;
+  versions: Map<string, JudgeVersion>;
+}
+
 export interface ReviewBatchOptions {
   agentId: string;
   judges: JudgeRef[];
   redact?: RedactContext;
   /** Send each row's task_summary (default: it stays on this host). */
   withSummary?: boolean;
+  /** Ask each judge for a verdict and add the measured ones as grader rows (default: no judge call, graders []). */
+  judgeRun?: JudgeRun;
+}
+
+/** The labeler of a judge result: the judge model, in the contract charset (`anthropic/claude-haiku-5.5` -> `judge-model:anthropic:claude-haiku-5.5`). */
+export function judgeModelLabeler(model: string): string {
+  const id = catalogModelId(model).toLowerCase().replace(/\//g, ':').replace(/[^a-z0-9_.:-]/g, '-');
+  const v = `judge-model:${id}`;
+  if (!/^[a-z0-9][a-z0-9_.:-]{0,63}$/.test(v)) throw new CliError(`the judge model id ${model.slice(0, 64)} does not fit a labeler (at most 64 characters)`);
+  return v;
+}
+
+/** Read judges/<id>/<version>/rubric.md (+ prompt.md) of the eval repo for each judge of the run. */
+export async function readJudgeVersions(judgesDir: string, judges: JudgeRef[]): Promise<Map<string, JudgeVersion>> {
+  const out = new Map<string, JudgeVersion>();
+  for (const j of judges) {
+    if (!isFoldJudge(j.id)) throw new CliError(`judge ${j.id} has no fold profile: a judge run needs one of the fold judges`);
+    const dir = join(judgesDir, j.id, j.version);
+    const rubric = await readFile(join(dir, 'rubric.md'), 'utf-8').catch(() => null);
+    if (rubric === null) throw new CliError(`no rubric: ${join(dir, 'rubric.md')}`);
+    const prompt = await readFile(join(dir, 'prompt.md'), 'utf-8').catch(() => null);
+    const instruction = judgeInstruction(prompt, rubric);
+    out.set(`${j.id}@${j.version}`, { id: j.id, version: j.version, rubricSha256: sha256(rubric), instruction, budget: alien01TextBudget(instruction) });
+  }
+  return out;
+}
+
+/** The measured judge rows of one row: one call per judge; a judge that did not measure adds no row, only a note. */
+async function judgeRows(row: ReviewBatchRow, text: string, executorModel: string, o: ReviewBatchOptions, notes: string[]): Promise<GraderEntry[]> {
+  const run = o.judgeRun!;
+  if (catalogModelId(run.model) === catalogModelId(executorModel)) {
+    throw new CliError(`judge_model_equals_executor: the judge model ${catalogModelId(run.model)} is the executor model of case ${row.case_key}`);
+  }
+  const reader = sessionReader();
+  for (const line of text.split('\n')) if (line.length > 0) reader.push(line);
+  const parsed = reader.finish();
+  const out: GraderEntry[] = [];
+  for (const j of o.judges) {
+    const v = run.versions.get(`${j.id}@${j.version}`);
+    if (!v || !isFoldJudge(v.id)) throw new CliError(`judge ${j.id}@${j.version} was not read from the eval repo`);
+    const folded = foldSession(parsed, v.id, v.budget, row.task_summary).text;
+    const a = await run.judgeFn({ rubric: v.instruction, expected: '', outputHandle: folded, model: run.model });
+    if (!a.infra_ok) {
+      notes.push(`case ${row.case_key}: judge ${j.id}@${j.version} did not measure (${(a.reason ?? 'no reason').slice(0, 120)})`);
+      continue;
+    }
+    out.push({
+      id: j.id, semver: j.version, code_sha256: v.rubricSha256, kind: 'judge', pass: a.pass, score: a.pass ? 100 : 0,
+      weight: 1, hard_gate: false, decisive: false, labeler: judgeModelLabeler(run.model),
+    } as GraderEntry);
+  }
+  return out;
 }
 
 /** Build the upload body of ONE batch row from its session file. */
@@ -198,6 +284,7 @@ export async function buildReviewBatchBody(row: ReviewBatchRow, o: ReviewBatchOp
   const { task, itemSha256 } = recordedTaskRef(row);
   const summary = o.withSummary ? contractSummary(row.task_summary) : null;
   if (o.withSummary && row.task_summary && !summary) notes.push(`case ${row.case_key}: the task summary has a character outside the upload charset or is too long: it stays on this host`);
+  const graders = o.judgeRun ? await judgeRows(row, text, base.model_id ?? '', o, notes) : [];
   const body = assembleRecordedBody({
     agentId: o.agentId,
     task,
@@ -205,12 +292,12 @@ export async function buildReviewBatchBody(row: ReviewBatchRow, o: ReviewBatchOp
     base,
     session,
     trajectory,
-    // Not graded yet: the run measured nothing, so no comparison counts it.
+    // Not graded: no decisive grader measured the run, so no comparison counts it (a judge row is a side signal).
     status: 'invalid',
     score: 0,
     manifest: null,
     infraOk: false,
-    graders: [],
+    graders,
     fallbackMs: Date.parse('1970-01-01T00:00:00Z'),
     sandboxImageId: null,
     caseRef: { case_key: row.case_key, manifest_sha256: sha256(canonicalJson(manifest)), origin_pin_sha256: row.pin.pin_sha256, mode: 'trace_review', use_case_key: row.use_case },
