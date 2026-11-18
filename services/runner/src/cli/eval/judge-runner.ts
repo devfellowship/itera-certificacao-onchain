@@ -21,6 +21,9 @@
 //     rest of the run without spending the cap.
 //   - `openrouter` stays in the code but is OFF by config: it needs `--provider openrouter` AND `--allow-openrouter`.
 //     A dry run (`--dry-run`) refuses it without the second flag and makes no call.
+//   - `local` (Q 5da071b7 = A, Tainan TG 32365, 2026-11-18): one call = one `<command> <prompt file>` on THIS host (for
+//     example a wrapper of headless `claude -p --model haiku`). The command prints the answer on stdout. Only
+//     `tma eval review-batch --judge-cmd` uses it; `judge calibrate` keeps its alien01 / openrouter rule.
 //
 // A judge record is a count-free, text-free row: run id, judge id and version, model, infra_ok, pass, reason.
 // The reason is a short closed-charset note; the model's free text never leaves this file unfiltered.
@@ -39,7 +42,7 @@ export const JUDGE_MAX_TEXT_CHARS = 200_000;
 const REASON_MAX = 200;
 const REASON_CHARSET = /[^A-Za-z0-9 .,:;/()+\-_%=']/g;
 
-export type JudgeProvider = 'alien01' | 'openrouter';
+export type JudgeProvider = 'alien01' | 'openrouter' | 'local';
 export const DEFAULT_JUDGE_PROVIDER: JudgeProvider = 'alien01';
 /** The local models that the alien01-node `infer` path serves (relay.conf.json `models` of the VPS llm relay). */
 export const ALIEN01_MODELS: readonly string[] = ['gemma4:12b', 'gemma4:26b'];
@@ -382,6 +385,30 @@ export function alien01Complete(o: { command: string; baseEnv: Record<string, st
         err.name = r.code === 10 ? ALIEN01_UNREACHABLE : `Alien01Rc${r.code}`;
         throw err;
       }
+      return r.stdout;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  };
+}
+
+export const LOCAL_JUDGE_TIMEOUT_MS = 300_000;
+
+/**
+ * The local ModelComplete: `<command> <prompt file>` on this host, no shell. The prompt file (`<system>\n\n<user>\n`, the
+ * same bytes as the alien01 route) sits in a mode-700 temp dir that is removed after the call. The child env holds PATH and
+ * HOME only: no key of this process reaches the command. stdout is the answer. The error is a name only (LocalJudgeRc<rc>).
+ */
+export function localCommandComplete(o: { command: string; baseEnv: Record<string, string | undefined>; run?: RunInfer; tmp?: string }): ModelComplete {
+  const run = o.run ?? execInfer;
+  return async (req) => {
+    const dir = await mkdtemp(join(o.tmp ?? tmpdir(), 'tma-judge-'), { encoding: 'utf8' });
+    try {
+      const promptFile = join(dir, 'prompt.txt');
+      await writeFile(promptFile, `${req.system}\n\n${req.user}\n`, { mode: 0o600 });
+      const env: Record<string, string> = { PATH: o.baseEnv.PATH ?? '/usr/bin:/bin', HOME: o.baseEnv.HOME ?? '/root' };
+      const r = await run(o.command, [promptFile], env, LOCAL_JUDGE_TIMEOUT_MS);
+      if (r.code !== 0) throw Object.assign(new Error(`rc ${r.code}`), { name: `LocalJudgeRc${r.code}` });
       return r.stdout;
     } finally {
       await rm(dir, { recursive: true, force: true });

@@ -14,7 +14,7 @@ import { loadSessionFile, requireSession } from '../session.js';
 import { postResult } from './upload.js';
 import { agentSha, baseAgentFrom, buildEvalUpload, variantFolders } from '../eval/upload.js';
 import { buildTraceReviewUpload, claudeCodeSessionFacts, readHumanLabel } from '../eval/trace-review.js';
-import { buildReviewBatchBody, parseJudge, parseReviewBatch, REVIEW_BATCH_FORMAT } from '../eval/review-batch.js';
+import { buildReviewBatchBody, parseJudge, parseReviewBatch, readJudgeVersions, type JudgeRef, type JudgeRun, REVIEW_BATCH_FORMAT } from '../eval/review-batch.js';
 import { WORKFLOW_LABELS_USAGE, workflowLabelsMain } from '../eval/workflow-labels.js';
 import { readClaudeCodeSession, trajectoryFromActions, trajectoryLine } from '../eval/trajectory.js';
 import type { LocalResultV2Plus } from '@itera/contracts';
@@ -30,7 +30,7 @@ import { proveGrader } from '../eval/prove.js';
 import { calibrateJudge } from '../eval/calibrate.js';
 import { JUDGE_LABELS_USAGE, judgeLabelsMain } from '../eval/calibration-labels.js';
 import type { JudgeFn } from '../eval/judge.js';
-import { ALIEN01_ANSWER_SCHEMA, ALIEN01_MAX_TEXT_CHARS, ALIEN01_RELAY_PROMPT_MAX_BYTES, alien01Complete, judgeRunnerConfig, makeModelJudgeFn, openrouterComplete, type RunInfer } from '../eval/judge-runner.js';
+import { ALIEN01_ANSWER_SCHEMA, ALIEN01_MAX_TEXT_CHARS, ALIEN01_RELAY_PROMPT_MAX_BYTES, alien01Complete, judgeRunnerConfig, localCommandComplete, makeModelJudgeFn, openrouterComplete, type RunInfer } from '../eval/judge-runner.js';
 import { JUDGE_TEXTS_USAGE, judgeTextsMain } from '../eval/judge-texts.js';
 
 /** The deps of the eval command: the run deps plus the judge of `tma eval judge calibrate`. */
@@ -154,7 +154,12 @@ const REVIEW_BATCH_USAGE = `usage: tma eval review-batch --batch <rows.jsonl> --
   --judge         a judge that reviews the cases (it goes into each case manifest; repeatable)
   --with-summary  also send each row's task_summary (default: it stays on this host)
   --limit         upload the first n rows only
-  --dry-run       build every body and ask the API with ?dry_run=1 (when logged in); nothing is stored`;
+  --dry-run       build every body and ask the API with ?dry_run=1 (when logged in); nothing is stored
+  A judge run (Q 5da071b7 = A): --judges-dir <eval repo>/judges --judge-model <model id> --judge-cmd <command>
+                  --runner on [--max-calls <n>]. Each --judge answers the folded session text (as tma eval judge texts)
+                  through "<command> <prompt file>" on this host (env PATH and HOME only; stdout = the answer). A measured
+                  answer is a judge grader row: code = sha256(rubric.md), decisive false, labeler judge-model:<model>.
+                  The run stays ungraded (infra_ok false). Off unless --runner on; the cap (default 50) counts calls.`;
 
 const USAGE = [
   'usage: tma eval <case|run|campaign|grade|diff|trajectory|upload|review-batch|workflow-labels|grader prove|judge calibrate|judge labels|judge texts> ...   (the eval kit: plan C3)',
@@ -420,8 +425,29 @@ async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<numbe
   return r.ok ? 0 : 1;
 }
 
-async function reviewBatchMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
-  const a = parseArgs(argv, { batch: {}, agent: {}, judge: { repeat: true }, root: { repeat: true }, 'with-summary': { boolean: true }, limit: {}, 'dry-run': { boolean: true } });
+/** The judge run of review-batch from its flags, or null when no judge flag is given. Off unless --runner on. */
+async function reviewJudgeRun(a: ParsedArgs, judges: JudgeRef[], deps: EvalCommandDeps): Promise<{ run: JudgeRun; spent: () => string } | null> {
+  const names = ['judges-dir', 'judge-model', 'judge-cmd', 'runner', 'max-calls'];
+  if (!names.some((n) => flag(a, n) !== undefined)) return null;
+  const judgesDir = flag(a, 'judges-dir');
+  const model = flag(a, 'judge-model');
+  const cmd = flag(a, 'judge-cmd');
+  if (!judgesDir || !model || !cmd) throw new CliError(`a judge run needs --judges-dir, --judge-model and --judge-cmd\n${REVIEW_BATCH_USAGE}`);
+  const base = judgeRunnerConfig({ runner: flag(a, 'runner'), maxCalls: flag(a, 'max-calls') });
+  // The provider rule of judge calibrate is not this route: only the switch and the cap carry over.
+  const config = { ...base, provider: 'local' as const };
+  if (!config.enabled) throw new CliError(`the judge run is off: ${config.note ?? 'give --runner on'}`);
+  const versions = await readJudgeVersions(resolve(judgesDir), judges);
+  const made = makeModelJudgeFn({
+    complete: localCommandComplete({ command: cmd, baseEnv: childEnv(deps.env ?? process.env), run: deps.runInfer }),
+    config,
+    loadText: async (text) => text,
+  });
+  return { run: { judgeFn: made.judgeFn, model, versions }, spent: () => `judge run: ${made.budget.used} of ${made.budget.cap} model call(s) used` };
+}
+
+async function reviewBatchMain(argv: string[], io: Io, deps: EvalCommandDeps): Promise<number> {
+  const a = parseArgs(argv, { batch: {}, agent: {}, judge: { repeat: true }, root: { repeat: true }, 'with-summary': { boolean: true }, limit: {}, 'dry-run': { boolean: true }, 'judges-dir': {}, 'judge-model': {}, 'judge-cmd': {}, runner: {}, 'max-calls': {} });
   const file = required(a, 'batch', REVIEW_BATCH_USAGE);
   const agentId = checkAgentId(required(a, 'agent', REVIEW_BATCH_USAGE));
   const judges = flagList(a, 'judge').map(parseJudge);
@@ -433,12 +459,17 @@ async function reviewBatchMain(argv: string[], io: Io, deps: EvalDeps): Promise<
   if (limit !== undefined) rows = rows.slice(0, limit);
   const roots = flagList(a, 'root').map((x) => resolve(x));
   const withSummary = has(a, 'with-summary');
+  const judgeRun = await reviewJudgeRun(a, judges, deps);
   // Build every body before the first network call: one bad row stops the batch with nothing sent.
   const bodies: LocalResultV2Plus[] = [];
   for (const row of rows) {
-    const { body, notes } = await buildReviewBatchBody(row, { agentId, judges, redact: { roots }, withSummary });
+    const { body, notes } = await buildReviewBatchBody(row, { agentId, judges, redact: { roots }, withSummary, judgeRun: judgeRun?.run });
     for (const n of notes) io.err(`[tma eval] ${n}`);
     bodies.push(body);
+  }
+  if (judgeRun) {
+    const rowsWithJudge = bodies.filter((b) => b.runs[0]!.graders.some((g) => g.kind === 'judge')).length;
+    io.out(`${judgeRun.spent()}; ${rowsWithJudge} of ${bodies.length} row(s) carry a judge result`);
   }
   const env = deps.env ?? process.env;
   const base = apiUrl(env);
