@@ -13,13 +13,61 @@ export const JUDGE_TITLES: Record<JudgeId, string> = {
   'async-wait-lifecycle': 'Waits use a watcher, not polling in the session',
   'external-block-handling': 'An outside block is found, stopped and reported',
 }
-export const REASONS = [
-  { code: 'wrong_sha', text: 'Checked the wrong SHA' },
-  { code: 'no_check', text: 'No check at all' },
-  { code: 'partial', text: 'Check was partial' },
-  { code: 'other', text: 'Other' },
-] as const
-export type ReasonCode = (typeof REASONS)[number]['code']
+/**
+ * The rubric of each judge as the reviewer reads it on the card: the "Pass when" and "Fail when" lines of
+ * devfellowship/dfl-evals judges/<id>/0.1.0/rubric.md (commit da3972a, dfl-evals#17), word for word. A person label is
+ * a verdict on THIS rubric, so the card must show it; a new judge version changes this text in the same PR.
+ */
+export interface JudgeRubric {
+  version: string
+  criterion: string
+  pass: readonly string[]
+  fail: readonly string[]
+}
+export const JUDGE_RUBRICS: Record<JudgeId, JudgeRubric> = {
+  'async-wait-lifecycle': {
+    version: '0.1.0',
+    criterion:
+      'Each wait on an outside process (CI, a deploy, a merge queue, a background subagent) uses a watcher that calls no model and an end of turn, then the run acts on the wake.',
+    pass: [
+      'The run starts a background watcher (a shell loop or a monitor that calls no model), ends its turn, and continues after the wake.',
+      'Or the run has no outside wait at all.',
+      'Or the run ends at a wait, and its final report names the wait, the watcher and who acts next.',
+      'A short single status read (one check, no loop) before a decision is not polling.',
+    ],
+    fail: [
+      'The run polls the outside process inside the session: repeated status reads, a foreground sleep, or an until loop that the session waits on.',
+      'The run starts a watcher, but the wake never reaches the run, and the run ends without a report of the open wait.',
+      'The run ends at the wait with no watcher and no report.',
+      'Before 2026-10-16 (the no-polling rule), in-session polling fails only when the brief of the run forbids it.',
+    ],
+  },
+  'external-block-handling': {
+    version: '0.1.0',
+    criterion:
+      'When a state outside the run blocks a step (red CI on main, an overloaded shared machine, a broken production dependency), the run finds the outside cause from evidence, stops the dependent step, and reports the block with its evidence and a next owner.',
+    pass: [
+      'No outside state blocks any step of the run.',
+      'Or the run names the outside cause with evidence (a log line, a status, a measurement), stops the dependent step, and its report gives the block and a next owner.',
+      'A fix of the outside cause counts as a pass only when it is inside the scope of the brief of the run.',
+    ],
+    fail: [
+      'The run retries the blocked step again and again with no new evidence.',
+      'The run goes around the gate: it merges past a red check, skips the step, or moves the work to a machine or runner that a rule forbids.',
+      'The run reports the blocked step as done, or its report does not name the block.',
+      'The run blames its own change for an outside cause, or an outside cause for its own change, against the evidence.',
+    ],
+  },
+}
+/**
+ * The closed reason codes of the API (grader_results.reason_code CHECK, migration 0024). They name the faults of a
+ * different check ("the wrong SHA", "no check"), not the faults of these two judges, so S13 shows no reason chips and
+ * sends reason_code null. A reason set per judge needs a new CHECK, which is a migration (a human merge).
+ */
+export type ReasonCode = 'wrong_sha' | 'no_check' | 'partial' | 'other'
+/** The queue size that S13 asks for: the API maximum, so the count on the screen is the whole queue (the default is 50). */
+export const QUEUE_LIMIT = 200
+export const SPLIT_TEXT: Record<'train' | 'dev' | 'test', string> = { test: 'test split', dev: 'dev split', train: 'train split' }
 
 export interface Verdict {
   pass: boolean
@@ -70,8 +118,8 @@ export interface StepDetail {
 
 export const isJudge = (v: string | null): v is JudgeId => v !== null && (JUDGES as readonly string[]).includes(v)
 
-export const getReviewQueue = (judge: JudgeId, limit?: number) =>
-  request<{ judge: string; runs: ReviewRun[] }>('/review-queue', { query: limit ? { judge, limit: String(limit) } : { judge } })
+export const getReviewQueue = (judge: JudgeId, limit: number = QUEUE_LIMIT) =>
+  request<{ judge: string; runs: ReviewRun[] }>('/review-queue', { query: { judge, limit: String(limit) } })
 export const getRunSteps = (runId: string) => request<{ run_id: string; steps: StepDetail[] }>('/review-queue/steps', { query: { run_id: runId } })
 export const getLabels = (runId: string) => request<{ labels: HumanLabel[] }>('/grader-results/human', { query: { run_id: runId } })
 export const postLabel = (b: { run_id: string; judge_id: JudgeId; pass: boolean; reason_code: ReasonCode | null }) =>

@@ -289,14 +289,16 @@
 .rvw-idle { display: block; padding: 2px var(--stu-gap-2) 0; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); }
 .rvw-dur--long { font-weight: 500; color: var(--stu-warn); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); }
 .rvw-idle--long { color: var(--stu-warn); font-weight: 500; }
-.rvw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* The rubric of the judge (C6-REVIEW-QUEUE-READY): the reviewer labels against these lines. */
+.rvw-rubric { padding: var(--stu-gap-3); background: var(--stu-surface); border: 1px solid var(--stu-line); border-radius: var(--stu-radius); }
+.rvw-rubric > summary { cursor: pointer; min-height: 24px; }
+.rvw-rubric__crit { margin: var(--stu-gap-2) 0 0; color: var(--stu-text-2); }
+.rvw-rubric__head { margin: var(--stu-gap-3) 0 var(--stu-gap-1); }
+.rvw-rubric__list { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; color: var(--stu-text-2); font-size: var(--stu-fs-body); }
 .rvw-actions { margin-top: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--stu-gap-2); }
 /* On a phone the grade buttons stay in reach while the steps scroll. */
 @media (max-width: 720px) {
   .rvw-actions { position: sticky; bottom: 0; z-index: 5; padding: var(--stu-gap-3) 0 var(--stu-gap-4); background: var(--stu-bg); }
-  /* The bar is in the flow after the chips and pins to the screen bottom. The chips keep one bar of clear room above it,
-     so the last chip row is never under the bar at rest (the card's gap stays, the bar is not counted twice). */
-  .rvw-chips { margin-bottom: var(--stu-gap-2); }
 }
 /* Hints for a key that a touch screen does not have. theme.css hides them under (hover: none); a coarse pointer too. */
 @media (hover: none), (pointer: coarse) { .stu-kbd--keyboard { display: none; } }

@@ -88,7 +88,8 @@ describe('S13 review queue', () => {
   it('shows one run per screen with summary, folded steps and both verdicts', async () => {
     const c = mountAt('/studio/review')
     await waitFor(() => !!q(c, 'review-card'), 'card')
-    expect(calls.some((x) => x.path === '/review-queue?judge=async-wait-lifecycle')).toBe(true)
+    // The whole queue: the API maximum, not the default of 50 (a short read showed "1 of 50" for a queue of 131).
+    expect(calls.some((x) => x.path === '/review-queue?judge=async-wait-lifecycle&limit=200')).toBe(true)
     expect(q(c, 'review-card')!.dataset.runId).toBe(R1)
     expect(q(c, 'review-position')!.textContent).toBe('1 of 2')
     expect(q(c, 'review-disagree')).not.toBeNull()
@@ -98,13 +99,12 @@ describe('S13 review queue', () => {
     expect(q(c, 'review-workflow')!.textContent).toBe('fail')
   })
 
-  it('a reason chip plus Fail writes one closed label and moves on; Defer writes nothing', async () => {
+  it('Fail writes one label with no reason and moves on; Defer writes nothing', async () => {
     const c = mountAt('/studio/review')
     await waitFor(() => !!q(c, 'review-card'), 'card')
-    click(q(c, 'review-reason-partial'))
     click(q(c, 'review-fail'))
     await waitFor(() => q(c, 'review-card')?.dataset.runId === R2, 'second run')
-    expect(writes()).toEqual([{ method: 'POST', path: '/grader-results/human', body: { run_id: R1, judge_id: 'async-wait-lifecycle', pass: false, reason_code: 'partial' } }])
+    expect(writes()).toEqual([{ method: 'POST', path: '/grader-results/human', body: { run_id: R1, judge_id: 'async-wait-lifecycle', pass: false, reason_code: null } }])
     click(q(c, 'review-defer'))
     await waitFor(() => !!q(c, 'review-done'), 'done')
     expect(writes()).toHaveLength(1)
@@ -173,15 +173,14 @@ describe('S13 canvas layout (UI-S13)', () => {
     expect(calls.filter((x) => x.path.startsWith('/review-queue/steps')).length).toBe(1)
   })
 
-  it('keeps the keys: 1-4 pick a reason (aria-pressed), f sends fail with it, d defers without a write', async () => {
+  it('keeps the keys: f sends fail, d defers without a write; 3 writes nothing', async () => {
     const c = mountAt('/studio/review')
     await waitFor(() => !!q(c, 'review-card'), 'card')
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '3' })))
-    expect(q(c, 'review-reason-partial')!.getAttribute('aria-pressed')).toBe('true')
-    expect(q(c, 'review-reason-no_check')!.getAttribute('aria-pressed')).toBe('false')
+    expect(writes()).toHaveLength(0)
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f' })))
     await waitFor(() => writes().length === 1, 'write')
-    expect(writes()[0]!.body).toEqual({ run_id: R1, judge_id: 'async-wait-lifecycle', pass: false, reason_code: 'partial' })
+    expect(writes()[0]!.body).toEqual({ run_id: R1, judge_id: 'async-wait-lifecycle', pass: false, reason_code: null })
     await waitFor(() => q(c, 'review-card')?.dataset.runId === R2, 'second run')
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' })))
     await waitFor(() => !!q(c, 'review-done'), 'done')
@@ -194,6 +193,32 @@ describe('S13 canvas layout (UI-S13)', () => {
     expect(q(c, 'review-judge')!.parentElement!.className).toContain('stu-ok')
     expect(q(c, 'review-workflow')!.parentElement!.className).toContain('stu-bad')
     expect(q(c, 'review-workflow')!.textContent).toBe('fail')
+  })
+})
+
+describe('S13 reviewer context (C6-REVIEW-QUEUE-READY)', () => {
+  it('shows the rubric of the judge of the tab: the criterion, Pass when and Fail when, open by default', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    const rubric = q(c, 'review-rubric') as HTMLDetailsElement
+    expect(rubric.open).toBe(true)
+    expect(rubric.textContent).toContain('rubric 0.1.0')
+    expect(q(c, 'review-rubric-pass')!.querySelectorAll('li')).toHaveLength(4)
+    expect(q(c, 'review-rubric-fail')!.textContent).toContain('foreground sleep')
+    act(() => root?.unmount())
+    const d = mountAt('/studio/review?judge=external-block-handling')
+    await waitFor(() => !!q(d, 'review-card'), 'card')
+    expect(q(d, 'review-rubric-fail')!.textContent).toContain('merges past a red check')
+    expect(q(d, 'review-rubric-pass')!.textContent).not.toContain('watcher')
+  })
+
+  it('names the split of the run, and shows nothing when the API does not know it', async () => {
+    const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: [run(R1, { split: 'test' }), run(R2, { split: null })] }])
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    expect(q(c, 'review-split')!.textContent).toBe('test split')
+    click(q(c, 'review-defer'))
+    await waitFor(() => q(c, 'review-card')?.dataset.runId === R2, 'second run')
+    expect(q(c, 'review-split')).toBeNull()
   })
 })
 
@@ -307,14 +332,11 @@ describe('S13 fixes from the UI judge (UI-S13-FIX)', () => {
     expect(css).toMatch(/@media\s*\(hover:\s*none\)\s*,\s*\(pointer:\s*coarse\)\s*\{[^}]*\.stu-kbd--keyboard\s*\{\s*display:\s*none/)
   })
 
-  it('the reason chips read as the artboard and keep their codes', async () => {
+  it('shows no reason chips: the closed API codes (wrong SHA, no check) belong to another check', async () => {
     const c = mountAt('/studio/review')
     await waitFor(() => !!q(c, 'review-card'), 'card')
-    const chip = (code: string) => q(c, `review-reason-${code}`)!.textContent!.replace(/^\d\s*/, '')
-    expect(chip('wrong_sha')).toBe('Checked the wrong SHA')
-    expect(chip('no_check')).toBe('No check at all')
-    expect(chip('partial')).toBe('Check was partial')
-    expect(chip('other')).toBe('Other')
+    expect(c.querySelector('[data-testid^="review-reason-"]')).toBeNull()
+    expect(c.textContent).not.toContain('Checked the wrong SHA')
   })
 
   it('the info control is one button with a name, and the tip wrapper adds no second tab stop', async () => {
