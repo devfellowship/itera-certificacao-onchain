@@ -101,6 +101,15 @@ export interface HumanLabel {
   reasonCode: ReasonCode | null
   labeler: string | null
   gradedAt: string
+  /** strong = a person label (counts for calibration); weak = a workflow label; null = an agent or unknown login. */
+  strength?: 'strong' | 'weak' | null
+}
+
+/** GET /review-queue/progress: the person labels of the tenant for one judge, per split and verdict, and the T4 floor. */
+export interface ReviewProgress {
+  judge: string
+  floor: number
+  splits: Record<'test' | 'dev' | 'train' | 'unknown', { pass: number; fail: number }>
 }
 
 /** One redacted step (GET /review-queue/steps): the tool, a redacted target, the outcome and the timing. No arguments and no output. */
@@ -120,6 +129,14 @@ export const isJudge = (v: string | null): v is JudgeId => v !== null && (JUDGES
 
 export const getReviewQueue = (judge: JudgeId, limit: number = QUEUE_LIMIT) =>
   request<{ judge: string; runs: ReviewRun[] }>('/review-queue', { query: { judge, limit: String(limit) } })
+export const getProgress = (judge: JudgeId) => request<ReviewProgress>('/review-queue/progress', { query: { judge } })
+/** "test split: 3 of 30 pass · 1 of 30 fail" — the count Tainan needs before C6-T4 can split. */
+export const progressText = (p: ReviewProgress) => {
+  const t = p.splits.test
+  return `test split: ${Math.min(t.pass, p.floor)} of ${p.floor} pass · ${Math.min(t.fail, p.floor)} of ${p.floor} fail`
+}
+/** True when the test split holds the floor of both verdicts. */
+export const floorMet = (p: ReviewProgress) => p.splits.test.pass >= p.floor && p.splits.test.fail >= p.floor
 export const getRunSteps = (runId: string) => request<{ run_id: string; steps: StepDetail[] }>('/review-queue/steps', { query: { run_id: runId } })
 export const getLabels = (runId: string) => request<{ labels: HumanLabel[] }>('/grader-results/human', { query: { run_id: runId } })
 export const postLabel = (b: { run_id: string; judge_id: JudgeId; pass: boolean; reason_code: ReasonCode | null }) =>

@@ -173,4 +173,16 @@ describe.skipIf(!URL_)("PgHumanLabelStore on Postgres (0023 and 0024 applied)", 
     expect(await store.queue(TENANT, OTHER, LABELER, 50)).toEqual([]);
   });
 
+  it("personLabels gives the latest person label per run with its task slug; a workflow label and another tenant give nothing", async () => {
+    // State from the tests above: two person pass labels under JUDGE, one person fail label under OTHER, one workflow label.
+    const slug = (await pool.query(`select slug from public.tasks where id = $1`, [taskId])).rows[0].slug as string;
+    expect(await store.personLabels(TENANT, JUDGE)).toEqual([{ taskSlug: slug, pass: true }]);
+    expect(await store.personLabels(TENANT, "external-block-handling")).toEqual([{ taskSlug: slug, pass: false }]);
+    expect(await store.personLabels(`${TENANT}-other`, JUDGE)).toEqual([]);
+    // A newer person label flips the count: the latest one counts, as in calibration-labels chooseLabel.
+    const w = await store.insert({ tenant: TENANT, runId, judgeId: JUDGE, pass: false, reasonCode: null, labeler: `person:${randomUUID()}` });
+    await pool.query(`update public.grader_results set graded_at = now() + interval '1 minute' where id = $1`, [w.id]);
+    expect(await store.personLabels(TENANT, JUDGE)).toEqual([{ taskSlug: slug, pass: false }]);
+  });
+
 });

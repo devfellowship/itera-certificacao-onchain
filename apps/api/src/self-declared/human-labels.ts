@@ -19,6 +19,10 @@
  *                                  label writer on the host finds the run of a batch row (tma eval workflow-labels).
  *   GET  /review-queue/steps       ?run_id=<uuid>: the redacted steps of one run (tool, target, status, duration, start in ms), the
  *                                  detail behind the step boxes of S13. Same tenant checks as the labels.
+ *   GET  /review-queue/progress    ?judge=<id>: the person labels of the tenant for that judge, counted per split and per verdict
+ *                                  ({test: {pass, fail}, dev, train, unknown}, the T4 floor of 30), so S13 shows "x of 30 pass, x of 30
+ *                                  fail" in the test split. Per run only the latest person label counts (calibration-labels chooseLabel);
+ *                                  a workflow, agent or user label is not counted. Counts only: no run id, no labeler.
  *   GET  /review-queue             ?judge=<id>[&limit=1..200]: the trace_review runs of the tenant that no person has
  *                                  labeled yet for that judge (a label under judge A keeps the run in the queue of judge B;
  *                                  a `workflow:` label does not close it), each with the task summary, the folded step kinds, the judge verdict, the workflow
@@ -91,6 +95,20 @@ export function taskIdOfSlug(slug: string | null): string | null {
 }
 const SPLIT_RANK: Record<string, number> = { test: 0, dev: 1, train: 2 };
 export const QUEUE_DEFAULT_LIMIT = 50;
+/** The T4 floor of a test split: 30 pass and 30 fail person labels per judge (plan C6, T4; dfl-evals --check-floor 30). */
+export const TEST_FLOOR = 30;
+export type SplitCounts = Record<SplitName | "unknown", { pass: number; fail: number }>;
+/** Count the latest person label of each run per split of its task for one judge. */
+export function progressCounts(judgeId: string, rows: Array<{ taskSlug: string | null; pass: boolean }>): SplitCounts {
+  const out: SplitCounts = { test: { pass: 0, fail: 0 }, dev: { pass: 0, fail: 0 }, train: { pass: 0, fail: 0 }, unknown: { pass: 0, fail: 0 } };
+  for (const r of rows) {
+    const taskId = taskIdOfSlug(r.taskSlug);
+    const c = out[taskId ? splitOf(judgeId, taskId) : "unknown"];
+    if (r.pass) c.pass++;
+    else c.fail++;
+  }
+  return out;
+}
 export const QUEUE_MAX_LIMIT = 200;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -181,6 +199,8 @@ export interface HumanLabelStore {
   /** The trace_review runs of one case of the tenant, oldest first. */
   caseRuns(tenant: string, caseKey: string): Promise<Array<{ runId: string; startedAt: string }>>;
   queue(tenant: string, judgeId: string, labeler: string, limit: number): Promise<ReviewRun[]>;
+  /** Per trace_review run of the tenant with a person label for the judge: its task slug and the verdict of the latest person label. */
+  personLabels(tenant: string, judgeId: string): Promise<Array<{ taskSlug: string | null; pass: boolean }>>;
   steps(runId: string, tenant: string): Promise<StepDetail[]>;
 }
 
@@ -315,6 +335,20 @@ export class PgHumanLabelStore implements HumanLabelStore {
     return queueOrder(runs).slice(0, limit);
   }
 
+  async personLabels(tenant: string, judgeId: string): Promise<Array<{ taskSlug: string | null; pass: boolean }>> {
+    const { rows } = await this.pool().query(
+      `select tk.slug as task_slug,
+              (select gr.pass from public.grader_results gr join public.grader_versions g on g.id = gr.grader_version_id and g.tenant = gr.tenant
+                where gr.run_id = r.id and gr.tenant = $1 and g.grader_id = $2 and g.kind = 'human' and gr.labeler like 'person:%'
+                order by gr.graded_at desc, gr.id desc limit 1) as pass
+         from public.runs r join public.eval_cases c on c.id = r.case_id
+         left join public.tasks tk on tk.id = c.task_id
+        where c.tenant = $1 and c.mode = 'trace_review'`,
+      [tenant, labelGraderId(judgeId)],
+    );
+    return rows.filter((r: Record<string, unknown>) => r.pass !== null && r.pass !== undefined).map((r: Record<string, unknown>) => ({ taskSlug: orNull(r.task_slug), pass: Boolean(r.pass) }));
+  }
+
   async steps(runId: string, tenant: string): Promise<StepDetail[]> {
     const { rows } = await this.pool().query(
       `select a.seq, a.tool, a.target, a.step_kind, a.status, a.error_class, a.duration_ms, a.started_ms, a.turn_origin
@@ -417,6 +451,15 @@ export function createHumanLabelsRouter(deps: HumanLabelsRouterDeps): Router {
       if (!Number.isInteger(n) || n < 1) throw new Refusal(400, "invalid_query", `limit is an integer from 1 to ${QUEUE_MAX_LIMIT}`);
       const runs = await deps.store.queue(tenant(), judge, labelerOf(req.principal!), Math.min(n, QUEUE_MAX_LIMIT));
       res.json({ judge, judges: LABEL_JUDGE_IDS, runs });
+    })().catch(fail(res, next));
+  });
+
+  router.get("/review-queue/progress", requirePrincipal, (req: Request, res: Response, next: NextFunction) => {
+    (async () => {
+      await guard(req);
+      const judge = req.query.judge;
+      if (typeof judge !== "string" || !LABEL_JUDGE_IDS.includes(judge)) throw new Refusal(400, "unknown_judge", `judge is one of ${LABEL_JUDGE_IDS.join(", ")}`);
+      res.json({ judge, floor: TEST_FLOOR, splits: progressCounts(judge, await deps.store.personLabels(tenant(), judge)) });
     })().catch(fail(res, next));
   });
 

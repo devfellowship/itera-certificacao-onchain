@@ -242,6 +242,7 @@
 .rvw-page { max-width: 640px; padding-top: 12px; gap: 0; }
 .rvw-head { display: flex; align-items: center; gap: var(--stu-gap-3); flex-wrap: wrap; min-height: var(--stu-tap); border-bottom: 1px solid var(--stu-line); margin-bottom: var(--stu-gap-4); }
 .rvw-queue { margin-left: auto; }
+.rvw-progress { margin: calc(-1 * var(--stu-gap-2)) 0 var(--stu-gap-3); }
 .rvw-card { display: flex; flex-direction: column; gap: 18px; min-width: 0; flex: 1; }
 .rvw-lead { display: flex; flex-direction: column; gap: var(--stu-gap-2); }
 .rvw-judge { display: flex; align-items: center; gap: var(--stu-gap-1); margin: 0; overflow-wrap: anywhere; }

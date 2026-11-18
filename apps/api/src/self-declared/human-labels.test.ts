@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueSessionToken } from "../auth/session.js";
 import {
-  createHumanLabelsRouter, displayKind, humanLabelDigest, labelerOf, labelStrength, queueOrder, splitOf, taskIdOfSlug, type HumanLabel, type StepDetail, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
+  createHumanLabelsRouter, displayKind, progressCounts, humanLabelDigest, labelerOf, labelStrength, queueOrder, splitOf, taskIdOfSlug, type HumanLabel, type StepDetail, type HumanLabelStore, type ReasonCode, type ReviewRun, type RunTenant,
 } from "./human-labels.js";
 
 process.env.ITERA_SESSION_SECRET = "test-session-secret";
@@ -61,6 +61,12 @@ class FakeStore implements HumanLabelStore {
   async queue(...args: unknown[]) {
     this.queueArgs = args;
     return [run(RUN, {})];
+  }
+  progressArgs: unknown[] = [];
+  personRows: Array<{ taskSlug: string | null; pass: boolean }> = [];
+  async personLabels(...args: unknown[]) {
+    this.progressArgs = args;
+    return this.personRows;
   }
 }
 
@@ -189,6 +195,48 @@ describe("GET /review-queue", () => {
   it("refuses an unknown judge and a bad limit", async () => {
     expect((await call("GET", "/review-queue?judge=x", human)).status).toBe(400);
     expect((await call("GET", "/review-queue?judge=async-wait-lifecycle&limit=0", human)).status).toBe(400);
+  });
+});
+
+/** A recorded task id whose split for the judge is `want` (the dfl-evals rule), found by a fixed scan. */
+const taskIn = (judge: string, want: string, from = 0): string => {
+  for (let i = from; i < 1000; i++) if (splitOf(judge, `t${i}x`) === want) return `t${i}x`;
+  throw new Error(`no task in ${want}`);
+};
+
+describe("GET /review-queue/progress", () => {
+  it("counts the person labels per split and verdict for the judge, with the floor of 30", async () => {
+    const J = "async-wait-lifecycle";
+    const t1 = taskIn(J, "test");
+    const t2 = taskIn(J, "test", Number(t1.slice(1, -1)) + 1);
+    const d1 = taskIn(J, "dev");
+    store.personRows = [
+      { taskSlug: `dfl-task-${t1}`, pass: true },
+      { taskSlug: `dfl-task-${t2}`, pass: false },
+      { taskSlug: `tma-task-${t1}`, pass: true },
+      { taskSlug: `dfl-task-${d1}`, pass: false },
+      { taskSlug: "studio-review-fixture-task", pass: true },
+      { taskSlug: null, pass: false },
+    ];
+    const r = await call("GET", `/review-queue/progress?judge=${J}`, human);
+    expect(r.status).toBe(200);
+    expect(store.progressArgs).toEqual(["devfellowship", J]);
+    expect(r.json).toEqual({
+      judge: J, floor: 30,
+      splits: { test: { pass: 2, fail: 1 }, dev: { pass: 0, fail: 1 }, train: { pass: 0, fail: 0 }, unknown: { pass: 1, fail: 1 } },
+    });
+  });
+  it("refuses an unknown judge and a siws login, and answers 503 before 0024", async () => {
+    expect((await call("GET", "/review-queue/progress?judge=x", human)).status).toBe(400);
+    expect((await call("GET", "/review-queue/progress?judge=async-wait-lifecycle", siws)).status).toBe(403);
+    store.isReady = false;
+    expect((await call("GET", "/review-queue/progress?judge=async-wait-lifecycle", human)).status).toBe(503);
+  });
+  it("progressCounts uses the split of the judge, not of another judge", () => {
+    const t = taskIn("async-wait-lifecycle", "test");
+    const other = splitOf("external-block-handling", t);
+    const c = progressCounts("external-block-handling", [{ taskSlug: `dfl-task-${t}`, pass: true }]);
+    expect(c[other].pass).toBe(1);
   });
 });
 

@@ -15,8 +15,8 @@ import { Badge, Card, Tip } from '../tma/ui'
 import { Kbd, Section, StuButton, Tab, Tabs, themeClass } from './theme'
 import { traceHref } from './traces'
 import {
-  JUDGES, JUDGE_RUBRICS, JUDGE_TITLES, LONG_GAP_MS, SPLIT_TEXT, fmtDuration, foldSteps, gapBefore, getReviewQueue, getRunSteps, isJudge, kindLetter, pinIndex, postLabel,
-  type JudgeId, type ReasonCode, type ReviewRun, type StepDetail, type Verdict,
+  JUDGES, JUDGE_RUBRICS, JUDGE_TITLES, LONG_GAP_MS, SPLIT_TEXT, floorMet, fmtDuration, foldSteps, gapBefore, getProgress, getReviewQueue, getRunSteps, isJudge, kindLetter,
+  pinIndex, postLabel, progressText, type JudgeId, type ReasonCode, type ReviewProgress, type ReviewRun, type StepDetail, type Verdict,
 } from './review'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
 import './studio.css'
@@ -318,9 +318,22 @@ export function StudioReviewPage() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(0)
   const [pins, setPins] = useState<Map<string, { sessionId: string; agentId: string | null }>>(new Map())
+  const [progress, setProgress] = useState<ReviewProgress | null>(null)
+  const [weak, setWeak] = useState<string | null>(null)
+  const judgeRef = useRef(judge)
+  judgeRef.current = judge
+  // A late answer for the judge of the other tab is dropped.
+  const refreshProgress = (j: JudgeId) =>
+    getProgress(j).then(
+      (p) => judgeRef.current === j && setProgress(p),
+      () => judgeRef.current === j && setProgress(null),
+    )
   useEffect(() => {
     setIndex(0)
     setSaved(0)
+    setProgress(null)
+    setWeak(null)
+    void refreshProgress(judge)
   }, [judge])
   useEffect(() => {
     if (!STUDIO_SERVE_URL) return
@@ -338,10 +351,13 @@ export function StudioReviewPage() {
     setBusy(true)
     setError(null)
     postLabel({ run_id: run.runId, judge_id: judge, pass, reason_code: reason }).then(
-      () => {
+      (l) => {
         setBusy(false)
         setSaved((n) => n + 1)
         setIndex((i) => i + 1)
+        // A label of an agent or unknown login is stored but does not count for calibration (labeler not person:).
+        setWeak(l.strength === 'strong' ? null : `The label was saved as ${l.labeler?.split(':')[0] ?? 'unknown'}, not as a person, so it does not count for calibration. Sign out and sign in again with your own DFL login.`)
+        void refreshProgress(judge)
       },
       (e: unknown) => {
         setBusy(false)
@@ -366,6 +382,16 @@ export function StudioReviewPage() {
           </span>
         )}
       </header>
+      {progress && (
+        <p className={`stu-label rvw-progress${floorMet(progress) ? ' stu-ok' : ''}`} data-testid="review-progress" title="Person labels of this judge in the test split; C6 needs 30 pass and 30 fail">
+          {progressText(progress)}
+        </p>
+      )}
+      {weak && (
+        <p role="alert" className="stu-bad" data-testid="review-weak">
+          {weak}
+        </p>
+      )}
       {loaded.state === 'loading' && <p className="stu-label">Loading the queue…</p>}
       {loaded.state === 'error' && (
         <Card pad data-testid="review-error">
