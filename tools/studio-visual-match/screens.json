@@ -1,0 +1,329 @@
+{
+  "$comment": "One entry per studio screen of the design canvas 'TMA + Eval Studio: real-trace evals' (plan 20261112-tma-c5-studio-area-web2, C5-VIS-MATCH). artboard = the .dc.html of the canvas (rendered once into reference/<id>.png; the source is never committed). route = the live web2 path; a route object {from, link} opens `from` and follows the first <a href> that matches the `link` regex (ids that change). viewport = the artboard size. actions = what the user must be able to see or do on the screen (the function rubric of the judge). The artboard top bar and icon rail, and the web2 AppNav, are cropped away before the compare (ADR-1: the shared web2 nav stays; no own top bar or icon rail).",
+  "fixture": {
+    "case": "751f3a52-60b8-4149-b823-cd777bd1f5ee",
+    "use_case": "verify/prod-verify"
+  },
+  "screens": [
+    {
+      "id": "S1",
+      "title": "S1 Home: use cases",
+      "artboard": "ToBeHome.dc.html",
+      "route": "/studio",
+      "actions": [
+        {
+          "id": "use_case_rows",
+          "intent": "a table row per use case (type / subtype), grouped under a group header"
+        },
+        {
+          "id": "per_use_case_numbers",
+          "intent": "columns per use case: cases, best score, cost per task, verdict, route agent"
+        },
+        {
+          "id": "group_and_verdict_controls",
+          "intent": "a Group control and a Verdict filter control above the table"
+        },
+        {
+          "id": "open_a_use_case",
+          "intent": "a use case name links to its cases or its compare page"
+        }
+      ]
+    },
+    {
+      "id": "S2",
+      "title": "S2 Trace picker",
+      "artboard": "TracePicker.dc.html",
+      "route": "/studio/traces",
+      "actions": [
+        {
+          "id": "trace_rows",
+          "intent": "a list of traces with agent, task and signal"
+        },
+        {
+          "id": "filters",
+          "intent": "filter chips over the list"
+        },
+        {
+          "id": "focused_trace_panel",
+          "intent": "a side panel with the task summary of the focused trace"
+        }
+      ]
+    },
+    {
+      "id": "S3",
+      "title": "S3 Trace view",
+      "artboard": "TraceView.dc.html",
+      "route": {
+        "from": "/studio/traces",
+        "link": "^/studio/traces/[^?]+"
+      },
+      "actions": [
+        {
+          "id": "trace_title",
+          "intent": "the trace title and summary"
+        },
+        {
+          "id": "waterfall",
+          "intent": "a tool call waterfall of the run steps"
+        },
+        {
+          "id": "time_breakdown",
+          "intent": "a 'where time went' view"
+        }
+      ],
+      "optional": "a fleet trace reaches the browser only through tma studio serve on the tailnet; S3 is human-checkable (plan v9, Q-C5-T12 = A)"
+    },
+    {
+      "id": "S4",
+      "title": "S4 Test case",
+      "artboard": "CaseVariant.dc.html",
+      "route": "/studio/cases/751f3a52-60b8-4149-b823-cd777bd1f5ee",
+      "actions": [
+        {
+          "id": "three_steps",
+          "intent": "numbered steps: 1 start from a real trace, 2 the problem, 3 expected output and graders"
+        },
+        {
+          "id": "context_table",
+          "intent": "an environment / pinned-to table"
+        },
+        {
+          "id": "next_step",
+          "intent": "a way to go on to the experiment"
+        }
+      ]
+    },
+    {
+      "id": "S5",
+      "title": "S5 Experiment",
+      "artboard": "AgentVariant.dc.html",
+      "route": "/studio/experiments/new?case=751f3a52-60b8-4149-b823-cd777bd1f5ee",
+      "actions": [
+        {
+          "id": "base_agent_step",
+          "intent": "step 1 Base agent: the chosen base agent and a way to change it"
+        },
+        {
+          "id": "variant_part_table",
+          "intent": "step 2 Agent variant: a table of agent parts with base and variant columns"
+        },
+        {
+          "id": "diff_block",
+          "intent": "a diff block that shows what the variant changes"
+        },
+        {
+          "id": "experiment_sidebar",
+          "intent": "a right sidebar: the experiment in plain words and where it runs, with the command"
+        }
+      ]
+    },
+    {
+      "id": "S6",
+      "title": "S6 Experiment result",
+      "artboard": "RunMatrix.dc.html",
+      "route": "/studio/experiments?case=751f3a52-60b8-4149-b823-cd777bd1f5ee",
+      "actions": [
+        {
+          "id": "agent_compare_header",
+          "intent": "base agent vs agent variant at the top"
+        },
+        {
+          "id": "case_matrix",
+          "intent": "a matrix of cases by agent with run results"
+        },
+        {
+          "id": "open_diff",
+          "intent": "a way to open the run compare of a case"
+        }
+      ]
+    },
+    {
+      "id": "S7",
+      "title": "S7 Run compare",
+      "artboard": "ResultDiff.dc.html",
+      "route": {
+        "from": "/studio/experiments?case=751f3a52-60b8-4149-b823-cd777bd1f5ee",
+        "link": "^/studio/diff\\?"
+      },
+      "actions": [
+        {
+          "id": "two_runs",
+          "intent": "the base run and the variant run side by side"
+        },
+        {
+          "id": "sections",
+          "intent": "the compared data per type (steps, output, grades)"
+        }
+      ]
+    },
+    {
+      "id": "S8",
+      "title": "S8 Agent compare",
+      "artboard": "ModelCompare.dc.html",
+      "route": "/studio/compare?use_case=verify/prod-verify",
+      "actions": [
+        {
+          "id": "score_vs_cost_chart",
+          "intent": "a score vs cost per task chart of the agents"
+        },
+        {
+          "id": "agent_table",
+          "intent": "a table of agents with score, gates held, cost per task, runs and verdict"
+        },
+        {
+          "id": "suggestion_panel",
+          "intent": "a right panel with the suggested agent and why"
+        },
+        {
+          "id": "score_rule_toggle",
+          "intent": "a control that switches the score rule (weighted / all-or-nothing) or names both verdict rules"
+        }
+      ]
+    },
+    {
+      "id": "S9",
+      "title": "S9 Trajectories",
+      "artboard": "Trajectory.dc.html",
+      "route": "/studio/trajectories",
+      "actions": [
+        {
+          "id": "wall",
+          "intent": "runs drawn as rows of colored steps"
+        },
+        {
+          "id": "groups",
+          "intent": "the runs grouped by shape or outcome"
+        },
+        {
+          "id": "controls",
+          "intent": "filter or sort controls"
+        }
+      ]
+    },
+    {
+      "id": "S10",
+      "title": "S10 Grader library",
+      "artboard": "GradersJudge.dc.html",
+      "route": "/studio/graders",
+      "actions": [
+        {
+          "id": "grouped_list",
+          "intent": "a list of graders grouped by kind (code graders, AI judges)"
+        },
+        {
+          "id": "columns",
+          "intent": "per grader: type, version, proven, used by, can decide"
+        },
+        {
+          "id": "selected_panel",
+          "intent": "a side panel for the selected grader with an Open details link"
+        }
+      ]
+    },
+    {
+      "id": "S10a",
+      "title": "S10a Code grader",
+      "artboard": "GraderCode.dc.html",
+      "route": {
+        "from": "/studio/graders",
+        "link": "^/studio/graders/."
+      },
+      "actions": [
+        {
+          "id": "grader_code",
+          "intent": "the grader code or its source pointer"
+        },
+        {
+          "id": "planted_bugs",
+          "intent": "the planted bugs the grader catches"
+        },
+        {
+          "id": "test_panel",
+          "intent": "a test on a pinned trace (copy command)"
+        }
+      ]
+    },
+    {
+      "id": "S11",
+      "title": "S11 Judge calibration",
+      "artboard": "GradersJudge.dc.html",
+      "route": "/studio/calibration",
+      "actions": [
+        {
+          "id": "judges",
+          "intent": "a list of AI judges"
+        },
+        {
+          "id": "agreement",
+          "intent": "agreement with human labels per judge"
+        }
+      ]
+    },
+    {
+      "id": "S11a",
+      "title": "S11a AI judge",
+      "artboard": "GraderJudge.dc.html",
+      "route": {
+        "from": "/studio/calibration",
+        "link": "^/studio/calibration/."
+      },
+      "actions": [
+        {
+          "id": "judge_prompt",
+          "intent": "the judge prompt"
+        },
+        {
+          "id": "agreement_by_version",
+          "intent": "agreement with people by judge version"
+        },
+        {
+          "id": "disagreements",
+          "intent": "the runs where the judge and people disagree"
+        }
+      ]
+    },
+    {
+      "id": "S12",
+      "title": "S12 Routing",
+      "artboard": "Routing.dc.html",
+      "route": {
+        "from": "/studio/compare?use_case=verify/prod-verify",
+        "link": "^/studio/routing/."
+      },
+      "actions": [
+        {
+          "id": "routes_table",
+          "intent": "a table of routes (use case to agent)"
+        },
+        {
+          "id": "selected_route_panel",
+          "intent": "a side panel for the selected route with the PR diff"
+        }
+      ]
+    },
+    {
+      "id": "S13",
+      "title": "S13 Human review (phone)",
+      "artboard": "ReviewPhone.dc.html",
+      "route": "/studio/review",
+      "viewport": [
+        390,
+        844
+      ],
+      "actions": [
+        {
+          "id": "question",
+          "intent": "the review question as the title"
+        },
+        {
+          "id": "evidence",
+          "intent": "the run evidence to judge"
+        },
+        {
+          "id": "grade_buttons",
+          "intent": "pass / fail answer buttons"
+        }
+      ]
+    }
+  ]
+}
