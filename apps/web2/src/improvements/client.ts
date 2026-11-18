@@ -164,7 +164,7 @@ export class DflTokenMissingError extends Error {
 }
 
 export interface ImprovementsClient {
-  /** `GET /v1/requests?mine=1`: 200 for a superadmin, 403 for anyone else. Any other answer is false. */
+  /** `GET /v1/requests?mine=1`: true on 200 (superadmin), false on 403. Any other answer rejects (unknown). */
   isSuperadmin(): Promise<boolean>
   uploadImage(file: File): Promise<string>
   submit(payload: ImprovementRequestPayload): Promise<ImprovementSubmitResult>
@@ -194,13 +194,14 @@ export function createImprovementsClient({
   }
   return {
     async isSuperadmin() {
-      try {
-        const response = await authed(`${base}/v1/requests?mine=1&limit=1`)
-        await response.body?.cancel().catch(() => undefined)
-        return response.status === 200
-      } catch {
-        return false
-      }
+      // Missing token: the caller never asked the service. 200 = superadmin, 403 = a member who is not.
+      // Any other answer (401, 5xx, a network error) is "unknown": it throws, and the launcher keeps what it knew.
+      if (!getToken()) return false
+      const response = await authed(`${base}/v1/requests?mine=1&limit=1`)
+      await response.body?.cancel().catch(() => undefined)
+      if (response.status === 200) return true
+      if (response.status === 403) return false
+      throw new Error(`gate answered ${response.status}`)
     },
     async uploadImage(file) {
       const compressed = await compressImage(file)

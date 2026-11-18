@@ -124,8 +124,8 @@ describe('client', () => {
     }
     expect(await mk(200).client.isSuperadmin()).toBe(true)
     expect(await mk(403).client.isSuperadmin()).toBe(false)
-    expect(await mk(401).client.isSuperadmin()).toBe(false)
-    expect(await mk('throw').client.isSuperadmin()).toBe(false)
+    await expect(mk('throw').client.isSuperadmin()).rejects.toThrow()
+    await expect(mk(401).client.isSuperadmin()).rejects.toThrow()
     const none = mk(200, null)
     expect(await none.client.isSuperadmin()).toBe(false)
     expect(none.fetchImpl).not.toHaveBeenCalled()
@@ -162,25 +162,42 @@ describe('launcher', () => {
     expect(fab()).not.toBeNull()
     expect(localStorage.getItem('tma2.melhorias.superadmin')).toBe(USER.id)
   })
-  it('hides for a non-superadmin and forgets the hint', async () => {
+  it('hides for a non-superadmin and remembers the refusal', async () => {
     signIn()
     saveDflToken(jwt(inOneHour()))
     localStorage.setItem('tma2.melhorias.superadmin', USER.id)
     await mountLauncher('/agents', fakeClient({ isSuperadmin: vi.fn(async () => false) }))
     expect(fab()).toBeNull()
-    expect(localStorage.getItem('tma2.melhorias.superadmin')).toBeNull()
+    expect(localStorage.getItem('tma2.melhorias.superadmin')).toBe(`no:${USER.id}`)
   })
-  it('hides when signed out, and with no token and no hint (no service call)', async () => {
+  it('hides when signed out', async () => {
     const client = fakeClient()
     await mountLauncher('/', client)
     expect(fab()).toBeNull()
-    document.body.innerHTML = ''
-    act(() => root?.unmount())
+    expect(client.isSuperadmin).not.toHaveBeenCalled()
+  })
+  it('a session older than the launcher (no token, no hint) shows the button, on a studio route too (Tainan TG 32417)', async () => {
     signIn()
-    const client2 = fakeClient()
-    await mountLauncher('/agents', client2)
+    const client = fakeClient()
+    await mountLauncher('/studio/review?judge=x', client)
+    expect(fab()).not.toBeNull()
+    expect(client.isSuperadmin).not.toHaveBeenCalled()
+  })
+  it('no token but the service already refused this user: hidden, no service call', async () => {
+    signIn()
+    localStorage.setItem('tma2.melhorias.superadmin', `no:${USER.id}`)
+    const client = fakeClient()
+    await mountLauncher('/studio/review', client)
     expect(fab()).toBeNull()
-    expect(client2.isSuperadmin).not.toHaveBeenCalled()
+    expect(client.isSuperadmin).not.toHaveBeenCalled()
+  })
+  it('an unknown answer from the service (rejects) keeps the earlier hint', async () => {
+    signIn()
+    saveDflToken(jwt(inOneHour()))
+    localStorage.setItem('tma2.melhorias.superadmin', USER.id)
+    await mountLauncher('/agents', fakeClient({ isSuperadmin: vi.fn(async () => { throw new Error('5xx') }) }))
+    expect(fab()).toBeNull()
+    expect(localStorage.getItem('tma2.melhorias.superadmin')).toBe(USER.id)
   })
   it('hides on the login and callback pages', async () => {
     signIn()
