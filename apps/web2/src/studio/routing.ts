@@ -179,6 +179,9 @@ export function approveBlockers(a: CompareAgent | null, rule: RouteRule, verdict
 /** GET /routes?use_case=: the routes of the use case, newest first. */
 export const getRoutes = (useCase: string) => request<{ routes: Route[] }>('/routes', { query: { use_case: useCase } })
 
+/** GET /routes with no filter: every route of the tenant, newest first (S12 index, C5-RD-S12). */
+export const getAllRoutes = () => request<{ routes: Route[] }>('/routes')
+
 /** POST /routes/approve: 201 with the new row in state `approved`. */
 export const postApproveRoute = (body: ApproveBody) => request<Route>('/routes/approve', { method: 'POST', body: JSON.stringify(body) })
 

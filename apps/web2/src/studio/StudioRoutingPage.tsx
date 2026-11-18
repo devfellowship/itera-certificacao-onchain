@@ -594,7 +594,7 @@ export function StudioRoutingPage({ data }: { data?: RoutingData }) {
     <main className="tma-page s12-page" data-testid="studio-routing">
       <div className="stu-head">
         <p className="tma-body-sm s12-break">
-          <Link to="/studio">Studio</Link> / <Link to={studioHref('S8', { use_case: useCase })}>compare</Link> / routing / {useCase}
+          <Link to="/studio">Studio</Link> / <Link to={studioHref('S8', { use_case: useCase })}>compare</Link> / <Link to="/studio/routing" data-testid="s12-index-back">routing</Link> / {useCase}
         </p>
         <h1 className="tma-h1">
           <span className="tma-mono s12-break">{useCase}</span>

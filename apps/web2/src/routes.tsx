@@ -40,6 +40,7 @@ import { StudioExperimentPage } from './studio/StudioExperimentPage'
 import { StudioExperimentsPage } from './studio/StudioExperimentsPage'
 import { StudioHomePage } from './studio/StudioHomePage'
 import { StudioReviewPage } from './studio/StudioReviewPage'
+import { StudioRoutingIndexPage } from './studio/StudioRoutingIndexPage'
 import { StudioRoutingPage } from './studio/StudioRoutingPage'
 import { StudioTrajectoriesPage } from './studio/StudioTrajectoriesPage'
 import { StudioTracePage } from './studio/StudioTracePage'
@@ -129,6 +130,8 @@ export const routes: RouteObject[] = [
           { path: '/studio/calibration/:judgeId', element: <CalibrationJudgePage /> },
           // C8-T3: S12 routing per use case (plan 20261112-tma-c8-routing-from-evals). Writes only the verdict (ADR-1).
           { path: '/studio/routing/:useCase', element: <StudioRoutingPage /> },
+          // C5-RD-S12: S12 routing index, a table of every use case with its route and the PR diff. Read only.
+          { path: '/studio/routing', element: <StudioRoutingIndexPage /> },
         ],
       },
       {

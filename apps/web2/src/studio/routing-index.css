@@ -1,0 +1,84 @@
+/*
+ * S12 routing index on the canvas artboard "S12 Routing recommendation" (plan 20261112-tma-c5-studio-area-web2, C5-RD-S12).
+ * Prefix rix-. Colors come from the studio theme (theme.css, class stu-theme on the page root); no hex here.
+ * Colour is never the only signal: every state and verdict has its word.
+ */
+.rix-page a { color: var(--stu-text); text-decoration: none; }
+.rix-page a:hover { color: var(--stu-accent-hover); }
+.rix-page a.stu-btn--primary, .rix-page a.stu-btn--primary:hover { color: var(--stu-on-accent); }
+.rix-page a.stu-btn--secondary { color: var(--stu-text-2); }
+
+.rix-shell { display: flex; flex-wrap: wrap; align-items: stretch; min-width: 0; min-height: calc(100vh - var(--tma-nav-height, 56px) - 1px); }
+.rix-col { flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 40px 64px; display: flex; flex-direction: column; gap: 20px; }
+.rix-crumb { margin: 0; }
+.rix-crumb a { color: var(--stu-text-muted); }
+.rix-aside { flex: 1 1 320px; max-width: 100%; box-sizing: border-box; background: var(--stu-surface); border-left: 1px solid var(--stu-line); }
+.rix-aside__in { position: sticky; top: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; padding: 24px 20px; min-height: calc(100vh - var(--tma-nav-height, 56px) - 1px); }
+.rix-eyebrow { font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); }
+.rix-title { margin: 0; font-family: var(--stu-font-display); font-weight: 600; font-size: 22px; line-height: 1.15; color: var(--stu-text); overflow-wrap: anywhere; }
+.rix-prose { margin: 0; font-size: 14px; line-height: 1.6; color: var(--stu-text-2); }
+.rix-muted { color: var(--stu-text-muted); }
+.rix-actions { margin-top: auto; display: flex; flex-wrap: wrap; gap: var(--stu-gap-2); }
+
+/* The table: a grid per row, mono heads */
+.rix-tablewrap { min-width: 0; overflow-x: auto; }
+.rix-table { min-width: 900px; }
+.rix-row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(150px, 1fr) minmax(170px, 1.2fr) 124px 48px 140px 128px; align-items: center; column-gap: var(--stu-gap-4); min-height: 46px; padding: 4px 0 4px 10px; box-sizing: border-box; border-bottom: 1px solid var(--stu-line); color: var(--stu-text-2); cursor: pointer; }
+.rix-row:hover { background: var(--stu-surface); }
+.rix-row--on, .rix-row--on:hover { background: var(--stu-raised); box-shadow: inset 2px 0 0 var(--stu-accent); }
+.rix-row--head { min-height: 0; padding: 0 0 8px 10px; border-bottom-color: var(--stu-line-strong); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); cursor: default; }
+.rix-row--head:hover { background: transparent; }
+.rix-row--head > span { display: inline-flex; align-items: center; gap: 3px; }
+.rix-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rix-cell--num { text-align: right; font-variant-numeric: tabular-nums; }
+.rix-row--head .rix-cell--num { justify-content: flex-end; }
+.rix-uc { color: var(--stu-text); font-weight: 500; }
+.rix-sub { display: block; font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rix-agent { display: inline-flex; align-items: center; gap: var(--stu-gap-2); min-width: 0; color: var(--stu-text); }
+.rix-agent--none { color: var(--stu-text-muted); }
+.rix-av { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; border-radius: 6px; background: var(--stu-raised); color: var(--stu-text); font-size: 9px; font-weight: 600; text-transform: uppercase; }
+.rix-av--cc { background: var(--stu-av-cc); }
+.rix-av--cx { background: var(--stu-av-cx); }
+.rix-av--oc { background: var(--stu-av-oc); }
+.rix-av--al { background: var(--stu-av-al); }
+.rix-av--none { background: transparent; border: 1px dashed var(--stu-line-hover); }
+.rix-group { display: flex; align-items: center; gap: 8px; padding: 18px 0 8px 10px; border-bottom: 1px solid var(--stu-line); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); letter-spacing: 0.6px; text-transform: uppercase; }
+
+/* Verdict and state marks: an icon and a word */
+.rix-mark { display: inline-flex; align-items: center; gap: 6px; color: var(--stu-text); }
+.rix-mark svg { flex: none; }
+.rix-mark--ok svg { color: var(--stu-ok); }
+.rix-mark--warn svg { color: var(--stu-warn); }
+.rix-mark--bad svg { color: var(--stu-bad); }
+.rix-mark--merged svg { color: var(--stu-merged); }
+.rix-mark--muted { color: var(--stu-text-muted); }
+.rix-good { color: var(--stu-ok); }
+
+/* Side panel: the two agents, the PR diff */
+.rix-agents { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.rix-card { display: inline-flex; align-items: center; gap: var(--stu-gap-2); max-width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); color: var(--stu-text); }
+.rix-card--to { border-color: var(--stu-accent); }
+.rix-card .rix-sub { display: inline; }
+.rix-arrow { margin-left: 14px; color: var(--stu-text-muted); }
+.rix-diff { margin: 0; padding: 8px 0; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-well); font-family: var(--stu-font-mono); font-size: 12px; line-height: 1.7; overflow-x: auto; }
+.rix-diff span { display: block; padding: 0 12px; white-space: pre; }
+.rix-diff__file { color: var(--stu-text-muted); }
+.rix-diff__minus { color: var(--stu-bad); background: var(--stu-bad-soft); }
+.rix-diff__plus { color: var(--stu-ok); background: var(--stu-accent-soft); }
+.rix-details { border-top: 1px solid var(--stu-line); padding-top: var(--stu-gap-3); }
+.rix-details summary { cursor: pointer; color: var(--stu-text-muted); }
+.rix-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px var(--stu-gap-4); margin: 0; padding-top: var(--stu-gap-2); }
+.rix-kv dt { color: var(--stu-text-muted); }
+.rix-kv dd { margin: 0; color: var(--stu-text-2); overflow-wrap: anywhere; }
+.rix-state { padding: var(--stu-gap-4); border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-surface); display: flex; flex-direction: column; gap: var(--stu-gap-2); }
+.rix-state p { margin: 0; }
+
+@media (max-width: 720px) {
+  .rix-col { padding: 20px 16px 32px; }
+  .rix-aside { border-left: 0; border-top: 1px solid var(--stu-line); }
+  .rix-aside__in { position: static; min-height: 0; padding: 20px 16px; }
+  .rix-table { min-width: 0; }
+  .rix-row { display: flex; flex-wrap: wrap; gap: 2px var(--stu-gap-4); padding: 10px 0 10px 10px; }
+  .rix-row > .rix-cell:first-child { flex: 1 0 100%; }
+  .rix-row--head { display: none; }
+}
