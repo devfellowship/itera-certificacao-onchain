@@ -13,13 +13,14 @@
 //
 //   GET /v1/health                      no login; `{ok: true}` and nothing else
 //   GET /v1/traces?limit&offset&l2_class&why&mode&small_diff     S2: candidate traces with pin status and task summary
-//   GET /v1/traces/:session_id[?agent_id=...]          S3: session summary, runs with steps, first failure
+//   GET /v1/traces/:trace_id                           S3 (MT-20): ONE run (12 hex), its own summary, steps, first failure
+//   GET /v1/traces/:session_id[?agent_id=...]          S3, the old key: one run with agent_id, else the whole session
 //   POST /grade/dry-run                                S10a/S11a: one grader grades one output; nothing stored.
 //        Same login as the GET routes; JSON body <= 256 KB (413); one dry run at a time (429); 504 after the timeout;
 //        a code grader runs in a network namespace (unshare -rn), 503 network_sandbox_unavailable when there is none.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { checkLogin, principalConflicts, type AuthDeps, type PrincipalKind } from './auth.js';
-import { getTrace, listTraces, NotFound, type StudioSources } from './content.js';
+import { getTrace, getTraceById, listTraces, NotFound, SESSION_ID, TRACE_ID, type StudioSources } from './content.js';
 import { assertDisjointSources } from './fixture.js';
 import { DRY_RUN_MAX_BODY, DRY_RUN_PATH, DRY_RUN_TIMEOUT_MS, DryRunRefused, parseDryRunBody, probeNetworkSandbox, runDryRun, type DryRunOptions } from './dry-run.js';
 
@@ -98,12 +99,14 @@ export async function route(method: string, rawUrl: string, authorization: strin
       const l2_class = textParam(url.searchParams.get('l2_class'));
       const why = textParam(url.searchParams.get('why'));
       const mode = textParam(url.searchParams.get('mode'));
+      const sessionFilter = url.searchParams.get('session_id');
+      if (sessionFilter !== null && !SESSION_ID.test(sessionFilter)) return json(400, { error: 'bad_query' });
       const sd = url.searchParams.get('small_diff');
       if (sd !== null && sd !== 'true' && sd !== 'false') return json(400, { error: 'bad_query' });
       if (limit === null || offset === null || l2_class === null || why === null || mode === null) return json(400, { error: 'bad_query' });
       return json(
         200,
-        listTraces(sources, { limit, offset, ...(l2_class ? { l2_class } : {}), ...(why ? { why } : {}), ...(mode ? { mode } : {}), ...(sd !== null ? { small_diff: sd === 'true' } : {}) }),
+        listTraces(sources, { limit, offset, ...(l2_class ? { l2_class } : {}), ...(why ? { why } : {}), ...(mode ? { mode } : {}), ...(sd !== null ? { small_diff: sd === 'true' } : {}), ...(sessionFilter ? { session_id: sessionFilter } : {}) }),
       );
     }
     let sessionId: string;
@@ -112,6 +115,9 @@ export async function route(method: string, rawUrl: string, authorization: strin
     } catch {
       return json(400, { error: 'bad_session_id' });
     }
+    // MT-20: a 12-hex segment is a trace id (one run); a session id is the old key. A session id is never 12 hex here:
+    // the index keys sessions by UUID (36 characters).
+    if (TRACE_ID.test(sessionId)) return json(200, getTraceById(sources, sessionId));
     const agentId = url.searchParams.get('agent_id') ?? undefined;
     return json(200, getTrace(sources, sessionId, agentId));
   } catch (e) {

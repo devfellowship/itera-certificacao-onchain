@@ -8,8 +8,9 @@
 //   - the layer-1 trajectory files of `session-trajectory` (one JSONL per session: a `session_tree` row,
 //     then one `run` row per main or subagent run, each with its `spans`).
 // A layer-1 path from the index is served only when its real path is inside the trajectory root.
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
 
 export interface StudioSources {
@@ -42,6 +43,18 @@ export const MAX_TRAJECTORY_BYTES = 64 * 1024 * 1024;
 export const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$/;
 const AGENT_ID = /^[A-Za-z0-9_-]{1,80}$/;
 const CANDIDATES_FILE = /^candidates-(\d{4}-\d{2}-\d{2})\.jsonl$/;
+
+/**
+ * MT-20: one trace = one run (the main run or one subagent run) of a session. Its id is short and stable: the first
+ * 12 hex characters of sha256("<session_id>\n<agent_id>"), with an empty agent_id for the main run. The studio URL is
+ * /studio/traces/<trace_id>; the session id is a column and a filter, not the trace key. apps/web2/src/studio/traces.ts
+ * computes the same id (traceIdOf) for the redirect of an old /studio/traces/<session>?agent_id= URL; both test
+ * suites pin the same vector.
+ */
+export const TRACE_ID = /^[0-9a-f]{12}$/;
+export function traceId(sessionId: string, agentId: string | null): string {
+  return createHash('sha256').update(`${sessionId}\n${agentId ?? ''}`).digest('hex').slice(0, 12);
+}
 
 type Row = Record<string, unknown>;
 
@@ -86,6 +99,22 @@ export function latestSelection(selectDir: string): { day: string; candidates: s
   return { day, candidates: join(selectDir, `candidates-${day}.jsonl`), pinsIndex: names.includes(pins) ? join(selectDir, pins) : null };
 }
 
+/** Every selection day in the folder, newest first, each with its pins index when present. */
+function selectionDays(selectDir: string): Array<{ day: string; candidates: string; pinsIndex: string | null }> {
+  let names: string[];
+  try {
+    names = readdirSync(selectDir);
+  } catch {
+    return [];
+  }
+  return names
+    .map((n) => CANDIDATES_FILE.exec(n)?.[1])
+    .filter((d): d is string => !!d)
+    .sort()
+    .reverse()
+    .map((day) => ({ day, candidates: join(selectDir, `candidates-${day}.jsonl`), pinsIndex: names.includes(`pins-${day}.index.jsonl`) ? join(selectDir, `pins-${day}.index.jsonl`) : null }));
+}
+
 const key = (sessionId: unknown, agentId: unknown) => `${str(sessionId) ?? ''}\u0000${str(agentId) ?? ''}`;
 
 export interface PinStatus {
@@ -112,8 +141,11 @@ function pinStatuses(pinsIndex: string | null): Map<string, PinStatus> {
 /** One candidate row as S2 shows it. Fields are copied by name: an unknown field of the source is not served. */
 export function candidateView(r: Row, pin: PinStatus | null, hasTrajectory: boolean) {
   const signals = obj(r.signals);
+  const sid = str(r.session_id);
   return {
-    session_id: str(r.session_id),
+    // MT-20: the key of the trace (one run). session_id stays a column and a filter.
+    trace_id: sid ? traceId(sid, str(r.agent_id)) : null,
+    session_id: sid,
     agent_id: str(r.agent_id),
     parent_session_id: str(r.parent_session_id),
     run_kind: str(r.run_kind),
@@ -244,6 +276,40 @@ export interface ListQuery {
   mode?: string;
   /** MT-11: true keeps the rows marked small_diff; false keeps the rows marked not small. A row with no mark matches neither. */
   small_diff?: boolean;
+  /** MT-20: only the runs of this session. */
+  session_id?: string;
+}
+
+/**
+ * The run keys (agent_id, '' for the main run) of a layer-1 file, from the runs_index of its first row (the
+ * session_tree). Only the first line is read. null = the file has no readable session_tree first line.
+ */
+const TREE_LINE_MAX = 16 * 1024 * 1024;
+export function runKeysOf(file: string): Set<string> | null {
+  const fd = openSync(file, 'r');
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    const buf = Buffer.alloc(1024 * 1024);
+    for (;;) {
+      const n = readSync(fd, buf, 0, buf.length, null);
+      if (n <= 0) break;
+      const nl = buf.subarray(0, n).indexOf(10);
+      chunks.push(Buffer.from(buf.subarray(0, nl === -1 ? n : nl)));
+      total += nl === -1 ? n : nl;
+      if (nl !== -1) break;
+      if (total > TREE_LINE_MAX) return null;
+    }
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    const tree = obj(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+    if (!tree || tree.kind !== 'session_tree' || !Array.isArray(tree.runs_index)) return null;
+    return new Set(tree.runs_index.map((r) => str(obj(r)?.agent_id) ?? ''));
+  } catch {
+    return null;
+  }
 }
 
 export function listTraces(src: StudioSources, q: ListQuery) {
@@ -252,9 +318,26 @@ export function listTraces(src: StudioSources, q: ListQuery) {
   const all = readJsonl(sel.candidates).filter(
     (r) =>
       (q.l2_class === undefined || r.l2_class === q.l2_class) && (q.why === undefined || r.why === q.why) && (q.mode === undefined || r.mode === q.mode) &&
-      (q.small_diff === undefined || r.small_diff === q.small_diff),
+      (q.small_diff === undefined || r.small_diff === q.small_diff) &&
+      (q.session_id === undefined || r.session_id === q.session_id),
   );
   const page = all.slice(q.offset, q.offset + q.limit);
+  // MT-20: a row opens only when ITS run is in the layer-1 file (a session file can be older than the selection).
+  const keysByFile = new Map<string, Set<string> | null>();
+  const hasRun = (ix: IndexRow | undefined, agentId: string | null): boolean => {
+    const file = safeTrajectoryPath(ix?.trajectory_ref ?? null, src.trajectoryRoot);
+    if (!file) return false;
+    if (!keysByFile.has(file)) {
+      try {
+        keysByFile.set(file, runKeysOf(file));
+      } catch {
+        keysByFile.set(file, null);
+      }
+    }
+    const keys = keysByFile.get(file);
+    // A file with no runs_index (an older extractor): the session check alone, as before.
+    return keys ? keys.has(agentId ?? '') : true;
+  };
   const index = lookupSessions(
     src.indexPath,
     page.map((r) => str(r.session_id)).filter((s): s is string => !!s && SESSION_ID.test(s)),
@@ -266,7 +349,7 @@ export function listTraces(src: StudioSources, q: ListQuery) {
     limit: q.limit,
     rows: page.map((r) => {
       const ix = index.get(str(r.session_id) ?? '');
-      return candidateView(r, pins.get(key(r.session_id, r.agent_id)) ?? null, !!safeTrajectoryPath(ix?.trajectory_ref ?? null, src.trajectoryRoot));
+      return candidateView(r, pins.get(key(r.session_id, r.agent_id)) ?? null, hasRun(ix, str(r.agent_id)));
     }),
   };
 }
@@ -336,7 +419,81 @@ function summaryView(t: Row) {
   };
 }
 
-export function getTrace(src: StudioSources, sessionId: string, agentId?: string) {
+/** MT-20: the summary of ONE run, in the shape of summaryView, so a run trace shows its own numbers only. */
+function runSummaryView(r: Row, title: string | null) {
+  const errors = obj(r.errors);
+  return {
+    title,
+    started_at: str(r.started_at),
+    ended_at: str(r.ended_at),
+    duration_s: num(r.duration_s),
+    active_s: num(r.active_s),
+    channel: str(r.channel),
+    models: Array.isArray(r.models) ? r.models.filter((m): m is string => typeof m === 'string') : [],
+    n_runs: 1,
+    n_subagent_runs: null,
+    n_tool_calls: num(r.n_tool_calls),
+    tool_counts: obj(r.tool_counts),
+    intent_counts: obj(r.intent_counts),
+    errors: errors ? num(errors.n) : num(r.errors),
+    outcome_signals: obj(r.outcome_signals),
+    closure_confidence: str(r.closure_confidence),
+    cost_usd: num(r.cost_usd),
+    extractor_version: str(r.extractor_version),
+  };
+}
+
+/** The candidate row of one run, newest selection day first, with the pin status of that day. */
+function findCandidate(selectDir: string, sessionId: string, agentId: string | null): { row: Row; pin: PinStatus | null } | null {
+  const want = key(sessionId, agentId);
+  for (const d of selectionDays(selectDir)) {
+    const row = readJsonl(d.candidates).find((r) => key(r.session_id, r.agent_id) === want);
+    if (row) return { row, pin: pinStatuses(d.pinsIndex).get(want) ?? null };
+  }
+  return null;
+}
+
+/**
+ * MT-20: the run of a trace id. The selection rows first (newest day first), then every session and subagent of the
+ * index. A 12-hex id has 48 bits: a collision among the indexed runs is not expected, and the first match wins.
+ */
+export function resolveTraceId(src: StudioSources, id: string): { sessionId: string; agentId: string | null } {
+  if (!TRACE_ID.test(id)) throw new NotFound('bad_trace_id');
+  for (const d of selectionDays(src.selectDir)) {
+    for (const r of readJsonl(d.candidates)) {
+      const sid = str(r.session_id);
+      if (sid && SESSION_ID.test(sid) && traceId(sid, str(r.agent_id)) === id) return { sessionId: sid, agentId: str(r.agent_id) };
+    }
+  }
+  const db = openReadOnly(src.indexPath);
+  try {
+    const rows = db.prepare('SELECT DISTINCT session_id, agent_id FROM sessions WHERE session_id IS NOT NULL').all();
+    for (const r of rows) {
+      const sid = str(r.session_id);
+      if (!sid || !SESSION_ID.test(sid)) continue;
+      // The main run of a session has its own trace id, also when the index lists only its subagents.
+      if (traceId(sid, null) === id) return { sessionId: sid, agentId: null };
+      const aid = str(r.agent_id);
+      if (aid && AGENT_ID.test(aid) && traceId(sid, aid) === id) return { sessionId: sid, agentId: aid };
+    }
+  } finally {
+    db.close();
+  }
+  throw new NotFound('trace_not_found');
+}
+
+/** S3 by trace id: exactly one run (the main run when the id is of the main run). */
+export function getTraceById(src: StudioSources, id: string) {
+  const { sessionId, agentId } = resolveTraceId(src, id);
+  return getTrace(src, sessionId, agentId ?? undefined, { oneRun: true });
+}
+
+/**
+ * S3. With an agent id (or `oneRun`), the trace is that ONE run: its spans, its own summary and the task name as the
+ * title. The session is only a reference (`session`). Without both (the old /v1/traces/<session> URL), the whole
+ * session, as before.
+ */
+export function getTrace(src: StudioSources, sessionId: string, agentId?: string, opts: { oneRun?: boolean } = {}) {
   if (!SESSION_ID.test(sessionId)) throw new NotFound('bad_session_id');
   if (agentId !== undefined && !AGENT_ID.test(agentId)) throw new NotFound('bad_agent_id');
   const ix = lookupSessions(src.indexPath, [sessionId]).get(sessionId);
@@ -346,37 +503,52 @@ export function getTrace(src: StudioSources, sessionId: string, agentId?: string
   if (statSync(file).size > MAX_TRAJECTORY_BYTES) throw new NotFound('trajectory_too_large');
   const rows = readJsonl(file);
   const tree = rows.find((r) => r.kind === 'session_tree' && r.session_id === sessionId);
-  let runs = rows.filter((r) => r.kind === 'run' && r.session_id === sessionId).map(runView);
-  if (agentId !== undefined) {
-    runs = runs.filter((r) => r.agent_id === agentId);
-    if (runs.length === 0) throw new NotFound('agent_not_in_trajectory');
-  }
+  const runRows = rows.filter((r) => r.kind === 'run' && r.session_id === sessionId);
+  const oneRun = agentId !== undefined || opts.oneRun === true;
+  const own = oneRun
+    ? runRows.filter((r) => (agentId === undefined ? str(r.agent_id) === null && r.is_subagent !== true : str(r.agent_id) === agentId))
+    : runRows;
+  if (oneRun && own.length === 0) throw new NotFound(agentId === undefined ? 'main_run_not_in_trajectory' : 'agent_not_in_trajectory');
+  const runs = own.map(runView);
 
-  let candidate = null;
-  let pin = null;
-  try {
-    const sel = latestSelection(src.selectDir);
-    const want = key(sessionId, agentId ?? null);
-    const row = readJsonl(sel.candidates).find((r) => key(r.session_id, r.agent_id) === want);
-    pin = pinStatuses(sel.pinsIndex).get(want) ?? null;
-    if (row) candidate = candidateView(row, pin, true);
-  } catch (e) {
-    if (!(e instanceof NotFound)) throw e;
-  }
+  const found = (() => {
+    try {
+      return findCandidate(src.selectDir, sessionId, agentId ?? null);
+    } catch (e) {
+      if (e instanceof NotFound) return null;
+      throw e;
+    }
+  })();
+  const candidate = found ? candidateView(found.row, found.pin, true) : null;
+  const pin = found?.pin ?? null;
 
   // The first failed step, in time order over the runs shown.
   const failures = runs
     .flatMap((r) => r.spans.filter((s) => s.ok === false).map((s) => ({ agent_id: r.agent_id, ...s })))
     .sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
   const { trajectory_ref: _ref, ...indexShown } = ix;
+  const run = oneRun ? own[0]! : null;
+  // The title of a run trace: its task name, else the brief description of the subagent; the session title only
+  // for the main run. The session title never names a subagent trace (MT-20: "O Mark no Alien" on a T1 run).
+  const runTitle = run
+    ? candidate?.task_name?.trim() || (agentId === undefined ? str(tree?.title) : str(run.description) || str(run.title))
+    : null;
   return {
+    trace_id: traceId(sessionId, agentId ?? null),
+    scope: oneRun ? ('run' as const) : ('session' as const),
     session_id: sessionId,
     agent_id: agentId ?? null,
+    session: {
+      session_id: sessionId,
+      title: tree ? str(tree.title) : null,
+      n_runs: tree ? num(tree.n_runs) : null,
+      n_subagent_runs: tree ? num(tree.n_subagent_runs) : null,
+    },
     index: indexShown,
     candidate,
     pin,
     task_summary: candidate?.task_summary ?? null,
-    summary: tree ? summaryView(tree) : null,
+    summary: run ? runSummaryView(run, runTitle ?? null) : tree ? summaryView(tree) : null,
     runs,
     first_failure: failures[0] ?? null,
   };
