@@ -19,6 +19,8 @@ import { fmtDuration, foldSteps, gapBefore, type ReviewRun, type StepDetail } fr
 
 let root: Root | undefined
 afterEach(() => {
+  progressAnswers = []
+  labelStrength = 'strong'
   act(() => root?.unmount())
   root = undefined
   document.body.innerHTML = ''
@@ -55,6 +57,11 @@ const STEPS: StepDetail[] = [
   { seq: 1, tool: 'Bash', target: 'gh pr view', kind: 'read', status: 'ok', errorClass: null, durationMs: 1200, startedMs: 0, turnOrigin: 'agent' },
   { seq: 2, tool: 'Bash', target: 'gh run watch', kind: 'shell', status: 'error', errorClass: 'tool_error', durationMs: 4000, startedMs: 200_000, turnOrigin: 'agent' },
 ]
+const PROGRESS = (test: { pass: number; fail: number }, judge = 'async-wait-lifecycle') => ({
+  judge, floor: 30, splits: { test, dev: { pass: 0, fail: 0 }, train: { pass: 0, fail: 0 }, unknown: { pass: 0, fail: 0 } },
+})
+let progressAnswers: Array<[number, unknown]> = []
+let labelStrength: 'strong' | null = 'strong'
 function mountAt(
   path: string,
   queue: [number, unknown] = [200, { judge: 'async-wait-lifecycle', runs: QUEUE }],
@@ -70,7 +77,14 @@ function mountAt(
       calls.push({ method, path: url.pathname + url.search, body: init?.body ? JSON.parse(String(init.body)) : null })
       if (url.pathname === '/review-queue') return json(...queue)
       if (url.pathname === '/review-queue/steps') return json(...steps)
-      if (url.pathname === '/grader-results/human' && method === 'POST') return json(201, { id: 'l1', ...(JSON.parse(String(init!.body)) as object) })
+      if (url.pathname === '/review-queue/progress') {
+        const judge = url.searchParams.get('judge')!
+        return json(...(progressAnswers.shift() ?? [200, PROGRESS({ pass: 0, fail: 0 }, judge)]))
+      }
+      if (url.pathname === '/grader-results/human' && method === 'POST') {
+        const b = JSON.parse(String(init!.body)) as object
+        return json(201, { id: 'l1', ...b, labeler: labelStrength === 'strong' ? 'person:u-1' : 'user:u-1', strength: labelStrength })
+      }
       return json(404, { error: 'not found' })
     }),
   )
@@ -219,6 +233,44 @@ describe('S13 reviewer context (C6-REVIEW-QUEUE-READY)', () => {
     click(q(c, 'review-defer'))
     await waitFor(() => q(c, 'review-card')?.dataset.runId === R2, 'second run')
     expect(q(c, 'review-split')).toBeNull()
+  })
+})
+
+describe('S13 progress per judge (C6-REVIEW-QUEUE-READY)', () => {
+  it('shows x of 30 pass and x of 30 fail in the test split, and reads it again after a saved label', async () => {
+    progressAnswers = [[200, PROGRESS({ pass: 3, fail: 1 })], [200, PROGRESS({ pass: 3, fail: 2 })]]
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-progress'), 'progress')
+    expect(q(c, 'review-progress')!.textContent).toBe('test split: 3 of 30 pass · 1 of 30 fail')
+    expect(calls.filter((x) => x.path === '/review-queue/progress?judge=async-wait-lifecycle')).toHaveLength(1)
+    click(q(c, 'review-fail'))
+    await waitFor(() => q(c, 'review-progress')?.textContent === 'test split: 3 of 30 pass · 2 of 30 fail', 'progress after save')
+    expect(q(c, 'review-weak')).toBeNull()
+  })
+
+  it('reads the progress of the judge of the tab, and marks the floor when both counts reach it', async () => {
+    progressAnswers = [[200, PROGRESS({ pass: 31, fail: 30 }, 'external-block-handling')]]
+    const c = mountAt('/studio/review?judge=external-block-handling')
+    await waitFor(() => !!q(c, 'review-progress'), 'progress')
+    expect(calls.some((x) => x.path === '/review-queue/progress?judge=external-block-handling')).toBe(true)
+    expect(q(c, 'review-progress')!.textContent).toBe('test split: 30 of 30 pass · 30 of 30 fail')
+    expect(q(c, 'review-progress')!.className).toContain('stu-ok')
+  })
+
+  it('warns when a saved label is not a person label (it would not count)', async () => {
+    labelStrength = null
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    click(q(c, 'review-pass'))
+    await waitFor(() => !!q(c, 'review-weak'), 'weak warning')
+    expect(q(c, 'review-weak')!.textContent).toContain('saved as user, not as a person')
+  })
+
+  it('shows no counter when the progress read fails, and the queue still works', async () => {
+    progressAnswers = [[503, { error: 'schema_not_ready' }]]
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    expect(q(c, 'review-progress')).toBeNull()
   })
 })
 
