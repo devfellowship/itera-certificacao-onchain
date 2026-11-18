@@ -273,11 +273,11 @@ describe('S9 shapes and links', () => {
     expect(c.querySelector('.s9-chart__in')!.getAttribute('style')).toContain('--s9-max: 5')
   })
 
-  it('marks Studio active in the nav and the studio home links to S9', async () => {
+  it('marks Use cases (the studio home item) active in the nav and the studio home links to S9', async () => {
     const c = mountAt('/studio/trajectories')
     await waitFor(() => rows(c).length === 5, 'rows')
     const active = [...c.querySelectorAll('nav a[aria-current="page"]')].map((a) => a.textContent)
-    expect(active.join(' ')).toMatch(/Studio/)
+    expect(active).toEqual(['Use cases'])
     act(() => root?.unmount())
     const home = mountAt('/studio')
     await waitFor(() => !!home.querySelector('[data-testid="studio-trajectories-link"]'), 'home link')

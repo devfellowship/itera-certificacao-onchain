@@ -228,13 +228,14 @@ describe('Graders in the app', () => {
   const at = (path: string) => mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />)
   const signIn = () => saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
 
-  it('/studio/graders loads the list, marks Studio active, and the home links to it', async () => {
+  it('/studio/graders loads the list, marks Graders active, and the home links to it', async () => {
     signIn()
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ graderVersions: ITEMS }), { status: 200 })))
     const c = at('/studio/graders')
     await flush()
     expect(c.querySelector('[data-testid="grader-row-hidden-tests"]')).not.toBeNull()
-    expect(c.querySelector('[data-testid="nav-studio"]')?.getAttribute('aria-current')).toBe('page')
+    expect(c.querySelector('[data-testid="nav-studio-graders"]')?.getAttribute('aria-current')).toBe('page')
+    expect(c.querySelector('[data-testid="nav-studio"]')?.getAttribute('aria-current')).toBeNull()
     act(() => root?.unmount())
     document.body.innerHTML = ''
     const home = at('/studio')

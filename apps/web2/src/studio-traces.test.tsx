@@ -266,8 +266,8 @@ describe('S2 trace picker', () => {
     expect(r[2]!.querySelector('[data-testid="trace-no-file"]')!.textContent).toBe('no trajectory file')
     // Source and pins.
     expect(c.querySelector('[data-testid="trace-source"]')!.textContent).toBe('Selection day 2026-11-02. Pins exist for this day. Newest first on each page.')
-    // Studio is active in the nav.
-    expect([...c.querySelectorAll('nav a[aria-current="page"]')].map((a) => a.textContent).join(' ')).toMatch(/Studio/)
+    // Traces is the active Studio item in the nav (MT-03).
+    expect([...c.querySelectorAll('nav a[aria-current="page"]')].map((a) => a.textContent)).toEqual(['Traces'])
     // No HTML injection path.
     expect(c.innerHTML).not.toContain('javascript:')
   })
