@@ -85,8 +85,15 @@ export function buildFixture(root?: string, v: FixtureVariant = FIXTURE_VARIANT)
       private_note: 'a field the service must not serve',
       ...extra,
     });
-  // An older selection day, to prove the newest file wins.
-  writeFileSync(join(selectDir, 'candidates-2026-11-01.jsonl'), `${candidate(v.sidB, null, { identifier: 'OLD' })}\n`);
+  // An older selection day, to prove the newest file wins (S2), and that a pin of an older day still resolves (S13 /v1/pins).
+  writeFileSync(
+    join(selectDir, 'candidates-2026-11-01.jsonl'),
+    `${candidate(v.sidB, null, { identifier: 'OLD', task_summary: { before: `${v.label} older before.`, expected: `${v.label} older expected.`, outcome: null } })}\n`,
+  );
+  writeFileSync(
+    join(selectDir, 'pins-2026-11-01.index.jsonl'),
+    `${JSON.stringify({ session_id: v.sidB, agent_id: null, pin_sha256: 'e'.repeat(64), complete: true, missing: [], layer1: true })}\n`,
+  );
   writeFileSync(
     join(selectDir, 'candidates-2026-11-02.jsonl'),
     [

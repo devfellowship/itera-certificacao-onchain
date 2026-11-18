@@ -6,17 +6,19 @@
  * (review.ts ReasonCode), so a label carries reason_code null.
  * Disagreements between the judge and the workflow label come first (the API orders the queue).
  * The ONE write of the studio: POST /grader-results/human. Defer writes nothing. The full trace stays on the host and
- * opens in S3 when the run's case pin is in the `tma studio serve` index.
+ * opens in S3: the serve resolves the run's case pin (GET /v1/pins/:sha, every selection day). When the run went up
+ * without a task summary, the card shows the summary of the serve, marked as read from the host. Nothing that the
+ * serve answers goes to the TMA API (parent ADR-1).
  */
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { STUDIO_SERVE_URL } from '../config'
 import { Badge, Card, Tip } from '../tma/ui'
 import { Kbd, Section, StuButton, Tab, Tabs, themeClass } from './theme'
-import { traceHref } from './traces'
+import { fetchPin, traceErrorText, traceHref, type PinLookup } from './traces'
 import {
   JUDGES, JUDGE_RUBRICS, JUDGE_TITLES, LONG_GAP_MS, SPLIT_TEXT, floorMet, fmtDuration, foldSteps, gapBefore, getProgress, getReviewQueue, getRunSteps, isJudge, kindLetter,
-  pinIndex, postLabel, progressText, type JudgeId, type ReasonCode, type ReviewProgress, type ReviewRun, type StepDetail, type Verdict,
+  postLabel, progressText, type JudgeId, type ReasonCode, type ReviewProgress, type ReviewRun, type StepDetail, type Verdict,
 } from './review'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
 import './studio.css'
@@ -209,12 +211,18 @@ export function ReviewCard(props: {
   run: ReviewRun
   judge: JudgeId
   traceLink: string | null
+  /** The serve answer for the run's pin: the host summary, the task name; or the text of a failed read. */
+  host?: PinLookup | null
+  hostError?: string | null
   busy: boolean
   error: string | null
   onLabel: (pass: boolean, reason: ReasonCode | null) => void
   onDefer: () => void
 }) {
-  const { run, judge, traceLink, busy, error, onLabel, onDefer } = props
+  const { run, judge, traceLink, host = null, hostError = null, busy, error, onLabel, onDefer } = props
+  const apiSummary = run.taskSummary && (run.taskSummary.before || run.taskSummary.expected) ? run.taskSummary : null
+  const hostSummary = !apiSummary && host?.task_summary && (host.task_summary.before || host.task_summary.expected) ? host.task_summary : null
+  const summary = apiSummary ?? hostSummary
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (busy || e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement | null)?.tagName === 'INPUT') return
@@ -257,12 +265,23 @@ export function ReviewCard(props: {
             </Badge>
           )}
         </div>
-        <dl className="rvw-summary" data-testid="review-summary">
+        <dl className="rvw-summary" data-testid="review-summary" data-source={apiSummary ? 'api' : hostSummary ? 'host' : 'none'}>
+          {host?.task_name && (
+            <>
+              <dt>Task</dt>
+              <dd data-testid="review-task-name">{host.task_name}</dd>
+            </>
+          )}
           <dt>Before</dt>
-          <dd>{run.taskSummary?.before ?? '—'}</dd>
+          <dd>{summary?.before ?? '—'}</dd>
           <dt>Expected</dt>
-          <dd>{run.taskSummary?.expected ?? '—'}</dd>
+          <dd>{summary?.expected ?? '—'}</dd>
         </dl>
+        {hostSummary && (
+          <p className="stu-label" data-testid="review-summary-host">
+            Task text read from the trace host (tailnet), not from the TMA server.
+          </p>
+        )}
         <p className="stu-label rvw-meta" data-testid="review-meta">
           <span className="rvw-meta__case">
             {run.useCaseKey} · {run.caseKey} ·
@@ -285,6 +304,11 @@ export function ReviewCard(props: {
             <Link to={traceLink} data-testid="review-trace-link">
               Open the full trace
             </Link>
+          </p>
+        )}
+        {!traceLink && hostError && (
+          <p className="stu-label" data-testid="review-trace-unavailable">
+            {hostError}
           </p>
         )}
       </Section>
@@ -317,7 +341,8 @@ export function StudioReviewPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(0)
-  const [pins, setPins] = useState<Map<string, { sessionId: string; agentId: string | null }>>(new Map())
+  // The serve answer per case pin: a lookup, or the user text of a failed read. Read once per pin, for the shown run.
+  const [pins, setPins] = useState<Map<string, PinLookup | { error: string }>>(new Map())
   const [progress, setProgress] = useState<ReviewProgress | null>(null)
   const [weak, setWeak] = useState<string | null>(null)
   const judgeRef = useRef(judge)
@@ -335,17 +360,22 @@ export function StudioReviewPage() {
     setWeak(null)
     void refreshProgress(judge)
   }, [judge])
+  const runs = loaded.state === 'ok' ? loaded.data.runs : []
+  const run = runs[index] ?? null
+  const pinSha = run?.originPinSha256 ?? null
   useEffect(() => {
-    if (!STUDIO_SERVE_URL) return
+    if (!STUDIO_SERVE_URL || !pinSha || pins.has(pinSha)) return
     let live = true
-    pinIndex().then((m) => live && setPins(m), () => undefined)
+    fetchPin(pinSha).then(
+      (p) => live && setPins((m) => new Map(m).set(pinSha, p)),
+      (e: unknown) => live && setPins((m) => new Map(m).set(pinSha, { error: traceErrorText(e) })),
+    )
     return () => {
       live = false
     }
-  }, [])
-  const runs = loaded.state === 'ok' ? loaded.data.runs : []
-  const run = runs[index] ?? null
-  const pin = run?.originPinSha256 ? pins.get(run.originPinSha256) : undefined
+  }, [pinSha, pins])
+  const pinAnswer = pinSha ? pins.get(pinSha) : undefined
+  const pin = pinAnswer && 'session_id' in pinAnswer ? pinAnswer : null
   const label = (pass: boolean, reason: ReasonCode | null) => {
     if (!run || busy) return
     setBusy(true)
@@ -417,7 +447,9 @@ export function StudioReviewPage() {
         <ReviewCard
           run={run}
           judge={judge}
-          traceLink={pin ? traceHref(pin.sessionId, pin.agentId) : null}
+          traceLink={pin?.has_trajectory ? traceHref(pin.session_id, pin.agent_id) : null}
+          host={pin}
+          hostError={pinAnswer && 'error' in pinAnswer ? pinAnswer.error : null}
           busy={busy}
           error={error}
           onLabel={label}

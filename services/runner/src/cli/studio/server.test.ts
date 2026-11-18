@@ -72,6 +72,19 @@ describe('tma studio serve', () => {
     }
   });
 
+  it('S13 /v1/pins: resolves a pin of the newest day and of an older day, with the task summary of the row that has one', async () => {
+    const a = await get(`/v1/pins/${'f'.repeat(64)}`);
+    expect(a.status).toBe(200);
+    expect(await a.json()).toMatchObject({ session_id: SID_A, agent_id: null, selection_day: '2026-11-02', task_name: 'Fixture task name', has_trajectory: true, task_summary: { expected: 'Fixture expected state.' } });
+    const b = await get(`/v1/pins/${'E'.repeat(64)}`);
+    expect(b.status).toBe(200);
+    expect(await b.json()).toMatchObject({ session_id: SID_B, selection_day: '2026-11-01', task_summary: { before: 'Fixture older before.', expected: 'Fixture older expected.' } });
+    expect((await get(`/v1/pins/${'0'.repeat(64)}`)).status).toBe(404);
+    expect((await get('/v1/pins/not-a-sha')).status).toBe(400);
+    expect((await fetch(`${base}/v1/pins/${'f'.repeat(64)}`)).status).toBe(401);
+    expect((await get(`/v1/pins/${'f'.repeat(64)}`, auth(webToken(OTHER)))).status).toBe(403);
+  });
+
   it('answers 403 for a valid session of another principal', async () => {
     expect((await get('/v1/traces', auth(webToken(OTHER)))).status).toBe(403);
   });
