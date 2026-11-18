@@ -12,6 +12,8 @@
  * row only, the selection day moves into its (i).
  * Selection (MT-05, first half): a checkbox column, the "N selected · Clear" bar and a DISABLED "Build N cases" button.
  * Its action (Q 3d291a2b = A: the serve writes case drafts into dfl-evals) lands in its own PR.
+ * MT-20: one row = one trace = one run. A row links to /studio/traces/<trace_id>; the session is a column and a filter
+ * (?session_id=).
  * Gaps against the artboard (the index has no such field or the studio has no such screen): the task title (the row
  * shows the task identifier), the merge state and CI result of the PR, the model size badge, the search box.
  */
@@ -21,17 +23,18 @@ import { Card } from '../tma/ui'
 import { useDismiss } from '../tma/ui/useDismiss'
 import { AgentAvatar, ExternalRef, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, dash, fmtTime, useTraceLoad } from './TraceParts'
 import { themeClass } from './theme'
-import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prFiles, prUrl, replayOf, shortDay, signalLabel, traceHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
+import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prFiles, prUrl, replayOf, shortDay, signalLabel, rowHref, sessionHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
 import './studio.css'
 import './traces.css'
 
-const FILTERS = ['l2_class', 'why', 'mode', 'small_diff'] as const
+const FILTERS = ['l2_class', 'why', 'mode', 'small_diff', 'session_id'] as const
 type FilterKey = (typeof FILTERS)[number]
 /** The group labels of the filter bar. The URL parameters keep the field keys. */
-const FILTER_LABEL: Record<FilterKey, string> = { l2_class: 'Use case', why: 'Picked for', mode: 'Mode', small_diff: 'Small diff' }
+const FILTER_LABEL: Record<FilterKey, string> = { l2_class: 'Use case', why: 'Picked for', mode: 'Mode', small_diff: 'Small diff', session_id: 'Session' }
 /** MT-11: a yes/no filter has fixed values; the other groups list the values on the page. */
 const FIXED_VALUES: Partial<Record<FilterKey, Record<string, string>>> = { small_diff: { true: 'yes (merged, 3 files or fewer)', false: 'no' } }
-const valueText = (k: FilterKey, v: string) => (k === 'small_diff' ? (v === 'true' ? 'yes' : 'no') : plainValue(v))
+const shortSession = (sid: string) => sid.slice(0, 8)
+const valueText = (k: FilterKey, v: string) => (k === 'small_diff' ? (v === 'true' ? 'yes' : 'no') : k === 'session_id' ? shortSession(v) : plainValue(v))
 const SMALL_DIFF_TIP = 'A merged PR that changed 3 files or fewer. Small, finished changes make clean cases.'
 
 const ABOUT = 'Real agent sessions from the daily selection. A signal (a correction, a re-run, a revert) marks the traces with the most to teach. Read only. The content comes from the private trace service, not from the TMA server.'
@@ -42,7 +45,7 @@ const SIGNAL_TIP =
 function rowLabel(r: TraceRow): string {
   return r.task_name?.trim() || r.identifier || r.task_id || (r.session_id ? `Session ${r.session_id.slice(0, 8)}` : '(no id)')
 }
-const rowKey = (r: TraceRow, i: number) => `${r.session_id ?? ''}:${r.agent_id ?? ''}:${i}`
+const rowKey = (r: TraceRow, i: number) => `${r.trace_id ?? `${r.session_id ?? ''}:${r.agent_id ?? ''}`}:${i}`
 
 const REPLAY_TEXT: Record<Replay, string> = { yes: 'yes', partly: 'partly', no: 'no', unpinned: 'not pinned' }
 const REPLAY_PATH: Record<Replay, string> = { yes: 'M20 6 9 17l-5-5', partly: 'M5 12h14', no: 'M18 6 6 18M6 6l12 12', unpinned: 'M5 12h14' }
@@ -123,12 +126,12 @@ function TraceRowLine({ r, on, onFocus, checked, onToggle }: { r: TraceRow; on: 
           {!r.session_id ? (
             <span className="trc-task-id">{rowLabel(r)}</span>
           ) : r.has_trajectory ? (
-            <Link to={traceHref(r.session_id, r.agent_id)} className="trc-task-id" data-testid="trace-link" title={r.session_id}>
+            <Link to={rowHref(r)!} className="trc-task-id" data-testid="trace-link">
               {rowLabel(r)}
             </Link>
           ) : (
             <>
-              <span className="trc-task-id" title={r.session_id}>
+              <span className="trc-task-id">
                 {rowLabel(r)}
               </span>
               <span className="trc-none" data-testid="trace-no-file">
@@ -137,6 +140,15 @@ function TraceRowLine({ r, on, onFocus, checked, onToggle }: { r: TraceRow; on: 
             </>
           )}
         </span>
+      </span>
+      <span role="cell" className="trc-cell trc-cell--session" data-field="session_id">
+        {r.session_id ? (
+          <Link to={sessionHref(r.session_id)} className="trc-session" title={`Show the runs of session ${r.session_id}`} data-testid="trace-session" onClick={(e) => e.stopPropagation()}>
+            {shortSession(r.session_id)}
+          </Link>
+        ) : (
+          '—'
+        )}
       </span>
       <span role="cell" className="trc-cell trc-cell--pr">
         <PrCell r={r} />
@@ -210,6 +222,8 @@ function FocusPanel({ r }: { r: TraceRow }) {
       <details className="trc-details">
         <summary>Technical details</summary>
         <dl className="trc-kv">
+          <dt>Trace</dt>
+          <dd className="stu-label" data-field="trace_id">{dash(r.trace_id)}</dd>
           <dt>Session</dt>
           <dd className="stu-label">{dash(r.session_id)}</dd>
           <dt>Executor</dt>
@@ -232,7 +246,7 @@ function FocusPanel({ r }: { r: TraceRow }) {
       </details>
       <div className="trc-aside__actions">
         {r.session_id && r.has_trajectory ? (
-          <Link to={traceHref(r.session_id, r.agent_id)} className="stu-btn stu-btn--primary" data-testid="trace-open">
+          <Link to={rowHref(r)!} className="stu-btn stu-btn--primary" data-testid="trace-open">
             Open the trace
           </Link>
         ) : (
@@ -324,7 +338,7 @@ function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[]
                           data-filter-value={v ?? 'all'}
                           onClick={() => setOpen(false)}
                         >
-                          {v === null ? 'all' : fixed ? fixed[v] : plainValue(v)}
+                          {v === null ? 'all' : fixed ? fixed[v] : valueText(k, v)}
                         </Link>
                       )
                     })}
@@ -352,7 +366,7 @@ function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[]
       )}
       <span className="trc-filters__fill" />
       {active.length > 0 && (
-        <Link to={hrefWith(params, { l2_class: null, why: null, mode: null, small_diff: null, offset: null })} className="trc-clear" data-testid="trace-clear">
+        <Link to={hrefWith(params, { l2_class: null, why: null, mode: null, small_diff: null, session_id: null, offset: null })} className="trc-clear" data-testid="trace-clear">
           Clear all
         </Link>
       )}
@@ -401,7 +415,7 @@ function TraceTable({ rows, focusedKey, onFocus, selected, onSelect }: { rows: K
           <span role="columnheader" className="trc-cell trc-cell--check">
             <input type="checkbox" className="trc-check-box" aria-label="Select all traces on this page" checked={all} onChange={() => onSelect(all ? new Set() : new Set(rows.map(({ k }) => k)))} data-testid="trace-select-all" />
           </span>
-          {['date', 'agent', 'task', 'pr / ci', 'signal', 'replayable'].map((h) => (
+          {['date', 'agent', 'task', 'session', 'pr / ci', 'signal', 'replayable'].map((h) => (
             <span key={h} role="columnheader" className="trc-cell">
               {h}
               {h === 'signal' && <InfoTip label="About signal" text={SIGNAL_TIP} />}
@@ -428,10 +442,11 @@ export function StudioTracesPage() {
     why: params.get('why'),
     mode: params.get('mode'),
     small_diff: params.get('small_diff'),
+    session_id: params.get('session_id'),
   }
-  const loaded = useTraceLoad(() => fetchTraceList(q), [q.offset, q.l2_class, q.why, q.mode, q.small_diff])
+  const loaded = useTraceLoad(() => fetchTraceList(q), [q.offset, q.l2_class, q.why, q.mode, q.small_diff, q.session_id])
   // A selection belongs to one page of one query: a new page or filter starts empty.
-  useEffect(() => setSelected(new Set()), [q.offset, q.l2_class, q.why, q.mode, q.small_diff])
+  useEffect(() => setSelected(new Set()), [q.offset, q.l2_class, q.why, q.mode, q.small_diff, q.session_id])
   // Newest first on each page. The serve pages by its own order, so the date order holds inside a page only.
   const keyed = loaded.state === 'ok' ? newestFirst(loaded.data.rows).map((r, i) => ({ r, k: rowKey(r, i) })) : []
   const focused = keyed.find((x) => x.k === focus) ?? keyed[0] ?? null
