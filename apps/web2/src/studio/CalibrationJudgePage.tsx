@@ -7,8 +7,8 @@
  * The canvas write buttons (Save as, Label more runs as a write) are a copy command and a link to S13: the studio never
  * changes a judge. A judge changes by a pull request in dfl-evals.
  * The "try it" panel is the dry run of S10a (GraderDryRunPanel); it shows only when `tma studio serve` has a dry run route.
- * Gaps against the artboard: the system and user prompt text and the answer choices stay in the eval repo (the result store
- * keeps the rubric and params digests), so the page names their folder instead of showing them.
+ * C5-SRC-SERVE (Q cd26fe07 = A): the Definition tab shows the judge prompt and its rubric, read only from Git at the stored
+ * rubric digest (GET /grader-versions/:id/source). With no stored judge version there is no digest, so no prompt is shown.
  */
 import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
@@ -21,6 +21,7 @@ import { DecideMark, LibraryShell, StateBox } from './GraderLibraryParts'
 import { JUDGE_TITLES, type ReviewRun } from './review'
 import { shortDigest } from './graders'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
+import { JudgePrompt, SourceEmpty, SourceFacts, useGraderSource, type SourceState } from './GraderSourceParts'
 
 type TabKey = 'definition' | 'calibration' | 'versions'
 
@@ -38,8 +39,10 @@ function Fact({ k, children, title, testId }: { k: string; children: React.React
   )
 }
 
-export function JudgeDefinition({ c, version }: { c: JudgeCalibration; version?: string | null }) {
+export function JudgeDefinition({ c, version, source }: { c: JudgeCalibration; version?: string | null; source?: SourceState }) {
   const v = pickVersion(c, version)
+  const loaded = useGraderSource(source || !v ? null : v.id)
+  const src = source ?? loaded
   return (
     <section className="grd-head" data-testid="judge-definition" aria-label="Definition">
       {v ? (
@@ -60,12 +63,14 @@ export function JudgeDefinition({ c, version }: { c: JudgeCalibration; version?:
             <Fact k="Created">{v.createdAt.slice(0, 10)}</Fact>
           </dl>
           {v.note && <p className="tma-body-sm tma-muted">Note: {v.note}</p>}
+          {src.state === 'ready' ? <JudgePrompt s={src.data} /> : <SourceEmpty st={src} digest={v.rubricSha256 ?? v.codeSha256} what="judge prompt" />}
         </>
       ) : (
         <div data-testid="judge-empty" className="grd-state">
           <span className="tma-label">No version uploaded yet</span>
           <p className="tma-body-sm tma-muted">
             The judge definition lives in the eval repo (<span className="tma-mono">judges/{c.judge}/</span>). A version shows here after its first calibration result is uploaded.
+            No judge version is stored, so there is no prompt digest, and the page shows no prompt text.
           </p>
         </div>
       )}
@@ -81,10 +86,14 @@ export function JudgeDefinition({ c, version }: { c: JudgeCalibration; version?:
         </section>
         <section className="grd-box" aria-label="Where the prompt lives">
           <h2 className="grd-caps">Where the prompt lives</h2>
-          <p className="tma-body-sm">
-            The system and user prompt stay in the eval repo, in <span className="grd-code">judges/{c.judge}/</span>. The result store keeps the rubric and params digests,
-            so this page cannot show the text.
-          </p>
+          {v && src.state === 'ready' ? (
+            <SourceFacts s={src.data} />
+          ) : (
+            <p className="tma-body-sm" data-testid="judge-prompt-where">
+              The prompt and the rubric stay in Git, in <span className="grd-code">judges/{c.judge}/</span>. The result store keeps the rubric and params digests; the page
+              reads the prompt only from a commit that gives those digests.
+            </p>
+          )}
         </section>
       </div>
     </section>

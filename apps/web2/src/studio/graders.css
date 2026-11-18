@@ -149,3 +149,18 @@
   .grd-fact { border-right: 0; border-bottom: 1px solid var(--stu-line); }
 }
 .grd-block { display: block; }
+
+/* C5-SRC-SERVE: grader code and judge prompt, read only from Git at the stored digest (S10a, S11a artboards) */
+.grd-src { display: flex; flex-direction: column; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-well); min-width: 0; }
+.grd-src__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--stu-gap-2) var(--stu-gap-4); padding: 8px 12px; border-bottom: 1px solid var(--stu-line); background: var(--stu-surface); border-radius: var(--stu-radius) var(--stu-radius) 0 0; }
+.grd-src__head--mid { border-top: 1px solid var(--stu-line); border-radius: 0; }
+.grd-src__tabs { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.grd-src__tab { padding: 4px 10px; border: 1px solid transparent; border-radius: var(--stu-radius); background: none; color: var(--stu-text-muted); font-family: var(--stu-font-mono); font-size: 12px; cursor: pointer; }
+.grd-src__tab:hover { color: var(--stu-text); }
+.grd-src__tab[aria-selected='true'] { color: var(--stu-text); border-color: var(--stu-line-strong); background: var(--stu-raised); }
+.grd-src__note { font-size: 12px; color: var(--stu-text-muted); }
+.grd-src__lines { margin: 0; padding: 12px 0; max-height: 420px; overflow: auto; counter-reset: grd-line; list-style: none; font-family: var(--stu-font-mono); font-size: 12.5px; line-height: 1.6; }
+.grd-src__lines li { display: grid; grid-template-columns: 44px minmax(0, 1fr); counter-increment: grd-line; }
+.grd-src__lines li::before { content: counter(grd-line); padding-right: 14px; text-align: right; color: var(--stu-text-muted); user-select: none; }
+.grd-src__lines code { white-space: pre; color: var(--stu-text-2); font-family: inherit; }
+.grd-src__var { padding: 0 2px; border-radius: 2px; background: var(--stu-accent-soft); color: var(--stu-accent-hover); }

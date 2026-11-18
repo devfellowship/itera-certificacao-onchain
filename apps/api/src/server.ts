@@ -5,6 +5,7 @@ import { PgEvalResultsReader } from "./self-declared/eval-results.js";
 import { PgUseCaseCompareReader } from "./self-declared/use-case-compare.js";
 import { PgRoutesStore } from "./self-declared/routes.js";
 import { PgGraderVersionsReader } from "./self-declared/grader-versions.js";
+import { graderSourceFromEnv } from "./self-declared/grader-source.js";
 import { PgTrajectoriesReader } from "./self-declared/trajectories.js";
 import { PgHumanLabelStore } from "./self-declared/human-labels.js";
 import { PgEvalCleanupStore } from "./self-declared/cleanup.pg.js";
@@ -145,6 +146,8 @@ createApp(repo, {
   routes: { store: new PgRoutesStore(getPool), reader: new PgUseCaseCompareReader(getPool) },
   // C5-T5: read only grader library (503 before 0023).
   graderVersions: new PgGraderVersionsReader(getPool),
+  // C5-SRC-SERVE: grader source and judge prompt from Git at the stored digest (TMA_GRADER_SOURCE=off turns it off).
+  graderSource: graderSourceFromEnv(),
   // C5-T9: studio S9 trajectory wall and path map (read only, 503 before 0024).
   trajectories: new PgTrajectoriesReader(getPool),
   humanLabels: { store: new PgHumanLabelStore(getPool) },

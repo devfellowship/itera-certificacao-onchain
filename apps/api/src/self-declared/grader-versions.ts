@@ -6,6 +6,9 @@
  *                              (the grader_results rows that point at it).
  *   GET /grader-versions/:id   one version: judge fields, calibration, proof, and the latest runs that it graded
  *                              (ids only; the web page links to them).
+ *   GET /grader-versions/:id/source[?path=]
+ *                              the grader source, planted-bug list and judge prompt from Git at the stored digest
+ *                              (C5-SRC-SERVE, grader-source.ts). Mounted only with a resolver; every other method: 405.
  *
  * Tenancy: a grader version belongs to a tenant, not to a principal (the upload path writes the tenant of
  * TMA_RESULT_TENANT, see resultTenantFromEnv). A principal reads the versions of that tenant; a version of another
@@ -17,6 +20,7 @@ import { requirePrincipal } from "../auth/middleware.js";
 import { hasEvalMetaSchema, hasEvalResultsSchema } from "../domain/schema-features.js";
 import type { GraderVersionMetaView } from "./eval-results.js";
 import { EVAL_RESULTS_MIGRATION, resultTenantFromEnv } from "./store.js";
+import { FileNotInDigestError, SourceUnavailableError, type GraderSourceResolver } from "./grader-source.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -141,7 +145,11 @@ export class PgGraderVersionsReader implements GraderVersionsReader {
 export interface GraderVersionsRouterOptions {
   /** TMA_RESULT_TENANT by default. */
   tenant?: string;
+  /** C5-SRC-SERVE: GET /grader-versions/:id/source. Absent: the route is not mounted. */
+  source?: GraderSourceResolver;
 }
+
+const PATH_RE = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
 
 export function createGraderVersionsRouter(reader: GraderVersionsReader, options: GraderVersionsRouterOptions = {}): Router {
   const router = Router();
@@ -168,6 +176,34 @@ export function createGraderVersionsRouter(reader: GraderVersionsReader, options
       next(e);
     }
   });
+
+  const source = options.source;
+  if (source) {
+    router.get("/grader-versions/:id/source", requirePrincipal, async (req: Request, res: Response, next: NextFunction) => {
+      const id = String(req.params.id);
+      const path = typeof req.query.path === "string" ? req.query.path : undefined;
+      if (path !== undefined && (!PATH_RE.test(path) || path.split("/").some((s) => s === "." || s === "..")))
+        return void res.status(400).json({ error: "bad_path" });
+      try {
+        if (!(await reader.ready())) return void notReady(res);
+        const detail = UUID_RE.test(id) ? await reader.detail(id, options.tenant ?? resultTenantFromEnv()) : null;
+        if (!detail) return void res.status(404).json({ error: "grader version not found" });
+        const view = await source.resolve(detail, path);
+        if (!view)
+          return void res.status(404).json({
+            error: "digest_not_in_git",
+            message: "no commit of the grader source branch gives the stored digest of this version",
+          });
+        res.set("cache-control", "private, max-age=300").json(view);
+      } catch (e) {
+        if (e instanceof FileNotInDigestError) return void res.status(404).json({ error: "file_not_in_digest", message: e.message });
+        if (e instanceof SourceUnavailableError) return void res.status(503).json({ error: "source_unavailable" });
+        next(e);
+      }
+    });
+    // Read only: no write path on the source.
+    router.all("/grader-versions/:id/source", (_req: Request, res: Response) => void res.set("allow", "GET, HEAD").status(405).json({ error: "method_not_allowed" }));
+  }
 
   return router;
 }

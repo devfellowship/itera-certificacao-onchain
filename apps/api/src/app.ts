@@ -46,6 +46,7 @@ import { createEvalResultsRouter, type EvalResultsReader } from "./self-declared
 import { createUseCaseCompareRouter, type UseCaseCompareRouterDeps } from "./self-declared/use-case-compare.js";
 import { createRoutesRouter, type RoutesRouterDeps } from "./self-declared/routes.js";
 import { createGraderVersionsRouter, type GraderVersionsReader } from "./self-declared/grader-versions.js";
+import type { GraderSourceResolver } from "./self-declared/grader-source.js";
 import { createTrajectoriesRouter, type TrajectoriesReader } from "./self-declared/trajectories.js";
 import { createHumanLabelsRouter, type HumanLabelsRouterDeps } from "./self-declared/human-labels.js";
 import { createEvalCleanupRouter, type EvalCleanupRouterDeps } from "./self-declared/cleanup.js";
@@ -240,6 +241,8 @@ export interface AppOptions {
   routes?: RoutesRouterDeps;
   /** C5-T5: GET /grader-versions, GET /grader-versions/:id (read only, tenant scoped). */
   graderVersions?: GraderVersionsReader;
+  /** C5-SRC-SERVE: GET /grader-versions/:id/source (Git at the stored digest, read only). Needs graderVersions. */
+  graderSource?: GraderSourceResolver;
   /** C5-T9: GET /trajectories, studio S9 (read only; public hosted runs + the caller's own runs; 503 before 0024). */
   trajectories?: TrajectoriesReader;
   /** C6-T3 (plan 20261112-tma-c6-judge-calibration): POST /grader-results/human (the one S13 write), GET
@@ -330,7 +333,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   if (options.evalResults) app.use(createEvalResultsRouter(options.evalResults));
   if (options.useCaseCompare) app.use(createUseCaseCompareRouter(options.useCaseCompare));
   if (options.routes) app.use(createRoutesRouter(options.routes));
-  if (options.graderVersions) app.use(createGraderVersionsRouter(options.graderVersions));
+  if (options.graderVersions) app.use(createGraderVersionsRouter(options.graderVersions, options.graderSource ? { source: options.graderSource } : {}));
   if (options.trajectories) app.use(createTrajectoriesRouter(options.trajectories));
   if (options.humanLabels) app.use(createHumanLabelsRouter(options.humanLabels));
   // C4-T13: after express.json() (a small JSON body), owner-only.
