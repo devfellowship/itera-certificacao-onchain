@@ -119,6 +119,10 @@ export function candidateView(r: Row, pin: PinStatus | null, hasTrajectory: bool
     run_kind: str(r.run_kind),
     identifier: str(r.identifier),
     task_id: str(r.task_id),
+    // MT-12/13: source-agnostic task fields the selection writes (the DFL source fills them from its task row).
+    task_name: str(r.task_name),
+    external_id: str(r.external_id),
+    external_url: str(r.external_url),
     executor: str(r.executor),
     harness: str(r.harness),
     host: str(r.host),
