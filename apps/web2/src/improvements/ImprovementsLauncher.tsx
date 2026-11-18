@@ -23,14 +23,17 @@ import './improvements.css'
  * testmyagent.com from inside the app. One floating button opens one dialog. Mounted once, in the
  * root route (`routes.tsx`), so it shows on every page for a signed-in user.
  *
- * Who sees it: only a signed-in user whose DFL JWT passes the service gate (`GET /v1/requests?mine=1`
- * answers 200 for a superadmin, 403 for anyone else). The hiding is cosmetic: the service checks again.
- * The DFL JWT lives in this tab only and expires in about 1 h (`auth/dflToken.ts`). A superadmin whose
- * token expired still sees the button (a hint in localStorage); the click goes through Login with DFL
- * again (an instant redirect when the DFL session is alive) and comes back with the dialog open.
+ * Who sees it: a signed-in user whose DFL JWT passes the service gate (`GET /v1/requests?mine=1` answers 200
+ * for a superadmin, 403 for anyone else). The hiding is cosmetic: the service checks again.
+ * The DFL JWT lives in this tab only and expires in about 1 h (`auth/dflToken.ts`). Without a valid token the
+ * launcher cannot ask, so it shows the button unless the service already refused this user (a "no:" hint in
+ * localStorage). The click goes through Login with DFL again (an instant redirect when the DFL session is
+ * alive) and comes back with the dialog open; a refused user then sees no button from that point on.
  */
 
 const HINT_KEY = 'tma2.melhorias.superadmin'
+/** Hint value for a user the service already refused (403): "no:<userId>". The user id alone means superadmin. */
+const notHint = (userId: string) => `no:${userId}`
 /** Query flag that reopens the dialog after the re-login. */
 export const REOPEN_PARAM = 'melhorias'
 
@@ -43,10 +46,9 @@ const readHint = (): string | null => {
     return null
   }
 }
-const writeHint = (userId: string | null) => {
+const writeHint = (value: string) => {
   try {
-    if (userId) localStorage.setItem(HINT_KEY, userId)
-    else localStorage.removeItem(HINT_KEY)
+    localStorage.setItem(HINT_KEY, value)
   } catch {
     /* storage blocked: the hint is only a convenience */
   }
@@ -64,13 +66,15 @@ function useAccess(client: ImprovementsClient, userId: string | null) {
     if (loadDflToken()) {
       client.isSuperadmin().then(
         (ok) => {
-          writeHint(ok ? userId : null)
+          writeHint(ok ? userId : notHint(userId))
           settle(ok ? 'ready' : 'hidden')
         },
         () => settle('hidden'),
       )
     } else {
-      settle(readHint() === userId ? 'reauth' : 'hidden')
+      // No token (a session older than the launcher, or a new tab, or an expired token). Only a user the service
+      // already refused stays hidden. A user we never asked sees the button once: the click re-logs in and asks.
+      settle(readHint() === notHint(userId) ? 'hidden' : 'reauth')
     }
     return () => {
       live = false
