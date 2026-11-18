@@ -25,6 +25,7 @@ vi.mock('./config', async (orig) => {
 })
 import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
+import { traceHref } from './studio/traces'
 import { fmtDuration, foldSteps, gapBefore, type ReviewRun, type StepDetail } from './studio/review'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -308,7 +309,8 @@ describe('S13 full trace and host summary (C6-REVIEW-QUEUE-READY)', () => {
     pinAnswers[PIN] = [200, lookup()]
     const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: [noSummary(R1)] }])
     await waitFor(() => !!q(c, 'review-trace-link'), 'trace link')
-    expect(q(c, 'review-trace-link')!.getAttribute('href')).toBe(`/studio/traces/${SID}?agent_id=a1b2`)
+    // MT-20 (#cc9362f): one URL per run, keyed by the trace id of the session and the agent.
+    expect(q(c, 'review-trace-link')!.getAttribute('href')).toBe(traceHref(SID, 'a1b2'))
     expect(q(c, 'review-summary')!.dataset.source).toBe('host')
     expect(q(c, 'review-summary')!.textContent).toContain('Host expected.')
     expect(q(c, 'review-task-name')!.textContent).toBe('Fix the red CI')
