@@ -1,3 +1,4 @@
+import { clearDflToken } from './dflToken'
 import type { TmaSession } from './exchangeDflToken'
 
 /** localStorage key of the TestMyAgent web2 session. */
@@ -26,6 +27,7 @@ export function saveSession(session: TmaSession): void {
 }
 
 export function clearStoredSession(): void {
+  clearDflToken()
   try {
     localStorage.removeItem(SESSION_KEY)
   } catch {

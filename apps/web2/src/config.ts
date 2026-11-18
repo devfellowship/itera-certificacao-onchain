@@ -56,3 +56,12 @@ export function buildFederateUrl(
   const returnUrl = encodeURIComponent(`${origin}${DFL_CALLBACK_PATH}`)
   return `${federateUrl}?return=${returnUrl}&next=${next === '/' ? '/' : encodeURIComponent(next)}`
 }
+
+/** The DFL Supabase project (public URL). The "Melhorias" screenshot upload calls its `upload-file` function. */
+export const DFL_SUPABASE_URL = trimSlash(import.meta.env.VITE_DFL_SUPABASE_URL || 'https://yoojxnggaxcqtsyjdrdx.supabase.co')
+
+/** The dfl-improvements service behind the "Melhorias" launcher (plan 20261103-in-app-improvements-melhorias). */
+export const IMPROVEMENTS_API_URL = trimSlash(import.meta.env.VITE_IMPROVEMENTS_API_URL || 'https://improvements-api.devfellowship.com')
+
+/** The `app_slug` of this app in the dfl-improvements service. */
+export const IMPROVEMENTS_APP_SLUG = 'testmyagent'

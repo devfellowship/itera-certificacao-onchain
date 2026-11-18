@@ -7,6 +7,7 @@
 import { Outlet, type RouteObject } from 'react-router-dom'
 import { RequireSession } from './auth/RequireSession'
 import { SessionProvider } from './auth/session'
+import { ImprovementsLauncher } from './improvements/ImprovementsLauncher'
 import { AppNav } from './tma/nav/AppNav'
 import { Lockup } from './tma/ui'
 import { AddAgentPage } from './pages/AddAgentPage'
@@ -85,6 +86,8 @@ export const routes: RouteObject[] = [
     element: (
       <SessionProvider>
         <Outlet />
+        {/* The "Melhorias" launcher, once for every page (superadmins only). */}
+        <ImprovementsLauncher />
       </SessionProvider>
     ),
     children: [
