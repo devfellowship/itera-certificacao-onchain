@@ -7,7 +7,7 @@
  * interval computed from those counts (the bootstrap interval of the T5 report stays in the plan and in dfl-evals).
  */
 import { getGraderVersion, listGraderVersions, type GraderVersionDetail, type GraderVersionItem } from './graders'
-import { JUDGES, getReviewQueue, type JudgeId } from './review'
+import { JUDGES, getReviewQueue, type JudgeId, type ReviewRun } from './review'
 
 /** The bar of a decisive judge: TPR and TNR both at least 0.90 (parent ADR-21; the canvas said 85 %). */
 export const JUDGE_BAR = 0.9
@@ -80,6 +80,8 @@ export interface JudgeCalibration {
   versions: GraderVersionDetail[]
   /** Null when the review queue could not be read. */
   queue: QueueCounts | null
+  /** The queue runs that carry a label from people or a workflow, or a judge verdict (S11a side panel). Empty when the queue could not be read. */
+  labeled: ReviewRun[]
   /** Label rows written for this judge, from every source (weak workflow labels and people): the use count of grader `label-<judge>`. Null when none yet. */
   labelRows: number | null
 }
@@ -91,13 +93,17 @@ export function versionsOf(items: GraderVersionItem[], judge: string): GraderVer
   return items.filter((g) => g.kind === 'judge' && g.graderId === judge).sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
 }
 
-async function queueCounts(judge: JudgeId): Promise<QueueCounts | null> {
+async function queueOf(judge: JudgeId): Promise<{ counts: QueueCounts; labeled: ReviewRun[] } | null> {
   try {
     const q = await getReviewQueue(judge, QUEUE_LIMIT)
+    const runs = Array.isArray(q?.runs) ? q.runs : []
     return {
-      toReview: q.runs.length,
-      workflowLabels: q.runs.filter((r) => r.workflow !== null).length,
-      judgeVerdicts: q.runs.filter((r) => r.judge !== null).length,
+      counts: {
+        toReview: runs.length,
+        workflowLabels: runs.filter((r) => r.workflow != null).length,
+        judgeVerdicts: runs.filter((r) => r.judge != null).length,
+      },
+      labeled: runs.filter((r) => r.workflow != null || r.mine != null || r.judge != null),
     }
   } catch {
     return null
@@ -105,9 +111,9 @@ async function queueCounts(judge: JudgeId): Promise<QueueCounts | null> {
 }
 
 async function loadOne(judge: JudgeId, all: GraderVersionItem[]): Promise<JudgeCalibration> {
-  const [versions, queue] = await Promise.all([Promise.all(versionsOf(all, judge).map((v) => getGraderVersion(v.id))), queueCounts(judge)])
+  const [versions, q] = await Promise.all([Promise.all(versionsOf(all, judge).map((v) => getGraderVersion(v.id))), queueOf(judge)])
   const labels = all.filter((g) => g.kind === 'human' && g.graderId === `label-${judge}`)
-  return { judge, versions, queue, labelRows: labels.length === 0 ? null : labels.reduce((n, g) => n + g.usedByCount, 0) }
+  return { judge, versions, queue: q ? q.counts : null, labeled: q ? q.labeled : [], labelRows: labels.length === 0 ? null : labels.reduce((n, g) => n + g.usedByCount, 0) }
 }
 
 /** S11: both judges. The version list is one call; a failed list (503, 404) throws and the page shows the empty state. */

@@ -8,7 +8,8 @@ import { setSessionToken } from './lib/api'
 import { routes } from './routes'
 import { GraderDetailView } from './studio/GraderDetailPage'
 import { GraderDryRunPanel } from './studio/GraderDryRunPanel'
-import { GraderLibraryView } from './studio/GraderLibraryPage'
+import { GraderLibraryView, GraderPanel, libraryView } from './studio/GraderLibraryPage'
+import { useState } from 'react'
 import type { GraderVersionDetail, GraderVersionItem } from './studio/graders'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -43,16 +44,74 @@ const DETAIL: GraderVersionDetail = {
 }
 const FORBIDDEN = /\b(Save as|Save|Duplicate|Plant another bug|Run)\b/
 
+function GraderPanelHarness() {
+  const details = { 'g-1': { ...DETAIL, ...ITEMS[0]!, proof: { caught: 3, total: 3 } }, 'g-2': DETAIL }
+  const [sel, setSel] = useState<string | null>(null)
+  const { cur } = libraryView(ITEMS, null, sel)
+  const d = cur && cur.versions[0] ? (details as Record<string, GraderVersionDetail>)[cur.versions[0].id] ?? null : null
+  return (
+    <>
+      <GraderLibraryView items={ITEMS} details={details} sel={sel} onSel={setSel} />
+      {cur && <GraderPanel r={cur} d={d} />}
+    </>
+  )
+}
+
 describe('S10 grader library', () => {
   it('renders a row per version with the short digest, full on hover, used-by, and a link to S10a', () => {
     const c = mount(<MemoryRouter><GraderLibraryView items={ITEMS} /></MemoryRouter>)
     const row = c.querySelector('[data-testid="grader-row-hidden-tests"]')!
     expect(row.textContent).toContain('hidden-tests@2.0.0')
-    expect(row.querySelector('[data-testid="grader-digest"]')?.textContent).toBe(SHA.slice(0, 12))
-    expect(row.querySelector('[data-testid="grader-digest"]')?.getAttribute('title')).toBe(SHA)
+    expect(row.querySelector(`[title="${SHA}"]`)?.textContent).toBe('hidden-tests@2.0.0')
     expect(row.querySelector('[data-testid="grader-used-by"]')?.textContent).toBe('4')
     expect(row.querySelector('a')?.getAttribute('href')).toBe('/studio/graders/g-1')
     expect(c.querySelector('[data-testid="grader-row-rubric-judge"]')).not.toBeNull()
+    expect(c.textContent).not.toMatch(FORBIDDEN)
+  })
+  it('groups the graders by kind (code, AI judges, human labels), one row per grader with its newest version', () => {
+    const items: GraderVersionItem[] = [
+      ...ITEMS,
+      { ...ITEMS[0]!, id: 'g-0', semver: '1.0.0', createdAt: '2026-11-01T12:00:00.000Z', usedByCount: 9 },
+      { ...ITEMS[0]!, id: 'l-1', graderId: 'label-async-wait-lifecycle', kind: 'human', semver: '1.0.0', usedByCount: 26 },
+    ]
+    const details = { 'g-1': { ...DETAIL, ...ITEMS[0]!, proof: { caught: 3, total: 3 } }, 'g-2': DETAIL }
+    const c = mount(<MemoryRouter><GraderLibraryView items={items} details={details} /></MemoryRouter>)
+    const groups = [...c.querySelectorAll('[data-testid^="grader-group-"]')].map((g) => g.getAttribute('data-testid'))
+    expect(groups).toEqual(['grader-group-code', 'grader-group-judge', 'grader-group-human'])
+    // hidden-tests has two versions: one row, the newest, with "+1".
+    const rows = c.querySelectorAll('[data-testid="grader-row-hidden-tests"]')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.textContent).toContain('hidden-tests@2.0.0')
+    expect(rows[0]!.textContent).toContain('+1')
+    expect(rows[0]!.querySelector('[data-testid="grader-proven"]')?.textContent).toBe('3 of 3 caught')
+    expect(rows[0]!.querySelector('[data-testid="grader-decide"]')?.textContent).toBe('yes')
+    // The two known judges of the review queue have a row with no version yet; they link to S11a.
+    const j = c.querySelector('[data-testid="grader-row-async-wait-lifecycle"]')!
+    expect(j.textContent).toContain('no version yet')
+    expect(j.querySelector('a')?.getAttribute('href')).toBe('/studio/calibration/async-wait-lifecycle')
+    expect(c.querySelector('[data-testid="grader-row-external-block-handling"]')).not.toBeNull()
+    // A judge version with TPR 0.9 / TNR 0.8 is not calibrated: "not yet".
+    expect(c.querySelector('[data-testid="grader-row-rubric-judge"] [data-testid="grader-decide"]')?.textContent).toBe('not yet')
+    // Human labels are the reference, with their label count.
+    const h = c.querySelector('[data-testid="grader-row-label-async-wait-lifecycle"]')!
+    expect(h.querySelector('[data-testid="grader-decide"]')?.textContent).toBe('reference')
+    expect(h.textContent).toContain('26 labels')
+    expect(c.textContent).not.toMatch(FORBIDDEN)
+  })
+  it('the side panel shows the selected grader; a click on a row selects it', () => {
+    const c = mount(
+      <MemoryRouter>
+        <GraderPanelHarness />
+      </MemoryRouter>,
+    )
+    expect(c.querySelector('[data-testid="grader-panel"]')?.getAttribute('data-grader')).toBe('hidden-tests')
+    expect(c.querySelector('[data-testid="grader-trust"]')?.textContent).toContain('Safe to decide scores')
+    expect(c.querySelector('[data-testid="grader-agreement"]')).toBeNull()
+    act(() => (c.querySelector('[data-testid="grader-row-rubric-judge"]') as HTMLElement).click())
+    expect(c.querySelector('[data-testid="grader-panel"]')?.getAttribute('data-grader')).toBe('rubric-judge')
+    expect(c.querySelector('[data-testid="agree-tpr"]')?.textContent).toContain('90%')
+    expect(c.querySelector('[data-testid="agree-tnr"]')?.textContent).toContain('80%')
+    expect(c.querySelector('[data-testid="grader-panel-open"]')?.getAttribute('href')).toBe('/studio/graders/g-2')
     expect(c.textContent).not.toMatch(FORBIDDEN)
   })
   it('shows an empty state on an empty list', () => {
@@ -72,6 +131,21 @@ describe('S10a grader detail', () => {
     expect(cmd.getAttribute('data-copy-command')).toMatch(/^tma eval grade --case /)
     expect(c.textContent).not.toMatch(FORBIDDEN)
     for (const el of c.querySelectorAll('button, a')) expect(el.textContent).not.toMatch(FORBIDDEN)
+  })
+  it('has the artboard tabs: Definition, Proof and Versions; the latest gradings stay in the side panel', () => {
+    const versions: GraderVersionItem[] = [ITEMS[1]!, { ...ITEMS[1]!, id: 'g-old', semver: '0.9.0' }]
+    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} versions={versions} /></MemoryRouter>)
+    expect(c.querySelector('[data-testid="grader-tab-definition"]')?.getAttribute('aria-selected')).toBe('true')
+    expect(c.querySelector('[data-testid="grader-tab-proof"]')?.textContent).toContain('3/3')
+    act(() => (c.querySelector('[data-testid="grader-tab-proof"]') as HTMLElement).click())
+    expect(c.querySelector('[data-testid="grader-facts"]')).toBeNull()
+    act(() => (c.querySelector('[data-testid="grader-tab-versions"]') as HTMLElement).click())
+    const list = c.querySelector('[data-testid="grader-versions"]')!
+    expect(list.textContent).toContain('rubric-judge@0.9.0')
+    expect(list.querySelector('a')?.getAttribute('href')).toBe('/studio/graders/g-old')
+    expect(c.querySelectorAll('[data-testid="grader-recent-run"]')).toHaveLength(1)
+    expect(c.querySelector('[data-testid="grader-recent-tally"]')?.textContent).toContain('1pass')
+    expect(c.textContent).not.toMatch(FORBIDDEN)
   })
   it('copies the command with navigator.clipboard', async () => {
     const writeText = vi.fn(async () => {})

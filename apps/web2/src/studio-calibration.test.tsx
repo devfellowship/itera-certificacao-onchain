@@ -143,26 +143,39 @@ describe('S11 /studio/calibration', () => {
     expect(cards.map((x) => x.getAttribute('data-judge'))).toEqual([J1, J2])
     const a = cards[0]!
     expect(a.querySelector('[data-testid="cal-to-review"]')?.textContent).toBe('31')
-    expect(a.querySelector('[data-testid="cal-workflow-labels"]')?.textContent).toBe('12')
-    expect(a.querySelector('[data-testid="cal-label-rows"]')?.textContent).toBe('22')
-    expect(a.querySelector('[data-testid="cal-version"]')?.textContent).toBe(`${J1}@0.2.0`)
-    expect(a.querySelector('[data-testid="cal-tpr-value"]')?.textContent).toBe('93.3%')
-    expect(a.querySelector('[data-testid="cal-tnr-value"]')?.textContent).toBe('90%')
-    expect(a.querySelector('[data-testid="cal-tpr-bar-text"]')?.textContent).toBe('bar 90%')
-    expect(a.querySelector('[data-testid="cal-tpr-interval"]')?.textContent).toMatch(/^95% interval \d+(\.\d)?% to \d+(\.\d)?%$/)
-    expect([...['cal-tp', 'cal-fn', 'cal-fp', 'cal-tn']].map((id) => a.querySelector(`[data-testid="${id}"]`)?.textContent)).toEqual(['28', '2', '3', '27'])
-    expect(a.querySelector('[data-testid="cal-split"]')?.textContent).toContain('60 labels (30 pass, 30 fail) of 120')
-    expect(a.querySelector('[data-testid="cal-verdict"]')?.textContent).toBe('decisive: passes the bar')
-    expect(a.querySelectorAll('[data-testid="cal-trend-row"]')).toHaveLength(2)
-    expect(a.querySelector('[data-testid="calibration-contamination"]')).not.toBeNull()
-    // The second judge has no version: an empty state with the counts it does have.
-    const b = cards[1]!
-    expect(b.querySelector('[data-testid="calibration-empty"]')?.textContent).toContain('No calibration yet')
-    expect(b.querySelector('[data-testid="cal-to-review"]')?.textContent).toBe('32')
-    expect(b.querySelector('[data-testid="cal-label-rows"]')?.textContent).toBe('12')
-    expect(b.querySelector('[data-testid="cal-measured"]')).toBeNull()
+    expect(a.getAttribute('data-selected')).toBe('true')
+    expect(a.querySelector('[data-testid="cal-row-decide"]')?.textContent).toBe('yes, calibrated')
+    expect(a.textContent).toContain(`${J1}@0.2.0`)
+    expect(a.textContent).toContain('vs 60 labels')
+    // The side panel shows the selected judge (the first one at first).
+    const p = c.querySelector('[data-testid="calibration-panel"]')!
+    expect(p.getAttribute('data-judge')).toBe(J1)
+    expect(p.querySelector('[data-testid="cal-workflow-labels"]')?.textContent).toBe('12')
+    expect(p.querySelector('[data-testid="cal-label-rows"]')?.textContent).toBe('22')
+    expect(p.querySelector('[data-testid="agree-tpr"]')?.textContent).toContain('93.3%')
+    expect(p.querySelector('[data-testid="agree-tnr"]')?.textContent).toContain('90%')
+    expect(p.querySelector('[data-testid="cal-version"]')?.textContent).toBe(`${J1}@0.2.0`)
+    expect(p.querySelector('[data-testid="cal-tpr-value"]')?.textContent).toBe('93.3%')
+    expect(p.querySelector('[data-testid="cal-tnr-value"]')?.textContent).toBe('90%')
+    expect(p.querySelector('[data-testid="cal-tpr-bar-text"]')?.textContent).toBe('bar 90%')
+    expect(p.querySelector('[data-testid="cal-tpr-interval"]')?.textContent).toMatch(/^95% interval \d+(\.\d)?% to \d+(\.\d)?%$/)
+    expect([...['cal-tp', 'cal-fn', 'cal-fp', 'cal-tn']].map((id) => p.querySelector(`[data-testid="${id}"]`)?.textContent)).toEqual(['28', '2', '3', '27'])
+    expect(p.querySelector('[data-testid="cal-split"]')?.textContent).toContain('60 labels (30 pass, 30 fail) of 120')
+    expect(p.querySelector('[data-testid="cal-verdict"]')?.textContent).toBe('decisive: passes the bar')
+    expect(p.querySelectorAll('[data-testid="cal-trend-row"]')).toHaveLength(2)
+    expect(p.querySelector('[data-testid="calibration-contamination"]')).not.toBeNull()
     expect(a.querySelector('[data-testid="calibration-judge-link"]')?.getAttribute('href')).toBe(`/studio/calibration/${J1}`)
-    expect(a.querySelector('[data-testid="calibration-review-link"]')?.getAttribute('href')).toBe(`/studio/review?judge=${J1}`)
+    expect(p.querySelector('[data-testid="calibration-review-link"]')?.getAttribute('href')).toBe(`/studio/review?judge=${J1}`)
+    // The second judge has no version: its row says so; selected, the panel shows the empty state with the counts it has.
+    const b = cards[1]!
+    expect(b.querySelector('[data-testid="cal-to-review"]')?.textContent).toBe('32')
+    expect(b.querySelector('[data-testid="cal-row-decide"]')?.textContent).toBe('no version yet')
+    act(() => (b as HTMLElement).click())
+    const q = c.querySelector('[data-testid="calibration-panel"]')!
+    expect(q.getAttribute('data-judge')).toBe(J2)
+    expect(q.querySelector('[data-testid="calibration-empty"]')?.textContent).toContain('No calibration yet')
+    expect(q.querySelector('[data-testid="cal-label-rows"]')?.textContent).toBe('12')
+    expect(q.querySelector('[data-testid="cal-measured"]')).toBeNull()
     // Read only: no Save, no write control, GET calls only.
     expect(c.textContent).not.toMatch(FORBIDDEN)
     expect(c.querySelectorAll('input, textarea, select, form')).toHaveLength(0)
@@ -187,8 +200,9 @@ describe('S11 /studio/calibration', () => {
 
   it('shows an empty card per judge when no judge version exists', async () => {
     const c = mountAt('/studio/calibration', { list: [200, { graderVersions: [OTHER, L1, L2] }] })
-    await waitFor(() => c.querySelectorAll('[data-testid="calibration-empty"]').length === 2, 'two empty states')
-    expect(c.querySelectorAll('[data-testid="calibration-judge"]')).toHaveLength(2)
+    await waitFor(() => c.querySelectorAll('[data-testid="calibration-judge"]').length === 2, 'two judge rows')
+    expect([...c.querySelectorAll('[data-testid="cal-row-decide"]')].map((x) => x.textContent)).toEqual(['no version yet', 'no version yet'])
+    expect(c.querySelectorAll('[data-testid="calibration-empty"]')).toHaveLength(1)
     expect(c.querySelector('[data-testid="cal-measured"]')).toBeNull()
     expect(c.textContent).not.toMatch(FORBIDDEN)
   })
@@ -227,7 +241,11 @@ describe('S11a /studio/calibration/:judgeId', () => {
     expect(text(c, 'judge-bar-text')).toContain('at least 90%')
     expect(text(c, 'cal-tpr-bar-text')).toBe('bar 90%')
     expect(text(c, 'cal-tpr-value')).toBe('93.3%')
+    // The tabs: Versions holds the trend.
+    expect(c.querySelector('[data-testid="judge-trend"]')).toBeNull()
+    act(() => (c.querySelector('[data-testid="judge-tab-versions"]') as HTMLElement).click())
     expect(c.querySelector('[data-testid="judge-trend"]')).not.toBeNull()
+    act(() => (c.querySelector('[data-testid="judge-tab-definition"]') as HTMLElement).click())
     expect(c.querySelector('[data-testid="judge-command"]')?.getAttribute('data-copy-command')).not.toBeNull()
     expect(text(c, 'copy-command-text')).toBe(`tma eval judge calibrate --judge ${J1} --version 0.2.0 --model anthropic/claude-sonnet-5.5`)
     expect(c.textContent).not.toMatch(FORBIDDEN)
@@ -236,6 +254,24 @@ describe('S11a /studio/calibration/:judgeId', () => {
     expect(calls.every((x) => x.method === 'GET')).toBe(true)
   })
 
+  it('the side panel lists labeled runs: the label of people or a workflow next to the judge verdict', async () => {
+    const v = (pass: boolean, labeler = 'workflow:clean-merge') => ({ pass, labeler, gradedAt: '2026-11-16T10:00:00.000Z' })
+    const queueRuns = [
+      { runId: 'r-agree-1', caseKey: 'fix/red-ci/a', taskSummary: { before: 'CI is red on main', expected: null }, steps: [], workflow: v(true), judge: v(true, 'judge'), mine: null },
+      { runId: 'r-off-001', caseKey: 'fix/red-ci/b', taskSummary: null, steps: [], workflow: v(false), judge: v(true, 'judge'), mine: null },
+      { runId: 'r-mine-01', caseKey: 'fix/red-ci/c', taskSummary: null, steps: [], workflow: null, judge: null, mine: v(false, 'u-1') },
+      { runId: 'r-none-01', caseKey: 'fix/red-ci/d', taskSummary: null, steps: [], workflow: null, judge: null, mine: null },
+    ]
+    const c = mountAt(`/studio/calibration/${J1}`, { queue: [200, { judge: J1, runs: queueRuns }] })
+    await waitFor(() => c.querySelectorAll('[data-testid="judge-labeled-run"]').length === 3, 'three labeled runs')
+    const rows = [...c.querySelectorAll('[data-testid="judge-labeled-run"]')]
+    expect(rows.map((r) => r.getAttribute('data-agree'))).toEqual(['true', 'false', null])
+    expect(rows[0]!.textContent).toContain('CI is red on main')
+    expect(rows[1]!.textContent).toContain('fix/red-ci/b')
+    expect(text(c, 'judge-labeled-count')).toContain('agrees on 1 of 2')
+    expect(c.querySelector('[data-testid="judge-review-link"]')?.getAttribute('href')).toBe(`/studio/review?judge=${J1}`)
+    expect(c.textContent).not.toMatch(FORBIDDEN)
+  })
   it('?version= picks that version', async () => {
     const c = mountAt(`/studio/calibration/${J1}?version=0.1.0`)
     await waitFor(() => !!c.querySelector('[data-testid="cal-version"]'), 'version')
