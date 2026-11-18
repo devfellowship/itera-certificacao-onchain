@@ -16,6 +16,12 @@ import type { SourceState } from './studio/GraderSourceParts'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let root: Root | undefined
+// The test API URL is the production API. A request that outlives its stub (the S10a source call of an in-app test
+// fires after vi.unstubAllGlobals) must never reach the network: prod answers 401, and the 401 handler signs the
+// NEXT test out ("Log in to continue"), a flake on main since #295. Network off for this file; each test stubs fetch.
+globalThis.fetch = (async () => {
+  throw new TypeError('network is off in this test file')
+}) as typeof fetch
 afterEach(() => {
   act(() => root?.unmount())
   root = undefined
