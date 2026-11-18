@@ -49,6 +49,10 @@ jobs:
       # (pinned rubric files keep their contract enum values; its check.mjs above mutation-tests the scan and the pins).
       - name: Session-trajectory denylist
         run: node benchmarks/dfl-session-decision-trajectory-extraction/fixtures/denylist.mjs
+      # Studio visual match (plan 20261112-tma-c5-studio-area-web2, C5-VIS-MATCH): the offline unit tests of the check
+      # (screens.json, crops, judge verdict parsing). The check itself needs a browser, prod and a judge: run by hand.
+      - name: Studio visual-match unit tests
+        run: node --test tools/studio-visual-match/lib.test.mjs
       - run: npm run check
       - run: npm run test
       - run: npm run build
