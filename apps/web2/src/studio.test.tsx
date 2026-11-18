@@ -76,7 +76,9 @@ describe('S1 Studio home', () => {
       </MemoryRouter>,
     )
     expect(c.querySelectorAll('[data-testid="use-case-fix/red-ci"] [data-testid="studio-case"]')).toHaveLength(1)
-    expect(c.querySelector('[data-testid="use-case-fix"]')?.textContent).toContain('1 case')
+    // C5-RD-S1: the group row counts its use cases; the "cases" cell of the use case row counts its cases.
+    expect(c.querySelector('[data-testid="use-case-fix"]')?.textContent).toContain('fix · 1')
+    expect(c.querySelector('[data-testid="use-case-fix/red-ci"] [data-testid="s1-cases"]')?.textContent).toBe('1')
     expect(c.querySelector('[data-testid="use-case-review"]')).toBeNull()
     const u = c.querySelector('[data-testid="use-case-unclassified"]')
     expect(u?.textContent).toContain('Not a taxonomy pair')
@@ -92,7 +94,7 @@ describe('S1 Studio home', () => {
       </MemoryRouter>,
     )
     expect(c.querySelector('[data-testid="studio-home"]')?.innerHTML).not.toBe('')
-    expect(c.querySelector('[data-testid="use-case-fix"]')?.textContent).toContain('2 cases')
+    expect(c.querySelector('[data-testid="use-case-fix/prod-bug"] [data-testid="s1-cases"]')?.textContent).toBe('2')
     expect(c.querySelectorAll('[data-testid="use-case-fix/prod-bug"] [data-testid="studio-case"]')).toHaveLength(2)
     expect(c.querySelectorAll('[data-testid="use-case-build/feature"] [data-testid="studio-case"]')).toHaveLength(1)
     expect(c.querySelector<HTMLAnchorElement>('[data-testid="studio-tasks-link"]')?.getAttribute('href')).toBe('/tasks')
