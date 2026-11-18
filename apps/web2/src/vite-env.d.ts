@@ -13,6 +13,10 @@ interface ImportMetaEnv {
   readonly VITE_TMA_STUDIO_SERVE_URL?: string
   /** 'true' shows the S10a dry-run panel (also needs VITE_TMA_STUDIO_SERVE_URL). Default: off. */
   readonly VITE_TMA_STUDIO_DRY_RUN?: string
+  /** DFL Supabase project URL for the "Melhorias" screenshot upload. Default: the DFL prod project. */
+  readonly VITE_DFL_SUPABASE_URL?: string
+  /** dfl-improvements service URL ("Melhorias"). Default: https://improvements-api.devfellowship.com */
+  readonly VITE_IMPROVEMENTS_API_URL?: string
 }
 
 interface ImportMeta {

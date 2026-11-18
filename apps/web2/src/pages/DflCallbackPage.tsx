@@ -3,10 +3,12 @@
  *   /auth/dfl/callback#dfl_token=<JWT>&next=/
  * A fragment (not a query) keeps the token out of server logs and Referer headers.
  * This page is the ONLY reader of that fragment. It clears the address bar BEFORE the network call.
+ * After a good exchange it keeps the token in sessionStorage for the "Melhorias" launcher only (auth/dflToken.ts).
  */
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loginWithDfl } from '../auth/dflFederation'
+import { saveDflToken } from '../auth/dflToken'
 import { exchangeDflToken } from '../auth/exchangeDflToken'
 import { safeInternalPath } from '../auth/safeInternalPath'
 import { useSession } from '../auth/session'
@@ -41,6 +43,8 @@ export function DflCallbackPage() {
     }
     void exchangeDflToken(token).then((result) => {
       if (result.ok) {
+        // The "Melhorias" launcher is the only reader of the DFL token (auth/dflToken.ts). Tab-scoped, expires by itself.
+        saveDflToken(token)
         setSession(result.session)
         navigate(next, { replace: true })
       } else {
