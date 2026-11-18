@@ -30,11 +30,26 @@
 .trc-dot--pr { background: transparent; border: 1.5px solid var(--stu-text-muted); }
 .trc-dot--none { background: transparent; border: 1.5px dashed var(--stu-text-muted); }
 
-/* Filters: toggle chips, one group per filter */
-.trc-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-2) var(--stu-gap-4); }
-.trc-filter { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.trc-filter .stu-chip { min-height: 28px; text-decoration: none; border-radius: 999px; }
-.trc-clear { margin-left: auto; }
+/* Filters (MT-02, artboard S2): a "Filters (n)" button with a dropdown, removable chips, "+N more", "Clear all". */
+.trc-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-2); min-width: 0; }
+.trc-filters__fill { flex: 1; }
+.trc-fmenu { position: relative; display: inline-flex; }
+.trc-fbtn { height: 30px; flex: none; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); background: var(--stu-surface); color: var(--stu-text); font: inherit; white-space: nowrap; cursor: pointer; }
+.trc-fbtn:hover { border-color: var(--stu-line-hover); }
+.trc-fbtn__n { min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 999px; background: var(--stu-accent); color: var(--stu-on-accent); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.trc-fpanel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: 340px; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: var(--stu-gap-3); border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); background: var(--stu-raised); box-shadow: var(--tma-shadow-menu, none); }
+.trc-fgroup { display: flex; flex-direction: column; gap: 6px; }
+.trc-fopts { display: flex; flex-wrap: wrap; gap: 6px; }
+.trc-page a.trc-fopt { min-height: 26px; padding: 0 10px; display: inline-flex; align-items: center; border: 1px solid var(--stu-line); border-radius: 999px; color: var(--stu-text-2); white-space: nowrap; }
+.trc-page a.trc-fopt:hover { border-color: var(--stu-line-hover); color: var(--stu-text); }
+.trc-page a.trc-fopt--on { border-color: var(--stu-accent); color: var(--stu-text); }
+.trc-fchip { height: 28px; flex: none; padding: 0 4px 0 10px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--stu-line); border-radius: 999px; color: var(--stu-text-muted); white-space: nowrap; }
+.trc-fchip__v { color: var(--stu-text); }
+.trc-page a.trc-fchip__x { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; color: var(--stu-text-muted); }
+.trc-page a.trc-fchip__x:hover { color: var(--stu-text); background: var(--stu-raised); }
+.trc-fmore { height: 28px; flex: none; padding: 0 10px; border: 1px dashed var(--stu-line-strong); border-radius: 999px; background: transparent; color: var(--stu-text-muted); font: inherit; white-space: nowrap; cursor: pointer; }
+.trc-page a.trc-clear { height: 28px; padding: 0 8px; display: inline-flex; align-items: center; color: var(--stu-text-muted); white-space: nowrap; }
+.trc-page a.trc-clear:hover { color: var(--stu-text); }
 .trc-paging { display: flex; gap: var(--stu-gap-3); align-items: center; margin: 0; }
 
 /* S2 table + focused-row panel */
@@ -42,23 +57,30 @@
 /* The shell holds the whole page column (crumb, title, filters, table, paging) and the side panel next to it, so the
    panel is a full-height column from under the nav to the bottom of the viewport, as on the artboard. */
 .trc-shell { display: flex; flex-wrap: wrap; align-items: stretch; margin: 0 calc(-1 * var(--tma-app-gutter, 0px)); min-width: 0; min-height: calc(100vh - var(--tma-nav-height, 56px) - 1px); }
-.trc-col { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 28px var(--tma-app-gutter, 0px) 64px; }
+.trc-col { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 28px 40px 64px; }
 .trc-tablewrap { min-width: 0; overflow-x: auto; }
-.trc-table { min-width: 900px; }
+.trc-table { min-width: 880px; }
 .trc-nowrap { white-space: nowrap; }
-.trc-row { display: grid; grid-template-columns: 92px 240px minmax(220px, 1fr) 130px 140px 110px; align-items: center; column-gap: var(--stu-gap-4); min-height: 40px; padding: 0 0 0 10px; border-bottom: 1px solid var(--stu-line); color: var(--stu-text-2); cursor: pointer; }
+/* At 1280px the whole table fits beside the 300px panel (no sideways scroll that hides "replayable"). */
+.trc-row { display: grid; grid-template-columns: 28px 92px minmax(170px, 280px) minmax(160px, 1fr) 130px 110px 100px; align-items: center; column-gap: 14px; min-height: 40px; padding: 0 0 0 10px; border-bottom: 1px solid var(--stu-line); color: var(--stu-text-2); cursor: pointer; }
 .trc-row:hover { background: var(--stu-surface); }
 .trc-row--on, .trc-row--on:hover { background: var(--stu-raised); box-shadow: inset 2px 0 0 var(--stu-accent); }
 .trc-row--head { min-height: 0; padding-bottom: 8px; border-bottom-color: var(--stu-line-strong); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); cursor: default; }
 .trc-row--head:hover { background: transparent; }
 .trc-row--head .trc-cell { display: inline-flex; align-items: center; gap: 3px; }
 .trc-cell { min-width: 0; }
+/* MT-05: the selection checkbox column and the "N selected · Clear" bar (artboard S2). */
+.trc-cell--check { display: inline-flex; align-items: center; }
+.trc-check-box { width: 15px; height: 15px; margin: 0; accent-color: var(--stu-accent); cursor: pointer; }
+.trc-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-3); padding: 8px 12px; border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); background: var(--stu-surface); }
+.trc-selbar__n { color: var(--stu-text); font-weight: 500; }
+.trc-selbar__clear { height: 28px; padding: 0 8px; border: 0; background: transparent; color: var(--stu-text-muted); font: inherit; cursor: pointer; }
+.trc-selbar__clear:hover { color: var(--stu-text); }
 .trc-cell--date { font-family: var(--stu-font-mono); font-size: 12px; color: var(--stu-text-muted); }
 .trc-cell--agent { display: inline-flex; align-items: center; gap: var(--stu-gap-2); color: var(--stu-text); }
 .trc-cell--task { display: flex; flex-direction: column; justify-content: center; padding: 4px 0; }
 .trc-task-line { display: flex; align-items: center; gap: var(--stu-gap-2); min-width: 0; }
 .trc-task-id { font-weight: 500; color: var(--stu-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trc-task-before { font-size: 12px; color: var(--stu-text-muted); }
 .trc-pr { display: inline-flex; align-items: center; gap: var(--stu-gap-2); white-space: nowrap; }
 .trc-pr a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--stu-line-hover); }
 .trc-signals { display: inline-flex; flex-wrap: wrap; gap: 0 5px; color: var(--stu-text); }
@@ -81,7 +103,7 @@
 .trc-aside__who { display: inline-flex; align-items: center; gap: var(--stu-gap-2); min-width: 0; }
 .trc-aside__whotext { font-family: var(--stu-font-sans); font-size: 13px; line-height: 1.4; color: var(--stu-text-muted); }
 /* S2: the panel stretches the full height of the page; its content stays in view while the table scrolls. */
-.trc-aside--picker { flex: 1 1 320px; max-width: 420px; padding: 0; gap: 0; }
+.trc-aside--picker { flex: 1 1 300px; max-width: 420px; padding: 0; gap: 0; }
 .trc-aside__in { position: sticky; top: 0; max-height: 100vh; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; gap: var(--stu-gap-5); padding: 24px 20px; min-height: calc(100vh - var(--tma-nav-height, 56px) - 1px); }
 .trc-aside__title { margin: 0; font-family: var(--stu-font-display); font-weight: 600; font-size: 22px; line-height: 1.15; color: var(--stu-text); overflow-wrap: anywhere; }
 .trc-aside__title--step { font-size: 26px; }
@@ -109,18 +131,20 @@
 .trc-preview--open { display: block; -webkit-line-clamp: unset; overflow: auto; max-height: 360px; }
 .trc-more { align-self: flex-start; font: inherit; font-size: 12px; background: none; border: none; padding: 0; color: var(--stu-text-2); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 
-/* S3 layout: main column + side panel */
-.trc-page--view { padding-top: 0; gap: 0; }
-.trc-view { min-height: calc(100vh - 140px); display: flex; flex-wrap: wrap; align-items: stretch; margin: 0 calc(-1 * var(--tma-app-gutter, 0px)); min-width: 0; }
+/* S3 layout: main column + side panel. The page fills the viewport height under the nav, so the side panel runs to the
+   bottom of the screen (MT-06); the width comes from the shared studio layout (layout.css). */
+.trc-page--view { padding-top: 0; padding-bottom: 0; gap: 0; box-sizing: border-box; min-height: calc(100vh - var(--tma-nav-height, 56px) - 1px); }
+.trc-view { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: stretch; margin: 0 calc(-1 * var(--tma-app-gutter, 0px)); min-width: 0; }
 .trc-view__main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: var(--stu-gap-5); padding: 28px var(--tma-app-gutter, 0px) 0; }
 .trc-view__lead { display: flex; flex-direction: column; gap: var(--stu-gap-4); }
 .trc-view__lead h1 { overflow-wrap: anywhere; }
 .trc-tiles { display: flex; flex-wrap: wrap; gap: var(--stu-gap-4) 40px; }
 .trc-tile { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .trc-tile__v { display: inline-flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 500; color: var(--stu-text); }
-.trc-tabs { border-bottom: 1px solid var(--stu-line); gap: 2px; }
-.trc-tabs .stu-tab { min-height: 36px; }
-/* The active tab has no fill: the 2px accent underline alone marks it. */
+/* MT-07: flat underline tabs as on the S3 artboard: no box, no radius, no fill; the 2px accent underline alone marks
+   the active tab. */
+.trc-tabs { border-bottom: 1px solid var(--stu-line); gap: 24px; }
+.trc-tabs .stu-tab { min-height: 0; padding: 8px 0; border-radius: 0; background: transparent; }
 .trc-tabs .stu-tab[aria-selected='true'] { background: transparent; }
 .trc-calls { display: flex; flex-direction: column; gap: var(--stu-gap-3); min-width: 0; }
 .trc-calls__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-2) var(--stu-gap-3); }
@@ -159,6 +183,36 @@
 .trc-bar--test, .trc-swatch.trc-bar--test { background: var(--stu-k-test); }
 .trc-bar--tool, .trc-swatch.trc-bar--tool { background: var(--stu-k-tool); }
 .trc-bar--other, .trc-swatch.trc-bar--other { background: var(--stu-k-other); }
+/* Step categories (MT-08): one color per session-trajectory intent; the failed color still wins. */
+.trc-bar--c-file-read { background: var(--stu-c-file-read); }
+.trc-bar--c-search { background: var(--stu-c-search); }
+.trc-bar--c-git-read { background: var(--stu-c-git-read); }
+.trc-bar--c-git-write { background: var(--stu-c-git-write); }
+.trc-bar--c-build-test { background: var(--stu-c-build-test); }
+.trc-bar--c-skill-run { background: var(--stu-c-skill-run); }
+.trc-bar--c-plan-mcp { background: var(--stu-c-plan-mcp); }
+.trc-bar--c-pr-read { background: var(--stu-c-pr-read); }
+.trc-bar--c-file-edit { background: var(--stu-c-file-edit); }
+.trc-bar--c-pr-write-merge { background: var(--stu-c-pr-write-merge); }
+.trc-bar--c-ci-read { background: var(--stu-c-ci-read); }
+.trc-bar--c-ci-watch-poll { background: var(--stu-c-ci-watch-poll); }
+.trc-bar--c-deploy { background: var(--stu-c-deploy); }
+.trc-bar--c-credential-fetch { background: var(--stu-c-credential-fetch); }
+.trc-bar--c-mcp-read { background: var(--stu-c-mcp-read); }
+.trc-bar--c-mcp-write { background: var(--stu-c-mcp-write); }
+.trc-bar--c-web-research { background: var(--stu-c-web-research); }
+.trc-bar--c-browser-check { background: var(--stu-c-browser-check); }
+.trc-bar--c-ops-inspect { background: var(--stu-c-ops-inspect); }
+.trc-bar--c-ops-change { background: var(--stu-c-ops-change); }
+.trc-bar--c-spawn-subagent { background: var(--stu-c-spawn-subagent); }
+.trc-bar--c-message-agent { background: var(--stu-c-message-agent); }
+.trc-bar--c-reply-human { background: var(--stu-c-reply-human); }
+.trc-bar--c-wait-sleep { background: var(--stu-c-wait-sleep); }
+.trc-bar--c-github-api { background: var(--stu-c-github-api); }
+.trc-bar--c-media-generate { background: var(--stu-c-media-generate); }
+.trc-bar--c-other { background: var(--stu-c-other); }
+.trc-bar--c-unlabeled { background: var(--stu-c-unlabeled); }
+.trc-legend__n { color: var(--stu-text-muted); font-variant-numeric: tabular-nums; }
 .trc-bar--err, .trc-swatch.trc-bar--err { background: var(--stu-bad); }
 .trc-swatch { position: static; transform: none; height: 8px; }
 .trc-profile { display: flex; flex-direction: column; gap: var(--stu-gap-4); }
@@ -185,7 +239,6 @@
   .trc-aside { border-left: 0; border-top: 1px solid var(--stu-line); padding: 20px 0; background: transparent; }
   .trc-aside--picker { max-width: none; padding: 0; }
   .trc-aside__in { position: static; max-height: none; min-height: 0; overflow: visible; padding: 20px 0; }
-  .trc-clear { margin-left: 0; }
   /* The table becomes a list: the task on its own line, the rest as a wrapped line under it. */
   .trc-table { min-width: 0; }
   .trc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--stu-gap-4); padding: 10px 0 10px 10px; }

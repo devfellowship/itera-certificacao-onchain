@@ -40,6 +40,7 @@ import { StudioDiffPage } from './studio/StudioDiffPage'
 import { StudioExperimentPage } from './studio/StudioExperimentPage'
 import { StudioExperimentsPage } from './studio/StudioExperimentsPage'
 import { StudioHomePage } from './studio/StudioHomePage'
+import { StudioLayout } from './studio/StudioLayout'
 import { StudioReviewPage } from './studio/StudioReviewPage'
 import { StudioRoutingIndexPage } from './studio/StudioRoutingIndexPage'
 import { StudioRoutingPage } from './studio/StudioRoutingPage'
@@ -108,33 +109,39 @@ export const routes: RouteObject[] = [
           { path: '/tasks/:id/edit', element: <TaskEditorPage /> },
           { path: '/settings/profile', element: <ProfileSettingsPage /> },
           { path: '/cli', element: <CliLoginPage /> },
-          // Studio area (plan 20261112-tma-c5-studio-area-web2, ADR-1): new routes only, no existing route is touched.
-          { path: '/studio', element: <StudioHomePage /> },
-          { path: '/studio/graders', element: <GraderLibraryPage /> },
-          { path: '/studio/graders/:id', element: <GraderDetailPage /> },
-          // C5-T3: S4 test case (the list at /studio/cases, ?task=<slug>) and S5 experiment builder. Read only (ADR-5).
-          { path: '/studio/cases', element: <StudioHomePage /> },
-          { path: '/studio/cases/:caseId', element: <StudioCasePage /> },
-          { path: '/studio/experiments/new', element: <StudioExperimentPage /> },
-          // C5-T4: S6 experiment result (the canonical page of an experiment, ADR-2) and S7 result diff. Read only (ADR-5).
-          { path: '/studio/experiments', element: <StudioExperimentsPage /> },
-          { path: '/studio/diff', element: <StudioDiffPage /> },
-          // C5-T9: S9 trajectory wall and path map on TMA runs (read only; plan C9 ADR-6, Q-T20 = A).
-          { path: '/studio/trajectories', element: <StudioTrajectoriesPage /> },
-          // C5-T6: S2 trace picker and S3 trace view on fleet traces from `tma studio serve` (studio/traces.ts). Read only.
-          { path: '/studio/traces', element: <StudioTracesPage /> },
-          { path: '/studio/traces/:sessionId', element: <StudioTracePage /> },
-          // C7-T4: S8 agent compare per use case (plan 20261112-tma-c7-model-comparison-per-use-case). Read only.
-          { path: '/studio/compare', element: <StudioComparePage /> },
-          // C6-T3: S13 review queue, the one studio write (a human label, POST /grader-results/human).
-          { path: '/studio/review', element: <StudioReviewPage /> },
-          // C6-T6: S11 judge calibration and S11a AI judge. Read only.
-          { path: '/studio/calibration', element: <CalibrationPage /> },
-          { path: '/studio/calibration/:judgeId', element: <CalibrationJudgePage /> },
-          // C8-T3: S12 routing per use case (plan 20261112-tma-c8-routing-from-evals). Writes only the verdict (ADR-1).
-          { path: '/studio/routing/:useCase', element: <StudioRoutingPage /> },
-          // C5-RD-S12: S12 routing index, a table of every use case with its route and the PR diff. Read only.
-          { path: '/studio/routing', element: <StudioRoutingIndexPage /> },
+          // MT-06: one shared layout for every studio route (full width, side panel flush right).
+          {
+            element: <StudioLayout />,
+            children: [
+              // Studio area (plan 20261112-tma-c5-studio-area-web2, ADR-1): new routes only, no existing route is touched.
+              { path: '/studio', element: <StudioHomePage /> },
+              { path: '/studio/graders', element: <GraderLibraryPage /> },
+              { path: '/studio/graders/:id', element: <GraderDetailPage /> },
+              // C5-T3: S4 test case (the list at /studio/cases, ?task=<slug>) and S5 experiment builder. Read only (ADR-5).
+              { path: '/studio/cases', element: <StudioHomePage /> },
+              { path: '/studio/cases/:caseId', element: <StudioCasePage /> },
+              { path: '/studio/experiments/new', element: <StudioExperimentPage /> },
+              // C5-T4: S6 experiment result (the canonical page of an experiment, ADR-2) and S7 result diff. Read only (ADR-5).
+              { path: '/studio/experiments', element: <StudioExperimentsPage /> },
+              { path: '/studio/diff', element: <StudioDiffPage /> },
+              // C5-T9: S9 trajectory wall and path map on TMA runs (read only; plan C9 ADR-6, Q-T20 = A).
+              { path: '/studio/trajectories', element: <StudioTrajectoriesPage /> },
+              // C5-T6: S2 trace picker and S3 trace view on fleet traces from `tma studio serve` (studio/traces.ts). Read only.
+              { path: '/studio/traces', element: <StudioTracesPage /> },
+              { path: '/studio/traces/:sessionId', element: <StudioTracePage /> },
+              // C7-T4: S8 agent compare per use case (plan 20261112-tma-c7-model-comparison-per-use-case). Read only.
+              { path: '/studio/compare', element: <StudioComparePage /> },
+              // C6-T3: S13 review queue, the one studio write (a human label, POST /grader-results/human).
+              { path: '/studio/review', element: <StudioReviewPage /> },
+              // C6-T6: S11 judge calibration and S11a AI judge. Read only.
+              { path: '/studio/calibration', element: <CalibrationPage /> },
+              { path: '/studio/calibration/:judgeId', element: <CalibrationJudgePage /> },
+              // C8-T3: S12 routing per use case (plan 20261112-tma-c8-routing-from-evals). Writes only the verdict (ADR-1).
+              { path: '/studio/routing/:useCase', element: <StudioRoutingPage /> },
+              // C5-RD-S12: S12 routing index, a table of every use case with its route and the PR diff. Read only.
+              { path: '/studio/routing', element: <StudioRoutingIndexPage /> },
+            ],
+          },
         ],
       },
       {

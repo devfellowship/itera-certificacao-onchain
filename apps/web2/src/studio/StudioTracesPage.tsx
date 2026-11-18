@@ -7,14 +7,19 @@
  * Layout from the canvas artboard "S2 Trace picker": a table (date, agent, task, pr / ci, signal, replayable) and a
  * side panel for the focused row (task summary, replay lines, technical details, open the trace). The focused row is
  * the one you click or tab into; the first row is focused at first.
+ * Filters (MT-02): one "Filters (n)" button with a dropdown, the active filters as removable chips, "+N more", "Clear
+ * all". Rows (MT-04): the task id only, no "picked for" tag (it is a filter and a panel field); the header is the title
+ * row only, the selection day moves into its (i).
+ * Selection (MT-05, first half): a checkbox column, the "N selected · Clear" bar and a DISABLED "Build N cases" button.
+ * Its action (Q 3d291a2b = A: the serve writes case drafts into dfl-evals) lands in its own PR.
  * Gaps against the artboard (the index has no such field or the studio has no such screen): the task title (the row
- * shows the task identifier and the Before text), the merge state and CI result of the PR, the model size badge, the
- * row selection and "Build N cases" (S4 takes no trace yet), the "+N more" filters and the search box.
+ * shows the task identifier), the merge state and CI result of the PR, the model size badge, the search box.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Card } from '../tma/ui'
-import { AgentAvatar, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, WhyBadge, dash, fmtTime, useTraceLoad } from './TraceParts'
+import { useDismiss } from '../tma/ui/useDismiss'
+import { AgentAvatar, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, dash, fmtTime, useTraceLoad } from './TraceParts'
 import { themeClass } from './theme'
 import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prUrl, replayOf, shortDay, signalLabel, traceHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
 import './studio.css'
@@ -69,10 +74,9 @@ function PrCell({ r }: { r: TraceRow }) {
   )
 }
 
-function TraceRowLine({ r, on, onFocus }: { r: TraceRow; on: boolean; onFocus: () => void }) {
+function TraceRowLine({ r, on, onFocus, checked, onToggle }: { r: TraceRow; on: boolean; onFocus: () => void; checked: boolean; onToggle: () => void }) {
   const a = agentChip(r)
   const day = dayOf(r.started_at)
-  const before = r.task_summary?.before ?? null
   return (
     <div
       role="row"
@@ -81,8 +85,14 @@ function TraceRowLine({ r, on, onFocus }: { r: TraceRow; on: boolean; onFocus: (
       data-session-id={r.session_id ?? ''}
       data-focused={on ? 'true' : undefined}
       onClick={onFocus}
-      onFocus={onFocus}
+      // The selection checkbox takes the keyboard and pointer focus without moving the focused row.
+      onFocus={(e) => {
+        if (!(e.target as HTMLElement).closest('.trc-cell--check')) onFocus()
+      }}
     >
+      <span role="cell" className="trc-cell trc-cell--check" onClick={(e) => e.stopPropagation()}>
+        <input type="checkbox" className="trc-check-box" aria-label={`Select ${rowLabel(r)}`} checked={checked} onChange={onToggle} data-testid="trace-select" />
+      </span>
       <span role="cell" className="trc-cell trc-cell--date" title={fmtTime(r.started_at)} data-field="started_at">
         {day ?? '—'}
       </span>
@@ -110,9 +120,7 @@ function TraceRowLine({ r, on, onFocus }: { r: TraceRow; on: boolean; onFocus: (
               </span>
             </>
           )}
-          <WhyBadge why={r.why} />
         </span>
-        {before && <span className="trc-task-before trc-ellip">{before}</span>}
       </span>
       <span role="cell" className="trc-cell trc-cell--pr">
         <PrCell r={r} />
@@ -187,6 +195,8 @@ function FocusPanel({ r }: { r: TraceRow }) {
           <dd data-field="l2_class">{dash(r.l2_class && plainValue(r.l2_class))}</dd>
           <dt>Mode</dt>
           <dd data-field="mode">{dash(r.mode && plainValue(r.mode))}</dd>
+          <dt>Picked for</dt>
+          <dd data-field="why">{dash(r.why && plainValue(r.why))}</dd>
           <dt>Started</dt>
           <dd>{fmtTime(r.started_at)}</dd>
           <dt>Pin</dt>
@@ -219,35 +229,101 @@ function hrefWith(params: URLSearchParams, change: Record<string, string | null>
   return `/studio/traces${s ? `?${s}` : ''}`
 }
 
+/** Chips shown before "+N more" (artboard S2: three chips, then "+4 more"). */
+const MAX_CHIPS = 3
+
+const FilterIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 6h18" />
+    <path d="M7 12h10" />
+    <path d="M10 18h4" />
+  </svg>
+)
+
+/**
+ * The S2 filter row (MT-02): one "Filters (n)" button that opens a dropdown with every filter group, the active filters
+ * as removable chips ("Use case: fix ×"), "+N more" past three chips, and "Clear all". The state stays in the URL.
+ */
 function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[] }) {
-  const active = FILTERS.filter((k) => params.get(k)).length
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  useDismiss(open, ref, () => setOpen(false), triggerRef)
+  const active = FILTERS.flatMap((k) => {
+    const v = params.get(k)
+    return v ? [{ k, v }] : []
+  })
+  const shown = active.slice(0, MAX_CHIPS)
+  const extra = active.length - shown.length
   return (
     <div className="trc-filters" data-testid="trace-filters">
-      {FILTERS.map((k: FilterKey) => {
-        const current = params.get(k)
-        const values = [...new Set([...rows.map((r) => r[k]).filter((v): v is string => !!v), ...(current ? [current] : [])])].sort()
-        return (
-          <span key={k} className="trc-filter" data-filter={k}>
-            <span className="stu-label">{FILTER_LABEL[k]}</span>
-            {[null, ...values].map((v) => {
-              const on = (v ?? null) === (current ?? null)
+      <div className="trc-fmenu" ref={ref}>
+        <button
+          ref={triggerRef}
+          type="button"
+          className="trc-fbtn"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          data-testid="trace-filters-button"
+        >
+          <FilterIcon />
+          Filters
+          {active.length > 0 && (
+            <span className="trc-fbtn__n" data-testid="trace-filters-count">
+              {active.length}
+            </span>
+          )}
+        </button>
+        {open && (
+          <div className="trc-fpanel" role="dialog" aria-label="Filters" data-testid="trace-filters-panel">
+            {FILTERS.map((k: FilterKey) => {
+              const current = params.get(k)
+              const values = [...new Set([...rows.map((r) => r[k]).filter((v): v is string => !!v), ...(current ? [current] : [])])].sort()
               return (
-                <Link
-                  key={v ?? '(all)'}
-                  to={hrefWith(params, { [k]: v, offset: null })}
-                  className={`stu-chip stu-chip--sm${on ? ' stu-chip--on' : ''}`}
-                  aria-current={on ? 'true' : undefined}
-                  data-filter-value={v ?? 'all'}
-                >
-                  {v === null ? 'all' : plainValue(v)}
-                </Link>
+                <div key={k} className="trc-fgroup" data-filter={k} role="group" aria-label={FILTER_LABEL[k]}>
+                  <span className="stu-label">{FILTER_LABEL[k]}</span>
+                  <div className="trc-fopts">
+                    {[null, ...values].map((v) => {
+                      const on = (v ?? null) === (current ?? null)
+                      return (
+                        <Link
+                          key={v ?? '(all)'}
+                          to={hrefWith(params, { [k]: v, offset: null })}
+                          className={`trc-fopt${on ? ' trc-fopt--on' : ''}`}
+                          aria-current={on ? 'true' : undefined}
+                          data-filter-value={v ?? 'all'}
+                          onClick={() => setOpen(false)}
+                        >
+                          {v === null ? 'all' : plainValue(v)}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
               )
             })}
-          </span>
-        )
-      })}
-      {active > 0 && (
-        <Link to={hrefWith(params, { l2_class: null, why: null, mode: null, offset: null })} className="stu-btn stu-btn--ghost trc-clear" data-testid="trace-clear">
+          </div>
+        )}
+      </div>
+      {shown.map(({ k, v }) => (
+        <span key={k} className="trc-fchip" data-chip={k}>
+          {FILTER_LABEL[k]}: <span className="trc-fchip__v">{plainValue(v)}</span>
+          <Link to={hrefWith(params, { [k]: null, offset: null })} className="trc-fchip__x" aria-label={`Remove filter ${FILTER_LABEL[k]}`} data-testid="trace-chip-remove">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </Link>
+        </span>
+      ))}
+      {extra > 0 && (
+        <button type="button" className="trc-fmore" onClick={() => setOpen(true)} data-testid="trace-filters-more">
+          +{extra} more
+        </button>
+      )}
+      <span className="trc-filters__fill" />
+      {active.length > 0 && (
+        <Link to={hrefWith(params, { l2_class: null, why: null, mode: null, offset: null })} className="trc-clear" data-testid="trace-clear">
           Clear all
         </Link>
       )}
@@ -279,11 +355,23 @@ function Paging({ params, data }: { params: URLSearchParams; data: TraceList }) 
   )
 }
 
-function TraceTable({ rows, focusedKey, onFocus }: { rows: Array<{ r: TraceRow; k: string }>; focusedKey: string | null; onFocus: (k: string) => void }) {
+type Keyed = Array<{ r: TraceRow; k: string }>
+
+function TraceTable({ rows, focusedKey, onFocus, selected, onSelect }: { rows: Keyed; focusedKey: string | null; onFocus: (k: string) => void; selected: Set<string>; onSelect: (next: Set<string>) => void }) {
+  const all = rows.length > 0 && rows.every(({ k }) => selected.has(k))
+  const toggle = (k: string) => {
+    const next = new Set(selected)
+    if (next.has(k)) next.delete(k)
+    else next.add(k)
+    onSelect(next)
+  }
   return (
     <div className="trc-tablewrap">
       <div role="table" aria-label="Traces" className="trc-table">
         <div role="row" className="trc-row trc-row--head">
+          <span role="columnheader" className="trc-cell trc-cell--check">
+            <input type="checkbox" className="trc-check-box" aria-label="Select all traces on this page" checked={all} onChange={() => onSelect(all ? new Set() : new Set(rows.map(({ k }) => k)))} data-testid="trace-select-all" />
+          </span>
           {['date', 'agent', 'task', 'pr / ci', 'signal', 'replayable'].map((h) => (
             <span key={h} role="columnheader" className="trc-cell">
               {h}
@@ -292,7 +380,7 @@ function TraceTable({ rows, focusedKey, onFocus }: { rows: Array<{ r: TraceRow; 
           ))}
         </div>
         {rows.map(({ r, k }) => (
-          <TraceRowLine key={k} r={r} on={focusedKey === k} onFocus={() => onFocus(k)} />
+          <TraceRowLine key={k} r={r} on={focusedKey === k} onFocus={() => onFocus(k)} checked={selected.has(k)} onToggle={() => toggle(k)} />
         ))}
       </div>
     </div>
@@ -302,6 +390,7 @@ function TraceTable({ rows, focusedKey, onFocus }: { rows: Array<{ r: TraceRow; 
 export function StudioTracesPage() {
   const [params] = useSearchParams()
   const [focus, setFocus] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const offset = Number(params.get('offset') ?? '0')
   const q = {
     limit: TRACE_PAGE_SIZE,
@@ -311,6 +400,8 @@ export function StudioTracesPage() {
     mode: params.get('mode'),
   }
   const loaded = useTraceLoad(() => fetchTraceList(q), [q.offset, q.l2_class, q.why, q.mode])
+  // A selection belongs to one page of one query: a new page or filter starts empty.
+  useEffect(() => setSelected(new Set()), [q.offset, q.l2_class, q.why, q.mode])
   // Newest first on each page. The serve pages by its own order, so the date order holds inside a page only.
   const keyed = loaded.state === 'ok' ? newestFirst(loaded.data.rows).map((r, i) => ({ r, k: rowKey(r, i) })) : []
   const focused = keyed.find((x) => x.k === focus) ?? keyed[0] ?? null
@@ -319,12 +410,12 @@ export function StudioTracesPage() {
       <div className="trc-shell">
         <div className="trc-col">
           <div className="trc-head">
-            <p className="stu-label">
-              <Link to="/studio">Studio</Link> / traces
-            </p>
             <div className="trc-title">
               <h1 className="tma-h1">Traces</h1>
-              <InfoTip label="About traces" text={ABOUT} />
+              <InfoTip
+                label="About traces"
+                text={loaded.state === 'ok' ? `${ABOUT} Selection day ${loaded.data.source.selection_day}; ${loaded.data.source.pins ? 'pins exist for this day' : 'no pins for this day'}. Newest first on each page.` : ABOUT}
+              />
               {loaded.state === 'ok' && (
                 <span className="stu-label" data-testid="trace-total">
                   {loaded.data.total} {loaded.data.total === 1 ? 'trace' : 'traces'}
@@ -340,16 +431,28 @@ export function StudioTracesPage() {
             <TraceErrorCard error={loaded.error} testId="traces-error" />
           ) : (
             <div data-testid="traces-list" className="trc-list">
-              <p className="stu-label" data-testid="trace-source">
-                Selection day {loaded.data.source.selection_day}. {loaded.data.source.pins ? 'Pins exist for this day.' : 'No pins for this day.'} Newest first on each page.
-              </p>
               <FilterBar params={params} rows={loaded.data.rows} />
+              {selected.size > 0 && (
+                <div className="trc-selbar" data-testid="trace-selection">
+                  <span className="trc-selbar__n" data-testid="trace-selection-count">
+                    {selected.size} selected
+                  </span>
+                  <button type="button" className="trc-selbar__clear" onClick={() => setSelected(new Set())} data-testid="trace-selection-clear">
+                    Clear
+                  </button>
+                  <span className="trc-filters__fill" />
+                  {/* Disabled until the write lands (Q 3d291a2b = A: the serve writes case drafts into dfl-evals). */}
+                  <button type="button" className="stu-btn stu-btn--primary" disabled title="Coming next: builds case drafts from the selected traces" data-testid="trace-build-cases">
+                    Build {selected.size} {selected.size === 1 ? 'case' : 'cases'}
+                  </button>
+                </div>
+              )}
               {loaded.data.rows.length === 0 ? (
                 <p className="tma-body-sm tma-muted" data-testid="traces-empty">
                   No candidate traces match these filters.
                 </p>
               ) : (
-                <TraceTable rows={keyed} focusedKey={focused?.k ?? null} onFocus={setFocus} />
+                <TraceTable rows={keyed} focusedKey={focused?.k ?? null} onFocus={setFocus} selected={selected} onSelect={setSelected} />
               )}
               <Paging params={params} data={loaded.data} />
             </div>

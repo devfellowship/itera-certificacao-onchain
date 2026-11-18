@@ -222,8 +222,11 @@ describe('S2 trace picker', () => {
     expect(ts.querySelector('[data-field="before"]')!.textContent).toBe('fixture-before-text')
     expect(ts.querySelector('[data-field="expected"]')!.textContent).toBe('fixture-expected-text')
     expect(ts.querySelector('[data-field="outcome"]')!.textContent).toBe('fixture-outcome-text')
-    // The row shows the Before text next to the task id.
-    expect(r[0]!.textContent).toContain('fixture-before-text')
+    // MT-04: the row shows the task id only: no Before line under it, no "picked for" tag.
+    expect(r[0]!.textContent).not.toContain('fixture-before-text')
+    expect(c.querySelector('.trc-task-before')).toBeNull()
+    expect(c.querySelector('[data-trace-row] [data-why]')).toBeNull()
+    expect(focus().querySelector('[data-field="why"]')!.textContent).toBe('red')
     // Pin states, in the panel of the focused row (a click focuses a row; a null field shows a dash).
     expect(focus().querySelector('[data-pin]')!.getAttribute('data-pin')).toBe('incomplete')
     expect(focus().querySelector('[data-pin]')!.textContent).toBe('pinned incomplete (2 missing)')
@@ -247,9 +250,7 @@ describe('S2 trace picker', () => {
     expect(r[3]!.textContent).toContain('none')
     // The replayable column follows the pin.
     expect(r.map((x) => x.querySelector('[data-replay]')!.getAttribute('data-replay'))).toEqual(['partly', 'yes', 'unpinned', 'unpinned'])
-    // Why badge, labels.
-    expect(r[0]!.querySelector('[data-why]')!.textContent).toBe('red')
-    expect(r[1]!.querySelector('[data-why]')!.textContent).toBe('sample')
+    // Labels.
     expect(r[0]!.textContent).toContain('DFL-00001')
     expect(r[0]!.textContent).toContain('Claude Code · fixture-model')
     expect(r[0]!.textContent).toContain('2026-11-01')
@@ -264,10 +265,13 @@ describe('S2 trace picker', () => {
     expect(r[1]!.querySelector('[data-testid="trace-link"]')!.getAttribute('href')).toBe(`/studio/traces/${SID_A}?agent_id=${SUB}`)
     expect(r[2]!.querySelector('[data-testid="trace-link"]')).toBeNull()
     expect(r[2]!.querySelector('[data-testid="trace-no-file"]')!.textContent).toBe('no trajectory file')
-    // Source and pins.
-    expect(c.querySelector('[data-testid="trace-source"]')!.textContent).toBe('Selection day 2026-11-02. Pins exist for this day. Newest first on each page.')
-    // Studio is active in the nav.
-    expect([...c.querySelectorAll('nav a[aria-current="page"]')].map((a) => a.textContent).join(' ')).toMatch(/Studio/)
+    // MT-04: no source line in the page; the selection day and pins live in the (i) of the title.
+    expect(c.querySelector('[data-testid="trace-source"]')).toBeNull()
+    expect(c.textContent).not.toContain('Selection day 2026-11-02. Pins exist')
+    expect(c.querySelector('.trc-head .stu-label a')).toBeNull()
+    expect(c.querySelector('.trc-title')!.textContent).toContain('Selection day 2026-11-02; pins exist for this day. Newest first on each page.')
+    // Traces is the active Studio item in the nav (MT-03).
+    expect([...c.querySelectorAll('nav a[aria-current="page"]')].map((a) => a.textContent)).toEqual(['Traces'])
     // No HTML injection path.
     expect(c.innerHTML).not.toContain('javascript:')
   })
@@ -276,14 +280,44 @@ describe('S2 trace picker', () => {
     const c = mountAt('/studio/traces')
     await waitFor(() => traceRows(c).length > 0, 'rows')
     expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces?limit=50`])
-    const l2 = c.querySelector('[data-filter="l2_class"]')!
+    // MT-02: one Filters button; the groups are in its dropdown, closed at first; no chip, no count, no Clear all.
+    const btn = c.querySelector<HTMLButtonElement>('[data-testid="trace-filters-button"]')!
+    expect(btn.textContent).toBe('Filters')
+    expect(btn.getAttribute('aria-expanded')).toBe('false')
+    expect(c.querySelector('[data-filter]')).toBeNull()
+    expect(c.querySelector('[data-chip]')).toBeNull()
+    expect(c.querySelector('[data-testid="trace-clear"]')).toBeNull()
+    act(() => btn.click())
+    expect(btn.getAttribute('aria-expanded')).toBe('true')
+    const l2 = c.querySelector('[data-testid="trace-filters-panel"] [data-filter="l2_class"]')!
     expect([...l2.querySelectorAll('[data-filter-value]')].map((a) => a.getAttribute('data-filter-value'))).toEqual(['all', 'build', 'fix', 'plan'])
     const fix = l2.querySelector<HTMLAnchorElement>('[data-filter-value="fix"]')!
     expect(fix.getAttribute('href')).toBe('/studio/traces?l2_class=fix')
     const f = follow(fix)
     await waitFor(() => serveCalls().length > 0 && traceRows(f).length > 0, 'filtered')
     expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces?limit=50&l2_class=fix`])
+    // The active filter is a removable chip; the button counts it; Clear all and the chip's x drop it from the URL.
+    expect(f.querySelector('[data-testid="trace-filters-count"]')!.textContent).toBe('1')
+    const chip = f.querySelector('[data-chip="l2_class"]')!
+    expect(chip.textContent).toBe('Use case: fix')
+    expect(chip.querySelector('[data-testid="trace-chip-remove"]')!.getAttribute('href')).toBe('/studio/traces')
+    expect(chip.querySelector('[data-testid="trace-chip-remove"]')!.getAttribute('aria-label')).toBe('Remove filter Use case')
+    expect(f.querySelector('[data-testid="trace-clear"]')!.getAttribute('href')).toBe('/studio/traces')
+    expect(f.querySelector('[data-testid="trace-filters-more"]')).toBeNull()
+    act(() => f.querySelector<HTMLButtonElement>('[data-testid="trace-filters-button"]')!.click())
     expect(f.querySelector('[data-filter="l2_class"] [aria-current="true"]')!.textContent).toBe('fix')
+    // Escape closes the dropdown.
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+    expect(f.querySelector('[data-testid="trace-filters-panel"]')).toBeNull()
+  })
+
+  it('shows one chip per active filter, keeps the other filters when one chip is removed', async () => {
+    const c = mountAt('/studio/traces?l2_class=fix&why=red&mode=trace_review&offset=50')
+    await waitFor(() => traceRows(c).length > 0, 'rows')
+    expect(c.querySelector('[data-testid="trace-filters-count"]')!.textContent).toBe('3')
+    expect([...c.querySelectorAll('[data-chip]')].map((x) => x.textContent)).toEqual(['Use case: fix', 'Picked for: red', 'Mode: trace review'])
+    const hrefs = [...c.querySelectorAll('[data-testid="trace-chip-remove"]')].map((a) => a.getAttribute('href'))
+    expect(hrefs).toEqual(['/studio/traces?why=red&mode=trace_review', '/studio/traces?l2_class=fix&mode=trace_review', '/studio/traces?l2_class=fix&why=red'])
   })
 
   it('reads in plain words: filter labels, no underscore in a value, one signal label map, who line and date order', async () => {
@@ -297,6 +331,7 @@ describe('S2 trace picker', () => {
     }
     const c = mountAt('/studio/traces?mode=trace_review', { list: [200, list] })
     await waitFor(() => traceRows(c).length > 0, 'rows')
+    act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-filters-button"]')!.click())
     // Filter group labels are words; the URL parameters keep the field keys.
     expect([...c.querySelectorAll('[data-filter]')].map((f) => [f.getAttribute('data-filter'), f.querySelector('.stu-label')!.textContent])).toEqual([
       ['l2_class', 'Use case'],
@@ -320,6 +355,36 @@ describe('S2 trace picker', () => {
     expect(panel.querySelector('[data-field="who-line"]')!.textContent).toBe('Claude Code · fixture-model · 10 Nov')
     // The why chip is neutral for every value, including "red".
     expect(c.querySelector('.trc-why--red')).toBeNull()
+  })
+
+  it('selects rows with the checkbox column: "N selected", select all on the page, Clear, a disabled Build button (MT-05)', async () => {
+    const c = mountAt('/studio/traces')
+    await waitFor(() => traceRows(c).length > 0, 'rows')
+    expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
+    const boxes = () => traceRows(c).map((r) => r.querySelector<HTMLInputElement>('[data-testid="trace-select"]')!)
+    const focusedBefore = traceRows(c)[0]!.getAttribute('data-focused')
+    act(() => boxes()[1]!.click())
+    act(() => boxes()[2]!.click())
+    expect(boxes().map((b) => b.checked)).toEqual([false, true, true, false])
+    expect(c.querySelector('[data-testid="trace-selection-count"]')!.textContent).toBe('2 selected')
+    // A checkbox click (and the focus it takes) does not move the focused row.
+    act(() => boxes()[2]!.focus())
+    expect(traceRows(c)[0]!.getAttribute('data-focused')).toBe(focusedBefore)
+    expect(traceRows(c)[2]!.getAttribute('data-focused')).toBeNull()
+    // The build button names the count and stays disabled until its write path lands (MT-05, Q 3d291a2b = A).
+    const build = c.querySelector<HTMLButtonElement>('[data-testid="trace-build-cases"]')!
+    expect(build.textContent).toBe('Build 2 cases')
+    expect(build.disabled).toBe(true)
+    const all = c.querySelector<HTMLInputElement>('[data-testid="trace-select-all"]')!
+    act(() => all.click())
+    expect(c.querySelector('[data-testid="trace-selection-count"]')!.textContent).toBe(`${LIST.rows.length} selected`)
+    expect(all.checked).toBe(true)
+    act(() => all.click())
+    expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
+    act(() => boxes()[0]!.click())
+    act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-selection-clear"]')!.click())
+    expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
+    expect(boxes().every((b) => !b.checked)).toBe(true)
   })
 
   it('passes why, mode and offset from the URL', async () => {

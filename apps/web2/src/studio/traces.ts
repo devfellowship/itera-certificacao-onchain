@@ -278,6 +278,139 @@ export function spanKind(s: Pick<TraceSpan, 'tool' | 'intent' | 'family'>): Span
   return 'other'
 }
 
+// ---------- Step categories (plan 20261118-melhorias-tma, task MT-08; Tainan TG 32382) ----------
+//
+// The category of a step is the `intent` that session-trajectory wrote on the span in the layer-1 file. That parser
+// (dfl-harness:skills/session-trajectory/st_parse.py, INTENT_LIST_VERSION 2) is the same one whose spans feed the
+// decisiongraph.devfellowship.com analytics ("Bash - <intent>"), so this view and the analytics count the same
+// categories. The parser is deterministic (shape -> rule, compound commands -> the PRIO order). Nothing here classifies
+// again and nothing calls a model: this module only reads the field and gives it plain words and a color.
+
+/** The fixed intent list of st_parse.py, INTENT_LIST_VERSION 2. A new list version must be copied here. */
+export const INTENTS = [
+  'pr-read', 'pr-write/merge', 'ci-read', 'ci-watch/poll', 'git-read', 'git-write',
+  'build/test', 'deploy', 'credential-fetch', 'plan-mcp', 'skill-run', 'mcp-read',
+  'mcp-write', 'file-read', 'file-edit', 'search', 'web-research', 'ops-inspect',
+  'ops-change', 'spawn-subagent', 'message-agent', 'reply-human', 'wait/sleep',
+  'browser-check', 'github-api', 'media-generate', 'other',
+] as const
+export type Intent = (typeof INTENTS)[number]
+/** A span with no intent (the parser left it to a model that has not run) is "unlabeled", as in the analytics. */
+export type StepCategory = Intent | 'unlabeled'
+
+const INTENT_SET: ReadonlySet<string> = new Set(INTENTS)
+
+/** The plain words of each category (the decisiongraph analytics names). */
+export const CATEGORY_LABEL: Record<StepCategory, string> = {
+  'pr-read': 'PR read',
+  'pr-write/merge': 'PR write/merge',
+  'ci-read': 'CI read',
+  'ci-watch/poll': 'CI watch/poll',
+  'git-read': 'git read',
+  'git-write': 'git write',
+  'build/test': 'build/test',
+  deploy: 'deploy',
+  'credential-fetch': 'credential fetch',
+  'plan-mcp': 'plan MCP',
+  'skill-run': 'skill run',
+  'mcp-read': 'MCP read',
+  'mcp-write': 'MCP write',
+  'file-read': 'file read',
+  'file-edit': 'file edit',
+  search: 'search',
+  'web-research': 'web research',
+  'ops-inspect': 'ops inspect',
+  'ops-change': 'ops change',
+  'spawn-subagent': 'spawn subagent',
+  'message-agent': 'message agent',
+  'reply-human': 'reply to human',
+  'wait/sleep': 'wait/sleep',
+  'browser-check': 'browser check',
+  'github-api': 'GitHub API',
+  'media-generate': 'media generate',
+  other: 'other',
+  unlabeled: 'unlabeled',
+}
+
+/**
+ * The category of one span. No intent -> "unlabeled"; an intent outside the list -> "other" (the rule of the
+ * analytics build, session-trajectory/analytics/build.py). Never reads the preview.
+ */
+export function spanCategory(s: Pick<TraceSpan, 'intent'>): StepCategory {
+  const intent = s.intent
+  if (!intent || intent === 'needs-model') return 'unlabeled'
+  return INTENT_SET.has(intent) ? (intent as Intent) : 'other'
+}
+
+/** The CSS-safe key of a category: "pr-write/merge" -> "pr-write-merge". */
+export const categoryKey = (c: StepCategory): string => c.replace(/[^a-z0-9]+/g, '-')
+
+/** The shell tools: Claude Code `Bash`, and the shell tools of Codex and opencode. */
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'shell', 'local_shell', 'exec_command', 'bash'])
+/** A shell span, by its tool name (the family is not used: a fixture or an adapter can set it loosely). */
+export const isShellSpan = (s: Pick<TraceSpan, 'tool'>): boolean => SHELL_TOOLS.has(s.tool ?? '')
+
+/** "devfellowship/dfl-mcp-server" -> "dfl-mcp-server". */
+const shortRepo = (t: string): string => t.slice(t.lastIndexOf('/') + 1) || t
+
+const LEAD_SKIP = /^(cd|export|set|source|\.|pushd|popd|unset|true|:|[A-Za-z_][A-Za-z0-9_]*=\S*)$/
+
+/** The first command of a raw shell line that is not a `cd` / `export` / assignment prefix: "gh pr list". */
+function firstCommand(preview: string): string | null {
+  for (const part of preview.split(/\s*(?:&&|\|\||;|\n|\|)\s*/)) {
+    const words = part.trim().split(/\s+/).filter(Boolean)
+    if (!words.length || LEAD_SKIP.test(words[0]!)) continue
+    const head = words.slice(0, words[0] === 'git' || words[0] === 'gh' || words[0] === 'npm' || words[0] === 'npx' ? 3 : 1)
+    return head.filter((w) => !w.startsWith('-')).join(' ')
+  }
+  return null
+}
+
+/**
+ * A short summary of a shell step: its commands without arguments, then the repo it ran in.
+ * The base is the span `shape` (st_parse.bash_shape: the `cd` / `echo` decoration and the arguments are already gone,
+ * at most 3 commands joined by " + "). With no shape, the first command of the preview after any `cd ...;` prefix.
+ */
+export function commandSummary(s: Pick<TraceSpan, 'shape' | 'preview' | 'target_kind' | 'target'>): string {
+  let cmd = s.shape
+    ? s.shape
+        .replace(/<skill:([A-Za-z0-9_.-]+)>\/?/g, (_m, k: string) => `${k}/`)
+        .replace(/\/\s/g, ' ')
+        .replace(/\/$/, '')
+        .replace(/\s*2>&1/g, '')
+        .replace(/\s*<(inline|args)>/g, '')
+        .replace(/<(file|repo)>/g, '$1')
+        .split(' + ')
+        .filter((c) => c.trim() && c.trim() !== 'null')
+        .join(' + ')
+        .trim()
+    : s.preview
+      ? firstCommand(s.preview)
+      : null
+  if (cmd === '') cmd = null
+  const where = s.target_kind === 'repo' && s.target ? shortRepo(s.target) : null
+  return [cmd, where].filter(Boolean).join(' · ') || '—'
+}
+
+/** The label and summary of one waterfall row. A shell step shows its category, not the repo it ran in. */
+export function stepLabel(s: TraceSpan): { label: string; summary: string; category: StepCategory } {
+  const category = spanCategory(s)
+  if (isShellSpan(s)) return { label: CATEGORY_LABEL[category], summary: commandSummary(s), category }
+  return { label: toolLabel(s.tool) ?? '—', summary: s.target ?? ([s.shape, s.intent].filter(Boolean).join(' / ') || '—'), category }
+}
+
+/** The categories of the given steps, most calls first (ties by label), for the waterfall legend. */
+export function categoryLegend(steps: readonly Pick<TraceSpan, 'intent'>[]): Array<{ category: StepCategory; label: string; calls: number }> {
+  const n = new Map<StepCategory, number>()
+  for (const s of steps) {
+    const c = spanCategory(s)
+    n.set(c, (n.get(c) ?? 0) + 1)
+  }
+  return [...n]
+    .map(([category, calls]) => ({ category, label: CATEGORY_LABEL[category], calls }))
+    .sort((a, b) => b.calls - a.calls || a.label.localeCompare(b.label))
+}
+
 /** A duration in ms -> "850 ms" / "2.4 s" / "41 s" / "7 min" / "1h 5m". */
 export function fmtMs(ms: number | null): string {
   if (ms === null || !Number.isFinite(ms)) return '—'
@@ -303,6 +436,8 @@ export interface WaterfallStep {
   run: number
   span: TraceSpan
   kind: SpanKind
+  /** The decisiongraph category of the step (its bar color and legend entry). */
+  category: StepCategory
   failed: boolean
   /** Percent of the trace extent, or null when the span has no timestamp. */
   left: number | null
@@ -358,6 +493,7 @@ export function buildWaterfall(runs: readonly TraceRun[]): Waterfall {
         run: ri,
         span,
         kind: spanKind(span),
+        category: spanCategory(span),
         failed: span.ok === false,
         left: t !== null && totalMs > 0 ? pct(t) : null,
         width: t !== null && totalMs > 0 ? Math.max(0.4, ((span.dur_ms ?? 0) / totalMs) * 100) : null,

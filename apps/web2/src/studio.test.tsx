@@ -114,9 +114,18 @@ describe('S1 Studio home', () => {
 })
 
 describe('Studio in the app', () => {
-  it('sectionFor marks /studio and /studio/* active, and no old path', () => {
+  it('sectionFor marks the Studio section of a path (Use cases by default), and no old path', () => {
     expect(sectionFor('/studio')).toBe('studio')
     expect(sectionFor('/studio/cases/x')).toBe('studio')
+    expect(sectionFor('/studio/compare')).toBe('studio')
+    expect(sectionFor('/studio/traces')).toBe('traces')
+    expect(sectionFor('/studio/traces/abc')).toBe('traces')
+    expect(sectionFor('/studio/tracesx')).toBe('studio')
+    expect(sectionFor('/studio/graders/g1')).toBe('graders')
+    expect(sectionFor('/studio/calibration')).toBe('graders')
+    expect(sectionFor('/studio/routing')).toBe('routing')
+    expect(sectionFor('/studio/routing/fix%2Fci-red')).toBe('routing')
+    expect(sectionFor('/studio/review')).toBe('more')
     expect(sectionFor('/studios')).toBeNull()
     expect(sectionFor('/agents')).toBe('agents')
     expect(sectionFor('/tasks/x')).toBe('tasks')
@@ -133,12 +142,33 @@ describe('Studio in the app', () => {
     window.removeEventListener('error', onError)
     expect(pageErrors).toEqual([])
     expect(c.querySelector('[data-testid="studio-home"]')).not.toBeNull()
+    // MT-06: the studio page renders inside the shared studio layout (full width, side panel flush right).
+    expect(c.querySelector('[data-testid="studio-layout"] [data-testid="studio-home"]')).not.toBeNull()
     expect(c.querySelector('[data-testid="nav-studio"]')?.getAttribute('aria-current')).toBe('page')
-    for (const id of ['nav-agents', 'nav-tasks', 'nav-my-evaluations']) {
+    expect(c.querySelector('[data-testid="nav-studio"]')?.textContent).toBe('Use cases')
+    for (const id of ['nav-agents', 'nav-tasks', 'nav-my-evaluations', 'nav-studio-traces', 'nav-studio-graders', 'nav-studio-routing', 'nav-studio-more']) {
       const el = c.querySelector(`[data-testid="${id}"]`)
       expect(el).not.toBeNull()
       expect(el?.getAttribute('aria-current')).toBeNull()
     }
+    const hrefs = ['nav-studio', 'nav-studio-traces', 'nav-studio-graders', 'nav-studio-routing'].map((id) => c.querySelector(`[data-testid="${id}"]`)?.getAttribute('href'))
+    expect(hrefs).toEqual(['/studio', '/studio/traces', '/studio/graders', '/studio/routing'])
+  })
+
+  it('More opens a menu with the review queue (the one item the canvas puts under More), and Escape closes it', () => {
+    saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })))
+    const c = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/agents'] })} />)
+    expect(c.querySelector('[data-testid="studio-layout"]')).toBeNull()
+    const more = c.querySelector<HTMLButtonElement>('[data-testid="nav-studio-more"]')!
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    expect(c.querySelector('[data-testid="nav-more-menu"]')).toBeNull()
+    act(() => more.click())
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+    const items = [...c.querySelectorAll<HTMLAnchorElement>('[data-testid="nav-more-menu"] [role="menuitem"]')]
+    expect(items.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['Review queue', '/studio/review']])
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+    expect(c.querySelector('[data-testid="nav-more-menu"]')).toBeNull()
   })
 
   it('signed out: /studio shows the login gate (same session gate as the old pages)', () => {
