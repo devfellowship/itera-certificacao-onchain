@@ -38,9 +38,6 @@
 .trc-paging { display: flex; gap: var(--stu-gap-3); align-items: center; margin: 0; }
 
 /* S2 table + focused-row panel */
-/* MT-01: S2 and S3 fill the viewport width (no 1440px cap), so the side panel sits flush on the right edge as on the
-   artboard, with no empty column to its right on a wide screen. */
-.trc-page.trc-page--picker, .trc-page.trc-page--view { max-width: none; }
 .trc-page--picker { padding-top: 0; padding-bottom: 0; gap: 0; }
 /* The shell holds the whole page column (crumb, title, filters, table, paging) and the side panel next to it, so the
    panel is a full-height column from under the nav to the bottom of the viewport, as on the artboard. */
@@ -112,18 +109,20 @@
 .trc-preview--open { display: block; -webkit-line-clamp: unset; overflow: auto; max-height: 360px; }
 .trc-more { align-self: flex-start; font: inherit; font-size: 12px; background: none; border: none; padding: 0; color: var(--stu-text-2); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 
-/* S3 layout: main column + side panel */
-.trc-page--view { padding-top: 0; gap: 0; }
-.trc-view { min-height: calc(100vh - 140px); display: flex; flex-wrap: wrap; align-items: stretch; margin: 0 calc(-1 * var(--tma-app-gutter, 0px)); min-width: 0; }
+/* S3 layout: main column + side panel. The page fills the viewport height under the nav, so the side panel runs to the
+   bottom of the screen (MT-06); the width comes from the shared studio layout (layout.css). */
+.trc-page--view { padding-top: 0; padding-bottom: 0; gap: 0; box-sizing: border-box; min-height: calc(100vh - var(--tma-nav-height, 56px) - 1px); }
+.trc-view { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: stretch; margin: 0 calc(-1 * var(--tma-app-gutter, 0px)); min-width: 0; }
 .trc-view__main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: var(--stu-gap-5); padding: 28px var(--tma-app-gutter, 0px) 0; }
 .trc-view__lead { display: flex; flex-direction: column; gap: var(--stu-gap-4); }
 .trc-view__lead h1 { overflow-wrap: anywhere; }
 .trc-tiles { display: flex; flex-wrap: wrap; gap: var(--stu-gap-4) 40px; }
 .trc-tile { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .trc-tile__v { display: inline-flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 500; color: var(--stu-text); }
-.trc-tabs { border-bottom: 1px solid var(--stu-line); gap: 2px; }
-.trc-tabs .stu-tab { min-height: 36px; }
-/* The active tab has no fill: the 2px accent underline alone marks it. */
+/* MT-07: flat underline tabs as on the S3 artboard: no box, no radius, no fill; the 2px accent underline alone marks
+   the active tab. */
+.trc-tabs { border-bottom: 1px solid var(--stu-line); gap: 24px; }
+.trc-tabs .stu-tab { min-height: 0; padding: 8px 0; border-radius: 0; background: transparent; }
 .trc-tabs .stu-tab[aria-selected='true'] { background: transparent; }
 .trc-calls { display: flex; flex-direction: column; gap: var(--stu-gap-3); min-width: 0; }
 .trc-calls__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-2) var(--stu-gap-3); }

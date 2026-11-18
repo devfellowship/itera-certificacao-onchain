@@ -1,0 +1,7 @@
+/*
+ * Shared studio layout (MT-06): every studio page fills the viewport width (no 1160px or 1440px cap), so the breadcrumb
+ * bar spans the whole width and a side panel ends on the right edge of the screen, with no empty column next to it.
+ * The S13 review queue is a phone screen by design and keeps its own narrow column.
+ */
+.stu-layout { min-width: 0; }
+.stu-layout > .tma-page:not(.rvw-page) { max-width: none; }

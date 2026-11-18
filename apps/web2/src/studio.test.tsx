@@ -142,6 +142,8 @@ describe('Studio in the app', () => {
     window.removeEventListener('error', onError)
     expect(pageErrors).toEqual([])
     expect(c.querySelector('[data-testid="studio-home"]')).not.toBeNull()
+    // MT-06: the studio page renders inside the shared studio layout (full width, side panel flush right).
+    expect(c.querySelector('[data-testid="studio-layout"] [data-testid="studio-home"]')).not.toBeNull()
     expect(c.querySelector('[data-testid="nav-studio"]')?.getAttribute('aria-current')).toBe('page')
     expect(c.querySelector('[data-testid="nav-studio"]')?.textContent).toBe('Use cases')
     for (const id of ['nav-agents', 'nav-tasks', 'nav-my-evaluations', 'nav-studio-traces', 'nav-studio-graders', 'nav-studio-routing', 'nav-studio-more']) {
@@ -157,6 +159,7 @@ describe('Studio in the app', () => {
     saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })))
     const c = mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/agents'] })} />)
+    expect(c.querySelector('[data-testid="studio-layout"]')).toBeNull()
     const more = c.querySelector<HTMLButtonElement>('[data-testid="nav-studio-more"]')!
     expect(more.getAttribute('aria-expanded')).toBe('false')
     expect(c.querySelector('[data-testid="nav-more-menu"]')).toBeNull()
