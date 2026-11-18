@@ -12,11 +12,18 @@
  * with too few runs shows its numbers and "not enough runs", never a SAME / CLOSE label.
  * Read only (Q-T18 = A): the copy command is the one button; the current-agent <select> only changes the query.
  * The `data` and `cases` props are test seams.
+ *
+ * Layout (redesign C5-RD-S8, canvas artboard "S8 Agent compare"): a trail bar (use case, agents, runs; the current
+ * agent select and the score profile at the right), the title, the score-vs-cost chart (log cost axis), the agent table, and at the right
+ * the panel "Our suggestion": the C7 recommendation of routing.ts (the cheapest agent that passes a rule with n >= 5;
+ * it reads the API labels, it computes no verdict) and a link to S12, where a person proposes the route. The
+ * artboard's Weighted / All-or-nothing toggle shows the one profile the API sent: the UI never rescores (ADR-7).
  */
-import { useId, useMemo } from 'react'
+import { useId, useMemo, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
-import { Card, CardHeader, ModelAvatar } from '../tma/ui'
+import { Card, CardHeader } from '../tma/ui'
+import { Crumb, CrumbSep, InfoTip, StudioBar, TitleRow } from './chrome'
 import {
   absoluteText,
   formatCost,
@@ -37,9 +44,12 @@ import {
 import { CopyCommand } from './CopyCommand'
 import { caseCommands } from './eval-command'
 import { agentHref, routingHref, studioHref } from './links'
+import { recommendAgent } from './routing'
+import { themeClass } from './theme'
 import { isL1Pair, type StudioCase } from './use-case'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
 import './studio.css'
+import './compare-page.css'
 
 type Profile = UseCaseCompareResponse['profile']
 
@@ -70,97 +80,126 @@ export function ProfileNotice({ profile }: { profile: Profile }) {
   )
 }
 
-const W = 520
-const H = 280
-const PAD = { left: 48, right: 24, top: 16, bottom: 40 }
+const W = 1000
+const H = 320
+const PAD = { left: 56, right: 140, top: 24, bottom: 40 }
 
-/** Inline SVG Pareto chart: mean score (Y) over cost per task (X). Front vs dominated by shape and stroke, not colour. */
+/** The cost axis: log10 between the powers of ten around the plotted costs (a linear axis hides the cheap agents). */
+export function costAxis(costs: readonly number[]): { lo: number; hi: number; ticks: number[] } {
+  const pos = costs.filter((c) => c > 0)
+  if (!pos.length) return { lo: 0.001, hi: 1, ticks: [0.001, 0.01, 0.1, 1] }
+  let lo = Math.floor(Math.log10(Math.min(...pos)))
+  let hi = Math.ceil(Math.log10(Math.max(...pos)))
+  // At least three decades: grow toward $1 first, then down.
+  while (hi - lo < 3) {
+    if (hi < 0) hi++
+    else lo--
+  }
+  const ticks: number[] = []
+  for (let e = lo; e <= hi; e++) ticks.push(Number((10 ** e).toPrecision(1)))
+  return { lo: 10 ** lo, hi: 10 ** hi, ticks }
+}
+
+/** The score axis: from the 20-point step under the lowest plotted score (at most 40) up to 100. */
+export function scoreFloor(scores: readonly number[]): number {
+  if (!scores.length) return 40
+  return Math.max(0, Math.min(40, Math.floor(Math.min(...scores) / 20) * 20))
+}
+
+const tickText = (c: number) => (c >= 1 ? `$${c}` : `$${c.toFixed(Math.max(2, -Math.floor(Math.log10(c))))}`)
+
+/** Inline SVG Pareto chart: mean score (Y) over cost per task (X, log). Front vs dominated by shape and stroke, not colour. */
 export function ParetoChart({ data }: { data: UseCaseCompareResponse }) {
   const min = data.profile.min_runs_per_cell
   const plotted = data.agents.filter((a) => notPlottedReason(a, min) === null)
   const skipped = data.agents.filter((a) => notPlottedReason(a, min) !== null)
-  const maxCost = Math.max(0, ...plotted.map((a) => a.cost_per_task as number))
-  const xMax = maxCost > 0 ? maxCost * 1.1 : 1
-  const x = (c: number) => PAD.left + (c / xMax) * (W - PAD.left - PAD.right)
-  const y = (s: number) => PAD.top + (1 - s / 100) * (H - PAD.top - PAD.bottom)
+  const axis = costAxis(plotted.map((a) => a.cost_per_task as number))
+  const floor = scoreFloor(plotted.map((a) => a.mean_score as number))
+  const lx = (c: number) => Math.log10(Math.max(c, axis.lo))
+  const x = (c: number) => PAD.left + ((lx(c) - Math.log10(axis.lo)) / (Math.log10(axis.hi) - Math.log10(axis.lo))) * (W - PAD.left - PAD.right)
+  const y = (s: number) => PAD.top + (1 - (s - floor) / (100 - floor)) * (H - PAD.top - PAD.bottom)
   const front = plotted.filter((a) => a.pareto.on_front).sort((a, b) => (a.cost_per_task as number) - (b.cost_per_task as number))
+  const yTicks: number[] = []
+  for (let t = floor; t <= 100; t += 20) yTicks.push(t)
   return (
-    <Card data-testid="s8-pareto">
-      <CardHeader title="Score and cost" meta={`${plotted.length} of ${data.agents.length} agents plotted`} />
-      <div className="stu-pad">
-        <div className="s8-chart-wrap">
-          <svg
-            className="s8-chart"
-            viewBox={`0 0 ${W} ${H}`}
-            role="img"
-            aria-label={`Mean score over cost per task for ${plotted.length} agents. ${front.length} on the Pareto front.`}
-            data-testid="s8-pareto-svg"
-          >
-            <line className="s8-axis" x1={PAD.left} y1={H - PAD.bottom} x2={W - PAD.right} y2={H - PAD.bottom} />
-            <line className="s8-axis" x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={H - PAD.bottom} />
-            {[0, 50, 100].map((t) => (
-              <text key={t} className="s8-tick" x={PAD.left - 6} y={y(t) + 4} textAnchor="end">
+    <section className="s8-chart-sec" data-testid="s8-pareto">
+      <h2 className="s8-h2">
+        Score vs cost per task{' '}
+        <span className="s8-h2__meta">
+          {plotted.length} of {data.agents.length} agents plotted
+        </span>
+      </h2>
+      <div className="s8-chart-box">
+        <svg
+          className="s8-chart"
+          viewBox={`0 0 ${W} ${H}`}
+          role="img"
+          aria-label={`Mean score over cost per task for ${plotted.length} agents. ${front.length} on the Pareto front.`}
+          data-testid="s8-pareto-svg"
+        >
+          {yTicks.map((t) => (
+            <g key={t}>
+              {t > floor && t < 100 && <line className="s8-grid" x1={PAD.left} y1={y(t)} x2={W - PAD.right} y2={y(t)} />}
+              <text className="s8-tick" x={PAD.left - 12} y={y(t) + 4} textAnchor="end">
                 {t}
               </text>
-            ))}
-            <text className="s8-tick" x={PAD.left} y={H - PAD.bottom + 16} textAnchor="middle">
-              $0
+            </g>
+          ))}
+          <line className="s8-axis" x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={H - PAD.bottom} />
+          <line className="s8-axis" x1={PAD.left} y1={H - PAD.bottom} x2={W - PAD.right} y2={H - PAD.bottom} />
+          {axis.ticks.map((t, i) => (
+            <text key={t} className="s8-tick" x={x(t)} y={H - PAD.bottom + 18} textAnchor={i === 0 ? 'start' : i === axis.ticks.length - 1 ? 'end' : 'middle'}>
+              {tickText(t)}
             </text>
-            <text className="s8-tick" x={W - PAD.right} y={H - PAD.bottom + 16} textAnchor="end">
-              {formatCost(xMax, null).amount}
+          ))}
+          {front.length > 1 && (
+            <polyline
+              className="s8-front-line"
+              data-testid="s8-front-line"
+              points={front.map((a) => `${x(a.cost_per_task as number)},${y(a.mean_score as number)}`).join(' ')}
+            />
+          )}
+          {plotted.map((a) => {
+            const cx = x(a.cost_per_task as number)
+            const cy = y(a.mean_score as number)
+            const kind = a.pareto.on_front ? 'front' : a.pareto.dominated ? 'dominated' : 'other'
+            const cost = formatCost(a.cost_per_task, a.cost_label)
+            const label = `${a.model_id.replace(/^.*\//, '')} · ${formatScore(a.mean_score)}`
+            return (
+              <g key={a.agent_key} className={`s8-point s8-point--${kind}`} data-testid="s8-point" data-agent-key={a.agent_key} data-pareto={kind}>
+                <title>{`${label}: ${a.model_id} (${a.harness}), ${cost.amount} ${cost.label} per task, n ${a.n}, ${paretoText(a, min)}`}</title>
+                {kind === 'front' ? <rect x={cx - 5} y={cy - 5} width={10} height={10} transform={`rotate(45 ${cx} ${cy})`} /> : <circle cx={cx} cy={cy} r={5} />}
+                <text className="s8-point-label" x={cx + 10} y={cy + 14}>
+                  {label}
+                </text>
+              </g>
+            )
+          })}
+          {plotted.length === 0 && (
+            <text className="s8-chart-empty" x={(W + PAD.left - PAD.right) / 2} y={(H - PAD.bottom) / 2} textAnchor="middle" data-testid="s8-chart-empty">
+              No agent has a full, priced cell yet: the list under the chart says why.
             </text>
-            <text className="s8-axis-label" x={(W + PAD.left) / 2} y={H - 6} textAnchor="middle">
-              cost per task (USD)
-            </text>
-            <text className="s8-axis-label" x={12} y={(H - PAD.bottom) / 2} textAnchor="middle" transform={`rotate(-90 12 ${(H - PAD.bottom) / 2})`}>
-              mean score
-            </text>
-            {front.length > 1 && (
-              <polyline
-                className="s8-front-line"
-                data-testid="s8-front-line"
-                points={front.map((a) => `${x(a.cost_per_task as number)},${y(a.mean_score as number)}`).join(' ')}
-              />
-            )}
-            {plotted.map((a) => {
-              const cx = x(a.cost_per_task as number)
-              const cy = y(a.mean_score as number)
-              const kind = a.pareto.on_front ? 'front' : a.pareto.dominated ? 'dominated' : 'other'
-              const cost = formatCost(a.cost_per_task, a.cost_label)
-              return (
-                <g key={a.agent_key} className={`s8-point s8-point--${kind}`} data-testid="s8-point" data-agent-key={a.agent_key} data-pareto={kind}>
-                  <title>{`${a.model_id} (${a.harness}): mean score ${formatScore(a.mean_score)}, ${cost.amount} ${cost.label} per task, n ${a.n}, ${paretoText(a, min)}`}</title>
-                  {kind === 'front' ? (
-                    <rect x={cx - 6} y={cy - 6} width={12} height={12} transform={`rotate(45 ${cx} ${cy})`} />
-                  ) : (
-                    <circle cx={cx} cy={cy} r={6} />
-                  )}
-                  <text className="s8-point-label" x={cx + 9} y={cy - 8}>
-                    {a.model_id}
-                  </text>
-                </g>
-              )
-            })}
-          </svg>
-        </div>
-        <ul className="s8-legend tma-body-sm">
+          )}
+        </svg>
+        <ul className="s8-legend">
           <li>
-            <svg width="14" height="14" aria-hidden="true" className="s8-point s8-point--front">
-              <rect x="3" y="3" width="8" height="8" transform="rotate(45 7 7)" />
-            </svg>{' '}
-            on the Pareto front (filled diamond, joined by the line)
+            <svg width="12" height="12" aria-hidden="true" className="s8-point s8-point--front">
+              <rect x="2.5" y="2.5" width="7" height="7" transform="rotate(45 6 6)" />
+            </svg>
+            on the Pareto front
           </li>
           <li>
-            <svg width="14" height="14" aria-hidden="true" className="s8-point s8-point--dominated">
-              <circle cx="7" cy="7" r="5" />
-            </svg>{' '}
-            dominated (hollow dashed circle)
+            <svg width="12" height="12" aria-hidden="true" className="s8-point s8-point--dominated">
+              <circle cx="6" cy="6" r="4" />
+            </svg>
+            dominated
           </li>
+          <li className="s8-legend__axis">cost per task, log scale · mean score 0-100</li>
         </ul>
         {skipped.length > 0 && (
-          <div data-testid="s8-not-plotted">
-            <p className="tma-body-sm tma-muted">Not on the chart:</p>
-            <ul className="s8-skipped tma-body-sm">
+          <div className="s8-skipped" data-testid="s8-not-plotted">
+            <span className="s8-skipped__head">not on the chart</span>
+            <ul>
               {skipped.map((a) => (
                 <li key={a.agent_key} data-testid="s8-not-plotted-item" data-agent-key={a.agent_key}>
                   <span className="tma-mono">{a.model_id}</span> ({a.harness}): {notPlottedReason(a, min)}
@@ -170,76 +209,124 @@ export function ParetoChart({ data }: { data: UseCaseCompareResponse }) {
           </div>
         )}
       </div>
-    </Card>
+    </section>
   )
 }
 
 /** variant id -> the web2 agent that ran it (from GET /eval-runs). The compare response has variant ids but no agent id. */
 type AgentOf = Map<string, { id: string; name: string | null }>
 
+const letters = (h: string) => (/claude/i.test(h) ? 'CC' : /codex/i.test(h) ? 'CX' : /opencode/i.test(h) ? 'OC' : h.slice(0, 2).toUpperCase())
+const ground = (h: string) => (/claude/i.test(h) ? 'cc' : /codex/i.test(h) ? 'cx' : /opencode/i.test(h) ? 'oc' : 'al')
+
+/** The canvas agent tile: harness letters on their ground, the model's first letter at the corner. */
+function AgentTile({ a, big }: { a: CompareAgent; big?: boolean }) {
+  return (
+    <span className={`s8-tile${big ? ' s8-tile--big' : ''}`} aria-hidden="true">
+      <span className={`s8-tile__ground s8-tile__ground--${ground(a.harness)}`}>{letters(a.harness)}</span>
+      <span className="s8-tile__badge">{(a.model_id.replace(/^.*\//, '')[0] ?? '?').toUpperCase()}</span>
+    </span>
+  )
+}
+
 function AgentCell({ a, agentOf }: { a: CompareAgent; agentOf?: AgentOf }) {
   const provider = providerOf(a.model_id)
   const owner = a.variant_ids.map((v) => agentOf?.get(v)).find((x) => !!x)
   return (
     <span className="s8-agent">
-      <ModelAvatar model={a.model_id} provider={provider} size={20} />
-      <span>
-        {provider && (
-          <span className="tma-badge tma-badge--neutral s8-provider" data-testid="s8-provider">
-            {provider}/
-          </span>
-        )}{' '}
-        <span className="tma-mono">{provider ? a.model_id.slice(provider.length + 1) : a.model_id}</span>
-        <span className="tma-muted tma-mono s8-key" title={a.agent_key}>
-          {' '}
-          #{sha12(a.agent_key.split('#')[1] ?? '')}
+      <AgentTile a={a} />
+      <span className="s8-agent__text">
+        <span>
+          <span className="s8-agent__harness">{a.harness}</span> · {provider ? a.model_id.slice(provider.length + 1) : a.model_id}
         </span>
-        {owner && (
-          <>
-            {' '}
+        <span className="s8-agent__meta">
+          {provider && (
+            <span className="s8-provider" data-testid="s8-provider">
+              {provider}/
+            </span>
+          )}
+          <span className="s8-key" title={a.agent_key}>
+            #{sha12(a.agent_key.split('#')[1] ?? '')}
+          </span>
+          {owner && (
             <Link to={agentHref(owner.id)} className="s8-agent-link" data-testid="s8-agent-link">
               Agent page{owner.name ? `: ${owner.name}` : ''}
             </Link>
-          </>
-        )}
+          )}
+        </span>
       </span>
     </span>
   )
 }
 
-function CompareTable({ data, agentOf }: { data: UseCaseCompareResponse; agentOf?: AgentOf }) {
+/** "held / n" from the response counts (display only: hard_gate_failures counts the scored runs that failed a must-pass check). */
+export const gatesHeld = (a: Pick<CompareAgent, 'n' | 'hard_gate_failures'>): string =>
+  a.hard_gate_failures <= a.n ? `${a.n - a.hard_gate_failures} / ${a.n}` : `${a.hard_gate_failures} failed`
+
+function Bar({ value, max }: { value: number | null; max: number }) {
+  if (value === null || !(max > 0)) return null
+  return (
+    <span className="s8-bar" aria-hidden="true">
+      <span className="s8-bar__fill" style={{ width: `${Math.max(2, Math.round((value / max) * 100))}%` }} />
+    </span>
+  )
+}
+
+function VerdictIcon({ label }: { label: string }) {
+  const tone = /^(SAME|better|tie)$/.test(label) ? 'ok' : /^(CLOSE)$/.test(label) ? 'warn' : /^(NOT YET|worse)$/.test(label) ? 'bad' : 'none'
+  return (
+    <svg className={`s8-vicon s8-vicon--${tone}`} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      {tone === 'ok' && <path d="m8 12 3 3 5-6" />}
+      {tone === 'warn' && <path d="M8 10h8M8 14h8" />}
+      {tone === 'bad' && <path d="m9 9 6 6M15 9l-6 6" />}
+      {tone === 'none' && <path d="M8 12h8" />}
+    </svg>
+  )
+}
+
+function CompareTable({ data, agentOf, suggested }: { data: UseCaseCompareResponse; agentOf?: AgentOf; suggested: string | null }) {
   const min = data.profile.min_runs_per_cell
   const absId = useId()
   const relId = useId()
   const rows = sortAgents(data.agents)
+  const maxCost = Math.max(0, ...rows.map((a) => a.cost_per_task ?? 0))
+  const maxWall = Math.max(0, ...rows.map((a) => a.median_wall_ms ?? 0))
   return (
-    <Card data-testid="s8-table">
-      <CardHeader title="Agents" meta={`${rows.length} ${rows.length === 1 ? 'agent' : 'agents'}`} />
+    <section data-testid="s8-table">
       <div className="s8-table-wrap">
-        <table className="stu-table s8-table">
+        <table className="s8-table">
           <thead>
             <tr>
-              <th scope="col">Agent</th>
-              <th scope="col">Harness</th>
-              <th scope="col">n</th>
-              <th scope="col">Mean score</th>
-              <th scope="col">min / p10 / p50 / p90 / max</th>
-              <th scope="col">Hard-gate failures</th>
-              <th scope="col">Cost per task</th>
-              <th scope="col">Median wall time</th>
+              <th scope="col">agent</th>
+              <th scope="col" className="s8-num">
+                score
+              </th>
+              <th scope="col" className="s8-num">
+                gates held
+              </th>
+              <th scope="col" className="s8-num">
+                cost / task
+              </th>
+              <th scope="col" className="s8-num">
+                wall time
+              </th>
+              <th scope="col" className="s8-num">
+                runs
+              </th>
               <th scope="col">
-                Absolute{' '}
+                verdict{' '}
                 <span className="s8-info" tabIndex={0} title={data.rule_text.absolute} aria-describedby={absId} data-testid="s8-info-absolute">
                   ⓘ
                 </span>
               </th>
               <th scope="col">
-                Relative to current agent{' '}
+                vs current agent{' '}
                 <span className="s8-info" tabIndex={0} title={data.rule_text.relative} aria-describedby={relId} data-testid="s8-info-relative">
                   ⓘ
                 </span>
               </th>
-              <th scope="col">Pareto</th>
+              <th scope="col">pareto</th>
             </tr>
           </thead>
           <tbody>
@@ -249,53 +336,72 @@ function CompareTable({ data, agentOf }: { data: UseCaseCompareResponse; agentOf
               const relReason = relativeReasonText(a.relative)
               const current = data.current_agent === a.agent_key
               return (
-                <tr key={a.agent_key} data-compare-row data-testid="s8-row" data-agent-key={a.agent_key} data-current={current ? 'true' : undefined}>
+                <tr
+                  key={a.agent_key}
+                  className={a.agent_key === suggested ? 's8-row--suggested' : undefined}
+                  data-compare-row
+                  data-testid="s8-row"
+                  data-agent-key={a.agent_key}
+                  data-current={current ? 'true' : undefined}
+                  data-suggested={a.agent_key === suggested ? 'true' : undefined}
+                >
                   <th scope="row">
                     <AgentCell a={a} agentOf={agentOf} />
-                    {current && <span className="tma-label s8-current-tag"> current</span>}
+                    {current && <span className="s8-current-tag"> current</span>}
                   </th>
-                  <td className="tma-mono">{a.harness}</td>
-                  <td data-testid="s8-n">
-                    <span className="tma-mono">n {a.n}</span>
-                    {a.infra_error_count > 0 && <span className="tma-muted s8-sub">{a.infra_error_count} excluded (infra)</span>}
-                    {a.no_score_runs > 0 && <span className="tma-muted s8-sub">{a.no_score_runs} with no score</span>}
+                  <td className="s8-num">
+                    <span className="s8-strong" data-testid="s8-mean">
+                      {formatScore(a.mean_score)}
+                    </span>
+                    <span className="s8-sub s8-mono" data-testid="s8-dist" title="min / p10 / p50 / p90 / max">
+                      {d ? [d.min, d.p10, d.p50, d.p90, d.max].map(formatScore).join(' / ') : '—'}
+                    </span>
                   </td>
-                  <td className="tma-mono" data-testid="s8-mean">
-                    {formatScore(a.mean_score)}
+                  <td className={`s8-num${a.hard_gate_failures > 0 ? ' s8-bad' : ''}`} data-testid="s8-gates" data-failures={a.hard_gate_failures}>
+                    {gatesHeld(a)}
                   </td>
-                  <td className="tma-mono" data-testid="s8-dist">
-                    {d ? [d.min, d.p10, d.p50, d.p90, d.max].map(formatScore).join(' / ') : '—'}
-                  </td>
-                  <td className="tma-mono" data-testid="s8-gates">
-                    {a.hard_gate_failures}
-                  </td>
-                  <td data-testid="s8-cost">
-                    <span className="tma-mono">{cost.amount}</span>
+                  <td className="s8-num" data-testid="s8-cost">
+                    <span className="s8-strong">{cost.amount}</span>
                     {cost.label && (
-                      <span className="tma-label s8-cost-label" data-cost-label={cost.label}>
+                      <span className="s8-sub s8-cost-label" data-cost-label={cost.label}>
                         {' '}
                         {cost.label}
                       </span>
                     )}
+                    <Bar value={a.cost_per_task} max={maxCost} />
                   </td>
-                  <td className="tma-mono">{formatWall(a.median_wall_ms)}</td>
+                  <td className="s8-num">
+                    <span className="s8-strong">{formatWall(a.median_wall_ms)}</span>
+                    <Bar value={a.median_wall_ms} max={maxWall} />
+                  </td>
+                  <td className="s8-num" data-testid="s8-n">
+                    <span className="s8-strong">n {a.n}</span>
+                    {a.infra_error_count > 0 && <span className="s8-sub">{a.infra_error_count} excluded (infra)</span>}
+                    {a.no_score_runs > 0 && <span className="s8-sub">{a.no_score_runs} with no score</span>}
+                  </td>
                   <td data-testid="s8-absolute" data-label={a.absolute.label} title={data.rule_text.absolute}>
-                    <span className={`s8-verdict s8-verdict--${a.absolute.label.replace(/\s+/g, '-').toLowerCase()}`}>{absoluteText(a.absolute)}</span>
-                    <span className="tma-muted s8-sub">
+                    <span className={`s8-verdict s8-verdict--${a.absolute.label.replace(/\s+/g, '-').toLowerCase()}`}>
+                      <VerdictIcon label={a.absolute.label} />
+                      {absoluteText(a.absolute)}
+                    </span>
+                    <span className="s8-sub">
                       ≥ {data.profile.absolute_bars.same}: {a.absolute.runs_at_least_same} of {a.n} · ≥ {data.profile.absolute_bars.close}: {a.absolute.runs_at_least_close} of {a.n}
                     </span>
                   </td>
                   <td data-testid="s8-relative" data-label={a.relative.label} title={data.rule_text.relative}>
-                    <span className={`s8-verdict s8-verdict--${a.relative.label}`}>{relativeText(a.relative)}</span>
-                    {a.relative.gap !== null && <span className="tma-mono s8-sub">gap {formatGap(a.relative.gap)}</span>}
-                    {relReason && <span className="tma-muted s8-sub">{relReason}</span>}
+                    <span className={`s8-verdict s8-verdict--${a.relative.label}`}>
+                      <VerdictIcon label={a.relative.label} />
+                      {relativeText(a.relative)}
+                    </span>
+                    {a.relative.gap !== null && <span className="s8-sub s8-mono">gap {formatGap(a.relative.gap)}</span>}
+                    {relReason && <span className="s8-sub">{relReason}</span>}
                     {a.relative.mann_whitney && (
-                      <span className="tma-muted tma-mono s8-sub" data-testid="s8-p">
+                      <span className="s8-sub s8-mono" data-testid="s8-p">
                         Mann-Whitney p {a.relative.mann_whitney.p} ({a.relative.mann_whitney.method})
                       </span>
                     )}
                   </td>
-                  <td data-testid="s8-pareto-cell" data-on-front={a.pareto.on_front === null ? undefined : String(a.pareto.on_front)}>
+                  <td className="s8-pareto" data-testid="s8-pareto-cell" data-on-front={a.pareto.on_front === null ? undefined : String(a.pareto.on_front)}>
                     {paretoText(a, min)}
                   </td>
                 </tr>
@@ -304,16 +410,16 @@ function CompareTable({ data, agentOf }: { data: UseCaseCompareResponse; agentOf
           </tbody>
         </table>
       </div>
-      <details className="stu-pad s8-rules" data-testid="s8-rules" open>
-        <summary className="tma-body-sm">The two rules</summary>
-        <p className="tma-body-sm" id={absId} data-testid="s8-rule-absolute">
+      <details className="s8-rules" data-testid="s8-rules">
+        <summary>The two verdict rules</summary>
+        <p id={absId} data-testid="s8-rule-absolute">
           {data.rule_text.absolute}
         </p>
-        <p className="tma-body-sm" id={relId} data-testid="s8-rule-relative">
+        <p id={relId} data-testid="s8-rule-relative">
           {data.rule_text.relative}
         </p>
       </details>
-    </Card>
+    </section>
   )
 }
 
@@ -321,8 +427,8 @@ function CurrentAgentSelect({ data, useCase }: { data: UseCaseCompareResponse; u
   const navigate = useNavigate()
   const id = useId()
   return (
-    <p className="tma-body-sm s8-current">
-      <label htmlFor={id}>Current agent </label>
+    <span className="s8-current">
+      <label htmlFor={id}>Current agent</label>
       <select
         id={id}
         data-testid="s8-current-select"
@@ -336,46 +442,135 @@ function CurrentAgentSelect({ data, useCase }: { data: UseCaseCompareResponse; u
           </option>
         ))}
       </select>
-    </p>
+    </span>
+  )
+}
+
+/**
+ * The canvas Score control. The API sends ONE score profile (ADR-7: the UI never rescores), so the control shows which
+ * one it is: "Weighted" is on (each run's stored grader weights, or a pinned profile's weights). "All-or-nothing" is
+ * shown off and disabled, with the reason, until the API sends such a profile.
+ */
+function ScoreProfile({ profile }: { profile: Profile }) {
+  const allOrNothing = /all.?or.?nothing/i.test(profile.weights)
+  const off = 'The API sends one score profile per use case; the studio never rescores the runs.'
+  return (
+    <span className="s8-score" role="radiogroup" aria-label="Score" data-testid="s8-score-profile">
+      <span className="s8-score__label">Score</span>
+      <label className="s8-seg" title={allOrNothing ? off : `Weights: ${profile.weights}`}>
+        <input type="radio" name="s8-score" checked={!allOrNothing} disabled={allOrNothing} readOnly />
+        Weighted
+      </label>
+      <label className="s8-seg" title={allOrNothing ? `Weights: ${profile.weights}` : off}>
+        <input type="radio" name="s8-score" checked={allOrNothing} disabled={!allOrNothing} readOnly />
+        All-or-nothing
+      </label>
+    </span>
   )
 }
 
 function KitCommand({ useCase, repeat }: { useCase: string; repeat: number }) {
   const command = caseCommands({ caseKey: '<case key>', useCaseKey: useCase, mode: 'run' }, { repeat }).join('\n')
-  return <CopyCommand title="Get more samples for a cell with the kit:" testId="s8-copy-command" command={command} />
+  return <CopyCommand title="More samples for a cell, with the kit" testId="s8-copy-command" command={command} />
+}
+
+const verdictWords = (a: CompareAgent, rules: string[]): string =>
+  rules.map((r) => (r === 'absolute' ? `${absoluteText(a.absolute)} (absolute rule)` : `${relativeText(a.relative)} vs the current agent`)).join(' and ')
+
+/** The right panel: the C7 recommendation (routing.ts, from the API labels), the S12 link, the profile, the kit. */
+function SuggestionPanel({ data, useCase }: { data: UseCaseCompareResponse; useCase: string }) {
+  const rec = recommendAgent(data.agents)
+  const current = data.current_agent ? (data.agents.find((a) => a.agent_key === data.current_agent) ?? null) : null
+  const vsCurrent = rec && current && current.agent_key !== rec.agent.agent_key ? current : null
+  const a = rec?.agent ?? null
+  return (
+    <aside className="s8-side" aria-label="Our suggestion" data-testid="s8-suggestion">
+      <section className="s8-side__sec">
+        <h2 className="s8-side__kicker">Our suggestion</h2>
+        {a && rec ? (
+          <>
+            <p className="s8-side__agent">
+              <AgentTile a={a} big />
+              <span>
+                {a.harness} · {a.model_id.replace(/^.*\//, '')}
+              </span>
+            </p>
+            <p className="s8-side__lead" data-testid="s8-suggestion-text">
+              The cheapest agent with a passing verdict and at least {data.profile.min_runs_per_cell} runs: <b>{verdictWords(a, rec.rules)}</b>, over <b>{a.n} runs</b>
+              {a.hard_gate_failures === 0 ? ', and it never broke a must-pass check.' : '.'}
+            </p>
+            <dl className="s8-facts" data-testid="s8-suggestion-facts">
+              <dt>Cost per task</dt>
+              <dd>
+                {vsCurrent && vsCurrent.cost_per_task !== null && <s className="s8-was">{formatCost(vsCurrent.cost_per_task, null).amount}</s>} {formatCost(a.cost_per_task, a.cost_label).amount}
+              </dd>
+              <dt>Score</dt>
+              <dd>
+                {formatScore(a.mean_score)}
+                {vsCurrent && <span className="s8-vs"> vs {formatScore(vsCurrent.mean_score)}</span>}
+              </dd>
+              <dt>Must-pass checks</dt>
+              <dd className={a.hard_gate_failures === 0 ? 's8-good' : 's8-bad'}>{a.hard_gate_failures === 0 ? 'all held' : `${a.hard_gate_failures} failed`}</dd>
+            </dl>
+          </>
+        ) : (
+          <p className="s8-side__lead" data-testid="s8-suggestion-none">
+            No suggestion yet. No agent holds a passing verdict with at least {data.profile.min_runs_per_cell} runs. Add samples with the kit below.
+          </p>
+        )}
+        <Link to={routingHref(useCase)} className={a ? 's8-primary' : 's8-secondary'} data-testid="s8-routing-link">
+          {a ? 'Propose this agent as the route' : 'Open routing for this use case'}
+        </Link>
+      </section>
+      <section className="s8-side__sec">
+        <KitCommand useCase={useCase} repeat={data.profile.min_runs_per_cell} />
+      </section>
+      <details className="s8-side__tech">
+        <summary>Score profile</summary>
+        <ProfileNotice profile={data.profile} />
+      </details>
+    </aside>
+  )
 }
 
 export function CompareView({ data, useCase, agentOf }: { data: UseCaseCompareResponse; useCase: string; agentOf?: AgentOf }) {
+  const suggested = recommendAgent(data.agents)?.agent.agent_key ?? null
   if (data.agents.length === 0) {
     return (
-      <div className="stu-groups">
-        <Card pad data-testid="s8-empty">
-          <span className="tma-label">No samples</span>
-          <p className="tma-body-sm tma-muted">No runs for this use case yet.</p>
-        </Card>
-        <Card pad>
+      <div className="s8-layout">
+        <div className="stu-body s8-main">
+          <Title />
+          <div className="s8-empty" data-testid="s8-empty">
+            <span className="tma-label">No samples</span>
+            <p className="tma-body-sm tma-muted">No runs for this use case yet.</p>
+          </div>
+        </div>
+        <aside className="s8-side" aria-label="Get samples">
           <KitCommand useCase={useCase} repeat={data.profile.min_runs_per_cell} />
-        </Card>
+        </aside>
       </div>
     )
   }
   return (
-    <div className="stu-groups">
-      <ProfileNotice profile={data.profile} />
-      <CurrentAgentSelect data={data} useCase={useCase} />
-      <ParetoChart data={data} />
-      <CompareTable data={data} agentOf={agentOf} />
-      <Card pad>
-        <p className="tma-body-sm">
-          <Link to={routingHref(useCase)} data-testid="s8-routing-link">
-            Routing for this use case
-          </Link>
-        </p>
-      </Card>
-      <Card pad>
-        <KitCommand useCase={useCase} repeat={data.profile.min_runs_per_cell} />
-      </Card>
+    <div className="s8-layout">
+      <div className="stu-body s8-main">
+        <Title />
+        <ParetoChart data={data} />
+        <CompareTable data={data} agentOf={agentOf} suggested={suggested} />
+      </div>
+      <SuggestionPanel data={data} useCase={useCase} />
     </div>
+  )
+}
+
+const COMPARE_TIP =
+  'Agents on the same use case, from your uploaded results. The API gives each agent its score, cost and both verdicts: the absolute rule (SAME, CLOSE, NOT YET) and the relative rule (better, same, worse than the current agent). Read only.'
+
+function Title({ children }: { children?: ReactNode }) {
+  return (
+    <TitleRow tip={<InfoTip label="About agent compare" text={COMPARE_TIP} />}>
+      <h1 className="tma-h1">{children ?? 'Agent compare'}</h1>
+    </TitleRow>
   )
 }
 
@@ -452,40 +647,72 @@ export function StudioComparePage({ data, cases }: { data?: UseCaseCompareRespon
     for (const r of runs.data.runs) if (r.agentId) m.set(r.variant.id, { id: r.agentId, name: r.agentName })
     return m
   }, [runs])
+  const totalRuns = shown ? shown.agents.reduce((n, a) => n + a.n, 0) : 0
   return (
-    <main className="tma-page" data-testid="studio-compare">
-      <div className="stu-head">
-        <p className="tma-body-sm">
-          <Link to="/studio">Studio</Link> / {useCase ? <Link to="/studio/compare">compare</Link> : 'compare'}
-          {useCase && <> / {useCase}</>}
-        </p>
-        <h1 className="tma-h1">{useCase ? <span className="tma-mono">{useCase}</span> : 'Compare agents per use case'}</h1>
-        <p className="stu-sub">
-          Agents on the same use case, from your uploaded results: score, cost and both verdicts side by side. Read only.
-        </p>
-      </div>
+    <main className={themeClass('tma-page', 'stu-page', 's8-page')} data-testid="studio-compare">
+      <StudioBar
+        trail={
+          <>
+            <Link to="/studio" data-testid="studio-back">
+              Studio
+            </Link>
+            <CrumbSep />
+            {useCase ? <Link to="/studio/compare">agent compare</Link> : <Crumb current>agent compare</Crumb>}
+            {useCase && (
+              <>
+                <CrumbSep />
+                <Crumb current>
+                  <span data-testid="s8-use-case">{useCase}</span>
+                </Crumb>
+                {shown && (
+                  <span className="s8-trail-meta" data-testid="s8-trail-meta">
+                    {shown.agents.length} {shown.agents.length === 1 ? 'agent' : 'agents'} · {totalRuns} runs
+                  </span>
+                )}
+              </>
+            )}
+          </>
+        }
+        actions={
+          useCase && shown && shown.agents.length > 0 ? (
+            <>
+              <ScoreProfile profile={shown.profile} />
+              <CurrentAgentSelect data={shown} useCase={useCase} />
+            </>
+          ) : undefined
+        }
+      />
       {!useCase ? (
-        <UseCasePicker cases={cases} />
+        <div className="stu-body">
+          <Title />
+          <UseCasePicker cases={cases} />
+        </div>
       ) : shown ? (
         <CompareView data={shown} useCase={useCase} agentOf={agentOf} />
       ) : loaded.state === 'error' ? (
-        <Card pad data-testid="s8-error" data-status={loaded.status}>
-          <span className="tma-label">No comparison</span>
-          <p className="tma-body-sm tma-muted" data-testid="s8-load-error">
-            {errorText(loaded.status, loaded.message)}
-          </p>
-          {loaded.status === 400 && (
-            <p className="tma-body-sm">
-              <Link to={current ? studioHref('S8', { use_case: useCase }) : '/studio/compare'}>
-                {current ? 'Show this use case with no current agent' : 'Show the use cases'}
-              </Link>
+        <div className="stu-body">
+          <Title />
+          <Card pad data-testid="s8-error" data-status={loaded.status}>
+            <span className="tma-label">No comparison</span>
+            <p className="tma-body-sm tma-muted" data-testid="s8-load-error">
+              {errorText(loaded.status, loaded.message)}
             </p>
-          )}
-        </Card>
+            {loaded.status === 400 && (
+              <p className="tma-body-sm">
+                <Link to={current ? studioHref('S8', { use_case: useCase }) : '/studio/compare'}>
+                  {current ? 'Show this use case with no current agent' : 'Show the use cases'}
+                </Link>
+              </p>
+            )}
+          </Card>
+        </div>
       ) : (
-        <Card pad data-testid="s8-loading">
-          <span className="tma-body-sm tma-muted">Loading the comparison…</span>
-        </Card>
+        <div className="stu-body">
+          <Title />
+          <p className="tma-body-sm tma-muted" data-testid="s8-loading">
+            Loading the comparison…
+          </p>
+        </div>
       )}
     </main>
   )

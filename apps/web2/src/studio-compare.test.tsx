@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
 import type { CompareAgent, UseCaseCompareResponse } from './studio/compare'
+import { costAxis, gatesHeld, scoreFloor } from './studio/StudioComparePage'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -194,7 +195,8 @@ describe('S8 table', () => {
     await waitFor(() => rows(c).length > 0, 'rows')
     expect(rows(c)).toHaveLength(3)
     expect(c.querySelectorAll('[data-testid="s8-row"]')).toHaveLength(3)
-    expect(c.querySelector('h1')!.textContent).toBe('fix/prod-bug')
+    expect(c.querySelector('h1')!.textContent).toBe('Agent compare')
+    expect(c.querySelector('[data-testid="s8-use-case"]')!.textContent).toBe('fix/prod-bug')
     for (const r of rows(c)) {
       expect(cell(r, 's8-n').textContent).toMatch(/n \d/)
       expect(cell(r, 's8-absolute')).not.toBeNull()
@@ -206,7 +208,8 @@ describe('S8 table', () => {
     expect(cell(row(c, KEY_B), 's8-n').textContent).toBe('n 4')
     expect(cell(row(c, KEY_A), 's8-absolute').textContent).toMatch(/^SAME/)
     expect(cell(row(c, KEY_C), 's8-absolute').textContent).toMatch(/^NOT YET/)
-    expect(cell(row(c, KEY_C), 's8-gates').textContent).toBe('1')
+    expect(cell(row(c, KEY_C), 's8-gates').textContent).toBe('4 / 5')
+    expect(cell(row(c, KEY_C), 's8-gates').dataset.failures).toBe('1')
     expect(cell(row(c, KEY_A), 's8-dist').textContent).toBe('92 / 93.2 / 96 / 99 / 100')
     expect(cell(row(c, KEY_A), 's8-cost').textContent).toBe('$0.03 metered')
     expect(cell(row(c, KEY_B), 's8-cost').textContent).toBe('$0.01 derived')
@@ -383,5 +386,59 @@ describe('S8 links and picker', () => {
     const a = c.querySelector('[data-testid="studio-compare-use-case"]')!
     expect(a.getAttribute('href')).toBe('/studio/compare')
     expect(a.textContent).toBe('Compare per use case')
+  })
+})
+
+describe('S8 artboard layout (C5-RD-S8)', () => {
+  it('the trail names the use case, the agents and the runs; the select sits in the bar', async () => {
+    const c = mountAt(PAGE)
+    await waitFor(() => rows(c).length === 3, 'rows')
+    expect(c.querySelector('.stu-bar [data-testid="s8-use-case"]')!.textContent).toBe('fix/prod-bug')
+    expect(c.querySelector('[data-testid="s8-trail-meta"]')!.textContent).toBe('3 agents · 14 runs')
+    expect(c.querySelector('.stu-bar [data-testid="s8-current-select"]')).not.toBeNull()
+    // The score control shows the one profile the API sent; the other choice is disabled (ADR-7: no rescoring).
+    const radios = [...c.querySelectorAll<HTMLInputElement>('[data-testid="s8-score-profile"] input[type="radio"]')]
+    expect(radios.map((r) => [r.parentElement!.textContent, r.checked, r.disabled])).toEqual([
+      ['Weighted', true, false],
+      ['All-or-nothing', false, true],
+    ])
+  })
+
+  it('"Our suggestion" is the C7 recommendation from the API labels: the cheapest passing agent with n >= 5', async () => {
+    const c = mountAt(PAGE, [200, CHART])
+    await waitFor(() => !!c.querySelector('[data-testid="s8-suggestion-text"]'), 'suggestion')
+    // KEY_D: CLOSE, n 5, $0.005 — cheaper than KEY_A (SAME, $0.03). KEY_B is cheaper still, but n 4.
+    expect(c.querySelector('[data-testid="s8-suggestion"]')!.textContent).toContain('glm-5.3-flash')
+    expect(c.querySelector('[data-testid="s8-suggestion-text"]')!.textContent).toContain('CLOSE (absolute rule)')
+    expect(row(c, KEY_D).dataset.suggested).toBe('true')
+    expect(rows(c).filter((r) => r.dataset.suggested === 'true')).toHaveLength(1)
+    // The current agent is KEY_A: the facts show its cost struck through and its score as the comparison.
+    const facts = c.querySelector('[data-testid="s8-suggestion-facts"]')!.textContent!
+    expect(facts).toContain('$0.03 $0.005')
+    expect(facts).toContain('85 vs 96')
+    expect(facts).toContain('all held')
+    const link = c.querySelector<HTMLAnchorElement>('[data-testid="s8-routing-link"]')!
+    expect(link.textContent).toBe('Propose this agent as the route')
+    expect(link.getAttribute('href')).toBe('/studio/routing/fix%2Fprod-bug')
+  })
+
+  it('no passing agent: no suggestion, the routing link stays', async () => {
+    const none = { ...DATA, agents: DATA.agents.map((a) => ({ ...a, absolute: { ...a.absolute, label: 'NOT YET' as const } })) }
+    const c = mountAt(PAGE, [200, none])
+    await waitFor(() => !!c.querySelector('[data-testid="s8-suggestion-none"]'), 'no suggestion')
+    expect(c.querySelector('[data-testid="s8-routing-link"]')!.textContent).toBe('Open routing for this use case')
+    expect(rows(c).some((r) => r.dataset.suggested === 'true')).toBe(false)
+  })
+
+  it('the axes: log cost between powers of ten, score floor at a 20-point step; gates held from the counts', () => {
+    expect(costAxis([0.004, 0.42])).toEqual({ lo: 0.001, hi: 1, ticks: [0.001, 0.01, 0.1, 1] })
+    expect(costAxis([0.03]).ticks).toEqual([0.001, 0.01, 0.1, 1])
+    expect(costAxis([2, 30]).ticks).toEqual([0.1, 1, 10, 100])
+    expect(costAxis([])).toEqual({ lo: 0.001, hi: 1, ticks: [0.001, 0.01, 0.1, 1] })
+    expect(scoreFloor([58, 92])).toBe(40)
+    expect(scoreFloor([12])).toBe(0)
+    expect(scoreFloor([])).toBe(40)
+    expect(gatesHeld({ n: 70, hard_gate_failures: 9 })).toBe('61 / 70')
+    expect(gatesHeld({ n: 2, hard_gate_failures: 3 })).toBe('3 failed')
   })
 })
