@@ -30,6 +30,7 @@
  *   --shim <file>         stand-in for the canvas runtime support.js (DC_SHIM; default the ui-design-compare skill shim)
  *   --out <dir>           output dir (default tools/studio-visual-match/out, git-ignored)
  *   --anonymous           no sign-in
+ *   --dist <dir>          serve the pages and assets of --base from a local web2 build (apps/web2/dist); the API stays live
  *   --chrome <path>       Chromium executable (CHROME_PATH; default Playwright's, else /usr/bin/google-chrome)
  * A screen with "optional" (a reason) whose route link is absent is UNAVAILABLE, not an error (S3: a fleet trace is
  * readable only through `tma studio serve` on the tailnet; the plan keeps S3 human-checkable).
@@ -50,7 +51,7 @@ const REF = join(HERE, 'reference')
 const SKILLS = '/root/.claude/skills'
 
 function parseArgs(argv) {
-  const a = { screens: [], base: 'https://testmyagent.com', judge: false, upload: false, designSrc: null, updateReference: false, shim: process.env.DC_SHIM ?? `${SKILLS}/ui-design-compare/dc-shim.js`, out: join(HERE, 'out'), anonymous: false, chrome: null, judgeBackend: 'auto' }
+  const a = { screens: [], base: 'https://testmyagent.com', judge: false, upload: false, designSrc: null, updateReference: false, shim: process.env.DC_SHIM ?? `${SKILLS}/ui-design-compare/dc-shim.js`, out: join(HERE, 'out'), anonymous: false, chrome: null, judgeBackend: 'auto', dist: null }
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i]
     const v = () => {
@@ -70,6 +71,7 @@ function parseArgs(argv) {
     else if (k === '--out') a.out = resolve(v())
     else if (k === '--anonymous') a.anonymous = true
     else if (k === '--chrome') a.chrome = v()
+    else if (k === '--dist') a.dist = resolve(v())
     else if (k === '--help' || k === '-h') usage()
     else usage(`unknown option ${k}`)
   }
@@ -162,9 +164,26 @@ async function renderDesign(browser, srvUrl, s) {
 }
 
 // ---------- live side ----------
-async function captureLive(browser, base, s, sessionValue) {
+/**
+ * --dist: a local web2 build answers every page and asset request of the live origin; API calls still reach the live API
+ * (same origin header, so CORS holds). A redesign lane checks its screen before the merge this way.
+ */
+async function serveDist(ctx, base, dist) {
+  const origin = new URL(base).origin
+  const types = { '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.json': 'application/json', '.ico': 'image/x-icon' }
+  await ctx.route(`${origin}/**`, (route) => {
+    const p = new URL(route.request().url()).pathname
+    const file = resolve(dist, '.' + p)
+    if (file.startsWith(dist) && extname(p) && existsSync(file)) return route.fulfill({ status: 200, contentType: types[extname(p)] ?? 'application/octet-stream', body: readFileSync(file) })
+    if (extname(p)) return route.fulfill({ status: 404, body: '' })
+    return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: readFileSync(join(dist, 'index.html')) })
+  })
+}
+
+async function captureLive(browser, base, s, sessionValue, dist) {
   const [w, h] = s.viewport
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1, colorScheme: 'dark', reducedMotion: 'reduce' })
+  if (dist) await serveDist(ctx, base, dist)
   if (sessionValue) await ctx.addInitScript((v) => { try { localStorage.setItem('tma2.session', v) } catch {} }, sessionValue)
   const page = await ctx.newPage()
   const errors = []
@@ -328,7 +347,7 @@ async function main() {
         writeFileSync(join(args.out, `${s.id}.design.png`), PNG.sync.write(dc))
 
         // live
-        const l = await captureLive(browser, args.base, s, sessionValue)
+        const l = await captureLive(browser, args.base, s, sessionValue, args.dist)
         Object.assign(r, { url: l.url, mount: l.mount, pageErrors: l.pageErrors })
         const lc = crop(l.png, [0, l.chrome.top, l.png.width, l.png.height - l.chrome.top])
         writeFileSync(join(args.out, `${s.id}.live.png`), PNG.sync.write(lc))

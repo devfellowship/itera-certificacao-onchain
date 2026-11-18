@@ -36,4 +36,5 @@ printed or written. `--anonymous` skips it.
 Exit: 0 every capture ok (with `--judge`: every pair matches) · 1 a pair does not match · 2 usage, sign-in or capture
 error. Unit tests (offline, in CI): `node --test tools/studio-visual-match/lib.test.mjs`.
 
-A redesign lane runs its screen after the deploy and puts the pair and the score in the PR or the plan.
+Before the merge, `--dist apps/web2/dist` (after `npm run build -w @itera/web2`) serves the pages and assets of the live
+origin from the local build, while the API calls stay live. A redesign lane runs its screen that way, then again after the deploy, and puts the pair and the score in the PR or the plan.
