@@ -39,6 +39,7 @@
 .trc-fbtn__n { min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 999px; background: var(--stu-accent); color: var(--stu-on-accent); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
 .trc-fpanel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: 340px; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: var(--stu-gap-3); border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); background: var(--stu-raised); box-shadow: var(--tma-shadow-menu, none); }
 .trc-fgroup { display: flex; flex-direction: column; gap: 6px; }
+.trc-fhint { font-size: 11px; color: var(--stu-text-muted); }
 .trc-fopts { display: flex; flex-wrap: wrap; gap: 6px; }
 .trc-page a.trc-fopt { min-height: 26px; padding: 0 10px; display: inline-flex; align-items: center; border: 1px solid var(--stu-line); border-radius: 999px; color: var(--stu-text-2); white-space: nowrap; }
 .trc-page a.trc-fopt:hover { border-color: var(--stu-line-hover); color: var(--stu-text); }

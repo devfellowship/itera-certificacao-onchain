@@ -117,6 +117,12 @@ describe('tma studio serve', () => {
     expect((await get('/v1/traces?limit=0')).status).toBe(400);
     expect((await get('/v1/traces?limit=201')).status).toBe(400);
     expect((await get('/v1/traces?why=a%20b')).status).toBe(400);
+    // MT-11: small_diff=true keeps the marked rows; false keeps the rows marked not small; a row with no mark matches neither.
+    const small = (await (await get('/v1/traces?small_diff=true')).json()) as { total: number; rows: { session_id: string; small_diff: boolean }[] };
+    expect(small.rows.map((x) => [x.session_id, x.small_diff])).toEqual([[SID_B, true]]);
+    const notSmall = (await (await get('/v1/traces?small_diff=false')).json()) as { total: number; rows: { session_id: string; agent_id: string | null }[] };
+    expect(notSmall.rows.map((x) => [x.session_id, x.agent_id])).toEqual([[SID_A, null]]);
+    expect((await get('/v1/traces?small_diff=yes')).status).toBe(400);
   });
 
   it('S3: serves the summary, the runs with their steps and the first failure', async () => {

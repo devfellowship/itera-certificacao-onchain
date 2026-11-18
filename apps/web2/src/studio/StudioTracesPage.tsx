@@ -21,14 +21,18 @@ import { Card } from '../tma/ui'
 import { useDismiss } from '../tma/ui/useDismiss'
 import { AgentAvatar, ExternalRef, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, dash, fmtTime, useTraceLoad } from './TraceParts'
 import { themeClass } from './theme'
-import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prUrl, replayOf, shortDay, signalLabel, traceHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
+import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prFiles, prUrl, replayOf, shortDay, signalLabel, traceHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
 import './studio.css'
 import './traces.css'
 
-const FILTERS = ['l2_class', 'why', 'mode'] as const
+const FILTERS = ['l2_class', 'why', 'mode', 'small_diff'] as const
 type FilterKey = (typeof FILTERS)[number]
 /** The group labels of the filter bar. The URL parameters keep the field keys. */
-const FILTER_LABEL: Record<FilterKey, string> = { l2_class: 'Use case', why: 'Picked for', mode: 'Mode' }
+const FILTER_LABEL: Record<FilterKey, string> = { l2_class: 'Use case', why: 'Picked for', mode: 'Mode', small_diff: 'Small diff' }
+/** MT-11: a yes/no filter has fixed values; the other groups list the values on the page. */
+const FIXED_VALUES: Partial<Record<FilterKey, Record<string, string>>> = { small_diff: { true: 'yes (merged, 3 files or fewer)', false: 'no' } }
+const valueText = (k: FilterKey, v: string) => (k === 'small_diff' ? (v === 'true' ? 'yes' : 'no') : plainValue(v))
+const SMALL_DIFF_TIP = 'A merged PR that changed 3 files or fewer. Small, finished changes make clean cases.'
 
 const ABOUT = 'Real agent sessions from the daily selection. A signal (a correction, a re-run, a revert) marks the traces with the most to teach. Read only. The content comes from the private trace service, not from the TMA server.'
 const SIGNAL_TIP =
@@ -53,6 +57,13 @@ function ReplayCell({ r }: { r: TraceRow }) {
       {REPLAY_TEXT[v]}
     </span>
   )
+}
+
+/** MT-11: "Small diff: 2 files changed", or "4 files changed" when the PR is not small. */
+function diffHint(r: TraceRow): string {
+  const n = prFiles(r.pr)
+  const files = n === null ? '' : `${n} ${n === 1 ? 'file' : 'files'} changed`
+  return r.small_diff === true ? `Small diff${files ? `: ${files}` : ''}` : files
 }
 
 /** The pr / ci cell. The index gives the PR link and whether the session ended red; it does not give the merge state. */
@@ -189,6 +200,12 @@ function FocusPanel({ r }: { r: TraceRow }) {
           {replay === 'yes' ? 'Can be replayed exactly' : replay === 'partly' ? 'Can be replayed in part: the pin is incomplete' : replay === 'no' ? 'Cannot be replayed' : 'Not pinned yet: replay needs a pin'}
         </CheckLine>
         {signals.length > 0 && <CheckLine ok={false}>{`Signal: ${signals.map(signalLabel).join(', ')}`}</CheckLine>}
+        {/* MT-11: the file-count hint; a small diff is a merged PR of 3 files or fewer. */}
+        {(r.small_diff === true || prFiles(r.pr) !== null) && (
+          <span data-testid="trace-diff-hint" data-small-diff={r.small_diff === true ? 'true' : 'false'}>
+            <CheckLine ok={r.small_diff === true}>{diffHint(r)}</CheckLine>
+          </span>
+        )}
       </div>
       <details className="trc-details">
         <summary>Technical details</summary>
@@ -203,6 +220,8 @@ function FocusPanel({ r }: { r: TraceRow }) {
           <dd data-field="mode">{dash(r.mode && plainValue(r.mode))}</dd>
           <dt>Picked for</dt>
           <dd data-field="why">{dash(r.why && plainValue(r.why))}</dd>
+          <dt>Files changed</dt>
+          <dd data-field="files_changed">{dash(prFiles(r.pr))}</dd>
           <dt>Started</dt>
           <dd>{fmtTime(r.started_at)}</dd>
           <dt>Pin</dt>
@@ -285,10 +304,14 @@ function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[]
           <div className="trc-fpanel" role="dialog" aria-label="Filters" data-testid="trace-filters-panel">
             {FILTERS.map((k: FilterKey) => {
               const current = params.get(k)
-              const values = [...new Set([...rows.map((r) => r[k]).filter((v): v is string => !!v), ...(current ? [current] : [])])].sort()
+              const fixed = FIXED_VALUES[k]
+              const values = fixed
+                ? Object.keys(fixed)
+                : [...new Set([...rows.map((r) => r[k as Exclude<FilterKey, 'small_diff'>]).filter((v): v is string => !!v), ...(current ? [current] : [])])].sort()
               return (
                 <div key={k} className="trc-fgroup" data-filter={k} role="group" aria-label={FILTER_LABEL[k]}>
                   <span className="stu-label">{FILTER_LABEL[k]}</span>
+                  {k === 'small_diff' && <span className="stu-label trc-fhint">{SMALL_DIFF_TIP}</span>}
                   <div className="trc-fopts">
                     {[null, ...values].map((v) => {
                       const on = (v ?? null) === (current ?? null)
@@ -301,7 +324,7 @@ function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[]
                           data-filter-value={v ?? 'all'}
                           onClick={() => setOpen(false)}
                         >
-                          {v === null ? 'all' : plainValue(v)}
+                          {v === null ? 'all' : fixed ? fixed[v] : plainValue(v)}
                         </Link>
                       )
                     })}
@@ -314,7 +337,7 @@ function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[]
       </div>
       {shown.map(({ k, v }) => (
         <span key={k} className="trc-fchip" data-chip={k}>
-          {FILTER_LABEL[k]}: <span className="trc-fchip__v">{plainValue(v)}</span>
+          {FILTER_LABEL[k]}: <span className="trc-fchip__v">{valueText(k, v)}</span>
           <Link to={hrefWith(params, { [k]: null, offset: null })} className="trc-fchip__x" aria-label={`Remove filter ${FILTER_LABEL[k]}`} data-testid="trace-chip-remove">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
               <path d="M18 6 6 18M6 6l12 12" />
@@ -329,7 +352,7 @@ function FilterBar({ params, rows }: { params: URLSearchParams; rows: TraceRow[]
       )}
       <span className="trc-filters__fill" />
       {active.length > 0 && (
-        <Link to={hrefWith(params, { l2_class: null, why: null, mode: null, offset: null })} className="trc-clear" data-testid="trace-clear">
+        <Link to={hrefWith(params, { l2_class: null, why: null, mode: null, small_diff: null, offset: null })} className="trc-clear" data-testid="trace-clear">
           Clear all
         </Link>
       )}
@@ -404,10 +427,11 @@ export function StudioTracesPage() {
     l2_class: params.get('l2_class'),
     why: params.get('why'),
     mode: params.get('mode'),
+    small_diff: params.get('small_diff'),
   }
-  const loaded = useTraceLoad(() => fetchTraceList(q), [q.offset, q.l2_class, q.why, q.mode])
+  const loaded = useTraceLoad(() => fetchTraceList(q), [q.offset, q.l2_class, q.why, q.mode, q.small_diff])
   // A selection belongs to one page of one query: a new page or filter starts empty.
-  useEffect(() => setSelected(new Set()), [q.offset, q.l2_class, q.why, q.mode])
+  useEffect(() => setSelected(new Set()), [q.offset, q.l2_class, q.why, q.mode, q.small_diff])
   // Newest first on each page. The serve pages by its own order, so the date order holds inside a page only.
   const keyed = loaded.state === 'ok' ? newestFirst(loaded.data.rows).map((r, i) => ({ r, k: rowKey(r, i) })) : []
   const focused = keyed.find((x) => x.k === focus) ?? keyed[0] ?? null

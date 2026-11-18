@@ -339,6 +339,7 @@ describe('S2 trace picker', () => {
       ['l2_class', 'Use case'],
       ['why', 'Picked for'],
       ['mode', 'Mode'],
+      ['small_diff', 'Small diff'],
     ])
     const mode = c.querySelector('[data-filter="mode"] [data-filter-value="trace_review"]')!
     expect(mode.textContent).toBe('trace review')
@@ -388,6 +389,47 @@ describe('S2 trace picker', () => {
     // No id and no URL: no block at all.
     act(() => traceRows(c)[2]!.click())
     expect(ext()).toBeNull()
+  })
+
+  it('MT-11: the Small diff filter sends small_diff to the serve, shows a chip, and the panel shows the file count', async () => {
+    const list = {
+      ...LIST,
+      rows: [
+        row({ started_at: '2026-11-10T10:00:00.000Z', small_diff: true, pr: { url: 'https://github.com/o/r/pull/32', files_changed: 2, additions: 8, deletions: 10 } }),
+        row({ session_id: SID_B, identifier: 'DFL-00002', started_at: '2026-11-09T10:00:00.000Z', small_diff: false, pr: { url: 'https://github.com/o/r/pull/33', files_changed: 7 } }),
+        row({ session_id: SID_C, identifier: 'DFL-00003', started_at: '2026-11-08T10:00:00.000Z' }),
+      ],
+    }
+    const c = mountAt('/studio/traces?small_diff=true', { list: [200, list] })
+    await waitFor(() => traceRows(c).length === 3, 'rows')
+    expect(new URL(serveCalls()[0]!.url).searchParams.get('small_diff')).toBe('true')
+    expect([...c.querySelectorAll('[data-chip]')].map((x) => x.textContent)).toEqual(['Small diff: yes'])
+    act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-filters-button"]')!.click())
+    const opts = [...c.querySelectorAll<HTMLAnchorElement>('[data-filter="small_diff"] [data-filter-value]')]
+    expect(opts.map((o) => [o.dataset.filterValue, o.getAttribute('aria-current')])).toEqual([
+      ['all', null],
+      ['true', 'true'],
+      ['false', null],
+    ])
+    expect(opts[2]!.getAttribute('href')).toBe('/studio/traces?small_diff=false')
+    expect(c.querySelector('[data-testid="trace-clear"]')!.getAttribute('href')).toBe('/studio/traces')
+    // The file-count hint: small, not small, and no data.
+    const hint = () => c.querySelector('[data-testid="trace-focus"] [data-testid="trace-diff-hint"]')
+    expect(hint()!.textContent).toBe('Small diff: 2 files changed')
+    expect(hint()!.getAttribute('data-small-diff')).toBe('true')
+    expect(c.querySelector('[data-testid="trace-focus"] [data-field="files_changed"]')!.textContent).toBe('2')
+    act(() => traceRows(c)[1]!.click())
+    expect(hint()!.textContent).toBe('7 files changed')
+    expect(hint()!.getAttribute('data-small-diff')).toBe('false')
+    act(() => traceRows(c)[2]!.click())
+    expect(hint()).toBeNull()
+    expect(c.querySelector('[data-testid="trace-focus"] [data-field="files_changed"]')!.textContent).toBe('—')
+  })
+
+  it('MT-11: an unknown small_diff value is not sent to the serve', async () => {
+    const c = mountAt('/studio/traces?small_diff=maybe')
+    await waitFor(() => traceRows(c).length > 0, 'rows')
+    expect(new URL(serveCalls()[0]!.url).searchParams.has('small_diff')).toBe(false)
   })
 
   it('selects rows with the checkbox column: "N selected", select all on the page, Clear, a disabled Build button (MT-05)', async () => {
