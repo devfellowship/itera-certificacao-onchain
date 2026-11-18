@@ -1,12 +1,14 @@
 /**
- * Trace client of the studio screens S2 (trace picker, /studio/traces) and S3 (trace view, /studio/traces/:sessionId)
+ * Trace client of the studio screens S2 (trace picker, /studio/traces) and S3 (trace view, /studio/traces/:traceId)
  * (plan 20261112-tma-c5-studio-area-web2, task C5-T6).
  *
  * THE single place that builds `tma studio serve` URLs for traces. S2 and S3 read only through this module. Task
  * C5-T12 later switches the source of the traces here (and only here).
  *
  * The base URL is STUDIO_SERVE_URL (VITE_TMA_STUDIO_SERVE_URL). The serve answers `GET /v1/traces` (listTraces /
- * candidateView in services/runner/src/cli/studio/content.ts) and `GET /v1/traces/:session_id[?agent_id=]` (getTrace).
+ * candidateView in services/runner/src/cli/studio/content.ts) and `GET /v1/traces/:trace_id` (getTraceById: ONE run).
+ * MT-20: a trace is one run (the main run or one subagent run). Its key is the short trace id (traceIdOf); the session
+ * id is a column and a filter. The old `/v1/traces/:session_id[?agent_id=]` key still answers (getTrace).
  * The bearer is the web2 session token. The token never goes into an error message or a log.
  *
  * Parent ADR-1: the TMA API client (lib/api) is NOT used here. No trace content, no task summary and no session id
@@ -31,6 +33,8 @@ export interface PinStatus {
 
 /** One candidate row (candidateView). */
 export interface TraceRow {
+  /** MT-20: the key of the trace (one run). Absent on a row from a serve before MT-20. */
+  trace_id?: string | null
   session_id: string | null
   agent_id: string | null
   parent_session_id: string | null
@@ -138,8 +142,21 @@ export interface TraceSummary {
 
 export type FirstFailure = TraceSpan & { agent_id: string | null }
 
-/** One trace (getTrace). */
+/** MT-20: the session of a run trace, as a reference only (its id is a filter of S2). */
+export interface TraceSessionRef {
+  session_id: string
+  title: string | null
+  n_runs: number | null
+  n_subagent_runs: number | null
+}
+
+/** One trace (getTrace / getTraceById). */
 export interface Trace {
+  /** MT-20: absent from a serve before MT-20. */
+  trace_id?: string
+  /** MT-20: 'run' = one run, its own summary; 'session' = the old whole-session answer. Absent before MT-20. */
+  scope?: 'run' | 'session'
+  session?: TraceSessionRef
   session_id: string
   agent_id: string | null
   index: TraceIndex
@@ -159,6 +176,8 @@ export interface TraceListQuery {
   mode?: string | null
   /** MT-11: 'true' or 'false'; any other value is dropped. */
   small_diff?: string | null
+  /** MT-20: only the runs of this session. */
+  session_id?: string | null
 }
 
 export type TraceErrorKind = 'not_configured' | 'network' | 'http'
@@ -193,7 +212,7 @@ export function traceListUrl(base: string, q: TraceListQuery): string {
   const p = new URLSearchParams()
   p.set('limit', String(q.limit ?? TRACE_PAGE_SIZE))
   if (q.offset) p.set('offset', String(q.offset))
-  for (const k of ['l2_class', 'why', 'mode'] as const) {
+  for (const k of ['l2_class', 'why', 'mode', 'session_id'] as const) {
     const v = q[k]
     if (v) p.set(k, v)
   }
@@ -234,7 +253,12 @@ export function fetchTraceList(query: TraceListQuery, opts: TraceFetchOptions = 
   return getJson<TraceList>((b) => traceListUrl(b, query), opts)
 }
 
-/** S3: GET <serve>/v1/traces/:sessionId[?agent_id=]. */
+/** MT-20 S3: GET <serve>/v1/traces/:traceId (one run). */
+export function fetchTraceById(traceId: string, opts: TraceFetchOptions = {}): Promise<Trace> {
+  return getJson<Trace>((b) => `${b.replace(/\/+$/, '')}/v1/traces/${encodeURIComponent(traceId)}`, opts)
+}
+
+/** S3 by the old key: GET <serve>/v1/traces/:sessionId[?agent_id=]. */
 export function fetchTrace(sessionId: string, agentId?: string | null, opts: TraceFetchOptions = {}): Promise<Trace> {
   return getJson<Trace>((b) => traceUrl(b, sessionId, agentId), opts)
 }
@@ -248,6 +272,8 @@ export function traceErrorText(err: unknown): string {
     if (err.status === 401) return 'Your session ended. Sign in again.'
     if (err.status === 403) return 'Your account may not read fleet traces.'
     if (err.status === 404 && err.code === 'no_trace_selection') return 'No trace selection exists yet.'
+    if (err.status === 404 && err.code === 'trace_not_found') return 'No run has this trace id.'
+    if (err.status === 404 && err.code === 'agent_not_in_trajectory') return 'The trajectory file of this session does not hold this run yet.'
     if (err.status === 404) return 'This trace is not in the index, or it has no trajectory file.'
   }
   return 'The trace service could not load this data. Reload the page to try again.'
@@ -267,9 +293,93 @@ export function prFiles(pr: unknown): number | null {
   return typeof n === 'number' && Number.isInteger(n) && n >= 0 ? n : null
 }
 
-/** The S3 path of a row: /studio/traces/<session>[?agent_id=]. */
+// ---------- MT-20: the trace id ----------
+
+const K = Uint32Array.from([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+  0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+])
+
+/** SHA-256 of a UTF-8 string, as hex. Synchronous, so a link and a redirect need no await (WebCrypto is async only). */
+export function sha256Hex(text: string): string {
+  const msg = new TextEncoder().encode(text)
+  const len = ((msg.length + 9 + 63) >> 6) << 6
+  const buf = new Uint8Array(len)
+  buf.set(msg)
+  buf[msg.length] = 0x80
+  const view = new DataView(buf.buffer)
+  view.setUint32(len - 8, Math.floor((msg.length * 8) / 2 ** 32))
+  view.setUint32(len - 4, (msg.length * 8) >>> 0)
+  const h = Uint32Array.from([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19])
+  const w = new Uint32Array(64)
+  const rotr = (x: number, n: number) => (x >>> n) | (x << (32 - n))
+  for (let off = 0; off < len; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = view.getUint32(off + i * 4)
+    for (let i = 16; i < 64; i++) {
+      const a = w[i - 15]!
+      const b = w[i - 2]!
+      w[i] = (w[i - 16]! + (rotr(a, 7) ^ rotr(a, 18) ^ (a >>> 3)) + w[i - 7]! + (rotr(b, 17) ^ rotr(b, 19) ^ (b >>> 10))) >>> 0
+    }
+    let [a, b, c, d, e, f, g, k] = h as unknown as [number, number, number, number, number, number, number, number]
+    for (let i = 0; i < 64; i++) {
+      const t1 = (k + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i]! + w[i]!) >>> 0
+      const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0
+      k = g
+      g = f
+      f = e
+      e = (d + t1) >>> 0
+      d = c
+      c = b
+      b = a
+      a = (t1 + t2) >>> 0
+    }
+    h[0] = (h[0]! + a) >>> 0
+    h[1] = (h[1]! + b) >>> 0
+    h[2] = (h[2]! + c) >>> 0
+    h[3] = (h[3]! + d) >>> 0
+    h[4] = (h[4]! + e) >>> 0
+    h[5] = (h[5]! + f) >>> 0
+    h[6] = (h[6]! + g) >>> 0
+    h[7] = (h[7]! + k) >>> 0
+  }
+  return [...h].map((x) => x.toString(16).padStart(8, '0')).join('')
+}
+
+/** A trace id: 12 lowercase hex characters. A session id (a UUID) never matches. */
+export const TRACE_ID = /^[0-9a-f]{12}$/
+export const isTraceId = (v: string) => TRACE_ID.test(v)
+
+/**
+ * The trace id of one run: the first 12 hex of sha256("<session_id>\n<agent_id>"), empty agent_id for the main run.
+ * The same function as traceId in services/runner/src/cli/studio/content.ts; both test suites pin the same vector.
+ */
+export function traceIdOf(sessionId: string, agentId?: string | null): string {
+  return sha256Hex(`${sessionId}\n${agentId ?? ''}`).slice(0, 12)
+}
+
+/** The S3 path of one run: /studio/traces/<trace_id>. */
 export function traceHref(sessionId: string, agentId?: string | null): string {
-  return `/studio/traces/${encodeURIComponent(sessionId)}${agentId ? `?${new URLSearchParams({ agent_id: agentId }).toString()}` : ''}`
+  return `/studio/traces/${traceIdOf(sessionId, agentId)}`
+}
+
+/** The S3 path of a row: its served trace id, else the id computed from its session and agent. */
+export function rowHref(r: Pick<TraceRow, 'trace_id' | 'session_id' | 'agent_id'>): string | null {
+  if (r.trace_id && isTraceId(r.trace_id)) return `/studio/traces/${r.trace_id}`
+  return r.session_id ? traceHref(r.session_id, r.agent_id) : null
+}
+
+/** MT-20: S2 filtered to the runs of one session. */
+export function sessionHref(sessionId: string): string {
+  return `/studio/traces?${new URLSearchParams({ session_id: sessionId }).toString()}`
+}
+
+/** The title of a trace: its task name; else the run title the serve sends (never the session title of a subagent). */
+export function traceTitle(t: Trace): string {
+  return t.candidate?.task_name?.trim() || t.summary?.title?.trim() || t.candidate?.identifier || 'Trace'
 }
 
 // ---------- Pure helpers of the S2 / S3 screens (UI-S2S3S9; canvas artboards "S2 Trace picker" and "S3 Trace view") ----------

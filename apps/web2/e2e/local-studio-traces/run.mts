@@ -1,5 +1,5 @@
 /**
- * Local browser proof of S2 (/studio/traces) and S3 (/studio/traces/:sessionId) (plan 20261112-tma-c5-studio-area-web2,
+ * Local browser proof of S2 (/studio/traces) and S3 (/studio/traces/:traceId; MT-20: one run per trace) (plan 20261112-tma-c5-studio-area-web2,
  * task C5-T6). NOT a Playwright spec (the prod e2e config matches *.spec.ts only) and it never touches a DFL host.
  *
  * What it runs, all on 127.0.0.1, all synthetic:
@@ -26,6 +26,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startStudioServer } from '../../../../services/runner/src/cli/studio/server.ts'
 import { ALLOWED, OTHER, SID_A, SID_B, SID_OUTSIDE, SUB_AGENT, buildFixture, fakeApi, webToken } from '../../../../services/runner/src/cli/studio/fixture.test-helpers.ts'
+import { traceId } from '../../../../services/runner/src/cli/studio/content.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, '../../../..')
@@ -151,10 +152,18 @@ async function verifyRender(name: string, path: string, state: string, controls:
 }
 
 const N_ROWS = 4 // candidates-2026-11-02.jsonl of buildFixture
-const M_STEPS = 3 // SID_A: main run 2 spans + subagent 1 span
+// MT-20: one trace = one run. The subagent trace has its 1 span and the first failure; the main run trace its 2 spans.
+const SUB_TRACE = traceId(SID_A, SUB_AGENT)
+const MAIN_TRACE = traceId(SID_A, null)
 const results = [
-  await verifyRender('s2', '/studio/traces', okState, ['--min-count', `[data-trace-row]=${N_ROWS}`, '--expect-selector', '[data-task-summary]']),
-  await verifyRender('s3', `/studio/traces/${SID_A}`, okState, ['--min-count', `[data-trace-step]=${M_STEPS}`, '--expect-selector', '[data-first-failure]', '--expect-selector', '[data-trace-summary]']),
+  await verifyRender('s2', '/studio/traces', okState, ['--min-count', `[data-trace-row]=${N_ROWS}`, '--expect-selector', '[data-task-summary]', '--min-count', `[data-testid="trace-session"]=${N_ROWS}`]),
+  await verifyRender('s3', `/studio/traces/${SUB_TRACE}`, okState, [
+    '--min-count', '[data-trace-step]=1', '--expect-selector', '[data-first-failure]', '--expect-selector', '[data-trace-summary]',
+    '--expect-text', 'Fixture task name', '--expect-selector', '[data-testid="trace-session-link"]', '--forbid-text', 'Fixture session',
+  ]),
+  await verifyRender('s3-main', `/studio/traces/${MAIN_TRACE}`, okState, ['--min-count', '[data-trace-step]=2', '--expect-selector', '[data-testid="trace-no-failure"]']),
+  // The old URL loads the same subagent run, by its trace id.
+  await verifyRender('s3-old-url', `/studio/traces/${SID_A}?agent_id=${SUB_AGENT}`, okState, ['--min-count', '[data-trace-step]=1', '--expect-selector', `[data-trace-id="${SUB_TRACE}"]`, '--forbid-text', 'Fixture session']),
   // 6a. negative control: a valid token for a principal that is not allowed -> the serve answers 403, no rows.
   await verifyRender('neg-other-principal', '/studio/traces', otherState, ['--min-count', `[data-trace-row]=${N_ROWS}`, '--expect-selector', '[data-task-summary]']),
 ]
@@ -171,7 +180,7 @@ const requestSet = [...new Set(apiLog.map((l) => `${l.from}: ${l.method} ${l.pat
 preview.pid && process.kill(-preview.pid, 'SIGTERM')
 await close(api)
 
-const expect = { s2: 0, s3: 0, 'neg-other-principal': 4, 'neg-serve-stopped': 4 } as Record<string, number>
+const expect = { s2: 0, s3: 0, 's3-main': 0, 's3-old-url': 0, 'neg-other-principal': 4, 'neg-serve-stopped': 4 } as Record<string, number>
 const pass = results.every((r) => r.exit === expect[r.name]) && leaks.length === 0
 const summary = {
   pass,

@@ -28,7 +28,7 @@ import { saveSession } from './auth/sessionStorage'
 import { API_URL } from './config'
 import { routes } from './routes'
 import { orderRuns } from './studio/StudioTracePage'
-import { TraceServeError, fetchTrace, fetchTraceList, traceErrorText, type Trace, type TraceList, type TraceRow } from './studio/traces'
+import { TraceServeError, fetchTrace, fetchTraceList, sha256Hex, traceErrorText, traceIdOf, type Trace, type TraceList, type TraceRow } from './studio/traces'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -262,9 +262,12 @@ describe('S2 trace picker', () => {
     expect(r[0]!.querySelector('[data-testid="trace-pr"]')!.getAttribute('href')).toBe('https://github.com/example/repo/pull/7')
     expect(r[1]!.querySelector('[data-testid="trace-pr"]')).toBeNull()
     expect(r[2]!.querySelector('[data-testid="trace-pr"]')).toBeNull()
-    // S3 links: agent_id when set; no link without a trajectory file.
-    expect(r[0]!.querySelector('[data-testid="trace-link"]')!.getAttribute('href')).toBe(`/studio/traces/${SID_A}`)
-    expect(r[1]!.querySelector('[data-testid="trace-link"]')!.getAttribute('href')).toBe(`/studio/traces/${SID_A}?agent_id=${SUB}`)
+    // MT-20: S3 links by the trace id of each run (main and subagent differ); no link without a trajectory file.
+    expect(r[0]!.querySelector('[data-testid="trace-link"]')!.getAttribute('href')).toBe(`/studio/traces/${traceIdOf(SID_A, null)}`)
+    expect(r[1]!.querySelector('[data-testid="trace-link"]')!.getAttribute('href')).toBe(`/studio/traces/${traceIdOf(SID_A, SUB)}`)
+    // MT-20: the session is a column that filters S2 to its runs.
+    expect(r[1]!.querySelector('[data-testid="trace-session"]')!.getAttribute('href')).toBe(`/studio/traces?session_id=${SID_A}`)
+    expect(r[1]!.querySelector('[data-testid="trace-session"]')!.textContent).toBe(SID_A.slice(0, 8))
     expect(r[2]!.querySelector('[data-testid="trace-link"]')).toBeNull()
     expect(r[2]!.querySelector('[data-testid="trace-no-file"]')!.textContent).toBe('no trajectory file')
     // MT-04: no source line in the page; the selection day and pins live in the (i) of the title.
@@ -340,6 +343,7 @@ describe('S2 trace picker', () => {
       ['why', 'Picked for'],
       ['mode', 'Mode'],
       ['small_diff', 'Small diff'],
+      ['session_id', 'Session'],
     ])
     const mode = c.querySelector('[data-filter="mode"] [data-filter-value="trace_review"]')!
     expect(mode.textContent).toBe('trace review')
@@ -522,7 +526,8 @@ describe('S3 trace view', () => {
   it('shows the summary, the task summary with Outcome, the first failure and the steps', async () => {
     const c = mountAt(`/studio/traces/${SID_A}`)
     await waitFor(() => !!c.querySelector('[data-trace-summary]'), 'summary')
-    expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces/${SID_A}`])
+    // MT-20: the old session URL reads the trace id of the main run.
+    expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces/${traceIdOf(SID_A, null)}`])
     const s = c.querySelector('[data-trace-summary]')!
     expect(s.textContent).toContain('fixture-session-title')
     expect(s.querySelector('h1')!.textContent).toBe('fixture-session-title')
@@ -562,7 +567,7 @@ describe('S3 trace view', () => {
     expect(ff.querySelector('[data-testid="step-preview"]')!.getAttribute('data-tone')).toBe('bad')
     // MT-17: the run constants sit once under the title, not in the step details.
     const constants = c.querySelector('[data-testid="trace-constants"]')!
-    expect([...constants.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['Agent', 'Harness', 'Host', 'Extractor', 'Pin'])
+    expect([...constants.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['Trace', 'Agent', 'Harness', 'Host', 'Extractor', 'Pin'])
     expect(constants.querySelector('[data-constant="host"] dd')!.textContent).toBe('fixture-host')
     expect([...tech().querySelectorAll('dt')].map((d) => d.textContent)).not.toContain('Harness')
     // Steps: main run first, ok/failed markers, one first-failure step.
@@ -627,10 +632,45 @@ describe('S3 trace view', () => {
     expect(c.querySelector('[data-testid="trace-first-failure-link"]')).toBeNull()
   })
 
-  it('sends agent_id from the URL', async () => {
+  it('MT-20: an old URL with ?agent_id= reads the trace id of that run; a trace id URL reads it as is', async () => {
     const c = mountAt(`/studio/traces/${SID_A}?agent_id=${SUB}`, { trace: [200, { ...TRACE, agent_id: SUB, runs: [TRACE.runs[0]!] }] })
     await waitFor(() => !!c.querySelector('[data-trace-summary]'), 'summary')
-    expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces/${SID_A}?agent_id=${SUB}`])
+    expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces/${traceIdOf(SID_A, SUB)}`])
+    expect(c.querySelector('[data-testid="studio-trace"]')!.getAttribute('data-trace-id')).toBe(traceIdOf(SID_A, SUB))
+    act(() => root?.unmount())
+    document.body.innerHTML = ''
+    const d = mountAt(`/studio/traces/${traceIdOf(SID_A, SUB)}`, { trace: [200, { ...TRACE, agent_id: SUB, runs: [TRACE.runs[0]!] }] })
+    await waitFor(() => !!d.querySelector('[data-trace-summary]'), 'summary')
+    expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces/${traceIdOf(SID_A, SUB)}`])
+  })
+
+  it('MT-20: a run trace is titled by its task name, shows its own numbers, and names its session by a link only', async () => {
+    const run = TRACE.runs[0]!
+    const trace: Trace = {
+      ...TRACE,
+      trace_id: traceIdOf(SID_A, SUB),
+      scope: 'run',
+      agent_id: SUB,
+      candidate: { ...LIST.rows[1]!, task_name: 'T1 - fixture task name' },
+      session: { session_id: SID_A, title: 'fixture-session-title', n_runs: 2, n_subagent_runs: 1 },
+      summary: { ...TRACE.summary!, title: 'fixture subagent', n_runs: 1, n_subagent_runs: null, n_tool_calls: 1, errors: 1, duration_s: 5, active_s: 4, cost_usd: 0.5 },
+      runs: [run],
+    }
+    const c = mountAt(`/studio/traces/${traceIdOf(SID_A, SUB)}`, { trace: [200, trace] })
+    await waitFor(() => !!c.querySelector('[data-trace-summary]'), 'summary')
+    expect(c.querySelector('[data-testid="trace-title"]')!.textContent).toBe('T1 - fixture task name')
+    expect(c.querySelector('[data-testid="trace-crumb-title"]')!.textContent).toBe('T1 - fixture task name')
+    // The session title never shows on a run trace.
+    expect(c.querySelector('[data-testid="studio-trace"]')!.textContent).not.toContain('fixture-session-title')
+    const stats = c.querySelector('[data-testid="trace-stats"]')!
+    expect(stats.getAttribute('data-scope')).toBe('run')
+    expect(stats.querySelector('[data-field="tool_calls"]')!.textContent).toBe('1')
+    expect(stats.querySelector('[data-field="active"]')!.textContent).toBe('4s')
+    expect(stats.querySelector('[data-field="cost"]')!.textContent).toBe('$0.50')
+    expect(c.querySelector('[data-testid="trace-session-totals"]')).toBeNull()
+    expect(c.querySelector('[data-testid="trace-session-link"]')!.getAttribute('href')).toBe(`/studio/traces?session_id=${SID_A}`)
+    expect(c.querySelector('[data-testid="trace-session-ref"]')!.textContent).toBe(`Part of session ${SID_A.slice(0, 8)} · 2 runs in the session`)
+    expect(c.querySelector('[data-constant="trace"] dd')!.textContent).toBe(traceIdOf(SID_A, SUB))
   })
 
   it('says "No failed step" when there is none, and opens the first step', async () => {
@@ -642,7 +682,7 @@ describe('S3 trace view', () => {
     expect(c.querySelector('[data-testid="trace-step-panel"]')!.textContent).toContain('Completed')
   })
 
-  it('MT-14: with ?agent_id= the header counts that run; the session totals sit on a labelled line', async () => {
+  it('MT-14 / MT-20: with ?agent_id= the header counts that run; the session is a link, not a totals line', async () => {
     const run = TRACE.runs[0]!
     const c = mountAt(`/studio/traces/${SID_A}?agent_id=${SUB}`, { trace: [200, { ...TRACE, agent_id: SUB, runs: [run] }] })
     await waitFor(() => !!c.querySelector('[data-trace-summary]'), 'summary')
@@ -654,7 +694,8 @@ describe('S3 trace view', () => {
     expect(stats.querySelector('[data-field="runs"]')!.textContent).toBe(run.is_subagent ? '1 · 1 subagent' : '1')
     expect(stats.querySelector('[data-field="active"]')!.textContent).toBe('—')
     expect(stats.querySelector('[data-field="cost"]')!.textContent).toBe('—')
-    expect(c.querySelector('[data-testid="trace-session-totals"]')!.textContent).toBe('Whole session: 3 tool calls · 1 errors · 2 · 1 subagent runs · 5m 0s wall · $1.23')
+    expect(c.querySelector('[data-testid="trace-session-totals"]')).toBeNull()
+    expect(c.querySelector('[data-testid="trace-session-ref"]')!.textContent).toBe(`Part of session ${SID_A.slice(0, 8)}`)
     expect(c.querySelector('[data-constant="agent"] dd')!.textContent).toBe(SUB)
     // Without agent_id the header is the session, and there is no totals line.
     act(() => root?.unmount())
@@ -662,7 +703,7 @@ describe('S3 trace view', () => {
     const w = mountAt(`/studio/traces/${SID_A}`)
     await waitFor(() => !!w.querySelector('[data-trace-summary]'), 'summary')
     expect(w.querySelector('[data-testid="trace-stats"]')!.getAttribute('data-scope')).toBe('session')
-    expect(w.querySelector('[data-testid="trace-session-totals"]')).toBeNull()
+    expect(w.querySelector('[data-testid="trace-session-ref"]')).toBeNull()
   })
 
   it('S3 reads like the artboard: crumb ends with the title, a Step heading, one muted line, no repeated key list', async () => {
@@ -723,7 +764,8 @@ describe('network rule (parent ADR-1)', () => {
     const link = traceRows(c)[0]!.querySelector<HTMLAnchorElement>('[data-testid="trace-link"]')!
     const t = follow(link, {}, true)
     await waitFor(() => t.querySelectorAll('[data-trace-step]').length === 3, 'S3 steps')
-    expect(serveCalls().map((x) => new URL(x.url).pathname)).toEqual(['/v1/traces', `/v1/traces/${SID_A}`])
+    // MT-20: S3 reads by trace id; the session id is not in the S3 path.
+    expect(serveCalls().map((x) => new URL(x.url).pathname)).toEqual(['/v1/traces', `/v1/traces/${traceIdOf(SID_A, null)}`])
     const api = assertNetworkRule()
     // The app shell (SessionProvider) loads the profile; S2/S3 add no TMA API request of their own.
     expect(new Set(api)).toEqual(new Set(['GET /me']))
@@ -769,3 +811,20 @@ describe('studio home link', () => {
     expect(c.querySelector('[data-testid="studio-traces-link"]')).toBeNull()
   })
 })
+
+describe('MT-20: the trace id', () => {
+  it('sha256Hex matches the standard vectors', () => {
+    expect(sha256Hex('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+    expect(sha256Hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+    // 56 bytes: the padding spills into a second block.
+    expect(sha256Hex('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq')).toBe('248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1')
+    // UTF-8 input.
+    expect(sha256Hex('ação')).toBe('0664077f33cc3ebbaa4bbdacac0eb70e740983080f01dce29929e73b7785a7ad')
+  })
+
+  it('traceIdOf: the same vector as traceId of the serve (services/runner/src/cli/studio/content.ts)', () => {
+    expect(traceIdOf(SID_A, null)).toBe('8bcc407bbd6e')
+    expect(traceIdOf(SID_A, SUB)).toBe('323fc13658ca')
+  })
+})
+

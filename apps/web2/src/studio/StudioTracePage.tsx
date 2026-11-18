@@ -1,8 +1,9 @@
 /**
  * S3 Trace view (plan 20261112-tma-c5-studio-area-web2, tasks C5-T6 and UI-S2S3S9). Read only.
- * One session from `tma studio serve` (GET /v1/traces/:session_id[?agent_id=]) through studio/traces.ts: the session
- * summary, the index row, the task summary and candidate info, the first failed step, and a step timeline per run
- * (main first, then subagents by start time). The content never goes to the TMA server (parent ADR-1).
+ * One trace from `tma studio serve` (GET /v1/traces/:trace_id) through studio/traces.ts. MT-20: a trace is ONE run (the
+ * main run or one subagent run): its own summary, its own steps, its task name as the title. The session is a
+ * reference only (a link to S2 filtered by it). The old URL /studio/traces/<session>[?agent_id=] redirects to the
+ * trace id of that run. The content never goes to the TMA server (parent ADR-1).
  *
  * Layout from the canvas artboard "S3 Trace view": title, stat tiles, section tabs, the tool-call waterfall (or where
  * the time went) and a side panel with the step that went wrong. A click on a step row opens that step in the panel.
@@ -10,8 +11,8 @@
  * turn rows (the trace has no user turn text), the "Build a case" button (S4 takes no trace yet), and the outcome
  * tile (the merge state of the PR). The profile cannot tell a model pause from a wait on a person, and says so.
  */
-import { Fragment, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Fragment, useEffect, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../tma/ui'
 import { ExternalRef, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, WhyBadge, dash, fmtDuration, fmtTime, useTraceLoad } from './TraceParts'
 import { Section, Tab, Tabs, Toggle, ToggleItem, themeClass } from './theme'
@@ -22,8 +23,12 @@ import {
   categoryLegend,
   CATEGORY_LABEL,
   clockOf,
-  fetchTrace,
+  fetchTraceById,
   fmtMs,
+  isTraceId,
+  sessionHref,
+  traceHref,
+  traceTitle,
   plainValue,
   stepLabel,
   toolLabel,
@@ -90,7 +95,7 @@ function Tile({ label, children, field, tone }: { label: string; children: React
   )
 }
 
-/** The numbers of the header. A trace opened with ?agent_id= shows that run; else the whole session. */
+/** The numbers of the header. A run trace (MT-20: every trace by id) shows that run; else the whole session. */
 export interface HeaderNumbers {
   scope: 'run' | 'session'
   toolCalls: number | null
@@ -113,14 +118,18 @@ export function sessionNumbers(t: Trace): HeaderNumbers {
  * MT-14: with ?agent_id= the serve sends that run only, while the summary still holds the whole session. The header then
  * counts the run (its calls, failed calls, wall time); the session has no per-run active time or cost, so those read "—".
  */
+export const isRunScope = (t: Trace) => t.scope === 'run' || t.agent_id !== null
+
 export function headerNumbers(t: Trace, runs: readonly TraceRun[]): HeaderNumbers {
-  if (!t.agent_id) return sessionNumbers(t)
+  if (!isRunScope(t)) return sessionNumbers(t)
   const sum = (f: (r: TraceRun) => number | null) => runs.reduce<number | null>((n, r) => (f(r) === null ? n : (n ?? 0) + f(r)!), null)
   const calls = sum((r) => r.n_tool_calls ?? r.spans.length)
   const errors = sum((r) => r.errors ?? r.spans.filter((x) => x.ok === false).length)
   const wall = sum((r) => r.duration_s)
   const sub = runs.filter((r) => r.is_subagent).length
-  return { scope: 'run', toolCalls: calls, errors, wallS: wall, activeS: null, runs: runsText(runs.length, sub), costUsd: null }
+  // MT-20: the serve sends the run's own summary (scope 'run'); its active time and cost are the run's.
+  const own = t.scope === 'run' ? t.summary : null
+  return { scope: 'run', toolCalls: calls, errors, wallS: wall, activeS: own?.active_s ?? null, runs: runsText(runs.length, sub), costUsd: own?.cost_usd ?? null }
 }
 
 const fmtCount = (n: number | null) => (n === null ? '—' : n.toLocaleString('en-US'))
@@ -153,13 +162,19 @@ function Stats({ n, retries }: { n: HeaderNumbers; retries: number }) {
   )
 }
 
-/** MT-14: under the run numbers, the session totals on one labelled line. */
-function SessionTotals({ t }: { t: Trace }) {
-  const n = sessionNumbers(t)
+/**
+ * MT-20: a run trace shows its own numbers only. The session is one muted line: its short id, a link to S2 filtered to
+ * the runs of that session. The session title is not shown: it names the main conversation, not this run.
+ */
+function SessionRef({ t }: { t: Trace }) {
+  const n = t.session?.n_runs ?? t.summary?.n_runs ?? null
   return (
-    <p className="stu-label trc-totals" data-testid="trace-session-totals">
-      Whole session: {fmtCount(n.toolCalls)} tool calls · {fmtCount(n.errors)} errors · {n.runs} runs · {fmtDuration(n.wallS)} wall
-      {n.costUsd != null ? ` · $${n.costUsd.toFixed(2)}` : ''}
+    <p className="stu-label trc-totals" data-testid="trace-session-ref">
+      Part of session{' '}
+      <Link to={sessionHref(t.session_id)} title={t.session_id} data-testid="trace-session-link">
+        {t.session_id.slice(0, 8)}
+      </Link>
+      {t.scope === 'run' && n !== null ? ` · ${n} ${n === 1 ? 'run' : 'runs'} in the session` : ''}
     </p>
   )
 }
@@ -167,6 +182,7 @@ function SessionTotals({ t }: { t: Trace }) {
 /** MT-17: what is the same for every step of the trace, once under the title. */
 function RunConstants({ t }: { t: Trace }) {
   const items: Array<[string, React.ReactNode]> = [
+    ['Trace', t.trace_id ?? '—'],
     ['Agent', t.agent_id ?? 'main'],
     ['Harness', dash(t.index.harness)],
     ['Host', dash(t.index.host)],
@@ -212,10 +228,12 @@ function SummaryTab({ t }: { t: Trace }) {
           {t.task_summary ? <TaskSummaryBlock summary={t.task_summary} /> : <p className="stu-label">No task summary.</p>}
         </Section>
       )}
-      <Section title="Session" meta={t.agent_id ? `agent ${t.agent_id}` : 'session'}>
+      <Section title={isRunScope(t) ? 'Run' : 'Session'} meta={t.agent_id ? `agent ${t.agent_id}` : isRunScope(t) ? 'main run' : 'session'}>
         <dl className="trc-kv">
           <dt>Session</dt>
-          <dd className="stu-label">{t.session_id}</dd>
+          <dd className="stu-label">
+            <Link to={sessionHref(t.session_id)}>{t.session_id}</Link>
+          </dd>
           <dt>Started</dt>
           <dd>{fmtTime(s?.started_at ?? null)}</dd>
           <dt>Ended</dt>
@@ -508,11 +526,11 @@ export function TraceView({ t }: { t: Trace }) {
       <div className="trc-view__main">
         <div className="trc-view__lead" data-trace-summary="" data-testid="trace-summary">
           <h1 className="tma-h1" data-testid="trace-title">
-            {s?.title ?? (t.candidate?.task_name?.trim() || t.candidate?.identifier) ?? 'Trace'}
+            {traceTitle(t)}
           </h1>
           <RunConstants t={t} />
           <Stats n={numbers} retries={retries} />
-          {numbers.scope === 'run' && <SessionTotals t={t} />}
+          {numbers.scope === 'run' && <SessionRef t={t} />}
         </div>
         <Tabs label="Run sections" className="trc-tabs">
           <Tab selected={tab === 'summary'} onClick={() => setTab('summary')} data-testid="trace-tab-summary">
@@ -589,16 +607,32 @@ export function TraceView({ t }: { t: Trace }) {
   )
 }
 
+/**
+ * The route param is a trace id (MT-20). An old URL (/studio/traces/<session>[?agent_id=]) shows the same one-run trace
+ * at once, by the trace id of that run, and replaces the address with the new URL.
+ */
 export function StudioTracePage() {
-  const { sessionId = '' } = useParams()
+  const { sessionId: key = '' } = useParams()
   const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const legacy = !isTraceId(key)
   const agentId = params.get('agent_id')
-  const loaded = useTraceLoad(() => fetchTrace(sessionId, agentId), [sessionId, agentId])
+  const traceId = legacy ? traceHref(key, agentId).slice('/studio/traces/'.length) : key
+  useEffect(() => {
+    if (!legacy) return
+    // A failed address change (a test DOM without the Fetch API types) keeps the old address; the page already shows the run.
+    Promise.resolve(navigate(`/studio/traces/${traceId}`, { replace: true })).catch(() => undefined)
+  }, [legacy, traceId, navigate])
+  return <TracePageById traceId={traceId} />
+}
+
+function TracePageById({ traceId }: { traceId: string }) {
+  const loaded = useTraceLoad(() => fetchTraceById(traceId), [traceId])
   const t = loaded.state === 'ok' ? loaded.data : null
-  const title = t ? (t.summary?.title ?? (t.candidate?.task_name?.trim() || t.candidate?.identifier) ?? 'Trace') : null
+  const title = t ? traceTitle(t) : null
   const useCase = t?.candidate?.l2_class ?? null
   return (
-    <main className={themeClass('tma-page', 'trc-page', 'trc-page--view')} data-testid="studio-trace">
+    <main className={themeClass('tma-page', 'trc-page', 'trc-page--view')} data-testid="studio-trace" data-trace-id={traceId}>
       <div className="trc-crumbs">
         <p className="stu-label" data-testid="trace-crumb">
           <Link to="/studio">Studio</Link> / <Link to="/studio/traces" data-testid="trace-back">traces</Link>
@@ -617,7 +651,7 @@ export function StudioTracePage() {
             </>
           )}
         </p>
-        <InfoTip label="About this trace" text="One fleet session, step by step. Read only. The content comes from the private trace service, not from the TMA server." />
+        <InfoTip label="About this trace" text="One run of a fleet session (the main agent or one subagent), step by step. Read only. The content comes from the private trace service, not from the TMA server." />
       </div>
       {loaded.state === 'loading' ? (
         <Card pad data-testid="trace-loading">
