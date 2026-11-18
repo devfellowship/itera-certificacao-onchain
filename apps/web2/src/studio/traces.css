@@ -38,6 +38,9 @@
 .trc-paging { display: flex; gap: var(--stu-gap-3); align-items: center; margin: 0; }
 
 /* S2 table + focused-row panel */
+/* MT-01: S2 and S3 fill the viewport width (no 1440px cap), so the side panel sits flush on the right edge as on the
+   artboard, with no empty column to its right on a wide screen. */
+.trc-page.trc-page--picker, .trc-page.trc-page--view { max-width: none; }
 .trc-page--picker { padding-top: 0; padding-bottom: 0; gap: 0; }
 /* The shell holds the whole page column (crumb, title, filters, table, paging) and the side panel next to it, so the
    panel is a full-height column from under the nav to the bottom of the viewport, as on the artboard. */
