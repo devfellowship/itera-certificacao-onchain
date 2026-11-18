@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Card } from '../tma/ui'
 import { useDismiss } from '../tma/ui/useDismiss'
-import { AgentAvatar, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, dash, fmtTime, useTraceLoad } from './TraceParts'
+import { AgentAvatar, ExternalRef, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, dash, fmtTime, useTraceLoad } from './TraceParts'
 import { themeClass } from './theme'
 import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prUrl, replayOf, shortDay, signalLabel, traceHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
 import './studio.css'
@@ -34,8 +34,9 @@ const ABOUT = 'Real agent sessions from the daily selection. A signal (a correct
 const SIGNAL_TIP =
   'A sign that something went wrong or needed help in this session, spotted automatically. correction: a person told the agent it was wrong. re-run: it ran the same thing again. revert: the change was undone later. Traces with a signal teach the most.'
 
+/** MT-12: the task name when the source gives one; else its id, else the session. */
 function rowLabel(r: TraceRow): string {
-  return r.identifier ?? r.task_id ?? (r.session_id ? r.session_id.slice(0, 8) : '(no id)')
+  return r.task_name?.trim() || r.identifier || r.task_id || (r.session_id ? `Session ${r.session_id.slice(0, 8)}` : '(no id)')
 }
 const rowKey = (r: TraceRow, i: number) => `${r.session_id ?? ''}:${r.agent_id ?? ''}:${i}`
 
@@ -98,8 +99,12 @@ function TraceRowLine({ r, on, onFocus, checked, onToggle }: { r: TraceRow; on: 
       </span>
       <span role="cell" className="trc-cell trc-cell--agent" data-field="model">
         <AgentAvatar row={r} />
-        <span className="trc-ellip" title={`${a.name} · ${r.model ?? 'model ?'}`}>
-          {a.name} · {r.model ?? 'model ?'}
+        {/* MT-19: the harness on line 1, the model under it, muted and small. */}
+        <span className="trc-agent" title={`${a.name} · ${r.model ?? 'model ?'}`}>
+          <span className="trc-agent__name trc-ellip">{a.name}</span>
+          <span className="trc-agent__model trc-ellip" data-field="model-line">
+            {r.model ?? 'model ?'}
+          </span>
         </span>
       </span>
       <span role="cell" className="trc-cell trc-cell--task">
@@ -174,6 +179,7 @@ function FocusPanel({ r }: { r: TraceRow }) {
         </span>
         <h2 className="trc-aside__title">{rowLabel(r)}</h2>
       </div>
+      <ExternalRef id={r.external_id ?? r.identifier} url={r.external_url} />
       <section className="stu-section" aria-label="Task summary">
         <span className="trc-eyebrow">Task summary</span>
         {r.task_summary ? <TaskSummaryBlock summary={r.task_summary} /> : <p className="stu-label">No task summary.</p>}

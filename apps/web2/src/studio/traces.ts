@@ -37,6 +37,10 @@ export interface TraceRow {
   run_kind: string | null
   identifier: string | null
   task_id: string | null
+  /** MT-12/13: source-agnostic task fields (the DFL source writes its task title, DFL id and task-details URL). */
+  task_name?: string | null
+  external_id?: string | null
+  external_url?: string | null
   executor: string | null
   harness: string | null
   host: string | null

@@ -150,3 +150,32 @@ export function fmtDuration(s: number | null): string {
 }
 
 export const dash = (v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? DASH : String(v))
+
+/** An external URL is shown as a link only when it is https (the value comes from the trace source). */
+export const safeExternalUrl = (u: string | null | undefined): string | null => (typeof u === 'string' && /^https:\/\/[^\s]+$/.test(u) ? u : null)
+
+/** MT-13: the task reference of the source: "External ID" and an "External URL" link (opens the task where it lives). */
+export function ExternalRef({ id, url }: { id: string | null | undefined; url: string | null | undefined }) {
+  const href = safeExternalUrl(url)
+  if (!id && !href) return null
+  return (
+    <dl className="trc-kv trc-external" data-testid="trace-external">
+      {id && (
+        <>
+          <dt>External ID</dt>
+          <dd data-field="external_id">{id}</dd>
+        </>
+      )}
+      {href && (
+        <>
+          <dt>External URL</dt>
+          <dd>
+            <a href={href} target="_blank" rel="noreferrer" className="stu-link" data-testid="trace-external-url">
+              Open the task
+            </a>
+          </dd>
+        </>
+      )}
+    </dl>
+  )
+}
