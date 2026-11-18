@@ -182,6 +182,36 @@
 .trc-bar--test, .trc-swatch.trc-bar--test { background: var(--stu-k-test); }
 .trc-bar--tool, .trc-swatch.trc-bar--tool { background: var(--stu-k-tool); }
 .trc-bar--other, .trc-swatch.trc-bar--other { background: var(--stu-k-other); }
+/* Step categories (MT-08): one color per session-trajectory intent; the failed color still wins. */
+.trc-bar--c-file-read { background: var(--stu-c-file-read); }
+.trc-bar--c-search { background: var(--stu-c-search); }
+.trc-bar--c-git-read { background: var(--stu-c-git-read); }
+.trc-bar--c-git-write { background: var(--stu-c-git-write); }
+.trc-bar--c-build-test { background: var(--stu-c-build-test); }
+.trc-bar--c-skill-run { background: var(--stu-c-skill-run); }
+.trc-bar--c-plan-mcp { background: var(--stu-c-plan-mcp); }
+.trc-bar--c-pr-read { background: var(--stu-c-pr-read); }
+.trc-bar--c-file-edit { background: var(--stu-c-file-edit); }
+.trc-bar--c-pr-write-merge { background: var(--stu-c-pr-write-merge); }
+.trc-bar--c-ci-read { background: var(--stu-c-ci-read); }
+.trc-bar--c-ci-watch-poll { background: var(--stu-c-ci-watch-poll); }
+.trc-bar--c-deploy { background: var(--stu-c-deploy); }
+.trc-bar--c-credential-fetch { background: var(--stu-c-credential-fetch); }
+.trc-bar--c-mcp-read { background: var(--stu-c-mcp-read); }
+.trc-bar--c-mcp-write { background: var(--stu-c-mcp-write); }
+.trc-bar--c-web-research { background: var(--stu-c-web-research); }
+.trc-bar--c-browser-check { background: var(--stu-c-browser-check); }
+.trc-bar--c-ops-inspect { background: var(--stu-c-ops-inspect); }
+.trc-bar--c-ops-change { background: var(--stu-c-ops-change); }
+.trc-bar--c-spawn-subagent { background: var(--stu-c-spawn-subagent); }
+.trc-bar--c-message-agent { background: var(--stu-c-message-agent); }
+.trc-bar--c-reply-human { background: var(--stu-c-reply-human); }
+.trc-bar--c-wait-sleep { background: var(--stu-c-wait-sleep); }
+.trc-bar--c-github-api { background: var(--stu-c-github-api); }
+.trc-bar--c-media-generate { background: var(--stu-c-media-generate); }
+.trc-bar--c-other { background: var(--stu-c-other); }
+.trc-bar--c-unlabeled { background: var(--stu-c-unlabeled); }
+.trc-legend__n { color: var(--stu-text-muted); font-variant-numeric: tabular-nums; }
 .trc-bar--err, .trc-swatch.trc-bar--err { background: var(--stu-bad); }
 .trc-swatch { position: static; transform: none; height: 8px; }
 .trc-profile { display: flex; flex-direction: column; gap: var(--stu-gap-4); }

@@ -18,14 +18,17 @@ import { Section, Tab, Tabs, Toggle, ToggleItem, themeClass } from './theme'
 import {
   buildProfile,
   buildWaterfall,
+  categoryKey,
+  categoryLegend,
+  CATEGORY_LABEL,
   clockOf,
   fetchTrace,
   fmtMs,
   plainValue,
+  stepLabel,
   toolLabel,
   trueSignals,
   type FirstFailure,
-  type SpanKind,
   type Trace,
   type TraceRun,
   type TraceSpan,
@@ -50,17 +53,8 @@ function topTools(counts: Record<string, unknown> | null, n = 8): Array<[string,
 }
 
 const SHOWN_STEPS = 200
-const KIND_LEGEND: Array<{ key: SpanKind | 'failed'; label: string }> = [
-  { key: 'read', label: 'read' },
-  { key: 'search', label: 'search' },
-  { key: 'write', label: 'write' },
-  { key: 'test', label: 'test' },
-  { key: 'tool', label: 'tool call' },
-  { key: 'failed', label: 'failed' },
-]
 
 const seqText = (s: TraceSpan) => (s.seq === null ? '—' : String(s.seq).padStart(2, '0'))
-const stepTarget = (s: TraceSpan) => s.target ?? ([s.shape, s.intent].filter(Boolean).join(' / ') || '—')
 
 /** A preview clipped to 3 lines with a local "more" toggle. */
 function Preview({ text }: { text: string }) {
@@ -201,6 +195,7 @@ function Axis({ totalMs }: { totalMs: number }) {
 
 function StepLine({ row, on, first, onPick }: { row: WaterfallStep; on: boolean; first: boolean; onPick: () => void }) {
   const s = row.span
+  const { label, summary } = stepLabel(s)
   const mark = first ? 'first failure' : row.failed ? 'failure' : ''
   return (
     <div
@@ -208,6 +203,7 @@ function StepLine({ row, on, first, onPick }: { row: WaterfallStep; on: boolean;
       className={`trc-wf__row${on ? ' trc-wf__row--on' : ''}${row.failed ? ' trc-wf__row--failed' : ''}`}
       data-trace-step=""
       data-step-ok={row.failed ? 'false' : 'true'}
+      data-step-category={row.category}
       data-first-failure-step={first ? '' : undefined}
       onClick={onPick}
     >
@@ -215,14 +211,16 @@ function StepLine({ row, on, first, onPick }: { row: WaterfallStep; on: boolean;
         <button type="button" className="trc-wf__pick" onClick={onPick} aria-pressed={on} aria-label={`Open step ${seqText(s)}`}>
           <span className="trc-wf__n">{seqText(s)}</span>
           <span aria-hidden="true" className={`trc-dot ${row.failed ? 'trc-dot--bad' : 'trc-dot--ok'}`} />
-          <span className="trc-wf__tool">{dash(toolLabel(s.tool))}</span>
-          <span className="trc-wf__target trc-ellip">{stepTarget(s)}</span>
+          <span className="trc-wf__tool" title={s.tool ? `${s.tool} · ${CATEGORY_LABEL[row.category]}` : undefined}>
+            {label}
+          </span>
+          <span className="trc-wf__target trc-ellip">{summary}</span>
         </button>
       </span>
       <span role="cell" className="trc-wf__lane">
         {row.left !== null && row.width !== null && (
           <>
-            <span className={`trc-bar trc-bar--${row.failed ? 'err' : row.kind}`} style={{ left: `${row.left}%`, width: `${row.width}%` }} />
+            <span className={`trc-bar ${row.failed ? 'trc-bar--err' : `trc-bar--c-${categoryKey(row.category)}`}`} style={{ left: `${row.left}%`, width: `${row.width}%` }} />
             {mark && (
               <span className="trc-wf__mark" style={{ ['--mk' as string]: `${Math.min(row.left + row.width, 88)}%` }}>
                 {mark}
@@ -416,6 +414,7 @@ function StepPanel({ row }: { row: WaterfallStep }) {
 export function TraceView({ t }: { t: Trace }) {
   const runs = orderRuns(t.runs)
   const wf = buildWaterfall(runs)
+  const legend = categoryLegend(runs.flatMap((r) => r.spans))
   const stepRows = wf.rows.filter((r): r is WaterfallStep => r.type === 'step')
   const ff = t.first_failure
   const ffRow = ff ? stepRows.find((r) => r.span.ok === false && (ff.agent_id ?? null) === (runs[r.run]!.agent_id ?? null) && r.span.seq === ff.seq && r.span.ts === ff.ts) ?? null : null
@@ -458,13 +457,17 @@ export function TraceView({ t }: { t: Trace }) {
                   Where time went
                 </ToggleItem>
               </Toggle>
-              <span className="trc-legend" aria-label="Legend">
-                {KIND_LEGEND.map((k) => (
-                  <span key={k.key} className="stu-label">
-                    <span aria-hidden="true" className={`trc-swatch trc-bar--${k.key === 'failed' ? 'err' : k.key}`} />
-                    {k.label}
+              <span className="trc-legend" aria-label="Legend" data-testid="trace-legend">
+                {legend.map((k) => (
+                  <span key={k.category} className="stu-label" data-legend-category={k.category}>
+                    <span aria-hidden="true" className={`trc-swatch trc-bar--c-${categoryKey(k.category)}`} />
+                    {k.label} <span className="trc-legend__n">{k.calls}</span>
                   </span>
                 ))}
+                <span className="stu-label" data-legend-category="failed">
+                  <span aria-hidden="true" className="trc-swatch trc-bar--err" />
+                  failed
+                </span>
               </span>
             </div>
             {view === 'waterfall' ? <Waterfall runs={runs} ffId={ffId} sel={sel ?? ffId} onSel={setSel} /> : <Profile runs={runs} wallS={s?.duration_s ?? null} />}
