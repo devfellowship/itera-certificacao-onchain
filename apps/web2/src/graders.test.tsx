@@ -11,6 +11,7 @@ import { GraderDryRunPanel } from './studio/GraderDryRunPanel'
 import { GraderLibraryView, GraderPanel, libraryView } from './studio/GraderLibraryPage'
 import { useState } from 'react'
 import type { GraderVersionDetail, GraderVersionItem } from './studio/graders'
+import type { SourceState } from './studio/GraderSourceParts'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -41,6 +42,20 @@ const DETAIL: GraderVersionDetail = {
   ...ITEMS[1]!, rubricSha256: SHA, paramsSha256: null, testSplitSha256: null, tpr: 0.9, tnr: 0.8, proof: { caught: 3, total: 3 }, note: 'v1', author: 'claude-main',
   calibration: { nLabels: 30, nTest: 10, tp: 4, fn: 1, tn: 4, fp: 1, realignedAt: null },
   recentRuns: [{ runId: '3b6f3c2e-1d4a', caseId: null, evaluationId: 'e-1', pass: true, gradedAt: '2026-11-12T12:05:00.000Z' }],
+}
+const NO_SRC: SourceState = { state: 'not-in-git' }
+const FILE = { path: 'grade.py', blobSha: 'd'.repeat(40), text: "def grade():\n    return 'pass'\n" }
+const CODE_SRC: Extract<SourceState, { state: 'ready' }> = {
+  state: 'ready',
+  data: {
+    repo: 'devfellowship/dfl-evals', commit: 'e'.repeat(40), root: 'graders/rules/1.0.0', rule: 'tma-grader-code/1',
+    files: [{ path: 'grade.py', blobSha: FILE.blobSha, bytes: 30 }, { path: 'lib/util.py', blobSha: 'f'.repeat(40), bytes: 6 }], file: FILE,
+    proof: [
+      { name: 'mutation-file-missing', kind: 'fixture', proves: 'a missing file fails', target: 'file_exists' },
+      { name: 'exists-dropped', kind: 'code-mutation', proves: 'the exists check turns it red', target: 'mutation-file-missing' },
+    ],
+    judge: null,
+  },
 }
 const FORBIDDEN = /\b(Save as|Save|Duplicate|Plant another bug|Run)\b/
 
@@ -156,6 +171,53 @@ describe('S10a grader detail', () => {
   })
 })
 
+describe('S10a grader code and planted bugs from Git (C5-SRC-SERVE)', () => {
+  const G: GraderVersionDetail = { ...DETAIL, ...ITEMS[0]!, graderId: 'rules', semver: '1.0.0', proof: null }
+  it('shows the code of the stored digest with line numbers and a tab per file; read only', () => {
+    const c = mount(<MemoryRouter><GraderDetailView g={G} source={CODE_SRC} /></MemoryRouter>)
+    const code = c.querySelector('[data-testid="grader-source-text"]')!
+    expect(code.getAttribute('data-blob')).toBe(FILE.blobSha)
+    expect([...code.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['def grade():', "    return 'pass'"])
+    expect([...c.querySelectorAll('[data-testid="grader-source-file"]')].map((b) => b.textContent)).toEqual(['grade.py', 'lib/util.py'])
+    expect(c.querySelector('[data-testid="grader-source-fact"]')?.textContent).toBe('devfellowship/dfl-evals@eeeeeee')
+    expect(c.querySelector('[data-testid="grader-source-ref"]')?.textContent).toContain('graders/rules/1.0.0')
+    expect(c.querySelectorAll('input, textarea, select, form')).toHaveLength(0)
+    expect(c.textContent).not.toMatch(FORBIDDEN)
+  })
+  it('the Proof tab lists the planted bugs of the same commit and says no proof result is stored', () => {
+    const c = mount(<MemoryRouter><GraderDetailView g={G} source={CODE_SRC} /></MemoryRouter>)
+    expect(c.querySelector('[data-testid="grader-tab-proof"]')?.textContent).toBe('Proof2')
+    act(() => (c.querySelector('[data-testid="grader-tab-proof"]') as HTMLElement).click())
+    const bugs = [...c.querySelectorAll('[data-testid="grader-planted-bug"]')].map((b) => b.textContent)
+    expect(bugs[0]).toContain('a missing file fails')
+    expect(bugs[1]).toContain('code mutation exists-dropped')
+    expect(c.querySelector('[data-testid="grader-proof-unstored"]')).not.toBeNull()
+  })
+  it('a digest that no commit gives shows the empty state, never a file', () => {
+    const c = mount(<MemoryRouter><GraderDetailView g={G} source={NO_SRC} /></MemoryRouter>)
+    expect(c.querySelector('[data-testid="grader-source-empty"]')?.textContent).toContain(SHA.slice(0, 12))
+    expect(c.querySelector('[data-testid="grader-source"]')).toBeNull()
+    expect(c.querySelector('[data-testid="grader-source-fact"]')?.textContent).toBe('not in Git')
+  })
+  it('loads the source from the API and asks for another file with ?path=', async () => {
+    setSessionToken('tok-src')
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const file = url.includes('path=lib%2Futil.py') ? { path: 'lib/util.py', blobSha: 'f'.repeat(40), text: 'X = 1\n' } : FILE
+      return new Response(JSON.stringify({ ...CODE_SRC.data, file }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const c = mount(<MemoryRouter><GraderDetailView g={G} /></MemoryRouter>)
+    await flush()
+    expect(String(fetchMock.mock.calls[0]![0])).toMatch(/\/grader-versions\/g-1\/source$/)
+    expect(c.querySelector('[data-testid="grader-source-text"]')?.textContent).toContain('def grade():')
+    act(() => (c.querySelectorAll('[data-testid="grader-source-file"]')[1] as HTMLElement).click())
+    await flush()
+    expect(String(fetchMock.mock.calls[1]![0])).toMatch(/\/source\?path=lib%2Futil\.py$/)
+    expect(c.querySelector('[data-testid="grader-source-text"]')?.textContent).toBe('X = 1')
+  })
+})
+
 describe('Graders in the app', () => {
   const at = (path: string) => mount(<RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />)
   const signIn = () => saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
@@ -237,7 +299,7 @@ describe('S10a dry-run panel (C5-T10)', () => {
   })
 
   it('is hidden when the serve URL is set but VITE_TMA_STUDIO_DRY_RUN is off (C5-T6); the copy command stays', () => {
-    const off = mount(<MemoryRouter><GraderDetailView g={DETAIL} serveUrl={SERVE} dryRunEnabled={false} /></MemoryRouter>)
+    const off = mount(<MemoryRouter><GraderDetailView g={DETAIL} source={NO_SRC} serveUrl={SERVE} dryRunEnabled={false} /></MemoryRouter>)
     expect(off.querySelector('[data-testid="dry-run-panel"]')).toBeNull()
     expect(off.querySelector('[data-testid="dry-run-button"]')).toBeNull()
     expect(off.querySelector('[data-copy-command]')).not.toBeNull()
@@ -252,7 +314,7 @@ describe('S10a dry-run panel (C5-T10)', () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(RESULT), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
     const logs = [vi.spyOn(console, 'log'), vi.spyOn(console, 'info'), vi.spyOn(console, 'warn'), vi.spyOn(console, 'error')]
-    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} serveUrl={SERVE} dryRunEnabled /></MemoryRouter>)
+    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} source={NO_SRC} serveUrl={SERVE} dryRunEnabled /></MemoryRouter>)
     const panel = c.querySelector('[data-testid="dry-run-panel"]')!
     expect(panel.textContent).toContain('Try this grader (dry run)')
     expect(panel.textContent).toContain('Nothing is stored.')
@@ -278,7 +340,7 @@ describe('S10a dry-run panel (C5-T10)', () => {
     saveSession({ token: TOKEN, user: { id: 'u-1', email: 'ana@example.com' } })
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(RESULT), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
-    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} serveUrl={SERVE} dryRunEnabled /></MemoryRouter>)
+    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} source={NO_SRC} serveUrl={SERVE} dryRunEnabled /></MemoryRouter>)
     await dryRun(c, 'x')
     const [, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit]
     expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`)
@@ -286,7 +348,7 @@ describe('S10a dry-run panel (C5-T10)', () => {
 
   it('shows the refusal of the server for a judge model that is not allowed', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'judge_model_not_allowed', message: 'the judge model openrouter/zai/glm-5.3 is not allowed (A11 Q1 = B)', stored: false }), { status: 422 })))
-    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} serveUrl={SERVE} dryRunEnabled /></MemoryRouter>)
+    const c = mount(<MemoryRouter><GraderDetailView g={DETAIL} source={NO_SRC} serveUrl={SERVE} dryRunEnabled /></MemoryRouter>)
     await dryRun(c, 'x', 'x')
     const result = c.querySelector('[data-testid="dry-run-result"]')!
     expect(result.getAttribute('data-outcome')).toBe('refused')
@@ -307,7 +369,7 @@ describe('S10a dry-run panel (C5-T10)', () => {
 
   it('a code grader shows the panel with no Save, Save as, Duplicate, Plant another bug or Run control', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...RESULT, pass: false, score: 0 }), { status: 200 })))
-    const c = mount(<MemoryRouter><GraderDetailView g={CODE} serveUrl={SERVE} dryRunEnabled /></MemoryRouter>)
+    const c = mount(<MemoryRouter><GraderDetailView g={CODE} source={NO_SRC} serveUrl={SERVE} dryRunEnabled /></MemoryRouter>)
     expect(c.querySelector('[data-testid="dry-run-panel"]')).not.toBeNull()
     const buttons = [...c.querySelectorAll('button')].map((b) => b.textContent)
     expect(buttons).toContain('Dry run')

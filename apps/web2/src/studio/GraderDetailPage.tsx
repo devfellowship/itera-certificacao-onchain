@@ -7,8 +7,9 @@
  * C5-T10: when VITE_TMA_STUDIO_SERVE_URL is set and VITE_TMA_STUDIO_DRY_RUN is 'true' (C5-T6), the "Try this grader (dry run)"
  * panel (GraderDryRunPanel) shows in the side panel. It only does a dry run on `tma studio serve`; nothing is stored.
  * Data: GET /grader-versions/:id, and GET /grader-versions for the other versions of the same grader.
- * Gaps against the artboard: the grader source, runtime, sandbox, timeout and inputs are not in the result store (the code
- * stays in the eval repo; the store keeps its digest), so the page says so instead of showing them.
+ * C5-SRC-SERVE (Q cd26fe07 = A): the Definition tab shows the grader code and the Proof tab the planted bugs, read only from
+ * Git at the stored digest (GET /grader-versions/:id/source). A digest that no commit gives shows an empty state.
+ * Gaps against the artboard: the runtime, sandbox, timeout and inputs are not in the result store, so they are not shown.
  */
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -18,6 +19,7 @@ import { isKnownJudge, pct, shownModel } from './calibration'
 import { GraderDryRunPanel } from './GraderDryRunPanel'
 import { decideOf, groupTitle, plural, whatItChecks, type GroupKey } from './grader-library'
 import { DecideMark, LibraryShell, StateBox } from './GraderLibraryParts'
+import { JudgePrompt, PlantedBugs, SourceEmpty, SourceFacts, SourceViewer, sourceRef, useGraderSource, type SourceState } from './GraderSourceParts'
 import { GraderEmpty } from './GraderLibraryPage'
 
 /** A copy control: the command is in `data-copy-command`; a click copies it; the <pre> stays selectable. */
@@ -57,7 +59,12 @@ function Fact({ k, children, title, testId }: { k: string; children: React.React
   )
 }
 
-function Definition({ g }: { g: GraderVersionDetail }) {
+function SourceBlock({ g, src, onPick }: { g: GraderVersionDetail; src: SourceState; onPick: (path: string) => void }) {
+  if (src.state !== 'ready') return <SourceEmpty st={src} digest={g.codeSha256} what={g.kind === 'judge' ? 'judge prompt' : 'grader code'} />
+  return src.data.judge ? <JudgePrompt s={src.data} /> : <SourceViewer s={src.data} onPick={onPick} />
+}
+
+function Definition({ g, src, onPick }: { g: GraderVersionDetail; src: SourceState; onPick: (path: string) => void }) {
   return (
     <>
       <dl className="grd-facts" data-testid="grader-facts">
@@ -69,8 +76,11 @@ function Definition({ g }: { g: GraderVersionDetail }) {
           {g.usedByCount}
         </Fact>
         <Fact k="Created">{g.createdAt.slice(0, 10)}</Fact>
-        <Fact k="Author">{g.author ?? 'not recorded'}</Fact>
+        <Fact k="Source" title={src.state === 'ready' ? `${src.data.root} at ${src.data.commit}` : undefined} testId="grader-source-fact">
+          {src.state === 'ready' ? sourceRef(src.data) : src.state === 'loading' ? '…' : 'not in Git'}
+        </Fact>
       </dl>
+      <SourceBlock g={g} src={src} onPick={onPick} />
       {g.proof && (
         <p className="tma-body-sm" data-testid="grader-proof">
           Mutation proof: {g.proof.caught} of {g.proof.total} planted bugs caught.
@@ -130,10 +140,15 @@ function Definition({ g }: { g: GraderVersionDetail }) {
         </section>
         <section className="grd-box" aria-label="Where it lives">
           <h2 className="grd-caps">Where it lives</h2>
-          <p className="tma-body-sm">
-            The grader code stays in the eval repo. The result store keeps its digest <span className="grd-code">{shortDigest(g.codeSha256)}</span>, so this page
-            cannot show the source, the runtime or the timeout.
-          </p>
+          {src.state === 'ready' ? (
+            <SourceFacts s={src.data} />
+          ) : (
+            <p className="tma-body-sm">
+              The grader code stays in Git. The result store keeps its digest <span className="grd-code">{shortDigest(g.codeSha256)}</span>; the page reads the code only from
+              a commit that gives that digest.
+            </p>
+          )}
+          <p className="tma-body-sm tma-muted">Author: {g.author ?? 'not recorded'}</p>
           {g.note && <p className="tma-body-sm tma-muted">Note: {g.note}</p>}
         </section>
       </div>
@@ -141,11 +156,18 @@ function Definition({ g }: { g: GraderVersionDetail }) {
   )
 }
 
-function ProofTab({ g }: { g: GraderVersionDetail }) {
+function ProofTab({ g, src }: { g: GraderVersionDetail; src: SourceState }) {
   if (g.kind === 'judge')
     return <StateBox title="Proven against labels" text="An AI judge is proven against human labels, not planted bugs. Its calibration is on the judge page." />
+  if (src.state === 'ready' && src.data.proof?.length) return <PlantedBugs bugs={src.data.proof} proof={g.proof && g.proof.total > 0 ? g.proof : null} />
   if (!g.proof || g.proof.total === 0)
-    return <StateBox title="No mutation proof yet" text="No planted-bug proof is recorded for this version. A grader we trust turns red on every planted bug." testId="grader-no-proof" />
+    return (
+      <StateBox
+        title="No mutation proof yet"
+        text={`No planted-bug proof is recorded for this version${src.state === 'ready' ? `, and ${sourceRef(src.data)} holds no planted bugs for it` : ''}. A grader we trust turns red on every planted bug.`}
+        testId="grader-no-proof"
+      />
+    )
   return (
     <div className="grd-tally" data-testid="grader-proof-tab">
       <span>
@@ -238,14 +260,19 @@ function GradingsPanel({ g, serveUrl, dryRunEnabled }: { g: GraderVersionDetail;
 }
 
 /** The main column of S10a (no page shell): head, tabs and the tab content. */
-export function GraderDetailMain({ g, versions = [] }: { g: GraderVersionDetail; versions?: GraderVersionItem[] }) {
+export function GraderDetailMain({ g, versions = [], source }: { g: GraderVersionDetail; versions?: GraderVersionItem[]; source?: SourceState }) {
   const [tab, setTab] = useState<TabKey>('definition')
+  const [path, setPath] = useState<string | undefined>(undefined)
+  const loaded = useGraderSource(source || g.kind === 'human' ? null : g.id, path)
+  const src: SourceState =
+    source ?? (g.kind === 'human' ? { state: 'unavailable', message: 'A human label set has no code.' } : loaded)
+  const planted = src.state === 'ready' && src.data.proof?.length ? src.data.proof.length : 0
   const kind = g.kind as GroupKey
   const decide = decideOf(kind, g)
   const what = whatItChecks(g.graderId, g.note)
   const tabs: Array<{ key: TabKey; label: string; n?: string }> = [
     { key: 'definition', label: 'Definition' },
-    { key: 'proof', label: 'Proof', n: g.proof && g.proof.total > 0 ? `${g.proof.caught}/${g.proof.total}` : undefined },
+    { key: 'proof', label: 'Proof', n: g.proof && g.proof.total > 0 ? `${g.proof.caught}/${g.proof.total}` : planted ? String(planted) : undefined },
     { key: 'versions', label: 'Versions', n: String(Math.max(1, versions.length)) },
   ]
   return (
@@ -274,8 +301,8 @@ export function GraderDetailMain({ g, versions = [] }: { g: GraderVersionDetail;
         ))}
       </div>
       <div role="tabpanel" className="grd-head">
-        {tab === 'definition' && <Definition g={g} />}
-        {tab === 'proof' && <ProofTab g={g} />}
+        {tab === 'definition' && <Definition g={g} src={src} onPick={setPath} />}
+        {tab === 'proof' && <ProofTab g={g} src={src} />}
         {tab === 'versions' && <VersionsTab g={g} versions={versions} />}
       </div>
     </div>
@@ -286,11 +313,14 @@ export function GraderDetailMain({ g, versions = [] }: { g: GraderVersionDetail;
 export function GraderDetailView({
   g,
   versions,
+  source,
   serveUrl,
   dryRunEnabled,
 }: {
   g: GraderVersionDetail
   versions?: GraderVersionItem[]
+  /** Override of the source call (tests). */
+  source?: SourceState
   /** Override of VITE_TMA_STUDIO_SERVE_URL (tests). */
   serveUrl?: string
   /** Override of VITE_TMA_STUDIO_DRY_RUN (tests). */
@@ -298,7 +328,7 @@ export function GraderDetailView({
 }) {
   return (
     <>
-      <GraderDetailMain g={g} versions={versions} />
+      <GraderDetailMain g={g} versions={versions} {...(source ? { source } : {})} />
       <GradingsPanel g={g} {...(serveUrl !== undefined ? { serveUrl } : {})} {...(dryRunEnabled !== undefined ? { dryRunEnabled } : {})} />
     </>
   )

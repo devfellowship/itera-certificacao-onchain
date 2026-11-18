@@ -64,7 +64,7 @@ const runs = (n: number, withWorkflow: number) =>
 
 interface Call { method: string; path: string }
 const calls: Call[] = []
-function mountAt(path: string, opts: { list?: [number, unknown]; details?: GraderVersionDetail[]; queue?: [number, unknown] } = {}) {
+function mountAt(path: string, opts: { list?: [number, unknown]; details?: GraderVersionDetail[]; queue?: [number, unknown]; sources?: Record<string, unknown> } = {}) {
   saveSession({ token: 'tok', user: { id: 'u-1', email: 'ana@example.com' } })
   calls.length = 0
   const list = opts.list ?? [200, { graderVersions: [OTHER, L1, L2, J1_V1, J1_V2] }]
@@ -75,6 +75,8 @@ function mountAt(path: string, opts: { list?: [number, unknown]; details?: Grade
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
       calls.push({ method: init?.method ?? 'GET', path: url.pathname + url.search })
       if (url.pathname === '/grader-versions') return json(...list)
+      const src = /^\/grader-versions\/([^/]+)\/source$/.exec(url.pathname)
+      if (src) return opts.sources?.[src[1]!] ? json(200, opts.sources[src[1]!]) : json(404, { error: 'digest_not_in_git' })
       const m = /^\/grader-versions\/(.+)$/.exec(url.pathname)
       if (m) {
         const d = details.find((x) => x.id === m[1])
@@ -227,6 +229,39 @@ describe('S11 /studio/calibration', () => {
     const g = mountAt('/studio/graders')
     await waitFor(() => !!g.querySelector('[data-testid="graders-calibration-link"]'), 'library link')
     expect(g.querySelector('[data-testid="graders-calibration-link"]')?.getAttribute('href')).toBe('/studio/calibration')
+  })
+})
+
+describe('S11a judge prompt from Git at the stored digest (C5-SRC-SERVE)', () => {
+  const PROMPT = { path: 'prompt.md', blobSha: 'a'.repeat(40), text: '# Judge prompt\nYou grade one run.\n\n{{rubric}}\n' }
+  const RUBRIC = { path: 'rubric.md', blobSha: 'b'.repeat(40), text: '## Criterion\nDid the run wait with a watcher?\n' }
+  const SOURCE = {
+    repo: 'devfellowship/dfl-evals', commit: 'c'.repeat(40), root: `judges/${J1}/0.2.0`, rule: 'judge-rubric/1',
+    files: [PROMPT, RUBRIC].map(({ path, blobSha, text }) => ({ path, blobSha, bytes: text.length })), file: PROMPT, proof: null,
+    judge: { prompt: PROMPT, rubric: RUBRIC, params: null },
+  }
+  it('shows the prompt and the rubric text of the newest version, read only, with the variable marked', async () => {
+    const c = mountAt(`/studio/calibration/${J1}`, { sources: { 'v-2': SOURCE } })
+    await waitFor(() => !!c.querySelector('[data-testid="judge-prompt"]'), 'prompt')
+    expect(c.querySelector('[data-testid="judge-prompt-text"]')?.textContent).toBe('# Judge promptYou grade one run.{{rubric}}')
+    expect(c.querySelectorAll('[data-testid="judge-prompt-text"] li')).toHaveLength(4)
+    expect(c.querySelector('[data-testid="judge-prompt-text"] mark')?.textContent).toBe('{{rubric}}')
+    expect(c.querySelector('[data-testid="judge-rubric-text"]')?.textContent).toContain('Did the run wait with a watcher?')
+    expect(text(c, 'grader-source-ref')).toContain(`judges/${J1}/0.2.0`)
+    expect(calls.some((x) => x.path === '/grader-versions/v-2/source')).toBe(true)
+    expect(c.querySelectorAll('input, textarea, select, form')).toHaveLength(0)
+    expect(calls.every((x) => x.method === 'GET')).toBe(true)
+  })
+  it('shows the empty state when no commit gives the digest, and asks for no prompt when no judge version is stored', async () => {
+    const c = mountAt(`/studio/calibration/${J1}`)
+    await waitFor(() => !!c.querySelector('[data-testid="grader-source-empty"]'), 'not in git')
+    expect(c.querySelector('[data-testid="judge-prompt"]')).toBeNull()
+    act(() => root?.unmount())
+    root = undefined
+    const e = mountAt(`/studio/calibration/${J2}`)
+    await waitFor(() => !!e.querySelector('[data-testid="judge-empty"]'), 'no version')
+    expect(text(e, 'judge-empty')).toContain('no prompt digest')
+    expect(calls.some((x) => x.path.endsWith('/source'))).toBe(false)
   })
 })
 

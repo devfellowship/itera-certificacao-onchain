@@ -25,10 +25,39 @@ export interface GraderVersionDetail extends GraderVersionItem {
   recentRuns: Array<{ runId: string; caseId: string | null; evaluationId: string | null; pass: boolean; gradedAt: string }>
 }
 
+/** C5-SRC-SERVE: a file of a grader version, read from Git at the stored digest. */
+export interface SourceText {
+  path: string
+  blobSha: string
+  text: string
+}
+
+export interface PlantedBug {
+  name: string
+  kind: 'fixture' | 'code-mutation'
+  proves: string
+  target: string | null
+}
+
+/** GET /grader-versions/:id/source: the files that hash to the stored digest, at the oldest commit that gives it. */
+export interface GraderSource {
+  repo: string
+  commit: string
+  root: string
+  rule: 'evaluator-src/1' | 'tma-grader-code/1' | 'judge-rubric/1'
+  files: Array<{ path: string; blobSha: string; bytes: number }>
+  file: SourceText
+  proof: PlantedBug[] | null
+  judge: { prompt: SourceText; rubric: SourceText; params: SourceText | null } | null
+}
+
 export type Loaded<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'unavailable' } | { state: 'not-found' } | { state: 'error'; message: string }
 
 export const listGraderVersions = () => request<{ graderVersions: GraderVersionItem[] }>('/grader-versions')
 export const getGraderVersion = (id: string) => request<GraderVersionDetail>(`/grader-versions/${encodeURIComponent(id)}`)
+
+export const getGraderSource = (id: string, path?: string) =>
+  request<GraderSource>(`/grader-versions/${encodeURIComponent(id)}/source${path ? `?path=${encodeURIComponent(path)}` : ''}`)
 
 /** Maps a failed call to a page state: 503 schema_not_ready is "unavailable" (an empty state), 404 is "not-found". */
 export function failedState(e: unknown): Loaded<never> {
