@@ -62,7 +62,7 @@
 .trc-table { min-width: 880px; }
 .trc-nowrap { white-space: nowrap; }
 /* At 1280px the whole table fits beside the 300px panel (no sideways scroll that hides "replayable"). */
-.trc-row { display: grid; grid-template-columns: 28px 92px 170px minmax(160px, 1fr) 130px 110px 100px; align-items: center; column-gap: 14px; min-height: 40px; padding: 0 0 0 10px; border-bottom: 1px solid var(--stu-line); color: var(--stu-text-2); cursor: pointer; }
+.trc-row { display: grid; grid-template-columns: 28px 92px minmax(170px, 280px) minmax(160px, 1fr) 130px 110px 100px; align-items: center; column-gap: 14px; min-height: 40px; padding: 0 0 0 10px; border-bottom: 1px solid var(--stu-line); color: var(--stu-text-2); cursor: pointer; }
 .trc-row:hover { background: var(--stu-surface); }
 .trc-row--on, .trc-row--on:hover { background: var(--stu-raised); box-shadow: inset 2px 0 0 var(--stu-accent); }
 .trc-row--head { min-height: 0; padding-bottom: 8px; border-bottom-color: var(--stu-line-strong); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); cursor: default; }

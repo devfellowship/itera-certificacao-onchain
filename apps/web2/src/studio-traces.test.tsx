@@ -367,8 +367,10 @@ describe('S2 trace picker', () => {
     act(() => boxes()[2]!.click())
     expect(boxes().map((b) => b.checked)).toEqual([false, true, true, false])
     expect(c.querySelector('[data-testid="trace-selection-count"]')!.textContent).toBe('2 selected')
-    // A checkbox click does not move the focused row.
+    // A checkbox click (and the focus it takes) does not move the focused row.
+    act(() => boxes()[2]!.focus())
     expect(traceRows(c)[0]!.getAttribute('data-focused')).toBe(focusedBefore)
+    expect(traceRows(c)[2]!.getAttribute('data-focused')).toBeNull()
     // The build button names the count and stays disabled until its write path lands (MT-05, Q 3d291a2b = A).
     const build = c.querySelector<HTMLButtonElement>('[data-testid="trace-build-cases"]')!
     expect(build.textContent).toBe('Build 2 cases')

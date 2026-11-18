@@ -85,7 +85,10 @@ function TraceRowLine({ r, on, onFocus, checked, onToggle }: { r: TraceRow; on: 
       data-session-id={r.session_id ?? ''}
       data-focused={on ? 'true' : undefined}
       onClick={onFocus}
-      onFocus={onFocus}
+      // The selection checkbox takes the keyboard and pointer focus without moving the focused row.
+      onFocus={(e) => {
+        if (!(e.target as HTMLElement).closest('.trc-cell--check')) onFocus()
+      }}
     >
       <span role="cell" className="trc-cell trc-cell--check" onClick={(e) => e.stopPropagation()}>
         <input type="checkbox" className="trc-check-box" aria-label={`Select ${rowLabel(r)}`} checked={checked} onChange={onToggle} data-testid="trace-select" />
