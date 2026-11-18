@@ -124,7 +124,21 @@ export function buildFixture(root?: string, v: FixtureVariant = FIXTURE_VARIANT)
     [
       { kind: 'session_tree', session_id: sid, title: `${v.label} session`, started_at: '2026-11-01T10:00:00.000Z', n_runs: 2, n_tool_calls: 3, errors: 1, models: [`${v.label.toLowerCase()}-model`] },
       { kind: 'run', session_id: sid, agent_id: null, is_subagent: false, started_at: '2026-11-01T10:00:00.000Z', errors: { n: 0 }, spans: [span(0, true, '2026-11-01T10:00:01.000Z'), span(1, true, '2026-11-01T10:00:09.000Z')] },
-      { kind: 'run', session_id: sid, agent_id: v.subAgent, parent_agent_id: null, is_subagent: true, started_at: '2026-11-01T10:00:02.000Z', errors: { n: 1 }, spans: [span(0, false, '2026-11-01T10:00:03.000Z')] },
+      {
+        kind: 'run',
+        session_id: sid,
+        agent_id: v.subAgent,
+        parent_agent_id: null,
+        is_subagent: true,
+        description: `${v.label} subagent brief`,
+        started_at: '2026-11-01T10:00:02.000Z',
+        ended_at: '2026-11-01T10:00:04.000Z',
+        duration_s: 2,
+        n_tool_calls: 1,
+        tool_counts: { Bash: 1 },
+        errors: { n: 1 },
+        spans: [span(0, false, '2026-11-01T10:00:03.000Z')],
+      },
     ]
       .map((r) => JSON.stringify(r))
       .join('\n') + '\n';

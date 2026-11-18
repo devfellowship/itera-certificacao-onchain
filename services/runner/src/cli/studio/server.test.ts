@@ -1,12 +1,14 @@
 // `tma studio serve` end to end on a fixture tree (task C5-T11): 401 without a session, 405 on every
 // write method, 127.0.0.1 only, S2 list and S3 trace content, the path guard, and no write to the sources.
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BIND_HOST, startStudioServer } from './server.js';
+import { runKeysOf, traceId } from './content.js';
 import { ALLOWED, buildFixture, fakeApi, OTHER, SID_A, SID_B, SID_OUTSIDE, SUB_AGENT, webToken } from './fixture.test-helpers.js';
 
 const fx = buildFixture();
@@ -144,6 +146,74 @@ describe('tma studio serve', () => {
     expect(t.runs).toHaveLength(1);
     expect(t.candidate.why).toBe('sample');
     expect((await get(`/v1/traces/${SID_A}?agent_id=nobody`)).status).toBe(404);
+  });
+
+  it('MT-20: the trace id is the first 12 hex of sha256("<session>\\n<agent>"); the same vector as web2 traceIdOf', () => {
+    expect(traceId('aaaaaaaa-0000-4000-8000-00000000000a', null)).toBe('8bcc407bbd6e');
+    expect(traceId('aaaaaaaa-0000-4000-8000-00000000000a', 'a0fixture0sub')).toBe('323fc13658ca');
+    expect(traceId(SID_A, null)).not.toBe(traceId(SID_A, SUB_AGENT));
+  });
+
+  it('MT-20 S2: every row carries its own trace id; the session is a filter', async () => {
+    const body = (await (await get('/v1/traces')).json()) as { rows: Record<string, any>[] };
+    for (const r of body.rows) expect(r.trace_id).toBe(traceId(r.session_id, r.agent_id));
+    expect(new Set(body.rows.map((r) => r.trace_id)).size).toBe(body.rows.length);
+    const one = (await (await get(`/v1/traces?session_id=${SID_A}`)).json()) as { total: number; rows: { session_id: string; agent_id: string | null }[] };
+    expect(one.total).toBe(2);
+    expect(one.rows.every((r) => r.session_id === SID_A)).toBe(true);
+    expect((await get('/v1/traces?session_id=..%2Fx')).status).toBe(400);
+  });
+
+  it('MT-20 S3 by trace id: ONE subagent run, its own numbers, the task name as the title, the session as a reference', async () => {
+    const r = await get(`/v1/traces/${traceId(SID_A, SUB_AGENT)}`);
+    expect(r.status).toBe(200);
+    const t = (await r.json()) as Record<string, any>;
+    expect(t.trace_id).toBe(traceId(SID_A, SUB_AGENT));
+    expect(t.scope).toBe('run');
+    expect(t.agent_id).toBe(SUB_AGENT);
+    expect(t.runs).toHaveLength(1);
+    expect(t.runs[0].agent_id).toBe(SUB_AGENT);
+    // The task name, never the session title.
+    expect(t.summary.title).toBe('Fixture task name');
+    expect(t.summary.n_tool_calls).toBe(1);
+    expect(t.summary.duration_s).toBe(2);
+    expect(t.summary.tool_counts).toEqual({ Bash: 1 });
+    expect(t.session).toEqual({ session_id: SID_A, title: 'Fixture session', n_runs: 2, n_subagent_runs: null });
+    expect(t.candidate.why).toBe('sample');
+    expect(t.first_failure).toMatchObject({ agent_id: SUB_AGENT, seq: 0 });
+  });
+
+  it('MT-20 S3 by trace id: the main run alone, not the whole session', async () => {
+    const t = (await (await get(`/v1/traces/${traceId(SID_A, null)}`)).json()) as Record<string, any>;
+    expect(t.scope).toBe('run');
+    expect(t.runs.map((x: { agent_id: string | null }) => x.agent_id)).toEqual([null]);
+    expect(t.first_failure).toBeNull();
+    expect(t.summary.title).toBe('Fixture task name');
+  });
+
+  it('MT-20 S3: the old ?agent_id key is one run too; an unknown or bad trace id is refused', async () => {
+    const t = (await (await get(`/v1/traces/${SID_A}?agent_id=${SUB_AGENT}`)).json()) as Record<string, any>;
+    expect(t.scope).toBe('run');
+    expect(t.trace_id).toBe(traceId(SID_A, SUB_AGENT));
+    expect(t.summary.title).toBe('Fixture task name');
+    const whole = (await (await get(`/v1/traces/${SID_A}`)).json()) as Record<string, any>;
+    expect(whole.scope).toBe('session');
+    expect(await (await get('/v1/traces/000000000000')).json()).toEqual({ error: 'trace_not_found' });
+    // A trace id of a session with no layer-1 file.
+    expect(await (await get(`/v1/traces/${traceId(SID_B, null)}`)).json()).toEqual({ error: 'no_trajectory' });
+  });
+
+  it('MT-20: runKeysOf reads the runs_index of the first line only', () => {
+    const d = mkdtempSync(join(tmpdir(), 'tma-runkeys-'));
+    try {
+      const f = join(d, 's.jsonl');
+      writeFileSync(f, `${JSON.stringify({ kind: 'session_tree', runs_index: [{ agent_id: null }, { agent_id: 'a1' }] })}\n{not json}\n`);
+      expect([...runKeysOf(f)!].sort()).toEqual(['', 'a1']);
+      writeFileSync(f, `${JSON.stringify({ kind: 'run' })}\n`);
+      expect(runKeysOf(f)).toBeNull();
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
   });
 
   it('S3: 404 for a session with no layer-1 file, outside the root, or not indexed; 400 for a bad id', async () => {
