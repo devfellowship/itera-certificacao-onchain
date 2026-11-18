@@ -2,7 +2,8 @@
  * S13 Review queue (plan 20261112-tma-c6-judge-calibration, task T3, ADR-6; book p128-132). Phone first.
  * One run per screen for one judge mode: the rubric of the judge (Pass when / Fail when), the split of the run, the task
  * summary, the folded structural trajectory, the judge verdict and the workflow label, and Pass / Fail / Defer.
- * Hotkeys on a desktop: p pass, f fail, d defer. No reason chips: the closed API reason codes belong to another check
+ * Hotkeys on a desktop: p pass, f fail, d defer, u back to the previous run (a new answer there writes a newer label,
+ * and the latest person label of a run is the one that counts: calibration-labels chooseLabel). No reason chips: the closed API reason codes belong to another check
  * (review.ts ReasonCode), so a label carries reason_code null.
  * Disagreements between the judge and the workflow label come first (the API orders the queue).
  * The ONE write of the studio: POST /grader-results/human. Defer writes nothing. The full trace stays on the host and
@@ -218,8 +219,12 @@ export function ReviewCard(props: {
   error: string | null
   onLabel: (pass: boolean, reason: ReasonCode | null) => void
   onDefer: () => void
+  /** Go back one run in this pass; absent on the first run. */
+  onBack?: () => void
+  /** The label the reviewer saved on this run in this pass (true = pass), or null. */
+  savedNow?: boolean | null
 }) {
-  const { run, judge, traceLink, host = null, hostError = null, busy, error, onLabel, onDefer } = props
+  const { run, judge, traceLink, host = null, hostError = null, busy, error, onLabel, onDefer, onBack, savedNow = null } = props
   const apiSummary = run.taskSummary && (run.taskSummary.before || run.taskSummary.expected) ? run.taskSummary : null
   const hostSummary = !apiSummary && host?.task_summary && (host.task_summary.before || host.task_summary.expected) ? host.task_summary : null
   const summary = apiSummary ?? hostSummary
@@ -229,10 +234,11 @@ export function ReviewCard(props: {
       if (e.key === 'p') onLabel(true, null)
       else if (e.key === 'f') onLabel(false, null)
       else if (e.key === 'd') onDefer()
+      else if (e.key === 'u' && onBack) onBack()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [busy, onLabel, onDefer])
+  }, [busy, onLabel, onDefer, onBack])
   return (
     <article className="rvw-card" data-testid="review-card" data-run-id={run.runId}>
       <div className="rvw-lead">
@@ -259,12 +265,22 @@ export function ReviewCard(props: {
               disagree
             </Badge>
           )}
-          {run.mine && (
+          {savedNow === null && run.mine && (
             <Badge tone={verdictTone(run.mine)} testId="review-mine">
               {`you: ${verdictText(run.mine)}`}
             </Badge>
           )}
+          {savedNow !== null && (
+            <Badge tone={savedNow ? 'success' : 'danger'} testId="review-saved">
+              {`saved: ${savedNow ? 'pass' : 'fail'}`}
+            </Badge>
+          )}
         </div>
+        {savedNow !== null && (
+          <p className="stu-label" data-testid="review-relabel-note">
+            You labeled this run in this pass. A new answer replaces it (the latest label counts).
+          </p>
+        )}
         <dl className="rvw-summary" data-testid="review-summary" data-source={apiSummary ? 'api' : hostSummary ? 'host' : 'none'}>
           {host?.task_name && (
             <>
@@ -317,7 +333,12 @@ export function ReviewCard(props: {
           {error}
         </p>
       )}
-      <div className="rvw-actions">
+      <div className={`rvw-actions${onBack ? ' rvw-actions--back' : ''}`}>
+        {onBack && (
+          <StuButton variant="ghost" large disabled={busy} onClick={onBack} data-testid="review-back" aria-label="Back to the previous run">
+            Back <Kbd>u</Kbd>
+          </StuButton>
+        )}
         <StuButton variant="primary" large disabled={busy} onClick={() => onLabel(true, null)} data-testid="review-pass">
           Pass <Kbd>p</Kbd>
         </StuButton>
@@ -336,7 +357,11 @@ export function StudioReviewPage() {
   const [params, setParams] = useSearchParams()
   const judgeParam = params.get('judge')
   const judge: JudgeId = isJudge(judgeParam) ? judgeParam : JUDGES[0]
-  const loaded = useStudioLoad(() => getReviewQueue(judge), [judge])
+  // A new key reads the queue again ("Start again"): the runs labeled in the last pass are gone from it.
+  const [reloadKey, setReloadKey] = useState(0)
+  const loaded = useStudioLoad(() => getReviewQueue(judge), [judge, reloadKey])
+  // The labels saved in this pass, per run (true = pass). The queue is read once, so Back shows a labeled run again.
+  const [savedNow, setSavedNow] = useState<Map<string, boolean>>(new Map())
   const [index, setIndex] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -356,6 +381,7 @@ export function StudioReviewPage() {
   useEffect(() => {
     setIndex(0)
     setSaved(0)
+    setSavedNow(new Map())
     setProgress(null)
     setWeak(null)
     void refreshProgress(judge)
@@ -384,6 +410,7 @@ export function StudioReviewPage() {
       (l) => {
         setBusy(false)
         setSaved((n) => n + 1)
+        setSavedNow((m) => new Map(m).set(run.runId, pass))
         setIndex((i) => i + 1)
         // A label of an agent or unknown login is stored but does not count for calibration (labeler not person:).
         setWeak(l.strength === 'strong' ? null : `The label was saved as ${l.labeler?.split(':')[0] ?? 'unknown'}, not as a person, so it does not count for calibration. Sign out and sign in again with your own DFL login.`)
@@ -438,9 +465,23 @@ export function StudioReviewPage() {
         <Card pad data-testid="review-done">
           <span className="stu-label">Done for now</span>
           <p className="tma-body-sm tma-muted">{`You saved ${saved} label(s) in this pass.`}</p>
-          <StuButton variant="secondary" onClick={() => setIndex(0)} data-testid="review-restart">
-            Start again
-          </StuButton>
+          <div className="rvw-done-actions">
+            <StuButton variant="ghost" onClick={() => setIndex((i) => Math.max(0, i - 1))} data-testid="review-done-back">
+              Back to the last run
+            </StuButton>
+            <StuButton
+              variant="secondary"
+              onClick={() => {
+                setIndex(0)
+                setSaved(0)
+                setSavedNow(new Map())
+                setReloadKey((k) => k + 1)
+              }}
+              data-testid="review-restart"
+            >
+              Start again
+            </StuButton>
+          </div>
         </Card>
       )}
       {run && (
@@ -454,6 +495,8 @@ export function StudioReviewPage() {
           error={error}
           onLabel={label}
           onDefer={() => setIndex((i) => i + 1)}
+          onBack={index > 0 ? () => setIndex((i) => Math.max(0, i - 1)) : undefined}
+          savedNow={savedNow.get(run.runId) ?? null}
         />
       )}
     </main>

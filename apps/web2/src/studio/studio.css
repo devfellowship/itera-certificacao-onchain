@@ -297,6 +297,8 @@
 .rvw-rubric__head { margin: var(--stu-gap-3) 0 var(--stu-gap-1); }
 .rvw-rubric__list { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; color: var(--stu-text-2); font-size: var(--stu-fs-body); }
 .rvw-actions { margin-top: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--stu-gap-2); }
+.rvw-actions--back { grid-template-columns: minmax(0, 0.7fr) repeat(3, minmax(0, 1fr)); }
+.rvw-done-actions { display: flex; flex-wrap: wrap; gap: var(--stu-gap-2); }
 /* On a phone the grade buttons stay in reach while the steps scroll. */
 @media (max-width: 720px) {
   .rvw-actions { position: sticky; bottom: 0; z-index: 5; padding: var(--stu-gap-3) 0 var(--stu-gap-4); background: var(--stu-bg); }

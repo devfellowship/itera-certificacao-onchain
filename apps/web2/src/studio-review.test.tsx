@@ -25,6 +25,7 @@ vi.mock('./config', async (orig) => {
 })
 import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
+import { traceHref } from './studio/traces'
 import { fmtDuration, foldSteps, gapBefore, type ReviewRun, type StepDetail } from './studio/review'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -308,7 +309,8 @@ describe('S13 full trace and host summary (C6-REVIEW-QUEUE-READY)', () => {
     pinAnswers[PIN] = [200, lookup()]
     const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: [noSummary(R1)] }])
     await waitFor(() => !!q(c, 'review-trace-link'), 'trace link')
-    expect(q(c, 'review-trace-link')!.getAttribute('href')).toBe(`/studio/traces/${SID}?agent_id=a1b2`)
+    // MT-20 (#cc9362f): one URL per run, keyed by the trace id of the session and the agent.
+    expect(q(c, 'review-trace-link')!.getAttribute('href')).toBe(traceHref(SID, 'a1b2'))
     expect(q(c, 'review-summary')!.dataset.source).toBe('host')
     expect(q(c, 'review-summary')!.textContent).toContain('Host expected.')
     expect(q(c, 'review-task-name')!.textContent).toBe('Fix the red CI')
@@ -339,6 +341,42 @@ describe('S13 full trace and host summary (C6-REVIEW-QUEUE-READY)', () => {
     const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: [noSummary(R1)] }])
     await waitFor(() => !!q(c, 'review-card'), 'card')
     expect(calls.some((x) => x.path.startsWith('/v1/'))).toBe(false)
+  })
+})
+
+describe('S13 back and relabel (C6-REVIEW-QUEUE-READY)', () => {
+  it('has no Back on the first run; after a label, Back (and u) shows that run with the saved verdict, and a new answer writes a newer label', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    expect(q(c, 'review-back')).toBeNull()
+    click(q(c, 'review-fail'))
+    await waitFor(() => q(c, 'review-card')?.dataset.runId === R2, 'second run')
+    expect(q(c, 'review-back')).not.toBeNull()
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'u' })))
+    await waitFor(() => q(c, 'review-card')?.dataset.runId === R1, 'back to the first run')
+    expect(q(c, 'review-saved')!.textContent).toBe('saved: fail')
+    expect(q(c, 'review-relabel-note')).not.toBeNull()
+    click(q(c, 'review-pass'))
+    await waitFor(() => writes().length === 2, 'second write')
+    expect(writes().map((w) => (w.body as { pass: boolean }).pass)).toEqual([false, true])
+    await waitFor(() => q(c, 'review-card')?.dataset.runId === R2, 'forward again')
+  })
+
+  it('the done card goes back to the last run, and Start again reads the queue again', async () => {
+    const c = mountAt('/studio/review')
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    click(q(c, 'review-defer'))
+    await waitFor(() => q(c, 'review-card')?.dataset.runId === R2, 'second run')
+    click(q(c, 'review-defer'))
+    await waitFor(() => !!q(c, 'review-done'), 'done')
+    click(q(c, 'review-done-back'))
+    await waitFor(() => q(c, 'review-card')?.dataset.runId === R2, 'back from done')
+    click(q(c, 'review-defer'))
+    await waitFor(() => !!q(c, 'review-done'), 'done again')
+    const before = calls.filter((x) => x.path.startsWith('/review-queue?')).length
+    click(q(c, 'review-restart'))
+    await waitFor(() => calls.filter((x) => x.path.startsWith('/review-queue?')).length === before + 1, 'queue read again')
+    await waitFor(() => q(c, 'review-card')?.dataset.runId === R1, 'first run')
   })
 })
 
