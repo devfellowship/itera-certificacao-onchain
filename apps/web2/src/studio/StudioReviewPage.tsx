@@ -1,7 +1,9 @@
 /**
  * S13 Review queue (plan 20261112-tma-c6-judge-calibration, task T3, ADR-6; book p128-132). Phone first.
- * One run per screen for one judge mode: the task summary, the folded structural trajectory, the judge verdict and the
- * workflow label, and Pass / Fail / Defer with reason chips. Hotkeys on a desktop: p pass, f fail, d defer, 1-4 reason.
+ * One run per screen for one judge mode: the rubric of the judge (Pass when / Fail when), the split of the run, the task
+ * summary, the folded structural trajectory, the judge verdict and the workflow label, and Pass / Fail / Defer.
+ * Hotkeys on a desktop: p pass, f fail, d defer. No reason chips: the closed API reason codes belong to another check
+ * (review.ts ReasonCode), so a label carries reason_code null.
  * Disagreements between the judge and the workflow label come first (the API orders the queue).
  * The ONE write of the studio: POST /grader-results/human. Defer writes nothing. The full trace stays on the host and
  * opens in S3 when the run's case pin is in the `tma studio serve` index.
@@ -10,10 +12,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { STUDIO_SERVE_URL } from '../config'
 import { Badge, Card, Tip } from '../tma/ui'
-import { Chip, Kbd, Section, StuButton, Tab, Tabs, themeClass } from './theme'
+import { Kbd, Section, StuButton, Tab, Tabs, themeClass } from './theme'
 import { traceHref } from './traces'
 import {
-  JUDGES, JUDGE_TITLES, LONG_GAP_MS, REASONS, fmtDuration, foldSteps, gapBefore, getReviewQueue, getRunSteps, isJudge, kindLetter, pinIndex, postLabel,
+  JUDGES, JUDGE_RUBRICS, JUDGE_TITLES, LONG_GAP_MS, SPLIT_TEXT, fmtDuration, foldSteps, gapBefore, getReviewQueue, getRunSteps, isJudge, kindLetter, pinIndex, postLabel,
   type JudgeId, type ReasonCode, type ReviewRun, type StepDetail, type Verdict,
 } from './review'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
@@ -180,6 +182,29 @@ function FoldedSteps({ runId, steps }: { runId: string; steps: ReviewRun['steps'
   )
 }
 
+/** The rubric of the judge: what a Pass and a Fail mean. Open by default; a reviewer who knows it can close it. */
+function Rubric({ judge }: { judge: JudgeId }) {
+  const r = JUDGE_RUBRICS[judge]
+  return (
+    <details className="rvw-rubric" open data-testid="review-rubric">
+      <summary className="stu-label">{`What counts · rubric ${r.version}`}</summary>
+      <p className="tma-body-sm rvw-rubric__crit">{r.criterion}</p>
+      <p className="stu-label stu-ok rvw-rubric__head">Pass when</p>
+      <ul className="rvw-rubric__list" data-testid="review-rubric-pass">
+        {r.pass.map((x) => (
+          <li key={x}>{x}</li>
+        ))}
+      </ul>
+      <p className="stu-label stu-bad rvw-rubric__head">Fail when</p>
+      <ul className="rvw-rubric__list" data-testid="review-rubric-fail">
+        {r.fail.map((x) => (
+          <li key={x}>{x}</li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
 export function ReviewCard(props: {
   run: ReviewRun
   judge: JudgeId
@@ -190,19 +215,16 @@ export function ReviewCard(props: {
   onDefer: () => void
 }) {
   const { run, judge, traceLink, busy, error, onLabel, onDefer } = props
-  const [reason, setReason] = useState<ReasonCode | null>(null)
-  useEffect(() => setReason(null), [run.runId])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (busy || e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement | null)?.tagName === 'INPUT') return
-      if (e.key === 'p') onLabel(true, reason)
-      else if (e.key === 'f') onLabel(false, reason)
+      if (e.key === 'p') onLabel(true, null)
+      else if (e.key === 'f') onLabel(false, null)
       else if (e.key === 'd') onDefer()
-      else if (['1', '2', '3', '4'].includes(e.key)) setReason(REASONS[Number(e.key) - 1]!.code)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [busy, reason, onLabel, onDefer])
+  }, [busy, onLabel, onDefer])
   return (
     <article className="rvw-card" data-testid="review-card" data-run-id={run.runId}>
       <div className="rvw-lead">
@@ -215,9 +237,15 @@ export function ReviewCard(props: {
           </Tip>
         </p>
         <h1 className="stu-h1 rvw-question">{JUDGE_TITLES[judge]}?</h1>
+        <Rubric judge={judge} />
       </div>
       <Section title="Context">
         <div className="rvw-top">
+          {run.split && (
+            <Badge tone="neutral" testId="review-split">
+              {SPLIT_TEXT[run.split]}
+            </Badge>
+          )}
           {run.disagree && (
             <Badge tone="warning" testId="review-disagree">
               disagree
@@ -260,23 +288,16 @@ export function ReviewCard(props: {
           </p>
         )}
       </Section>
-      <div className="rvw-chips" role="group" aria-label="Reason">
-        {REASONS.map((r, i) => (
-          <Chip key={r.code} on={reason === r.code} onClick={() => setReason(reason === r.code ? null : r.code)} data-testid={`review-reason-${r.code}`}>
-            <Kbd>{i + 1}</Kbd> {r.text}
-          </Chip>
-        ))}
-      </div>
       {error && (
         <p role="alert" className="stu-bad">
           {error}
         </p>
       )}
       <div className="rvw-actions">
-        <StuButton variant="primary" large disabled={busy} onClick={() => onLabel(true, reason)} data-testid="review-pass">
+        <StuButton variant="primary" large disabled={busy} onClick={() => onLabel(true, null)} data-testid="review-pass">
           Pass <Kbd>p</Kbd>
         </StuButton>
-        <StuButton variant="secondary" large disabled={busy} onClick={() => onLabel(false, reason)} data-testid="review-fail">
+        <StuButton variant="secondary" large disabled={busy} onClick={() => onLabel(false, null)} data-testid="review-fail">
           Fail <Kbd>f</Kbd>
         </StuButton>
         <StuButton variant="ghost" large disabled={busy} onClick={onDefer} data-testid="review-defer">
