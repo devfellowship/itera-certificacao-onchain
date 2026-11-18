@@ -15,12 +15,14 @@
 //   GET /v1/traces?limit&offset&l2_class&why&mode&small_diff     S2: candidate traces with pin status and task summary
 //   GET /v1/traces/:trace_id                           S3 (MT-20): ONE run (12 hex), its own summary, steps, first failure
 //   GET /v1/traces/:session_id[?agent_id=...]          S3, the old key: one run with agent_id, else the whole session
+//   GET /v1/pins/:pin_sha256                           S13: the session of a review run's case pin over every selection
+//                                                      day, with its task name and task summary (content.ts resolvePin)
 //   POST /grade/dry-run                                S10a/S11a: one grader grades one output; nothing stored.
 //        Same login as the GET routes; JSON body <= 256 KB (413); one dry run at a time (429); 504 after the timeout;
 //        a code grader runs in a network namespace (unshare -rn), 503 network_sandbox_unavailable when there is none.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { checkLogin, principalConflicts, type AuthDeps, type PrincipalKind } from './auth.js';
-import { getTrace, getTraceById, listTraces, NotFound, SESSION_ID, TRACE_ID, type StudioSources } from './content.js';
+import { getTrace, getTraceById, listTraces, NotFound, resolvePin, SESSION_ID, TRACE_ID, type StudioSources } from './content.js';
 import { assertDisjointSources } from './fixture.js';
 import { DRY_RUN_MAX_BODY, DRY_RUN_PATH, DRY_RUN_TIMEOUT_MS, DryRunRefused, parseDryRunBody, probeNetworkSandbox, runDryRun, type DryRunOptions } from './dry-run.js';
 
@@ -85,7 +87,8 @@ export async function route(method: string, rawUrl: string, authorization: strin
   if (url.pathname === '/v1/health') return json(200, { ok: true });
 
   const traceMatch = /^\/v1\/traces(?:\/([^/]+))?\/?$/.exec(url.pathname);
-  if (!traceMatch) return json(404, { error: 'not_found' });
+  const pinMatch = /^\/v1\/pins\/([^/]+)\/?$/.exec(url.pathname);
+  if (!traceMatch && !pinMatch) return json(404, { error: 'not_found' });
 
   const login = await checkLogin(authorization, opts.auth);
   if (!login.ok) return json(login.status, { error: login.reason });
@@ -93,6 +96,8 @@ export async function route(method: string, rawUrl: string, authorization: strin
   if (!sources) return json(403, { error: 'no_sources_for_principal' });
 
   try {
+    if (pinMatch) return json(200, resolvePin(sources, pinMatch[1]!.toLowerCase()));
+    if (!traceMatch) return json(404, { error: 'not_found' });
     if (traceMatch[1] === undefined) {
       const limit = intParam(url.searchParams.get('limit'), 50, 1, 200);
       const offset = intParam(url.searchParams.get('offset'), 0, 0, 1_000_000);

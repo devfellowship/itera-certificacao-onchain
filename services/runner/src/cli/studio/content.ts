@@ -40,6 +40,14 @@ export interface TaskSummary {
 export const SUMMARY_MAX = 280;
 /** A layer-1 file larger than this is refused (one request at a time, in memory). */
 export const MAX_TRAJECTORY_BYTES = 64 * 1024 * 1024;
+/**
+ * A larger file is read line by line for ONE sub-agent (S13 "Open the full trace" of a review run): only the
+ * session_tree row and the run rows of that agent are parsed and kept. The long claude-main sessions are one file of
+ * about 160 MB with about 2,400 sub-agent runs (measured 2026-11-18; the longest line 16 MB). Above this size, refused.
+ */
+export const MAX_FILTERED_TRAJECTORY_BYTES = 1024 * 1024 * 1024;
+/** The bytes of a line that the filter reads to decide: the kind and the agent id come first in a layer-1 row. */
+const ROW_HEAD_BYTES = 1024;
 export const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$/;
 const AGENT_ID = /^[A-Za-z0-9_-]{1,80}$/;
 const CANDIDATES_FILE = /^candidates-(\d{4}-\d{2}-\d{2})\.jsonl$/;
@@ -57,6 +65,45 @@ export function traceId(sessionId: string, agentId: string | null): string {
 }
 
 type Row = Record<string, unknown>;
+
+/**
+ * The rows of a large layer-1 file whose head (first ROW_HEAD_BYTES) passes `keep`, read in 4 MiB chunks. A line
+ * that fails `keep` is never parsed. The kept rows together may hold at most MAX_TRAJECTORY_BYTES.
+ */
+export function readJsonlFiltered(path: string, keep: (head: string) => boolean): Row[] {
+  const rows: Row[] = [];
+  const fd = openSync(path, 'r');
+  const chunk = Buffer.alloc(4 * 1024 * 1024);
+  let parts: Buffer[] = [];
+  let kept = 0;
+  const flush = () => {
+    if (parts.length === 0) return;
+    const line = parts.length === 1 ? parts[0]! : Buffer.concat(parts);
+    parts = [];
+    if (line.length === 0 || !keep(line.subarray(0, ROW_HEAD_BYTES).toString('utf8'))) return;
+    kept += line.length;
+    if (kept > MAX_TRAJECTORY_BYTES) throw new NotFound('trajectory_too_large');
+    const value = JSON.parse(line.toString('utf8')) as unknown;
+    if (value && typeof value === 'object' && !Array.isArray(value)) rows.push(value as Row);
+  };
+  try {
+    for (;;) {
+      const n = readSync(fd, chunk, 0, chunk.length, null);
+      if (n === 0) break;
+      let start = 0;
+      for (let i = chunk.indexOf(10, 0); i !== -1 && i < n; i = chunk.indexOf(10, start)) {
+        parts.push(Buffer.from(chunk.subarray(start, i)));
+        flush();
+        start = i + 1;
+      }
+      if (start < n) parts.push(Buffer.from(chunk.subarray(start, n)));
+    }
+    flush();
+  } finally {
+    closeSync(fd);
+  }
+  return rows;
+}
 
 function readJsonl(path: string): Row[] {
   const rows: Row[] = [];
@@ -354,6 +401,121 @@ export function listTraces(src: StudioSources, q: ListQuery) {
   };
 }
 
+// --- S13: a pin of a review run -> its session (task C6-REVIEW-QUEUE-READY) ------------------------------------
+//
+// A review run in the TMA DB carries only the sha256 of its case pin. The S13 card needs the session behind it (the
+// "Open the full trace" link) and, when the run went up without one, the task summary. S2 reads only the NEWEST
+// selection day, but the review queue holds runs pinned on older days (2026-11-14, 2026-11-16, ...), so a lookup over
+// the newest day finds about 1 in 10 of them. resolvePin reads EVERY `<name>-<day>.index.jsonl` of the folder (pins-*,
+// replay30-*) and every `candidates-<day>[-<tag>].jsonl`, newest day first. A replay index row has no session id, so
+// the `review-batch-<day>*.jsonl` files (the upload input of `tma eval review-batch`: pin sha, session file, task
+// summary) name the session of those pins: the session id and the sub-agent id come from the session file path
+// (`<session>.jsonl` or `<session>/subagents/agent-<agent>.jsonl`). The tables are rebuilt only when a file of the
+// folder changes (name, size or mtime).
+
+export const PIN_SHA = /^[0-9a-f]{64}$/;
+const PIN_INDEX_FILE = /^[a-z0-9]+-(\d{4}-\d{2}-\d{2})\.index\.jsonl$/;
+const ANY_CANDIDATES_FILE = /^candidates-(\d{4}-\d{2}-\d{2})(?:-[a-z0-9]+)?\.jsonl$/;
+const REVIEW_BATCH_FILE = /^review-batch-(\d{4}-\d{2}-\d{2})[a-z0-9.-]*\.jsonl$/;
+const SESSION_FILE = /\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.jsonl|\/subagents\/agent-([A-Za-z0-9_-]{1,80})\.jsonl)$/;
+/** The session and sub-agent of a recorded session file path, or null. */
+export function sessionOfFile(path: string | null): { session_id: string; agent_id: string | null } | null {
+  const m = path ? SESSION_FILE.exec(path) : null;
+  return m ? { session_id: m[1]!, agent_id: m[2] ?? null } : null;
+}
+
+interface PinEntry {
+  session_id: string;
+  agent_id: string | null;
+  day: string;
+  /** The task summary of the review-batch row, when the pin came from one. */
+  summary?: TaskSummary | null;
+}
+interface PinTables {
+  sig: string;
+  pins: Map<string, PinEntry>;
+  /** session\0agent -> the newest candidate row with a task summary (or the newest row when none has one). */
+  rows: Map<string, Row>;
+}
+/** One cache entry per selection folder: the real tree and the fixture tree never share tables. */
+const pinTables = new Map<string, PinTables>();
+
+function folderSignature(dir: string, names: string[]): string {
+  return names
+    .map((n) => {
+      const st = statSync(join(dir, n));
+      return `${n}:${st.size}:${st.mtimeMs}`;
+    })
+    .join('|');
+}
+
+function loadPinTables(selectDir: string): PinTables {
+  let names: string[];
+  try {
+    names = readdirSync(selectDir);
+  } catch {
+    throw new NotFound('no_trace_selection');
+  }
+  const pinFiles = names.filter((n) => PIN_INDEX_FILE.test(n)).sort((a, b) => PIN_INDEX_FILE.exec(b)![1]!.localeCompare(PIN_INDEX_FILE.exec(a)![1]!) || b.localeCompare(a));
+  const candFiles = names.filter((n) => ANY_CANDIDATES_FILE.test(n)).sort((a, b) => ANY_CANDIDATES_FILE.exec(b)![1]!.localeCompare(ANY_CANDIDATES_FILE.exec(a)![1]!) || a.localeCompare(b));
+  const batchFiles = names.filter((n) => REVIEW_BATCH_FILE.test(n)).sort((a, b) => b.localeCompare(a));
+  const sig = folderSignature(selectDir, [...pinFiles, ...candFiles, ...batchFiles]);
+  const cached = pinTables.get(selectDir);
+  if (cached && cached.sig === sig) return cached;
+  const pins = new Map<string, PinEntry>();
+  for (const f of pinFiles) {
+    const day = PIN_INDEX_FILE.exec(f)![1]!;
+    for (const r of readJsonl(join(selectDir, f))) {
+      const sha = str(r.pin_sha256);
+      const sid = str(r.session_id);
+      // Newest day first: the first file that names a pin wins.
+      if (sha && PIN_SHA.test(sha) && sid && SESSION_ID.test(sid) && !pins.has(sha)) pins.set(sha, { session_id: sid, agent_id: str(r.agent_id), day });
+    }
+  }
+  for (const f of batchFiles) {
+    const day = REVIEW_BATCH_FILE.exec(f)![1]!;
+    for (const r of readJsonl(join(selectDir, f))) {
+      const sha = str(obj(r.pin)?.pin_sha256);
+      const at = sessionOfFile(str(r.session_file));
+      if (sha && PIN_SHA.test(sha) && at && !pins.has(sha)) pins.set(sha, { ...at, day, summary: taskSummary(r.task_summary) });
+    }
+  }
+  const rows = new Map<string, Row>();
+  for (const f of candFiles) {
+    for (const r of readJsonl(join(selectDir, f))) {
+      const k = key(r.session_id, r.agent_id);
+      const cur = rows.get(k);
+      const has = (x: Row | undefined) => !!x && !!taskSummary(x.task_summary) && !!(taskSummary(x.task_summary)!.before || taskSummary(x.task_summary)!.expected);
+      if (!cur || (!has(cur) && has(r))) rows.set(k, r);
+    }
+  }
+  const built = { sig, pins, rows };
+  pinTables.set(selectDir, built);
+  return built;
+}
+
+/** GET /v1/pins/:pin_sha256 — the session of a pin, over every selection day, with the task fields of its candidate row. */
+export function resolvePin(src: StudioSources, pinSha: string) {
+  if (!PIN_SHA.test(pinSha)) throw new NotFound('bad_pin');
+  const t = loadPinTables(src.selectDir);
+  const hit = t.pins.get(pinSha);
+  if (!hit) throw new NotFound('pin_not_found');
+  const row = t.rows.get(key(hit.session_id, hit.agent_id)) ?? null;
+  const fromRow = row ? taskSummary(row.task_summary) : null;
+  const filled = (x: TaskSummary | null | undefined) => !!x && !!(x.before || x.expected);
+  const ix = lookupSessions(src.indexPath, [hit.session_id]).get(hit.session_id);
+  return {
+    pin_sha256: pinSha,
+    session_id: hit.session_id,
+    agent_id: hit.agent_id,
+    selection_day: hit.day,
+    task_name: row ? str(row.task_name) : null,
+    identifier: row ? str(row.identifier) : null,
+    task_summary: filled(fromRow) ? fromRow : filled(hit.summary) ? hit.summary! : fromRow,
+    has_trajectory: !!safeTrajectoryPath(ix?.trajectory_ref ?? null, src.trajectoryRoot),
+  };
+}
+
 // --- S3: one trace ------------------------------------------------------------------------------------
 
 function spanView(s: Row) {
@@ -500,8 +662,14 @@ export function getTrace(src: StudioSources, sessionId: string, agentId?: string
   if (!ix) throw new NotFound('session_not_indexed');
   const file = safeTrajectoryPath(ix.trajectory_ref, src.trajectoryRoot);
   if (!file) throw new NotFound('no_trajectory');
-  if (statSync(file).size > MAX_TRAJECTORY_BYTES) throw new NotFound('trajectory_too_large');
-  const rows = readJsonl(file);
+  const size = statSync(file).size;
+  let rows: Row[];
+  if (size <= MAX_TRAJECTORY_BYTES) rows = readJsonl(file);
+  else if (agentId !== undefined && size <= MAX_FILTERED_TRAJECTORY_BYTES) {
+    // One sub-agent of a long session: keep the session_tree row and that agent's run rows only.
+    const mine = new RegExp(`"agent_id"\\s*:\\s*"${agentId}"`);
+    rows = readJsonlFiltered(file, (head) => /"kind"\s*:\s*"session_tree"/.test(head) || mine.test(head));
+  } else throw new NotFound('trajectory_too_large');
   const tree = rows.find((r) => r.kind === 'session_tree' && r.session_id === sessionId);
   const runRows = rows.filter((r) => r.kind === 'run' && r.session_id === sessionId);
   const oneRun = agentId !== undefined || opts.oneRun === true;

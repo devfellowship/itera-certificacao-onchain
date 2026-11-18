@@ -263,6 +263,24 @@ export function fetchTrace(sessionId: string, agentId?: string | null, opts: Tra
   return getJson<Trace>((b) => traceUrl(b, sessionId, agentId), opts)
 }
 
+/** S13: GET <serve>/v1/pins/:pin_sha256 — the session of a review run's case pin, over every selection day. */
+export interface PinLookup {
+  pin_sha256: string
+  session_id: string
+  agent_id: string | null
+  selection_day: string
+  task_name: string | null
+  identifier: string | null
+  task_summary: TaskSummary | null
+  has_trajectory: boolean
+}
+export function pinUrl(base: string, pinSha: string): string {
+  return `${base.replace(/\/+$/, '')}/v1/pins/${encodeURIComponent(pinSha)}`
+}
+export function fetchPin(pinSha: string, opts: TraceFetchOptions = {}): Promise<PinLookup> {
+  return getJson<PinLookup>((b) => pinUrl(b, pinSha), opts)
+}
+
 /** The user text of a failed trace read. */
 export function traceErrorText(err: unknown): string {
   if (err instanceof TraceServeError) {

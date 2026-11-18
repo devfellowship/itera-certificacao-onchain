@@ -68,6 +68,19 @@ async function get(path: string, sub: string): Promise<{ status: number; body: a
 }
 
 describe('fixture principal: never a real source, on every route', () => {
+  it('S13 /v1/pins: the same pin sha resolves in the fixture tree for the fixture principal and in the real tree for the real one', async () => {
+    for (const sha of ['f'.repeat(64), 'e'.repeat(64)]) {
+      const f = await get(`/v1/pins/${sha}`, FIXTURE_P);
+      expect(f.status).toBe(200);
+      expectNoReal(f.body);
+      const r = await get(`/v1/pins/${sha}`, ALLOWED);
+      expect(r.status).toBe(200);
+      expectNoFixture(r.body);
+    }
+    // And again in the other order: the per-folder cache never hands one tree's table to the other.
+    expectNoReal((await get(`/v1/pins/${'f'.repeat(64)}`, FIXTURE_P)).body);
+  });
+
   it('list (S2): only fixture rows', async () => {
     const r = await get('/v1/traces', FIXTURE_P);
     expect(r.status).toBe(200);

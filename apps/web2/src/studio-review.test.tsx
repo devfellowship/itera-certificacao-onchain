@@ -11,6 +11,18 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// The serve URL is off by default (as in a build without VITE_TMA_STUDIO_SERVE_URL); the pin tests set it.
+const serveState = vi.hoisted(() => ({ url: '' }))
+vi.mock('./config', async (orig) => {
+  const real = await orig<typeof import('./config')>()
+  return {
+    ...real,
+    get STUDIO_SERVE_URL() {
+      return serveState.url
+    },
+  }
+})
 import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
 import { fmtDuration, foldSteps, gapBefore, type ReviewRun, type StepDetail } from './studio/review'
@@ -20,6 +32,8 @@ import { fmtDuration, foldSteps, gapBefore, type ReviewRun, type StepDetail } fr
 let root: Root | undefined
 afterEach(() => {
   progressAnswers = []
+  pinAnswers = {}
+  serveState.url = ''
   labelStrength = 'strong'
   act(() => root?.unmount())
   root = undefined
@@ -61,6 +75,7 @@ const PROGRESS = (test: { pass: number; fail: number }, judge = 'async-wait-life
   judge, floor: 30, splits: { test, dev: { pass: 0, fail: 0 }, train: { pass: 0, fail: 0 }, unknown: { pass: 0, fail: 0 } },
 })
 let progressAnswers: Array<[number, unknown]> = []
+let pinAnswers: Record<string, [number, unknown]> = {}
 let labelStrength: 'strong' | null = 'strong'
 function mountAt(
   path: string,
@@ -75,6 +90,11 @@ function mountAt(
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
       const method = init?.method ?? 'GET'
       calls.push({ method, path: url.pathname + url.search, body: init?.body ? JSON.parse(String(init.body)) : null })
+      if (url.host === '127.0.0.1:8799') {
+        const m = /^\/v1\/pins\/([0-9a-f]{64})$/.exec(url.pathname)
+        if (m && pinAnswers[m[1]!]) return json(...pinAnswers[m[1]!]!)
+        return json(404, { error: 'pin_not_found' })
+      }
       if (url.pathname === '/review-queue') return json(...queue)
       if (url.pathname === '/review-queue/steps') return json(...steps)
       if (url.pathname === '/review-queue/progress') {
@@ -271,6 +291,54 @@ describe('S13 progress per judge (C6-REVIEW-QUEUE-READY)', () => {
     const c = mountAt('/studio/review')
     await waitFor(() => !!q(c, 'review-card'), 'card')
     expect(q(c, 'review-progress')).toBeNull()
+  })
+})
+
+describe('S13 full trace and host summary (C6-REVIEW-QUEUE-READY)', () => {
+  const PIN = 'a'.repeat(64)
+  const SID = '0123abcd-0000-4000-8000-00000000000a'
+  const lookup = (over: Record<string, unknown> = {}) => ({
+    pin_sha256: PIN, session_id: SID, agent_id: 'a1b2', selection_day: '2026-11-14', task_name: 'Fix the red CI', identifier: 'DFL-1',
+    task_summary: { before: 'Host before.', expected: 'Host expected.', outcome: null }, has_trajectory: true, ...over,
+  })
+  const noSummary = (id: string) => run(id, { originPinSha256: PIN, taskSummary: null })
+
+  it('resolves the pin of the run on the serve: links the full trace and shows the host summary when the API has none', async () => {
+    serveState.url = 'http://127.0.0.1:8799'
+    pinAnswers[PIN] = [200, lookup()]
+    const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: [noSummary(R1)] }])
+    await waitFor(() => !!q(c, 'review-trace-link'), 'trace link')
+    expect(q(c, 'review-trace-link')!.getAttribute('href')).toBe(`/studio/traces/${SID}?agent_id=a1b2`)
+    expect(q(c, 'review-summary')!.dataset.source).toBe('host')
+    expect(q(c, 'review-summary')!.textContent).toContain('Host expected.')
+    expect(q(c, 'review-task-name')!.textContent).toBe('Fix the red CI')
+    expect(q(c, 'review-summary-host')).not.toBeNull()
+    // Parent ADR-1: the serve answer never goes to the TMA API.
+    expect(calls.filter((x) => !x.path.startsWith('/v1/') && JSON.stringify(x).includes('Host'))).toEqual([])
+  })
+
+  it('keeps the API summary when the run has one, and links no trace when the session has no trajectory', async () => {
+    serveState.url = 'http://127.0.0.1:8799'
+    pinAnswers[PIN] = [200, lookup({ has_trajectory: false })]
+    const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: [run(R1, { originPinSha256: PIN })] }])
+    await waitFor(() => !!q(c, 'review-task-name'), 'lookup')
+    expect(q(c, 'review-summary')!.dataset.source).toBe('api')
+    expect(q(c, 'review-summary')!.textContent).toContain('CI was red on the PR')
+    expect(q(c, 'review-trace-link')).toBeNull()
+  })
+
+  it('says why there is no trace link when the serve does not answer (off the tailnet)', async () => {
+    serveState.url = 'http://127.0.0.1:8799'
+    const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: [noSummary(R1)] }])
+    await waitFor(() => !!q(c, 'review-trace-unavailable'), 'unavailable text')
+    expect(q(c, 'review-trace-unavailable')!.textContent).toContain('not in the index')
+    expect(q(c, 'review-summary')!.dataset.source).toBe('none')
+  })
+
+  it('asks the serve nothing when the build has no serve URL', async () => {
+    const c = mountAt('/studio/review', [200, { judge: 'async-wait-lifecycle', runs: [noSummary(R1)] }])
+    await waitFor(() => !!q(c, 'review-card'), 'card')
+    expect(calls.some((x) => x.path.startsWith('/v1/'))).toBe(false)
   })
 })
 
