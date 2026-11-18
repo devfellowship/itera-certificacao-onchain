@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
 import { caseCommands, experimentScript } from './studio/eval-command'
+import { changeWords, partOfChange, partRows, plannedRuns } from './studio/experiment-parts'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -279,6 +280,33 @@ describe('S5 experiment', () => {
     expectReadOnly(c)
   })
 
+  it('lays out the artboard: steps 1-2-3, the part table with the changed row, the change block, the sidebar (C5-RD-S5)', async () => {
+    const c = mountAt(`/studio/experiments/new?agent=${AGENT}`)
+    await waitFor(() => !!c.querySelector('[data-testid="experiment-parts"]'), 'part table')
+    expect([...c.querySelectorAll('.stu-step__title')].map((h) => h.textContent)).toEqual(['1Base agent', '2Agent variant: change one thing', '3Dataset and uploaded runs'])
+    expect(c.querySelector('h1')?.textContent).toBe('New experiment')
+    expect(c.querySelector('.stu-crumb--current')?.textContent).toBe('new experiment')
+    const parts = [...c.querySelectorAll('[data-testid="experiment-part"]')]
+    expect(parts.map((p) => p.getAttribute('data-part'))).toEqual(['harness', 'model', 'skills', 'settings', 'mcp', 'tools', 'permissions', 'instructions'])
+    // The default variant is the first changed one (skill v2): only its part is marked, the rest say "same".
+    expect(parts.filter((p) => p.getAttribute('data-changed') === 'true').map((p) => p.getAttribute('data-part'))).toEqual(['skills'])
+    expect(parts.find((p) => p.getAttribute('data-part') === 'skills')!.textContent).toContain('edited skill')
+    expect(parts.find((p) => p.getAttribute('data-part') === 'model')!.textContent).toContain('opencode-go/deepseek-v4-pro')
+    expect(parts.find((p) => p.getAttribute('data-part') === 'model')!.textContent).toContain('= same')
+    expect(c.querySelector('[data-testid="experiment-diff"]')?.textContent).toContain('digest 0123456789ab')
+    expect(c.querySelector('[data-testid="experiment-version"]')?.textContent).toContain('+ skill 0123456789ab')
+    // The sidebar: the experiment in words (1 replay case x 3 repeats), and where it runs (the copy command).
+    const side = c.querySelector('[data-testid="experiment-sidebar"]')!
+    expect(side.querySelector('[data-testid="experiment-summary"]')?.textContent).toMatch(/skill v2 runs 1 case, each 3 times, so 3 runs/)
+    expect(side.querySelector('[data-testid="experiment-copy-command"]')).not.toBeNull()
+    // Picking the baseline variant clears the marked row.
+    const base = [...c.querySelectorAll('[data-testid="experiment-variant"]')].find((l) => l.textContent!.includes('base agent unchanged'))!
+    act(() => base.querySelector<HTMLInputElement>('input[type="radio"]')!.click())
+    expect(c.querySelectorAll('[data-testid="experiment-part"][data-changed="true"]')).toHaveLength(0)
+    expect(c.querySelector('[data-testid="experiment-diff"]')).toBeNull()
+    expectReadOnly(c)
+  })
+
   it('builds the commands of one base agent, one variant and a dataset', async () => {
     const c = mountAt(`/studio/experiments/new?agent=${AGENT}`)
     await waitFor(() => !!c.querySelector('[data-testid="experiment-variant"]'), 'variants')
@@ -320,5 +348,25 @@ describe('S5 experiment', () => {
     await waitFor(() => !!d.querySelector('[data-testid="studio-empty"]'), '503')
     expect(d.querySelector('[data-testid="studio-load-error"]')?.textContent).toContain('not migrated')
     expectReadOnly(d)
+  })
+})
+
+describe('S5 part table helpers (C5-RD-S5)', () => {
+  it('maps every change kind to one part row', () => {
+    expect(partOfChange('rules')).toBe('instructions')
+    expect(partOfChange('prompt')).toBe('instructions')
+    expect(partOfChange('limits')).toBe('settings')
+    expect(partOfChange('none')).toBeNull()
+    const rows = partRows({ ...agentVersion, harnessRepoSha: 'c7d2e1a99', rulesSha256: H('9') }, 'model')
+    expect(rows.find((r) => r.key === 'harness')!.base).toBe('opencode 1.18.31@c7d2e1a')
+    expect(rows.find((r) => r.key === 'instructions')!.base).toBe(`digest ${H('9').slice(0, 12)}`)
+    expect(rows.find((r) => r.key === 'skills')!.base).toBeNull()
+    expect(rows.filter((r) => r.changed).map((r) => r.key)).toEqual(['model'])
+    expect(changeWords('model')).toBe('other model')
+    expect(changeWords('mcp')).toBe('edited mcp')
+  })
+  it('counts the planned runs: repeat per replay case, one per trace_review case', () => {
+    expect(plannedRuns([{ mode: 'replay' }, { mode: 'replay' }, { mode: 'trace_review' }], 5)).toBe(11)
+    expect(plannedRuns([], 3)).toBe(0)
   })
 })
