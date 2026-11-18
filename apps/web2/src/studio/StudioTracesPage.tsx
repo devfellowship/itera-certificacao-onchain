@@ -10,8 +10,8 @@
  * Filters (MT-02): one "Filters (n)" button with a dropdown, the active filters as removable chips, "+N more", "Clear
  * all". Rows (MT-04): the task id only, no "picked for" tag (it is a filter and a panel field); the header is the title
  * row only, the selection day moves into its (i).
- * Selection (MT-05, first half): a checkbox column and the "N selected · Clear" bar. The "Build N cases" action waits on
- * a decision (Plans App Q 3d291a2b): no write path turns a trace into an eval case yet.
+ * Selection (MT-05, first half): a checkbox column, the "N selected · Clear" bar and a DISABLED "Build N cases" button.
+ * Its action (Q 3d291a2b = A: the serve writes case drafts into dfl-evals) lands in its own PR.
  * Gaps against the artboard (the index has no such field or the studio has no such screen): the task title (the row
  * shows the task identifier), the merge state and CI result of the PR, the model size badge, the search box.
  */
@@ -436,6 +436,11 @@ export function StudioTracesPage() {
                   </span>
                   <button type="button" className="trc-selbar__clear" onClick={() => setSelected(new Set())} data-testid="trace-selection-clear">
                     Clear
+                  </button>
+                  <span className="trc-filters__fill" />
+                  {/* Disabled until the write lands (Q 3d291a2b = A: the serve writes case drafts into dfl-evals). */}
+                  <button type="button" className="stu-btn stu-btn--primary" disabled title="Coming next: builds case drafts from the selected traces" data-testid="trace-build-cases">
+                    Build {selected.size} {selected.size === 1 ? 'case' : 'cases'}
                   </button>
                 </div>
               )}

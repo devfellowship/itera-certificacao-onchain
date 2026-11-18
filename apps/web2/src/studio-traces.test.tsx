@@ -357,7 +357,7 @@ describe('S2 trace picker', () => {
     expect(c.querySelector('.trc-why--red')).toBeNull()
   })
 
-  it('selects rows with the checkbox column: "N selected", select all on the page, Clear (MT-05, no build action yet)', async () => {
+  it('selects rows with the checkbox column: "N selected", select all on the page, Clear, a disabled Build button (MT-05)', async () => {
     const c = mountAt('/studio/traces')
     await waitFor(() => traceRows(c).length > 0, 'rows')
     expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
@@ -369,7 +369,10 @@ describe('S2 trace picker', () => {
     expect(c.querySelector('[data-testid="trace-selection-count"]')!.textContent).toBe('2 selected')
     // A checkbox click does not move the focused row.
     expect(traceRows(c)[0]!.getAttribute('data-focused')).toBe(focusedBefore)
-    expect(c.querySelector('[data-testid="trace-selection"]')!.textContent).not.toMatch(/Build/)
+    // The build button names the count and stays disabled until its write path lands (MT-05, Q 3d291a2b = A).
+    const build = c.querySelector<HTMLButtonElement>('[data-testid="trace-build-cases"]')!
+    expect(build.textContent).toBe('Build 2 cases')
+    expect(build.disabled).toBe(true)
     const all = c.querySelector<HTMLInputElement>('[data-testid="trace-select-all"]')!
     act(() => all.click())
     expect(c.querySelector('[data-testid="trace-selection-count"]')!.textContent).toBe(`${LIST.rows.length} selected`)

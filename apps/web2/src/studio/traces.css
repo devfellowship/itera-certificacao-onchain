@@ -59,9 +59,10 @@
 .trc-shell { display: flex; flex-wrap: wrap; align-items: stretch; margin: 0 calc(-1 * var(--tma-app-gutter, 0px)); min-width: 0; min-height: calc(100vh - var(--tma-nav-height, 56px) - 1px); }
 .trc-col { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 28px 40px 64px; }
 .trc-tablewrap { min-width: 0; overflow-x: auto; }
-.trc-table { min-width: 900px; }
+.trc-table { min-width: 880px; }
 .trc-nowrap { white-space: nowrap; }
-.trc-row { display: grid; grid-template-columns: 28px 92px 240px minmax(220px, 1fr) 130px 140px 110px; align-items: center; column-gap: var(--stu-gap-4); min-height: 40px; padding: 0 0 0 10px; border-bottom: 1px solid var(--stu-line); color: var(--stu-text-2); cursor: pointer; }
+/* At 1280px the whole table fits beside the 300px panel (no sideways scroll that hides "replayable"). */
+.trc-row { display: grid; grid-template-columns: 28px 92px 170px minmax(160px, 1fr) 130px 110px 100px; align-items: center; column-gap: 14px; min-height: 40px; padding: 0 0 0 10px; border-bottom: 1px solid var(--stu-line); color: var(--stu-text-2); cursor: pointer; }
 .trc-row:hover { background: var(--stu-surface); }
 .trc-row--on, .trc-row--on:hover { background: var(--stu-raised); box-shadow: inset 2px 0 0 var(--stu-accent); }
 .trc-row--head { min-height: 0; padding-bottom: 8px; border-bottom-color: var(--stu-line-strong); font-family: var(--stu-font-mono); font-size: var(--stu-fs-label); color: var(--stu-text-muted); cursor: default; }
@@ -102,7 +103,7 @@
 .trc-aside__who { display: inline-flex; align-items: center; gap: var(--stu-gap-2); min-width: 0; }
 .trc-aside__whotext { font-family: var(--stu-font-sans); font-size: 13px; line-height: 1.4; color: var(--stu-text-muted); }
 /* S2: the panel stretches the full height of the page; its content stays in view while the table scrolls. */
-.trc-aside--picker { flex: 1 1 320px; max-width: 420px; padding: 0; gap: 0; }
+.trc-aside--picker { flex: 1 1 300px; max-width: 420px; padding: 0; gap: 0; }
 .trc-aside__in { position: sticky; top: 0; max-height: 100vh; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; gap: var(--stu-gap-5); padding: 24px 20px; min-height: calc(100vh - var(--tma-nav-height, 56px) - 1px); }
 .trc-aside__title { margin: 0; font-family: var(--stu-font-display); font-weight: 600; font-size: 22px; line-height: 1.15; color: var(--stu-text); overflow-wrap: anywhere; }
 .trc-aside__title--step { font-size: 26px; }
