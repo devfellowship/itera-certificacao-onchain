@@ -40,6 +40,35 @@
   --stu-k-test: #7ad6cd;
   --stu-k-tool: #e3a5c7;
   --stu-k-other: var(--stu-line-hover);
+  /* Step categories (S3 waterfall bars and legend, MT-08): the session-trajectory intents of the decisiongraph analytics */
+  --stu-c-file-read: #8fb3e8;
+  --stu-c-search: #b8a5e3;
+  --stu-c-git-read: #7fcde3;
+  --stu-c-git-write: #ec9a5e;
+  --stu-c-build-test: #7ad6cd;
+  --stu-c-skill-run: #d9cf6c;
+  --stu-c-plan-mcp: #a9d97f;
+  --stu-c-pr-read: #e3a5c7;
+  --stu-c-file-edit: #e8c170;
+  --stu-c-pr-write-merge: #c96fa8;
+  --stu-c-ci-read: #9aa3f0;
+  --stu-c-ci-watch-poll: #6f78c2;
+  --stu-c-deploy: #f07a5a;
+  --stu-c-credential-fetch: #c9a27a;
+  --stu-c-mcp-read: #5fb0d8;
+  --stu-c-mcp-write: #3f86b8;
+  --stu-c-web-research: #c79cf2;
+  --stu-c-browser-check: #9e74d6;
+  --stu-c-ops-inspect: #b3bd95;
+  --stu-c-ops-change: #d0a050;
+  --stu-c-spawn-subagent: #f2a89a;
+  --stu-c-message-agent: #e88c8c;
+  --stu-c-reply-human: #f5c4b0;
+  --stu-c-wait-sleep: #6b6359;
+  --stu-c-github-api: #e09ad6;
+  --stu-c-media-generate: #f2d6a0;
+  --stu-c-other: var(--stu-line-hover);
+  --stu-c-unlabeled: #4a443d;
   /* Agent avatar grounds (S2 trace picker): Claude Code, Codex, opencode, ALIEN01 */
   --stu-av-cc: #4a3328;
   --stu-av-cx: #26302e;
