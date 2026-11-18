@@ -37,6 +37,12 @@ export interface TraceRow {
   run_kind: string | null
   identifier: string | null
   task_id: string | null
+  /** MT-12/13: source-agnostic task fields (the DFL source writes its task title, DFL id and task-details URL). */
+  task_name?: string | null
+  external_id?: string | null
+  external_url?: string | null
+  /** MT-11: the selection marks a merged PR of at most 3 files. Absent on rows from an older selection. */
+  small_diff?: boolean | null
   executor: string | null
   harness: string | null
   host: string | null
@@ -151,6 +157,8 @@ export interface TraceListQuery {
   l2_class?: string | null
   why?: string | null
   mode?: string | null
+  /** MT-11: 'true' or 'false'; any other value is dropped. */
+  small_diff?: string | null
 }
 
 export type TraceErrorKind = 'not_configured' | 'network' | 'http'
@@ -189,6 +197,7 @@ export function traceListUrl(base: string, q: TraceListQuery): string {
     const v = q[k]
     if (v) p.set(k, v)
   }
+  if (q.small_diff === 'true' || q.small_diff === 'false') p.set('small_diff', q.small_diff)
   return `${base.replace(/\/+$/, '')}/v1/traces?${p.toString()}`
 }
 
@@ -249,6 +258,13 @@ export function prUrl(pr: unknown): string | null {
   if (!pr || typeof pr !== 'object' || Array.isArray(pr)) return null
   const url = (pr as { url?: unknown }).url
   return typeof url === 'string' && url.startsWith('https://github.com/') ? url : null
+}
+
+/** MT-11: the file count of the PR (pr.files_changed), when the selection sent one. */
+export function prFiles(pr: unknown): number | null {
+  if (!pr || typeof pr !== 'object' || Array.isArray(pr)) return null
+  const n = (pr as { files_changed?: unknown }).files_changed
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0 ? n : null
 }
 
 /** The S3 path of a row: /studio/traces/<session>[?agent_id=]. */

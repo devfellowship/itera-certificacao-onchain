@@ -70,6 +70,9 @@ export function buildFixture(root?: string, v: FixtureVariant = FIXTURE_VARIANT)
       run_kind: agentId ? 'subagent' : 'main',
       identifier: v.identifier,
       task_id: v.taskId,
+      task_name: `${v.label} task name`,
+      external_id: v.identifier,
+      external_url: `https://example.invalid/tasks/${v.taskId}`,
       harness: 'claude-code',
       host: `${v.label.toLowerCase()}-host`,
       model: `${v.label.toLowerCase()}-model`,
@@ -87,9 +90,9 @@ export function buildFixture(root?: string, v: FixtureVariant = FIXTURE_VARIANT)
   writeFileSync(
     join(selectDir, 'candidates-2026-11-02.jsonl'),
     [
-      candidate(v.sidA, null, { task_summary: { before: 'B'.repeat(400), expected: `${v.label} expected state.`, outcome: `${v.label} outcome.` } }),
+      candidate(v.sidA, null, { small_diff: false, task_summary: { before: 'B'.repeat(400), expected: `${v.label} expected state.`, outcome: `${v.label} outcome.` } }),
       candidate(v.sidA, v.subAgent, { l2_class: 'fix', why: 'sample' }),
-      candidate(v.sidB, null, { l2_class: 'plan', mode: 'replay' }),
+      candidate(v.sidB, null, { l2_class: 'plan', mode: 'replay', small_diff: true }),
       candidate(v.sidOutside, null),
     ].join('\n') + '\n',
   );

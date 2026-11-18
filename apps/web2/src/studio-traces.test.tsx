@@ -252,7 +252,9 @@ describe('S2 trace picker', () => {
     expect(r.map((x) => x.querySelector('[data-replay]')!.getAttribute('data-replay'))).toEqual(['partly', 'yes', 'unpinned', 'unpinned'])
     // Labels.
     expect(r[0]!.textContent).toContain('DFL-00001')
-    expect(r[0]!.textContent).toContain('Claude Code · fixture-model')
+    // MT-19: harness on line 1, the model on its own muted line.
+    expect(r[0]!.querySelector('.trc-agent__name')!.textContent).toBe('Claude Code')
+    expect(r[0]!.querySelector('[data-field="model-line"]')!.textContent).toBe('fixture-model')
     expect(r[0]!.textContent).toContain('2026-11-01')
     expect(r[2]!.textContent).toContain(SID_B.slice(0, 8))
     expect(r[3]!.textContent).toContain('task-only-id')
@@ -337,6 +339,7 @@ describe('S2 trace picker', () => {
       ['l2_class', 'Use case'],
       ['why', 'Picked for'],
       ['mode', 'Mode'],
+      ['small_diff', 'Small diff'],
     ])
     const mode = c.querySelector('[data-filter="mode"] [data-filter-value="trace_review"]')!
     expect(mode.textContent).toBe('trace review')
@@ -355,6 +358,78 @@ describe('S2 trace picker', () => {
     expect(panel.querySelector('[data-field="who-line"]')!.textContent).toBe('Claude Code · fixture-model · 10 Nov')
     // The why chip is neutral for every value, including "red".
     expect(c.querySelector('.trc-why--red')).toBeNull()
+  })
+
+  it('MT-12/13: the task name labels the row, with fallbacks; the panel shows External ID and an https External URL', async () => {
+    const url = 'https://os.devfellowship.com/tasks/11111111-0000-4000-8000-000000000001'
+    const list = {
+      ...LIST,
+      rows: [
+        row({ started_at: '2026-11-10T10:00:00.000Z', task_name: 'Fix the login redirect', external_id: 'DFL-00001', external_url: url }),
+        row({ session_id: SID_B, identifier: 'DFL-00002', started_at: '2026-11-09T10:00:00.000Z', task_name: '  ', external_url: 'javascript:alert(1)' }),
+        row({ session_id: SID_C, identifier: null, task_id: null, started_at: '2026-11-08T10:00:00.000Z' }),
+      ],
+    }
+    const c = mountAt('/studio/traces', { list: [200, list] })
+    await waitFor(() => traceRows(c).length === 3, 'rows')
+    const label = (r: HTMLElement) => r.querySelector('.trc-task-id')!.textContent
+    expect(traceRows(c).map(label)).toEqual(['Fix the login redirect', 'DFL-00002', `Session ${SID_C.slice(0, 8)}`])
+    // The focused row (the first) shows its DFL id and a link to the task where it lives.
+    const ext = () => c.querySelector('[data-testid="trace-focus"] [data-testid="trace-external"]')
+    expect(ext()!.querySelector('[data-field="external_id"]')!.textContent).toBe('DFL-00001')
+    const a = ext()!.querySelector<HTMLAnchorElement>('[data-testid="trace-external-url"]')!
+    expect(a.getAttribute('href')).toBe(url)
+    expect(a.getAttribute('rel')).toBe('noreferrer')
+    expect([...ext()!.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['External ID', 'External URL'])
+    // A URL that is not https is never a link; the id falls back to the DFL identifier.
+    act(() => traceRows(c)[1]!.click())
+    expect(ext()!.querySelector('[data-field="external_id"]')!.textContent).toBe('DFL-00002')
+    expect(ext()!.querySelector('a')).toBeNull()
+    expect(c.innerHTML).not.toContain('javascript:')
+    // No id and no URL: no block at all.
+    act(() => traceRows(c)[2]!.click())
+    expect(ext()).toBeNull()
+  })
+
+  it('MT-11: the Small diff filter sends small_diff to the serve, shows a chip, and the panel shows the file count', async () => {
+    const list = {
+      ...LIST,
+      rows: [
+        row({ started_at: '2026-11-10T10:00:00.000Z', small_diff: true, pr: { url: 'https://github.com/o/r/pull/32', files_changed: 2, additions: 8, deletions: 10 } }),
+        row({ session_id: SID_B, identifier: 'DFL-00002', started_at: '2026-11-09T10:00:00.000Z', small_diff: false, pr: { url: 'https://github.com/o/r/pull/33', files_changed: 7 } }),
+        row({ session_id: SID_C, identifier: 'DFL-00003', started_at: '2026-11-08T10:00:00.000Z' }),
+      ],
+    }
+    const c = mountAt('/studio/traces?small_diff=true', { list: [200, list] })
+    await waitFor(() => traceRows(c).length === 3, 'rows')
+    expect(new URL(serveCalls()[0]!.url).searchParams.get('small_diff')).toBe('true')
+    expect([...c.querySelectorAll('[data-chip]')].map((x) => x.textContent)).toEqual(['Small diff: yes'])
+    act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-filters-button"]')!.click())
+    const opts = [...c.querySelectorAll<HTMLAnchorElement>('[data-filter="small_diff"] [data-filter-value]')]
+    expect(opts.map((o) => [o.dataset.filterValue, o.getAttribute('aria-current')])).toEqual([
+      ['all', null],
+      ['true', 'true'],
+      ['false', null],
+    ])
+    expect(opts[2]!.getAttribute('href')).toBe('/studio/traces?small_diff=false')
+    expect(c.querySelector('[data-testid="trace-clear"]')!.getAttribute('href')).toBe('/studio/traces')
+    // The file-count hint: small, not small, and no data.
+    const hint = () => c.querySelector('[data-testid="trace-focus"] [data-testid="trace-diff-hint"]')
+    expect(hint()!.textContent).toBe('Small diff: 2 files changed')
+    expect(hint()!.getAttribute('data-small-diff')).toBe('true')
+    expect(c.querySelector('[data-testid="trace-focus"] [data-field="files_changed"]')!.textContent).toBe('2')
+    act(() => traceRows(c)[1]!.click())
+    expect(hint()!.textContent).toBe('7 files changed')
+    expect(hint()!.getAttribute('data-small-diff')).toBe('false')
+    act(() => traceRows(c)[2]!.click())
+    expect(hint()).toBeNull()
+    expect(c.querySelector('[data-testid="trace-focus"] [data-field="files_changed"]')!.textContent).toBe('—')
+  })
+
+  it('MT-11: an unknown small_diff value is not sent to the serve', async () => {
+    const c = mountAt('/studio/traces?small_diff=maybe')
+    await waitFor(() => traceRows(c).length > 0, 'rows')
+    expect(new URL(serveCalls()[0]!.url).searchParams.has('small_diff')).toBe(false)
   })
 
   it('selects rows with the checkbox column: "N selected", select all on the page, Clear, a disabled Build button (MT-05)', async () => {
@@ -472,11 +547,24 @@ describe('S3 trace view', () => {
     expect(c.querySelector('[data-testid="trace-candidate"] [data-pin]')!.textContent).toBe('pinned incomplete (2 missing)')
     expect(c.querySelector('[data-testid="trace-candidate"] [data-why]')!.textContent).toBe('red')
     act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-tab-calls"]')!.click())
-    // First failure panel.
-    const ff = c.querySelector('[data-first-failure]')!
-    expect(c.querySelector('[data-testid="trace-technical"]')!.textContent).toContain(SUB)
+    // MT-16: the side panel shows the selected step; at first that is the first failure, marked as such.
+    const ff = c.querySelector('[data-testid="trace-step-panel"]')!
+    expect(ff.hasAttribute('data-first-failure')).toBe(true)
+    expect(ff.textContent).toContain('Where it went wrong')
+    expect(c.querySelector('[data-testid="trace-first-failure-link"]')).toBeNull()
+    // Technical details are open and follow the selected step; with two runs they name the step's run.
+    const tech = () => c.querySelector('[data-testid="trace-technical"]')!
+    expect(tech().closest('details')!.open).toBe(true)
+    expect(tech().textContent).toContain(SUB)
     expect(ff.textContent).toContain('test-run')
     expect(ff.textContent).toContain('fixture-preview-failed-step')
+    // MT-15: a failed step's payload is red.
+    expect(ff.querySelector('[data-testid="step-preview"]')!.getAttribute('data-tone')).toBe('bad')
+    // MT-17: the run constants sit once under the title, not in the step details.
+    const constants = c.querySelector('[data-testid="trace-constants"]')!
+    expect([...constants.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['Agent', 'Harness', 'Host', 'Extractor', 'Pin'])
+    expect(constants.querySelector('[data-constant="host"] dd')!.textContent).toBe('fixture-host')
+    expect([...tech().querySelectorAll('dt')].map((d) => d.textContent)).not.toContain('Harness')
     // Steps: main run first, ok/failed markers, one first-failure step.
     const runs = [...c.querySelectorAll<HTMLElement>('[data-testid="trace-run"]')]
     expect(runs.map((r) => r.dataset.agentId)).toEqual(['', SUB])
@@ -487,12 +575,23 @@ describe('S3 trace view', () => {
     expect(marked).toHaveLength(1)
     expect(marked[0]).toBe(steps[2])
     expect(c.querySelector('[data-testid="trace-shown"]')!.textContent).toBe('showing 3 of 3 calls')
-    // A click on another step opens it in the side panel, with its preview.
-    expect(c.querySelector('[data-testid="trace-step-panel"]')).toBeNull()
+    // A click on another step replaces the panel: that step only, its details, and a jump link back to the failure.
     act(() => steps[0]!.click())
     const panel = c.querySelector('[data-testid="trace-step-panel"]')!
+    expect(c.querySelectorAll('[data-testid="trace-step-panel"]')).toHaveLength(1)
+    expect(panel.hasAttribute('data-first-failure')).toBe(false)
+    expect(panel.textContent).toContain('Completed')
     expect(panel.textContent).toContain('fixture-preview-step-0')
+    expect(panel.textContent).not.toContain('fixture-preview-failed-step')
+    expect(panel.querySelector('[data-testid="step-preview"]')!.getAttribute('data-tone')).toBe('ok')
+    expect(tech().getAttribute('data-step-id')).toBe(panel.getAttribute('data-step-id'))
+    expect(tech().textContent).not.toContain(SUB)
     expect(steps[0]!.getAttribute('data-step-ok')).toBe('true')
+    const jump = c.querySelector<HTMLButtonElement>('[data-testid="trace-first-failure-link"]')!
+    expect(jump.textContent).toContain('Where it went wrong: step')
+    act(() => jump.click())
+    expect(c.querySelector('[data-testid="trace-step-panel"]')!.hasAttribute('data-first-failure')).toBe(true)
+    expect(tech().textContent).toContain(SUB)
     // Back link to S2.
     expect(c.querySelector('[data-testid="trace-back"]')!.getAttribute('href')).toBe('/studio/traces')
   })
@@ -511,7 +610,7 @@ describe('S3 trace view', () => {
     act(() => rowsEl[0]!.click())
     const panel = c.querySelector('[data-testid="trace-step-panel"]')!
     const pre = panel.querySelector('[data-testid="step-preview"]')!
-    expect(pre.className).toBe('trc-preview')
+    expect(pre.className).toBe('trc-preview trc-preview--ok')
     const more = panel.querySelector<HTMLButtonElement>('[data-testid="step-more"]')!
     expect(more.textContent).toBe('more')
     act(() => more.click())
@@ -521,9 +620,11 @@ describe('S3 trace view', () => {
     // A short preview has no toggle.
     act(() => rowsEl[1]!.click())
     expect(c.querySelector('[data-testid="trace-step-panel"] [data-testid="step-more"]')).toBeNull()
-    // Choosing the first failure again shows the failure panel alone.
+    // Choosing the first failure again shows the failure card alone, with no jump link.
     act(() => rowsEl[2]!.click())
-    expect(c.querySelector('[data-testid="trace-step-panel"]')).toBeNull()
+    expect(c.querySelectorAll('[data-testid="trace-step-panel"]')).toHaveLength(1)
+    expect(c.querySelector('[data-testid="trace-step-panel"]')!.hasAttribute('data-first-failure')).toBe(true)
+    expect(c.querySelector('[data-testid="trace-first-failure-link"]')).toBeNull()
   })
 
   it('sends agent_id from the URL', async () => {
@@ -532,11 +633,36 @@ describe('S3 trace view', () => {
     expect(serveCalls().map((x) => x.url)).toEqual([`${SERVE}/v1/traces/${SID_A}?agent_id=${SUB}`])
   })
 
-  it('says "No failed step." when there is none', async () => {
+  it('says "No failed step" when there is none, and opens the first step', async () => {
     const c = mountAt(`/studio/traces/${SID_A}`, { trace: [200, { ...TRACE, first_failure: null, runs: [TRACE.runs[1]!] }] })
-    await waitFor(() => !!c.querySelector('[data-first-failure]'), 'ff')
-    expect(c.querySelector('[data-first-failure]')!.textContent).toContain('No failed step.')
+    await waitFor(() => !!c.querySelector('[data-testid="trace-no-failure"]'), 'no failure')
+    expect(c.querySelector('[data-testid="trace-no-failure"]')!.textContent).toContain('No failed step')
+    expect(c.querySelector('[data-first-failure]')).toBeNull()
     expect(c.querySelector('[data-first-failure-step]')).toBeNull()
+    expect(c.querySelector('[data-testid="trace-step-panel"]')!.textContent).toContain('Completed')
+  })
+
+  it('MT-14: with ?agent_id= the header counts that run; the session totals sit on a labelled line', async () => {
+    const run = TRACE.runs[0]!
+    const c = mountAt(`/studio/traces/${SID_A}?agent_id=${SUB}`, { trace: [200, { ...TRACE, agent_id: SUB, runs: [run] }] })
+    await waitFor(() => !!c.querySelector('[data-trace-summary]'), 'summary')
+    const stats = c.querySelector('[data-testid="trace-stats"]')!
+    expect(stats.getAttribute('data-scope')).toBe('run')
+    const want = run.n_tool_calls ?? run.spans.length
+    expect(stats.querySelector('[data-field="tool_calls"]')!.textContent).toBe(String(want))
+    expect(stats.querySelector('[data-field="errors"]')!.textContent).toBe(String(run.errors ?? run.spans.filter((x) => x.ok === false).length))
+    expect(stats.querySelector('[data-field="runs"]')!.textContent).toBe(run.is_subagent ? '1 · 1 subagent' : '1')
+    expect(stats.querySelector('[data-field="active"]')!.textContent).toBe('—')
+    expect(stats.querySelector('[data-field="cost"]')!.textContent).toBe('—')
+    expect(c.querySelector('[data-testid="trace-session-totals"]')!.textContent).toBe('Whole session: 3 tool calls · 1 errors · 2 · 1 subagent runs · 5m 0s wall · $1.23')
+    expect(c.querySelector('[data-constant="agent"] dd')!.textContent).toBe(SUB)
+    // Without agent_id the header is the session, and there is no totals line.
+    act(() => root?.unmount())
+    document.body.innerHTML = ''
+    const w = mountAt(`/studio/traces/${SID_A}`)
+    await waitFor(() => !!w.querySelector('[data-trace-summary]'), 'summary')
+    expect(w.querySelector('[data-testid="trace-stats"]')!.getAttribute('data-scope')).toBe('session')
+    expect(w.querySelector('[data-testid="trace-session-totals"]')).toBeNull()
   })
 
   it('S3 reads like the artboard: crumb ends with the title, a Step heading, one muted line, no repeated key list', async () => {
@@ -557,16 +683,17 @@ describe('S3 trace view', () => {
     const heading = c.querySelector('.trc-aside .trc-stepblock .trc-aside__title')!
     expect(heading.tagName).toBe('H2')
     expect(heading.textContent).toBe('Step 00')
-    const card = c.querySelector('[data-testid="trace-first-failure"]')!
+    const card = c.querySelector('[data-first-failure]')!
     expect(card.querySelector('dl')).toBeNull()
-    expect(card.querySelector('[data-testid="trace-first-failure-line"]')!.textContent).toBe('mcp: fleet-ci-check · ci-read · 10:03')
+    expect(card.querySelector('[data-testid="trace-step-line"]')!.textContent).toBe('mcp: fleet-ci-check · ci-read · 10:03')
     expect(card.textContent).not.toMatch(/step \d/)
     // The full list lives in Technical details, and a row with no value is left out.
     const tech = c.querySelector('[data-testid="trace-technical"]')!
     expect(tech.closest('details')).not.toBeNull()
     const keys = [...tech.querySelectorAll('dt')].map((d) => d.textContent)
-    expect(keys).toEqual(expect.arrayContaining(['Agent', 'Step', 'Tool', 'Intent', 'Time', 'Harness']))
-    expect(keys).not.toContain('Target kind')
+    // MT-16/17: the step only (one run, so no Run row); the run constants live under the title.
+    expect(keys).toEqual(['Step', 'Tool', 'Intent', 'Time'])
+    expect(c.querySelector('[data-testid="trace-constants"]')!.textContent).toContain('Harness')
     // The view toggle is one joined group with the pressed state on the active item.
     const toggle = c.querySelector('.trc-views')!
     expect(toggle.classList.contains('stu-toggle')).toBe(true)

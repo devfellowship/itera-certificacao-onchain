@@ -12,7 +12,7 @@
 // a login, for every content route; unknown or missing = refused, never real. A fixture principal gets no dry run.
 //
 //   GET /v1/health                      no login; `{ok: true}` and nothing else
-//   GET /v1/traces?limit&offset&l2_class&why&mode     S2: candidate traces with pin status and task summary
+//   GET /v1/traces?limit&offset&l2_class&why&mode&small_diff     S2: candidate traces with pin status and task summary
 //   GET /v1/traces/:session_id[?agent_id=...]          S3: session summary, runs with steps, first failure
 //   POST /grade/dry-run                                S10a/S11a: one grader grades one output; nothing stored.
 //        Same login as the GET routes; JSON body <= 256 KB (413); one dry run at a time (429); 504 after the timeout;
@@ -98,8 +98,13 @@ export async function route(method: string, rawUrl: string, authorization: strin
       const l2_class = textParam(url.searchParams.get('l2_class'));
       const why = textParam(url.searchParams.get('why'));
       const mode = textParam(url.searchParams.get('mode'));
+      const sd = url.searchParams.get('small_diff');
+      if (sd !== null && sd !== 'true' && sd !== 'false') return json(400, { error: 'bad_query' });
       if (limit === null || offset === null || l2_class === null || why === null || mode === null) return json(400, { error: 'bad_query' });
-      return json(200, listTraces(sources, { limit, offset, ...(l2_class ? { l2_class } : {}), ...(why ? { why } : {}), ...(mode ? { mode } : {}) }));
+      return json(
+        200,
+        listTraces(sources, { limit, offset, ...(l2_class ? { l2_class } : {}), ...(why ? { why } : {}), ...(mode ? { mode } : {}), ...(sd !== null ? { small_diff: sd === 'true' } : {}) }),
+      );
     }
     let sessionId: string;
     try {

@@ -119,6 +119,10 @@ export function candidateView(r: Row, pin: PinStatus | null, hasTrajectory: bool
     run_kind: str(r.run_kind),
     identifier: str(r.identifier),
     task_id: str(r.task_id),
+    // MT-12/13: source-agnostic task fields the selection writes (the DFL source fills them from its task row).
+    task_name: str(r.task_name),
+    external_id: str(r.external_id),
+    external_url: str(r.external_url),
     executor: str(r.executor),
     harness: str(r.harness),
     host: str(r.host),
@@ -128,6 +132,8 @@ export function candidateView(r: Row, pin: PinStatus | null, hasTrajectory: bool
     why: str(r.why),
     red: bool(r.red),
     replayable: bool(r.replayable),
+    // MT-11: the selection marks a merged PR of at most 3 files; pr.files_changed / additions / deletions ride in pr.
+    small_diff: bool(r.small_diff),
     pr: r.pr ?? null,
     n_delivering_prs: num(r.n_delivering_prs),
     started_at: str(r.started_at),
@@ -236,6 +242,8 @@ export interface ListQuery {
   l2_class?: string;
   why?: string;
   mode?: string;
+  /** MT-11: true keeps the rows marked small_diff; false keeps the rows marked not small. A row with no mark matches neither. */
+  small_diff?: boolean;
 }
 
 export function listTraces(src: StudioSources, q: ListQuery) {
@@ -243,7 +251,8 @@ export function listTraces(src: StudioSources, q: ListQuery) {
   const pins = pinStatuses(sel.pinsIndex);
   const all = readJsonl(sel.candidates).filter(
     (r) =>
-      (q.l2_class === undefined || r.l2_class === q.l2_class) && (q.why === undefined || r.why === q.why) && (q.mode === undefined || r.mode === q.mode),
+      (q.l2_class === undefined || r.l2_class === q.l2_class) && (q.why === undefined || r.why === q.why) && (q.mode === undefined || r.mode === q.mode) &&
+      (q.small_diff === undefined || r.small_diff === q.small_diff),
   );
   const page = all.slice(q.offset, q.offset + q.limit);
   const index = lookupSessions(
