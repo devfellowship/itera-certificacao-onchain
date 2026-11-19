@@ -67,6 +67,8 @@ test('studio S1, S4, S5, S6, S7 render the persistent smoke fixture, read only',
     const group = page.getByTestId('use-case-verify')
     await expect(group).toBeVisible({ timeout: 30_000 })
     await expect(group.getByTestId('studio-case-link').filter({ hasText: FIXTURE_CASE_KEY })).toBeVisible()
+    // Row 12: S1 lists only the 33 taxonomy pairs. A refused name has no list and no row.
+    await expect(page.getByTestId('use-case-unclassified')).toHaveCount(0)
   })
 
   await test.step('S4 test case: Before + Expected, 2 variants, copy command, no Save/Run', async () => {

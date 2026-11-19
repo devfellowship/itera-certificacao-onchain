@@ -11,6 +11,13 @@
  * whole test. CONTROL: the persistent smoke fixture of studio-fixture.ts holds data, so S8 lists the fixture agent and
  * /evaluations holds a row. The run-page Trajectory tab is NOT part of this spec: it was dropped from the table
  * (Q-C5-TRAJ = A). No screenshot and no trace: the spec types a password.
+ *
+ * Second test (task C5-ROW3-ROW12): the other links of the compatibility table that the product has built.
+ *   S6 cell -> /evaluations/:eid -> S7 ("Compare with baseline") -> back to /evaluations/:eid
+ *   /tasks/:slug -> S4 list filtered by the task ("Test cases from this task") -> back to /tasks/:slug
+ *   S4 case -> /tasks/:slug (the task page of the case) | S1 -> /tasks
+ * Not clicked, because the product has no such link: S5 "New agent" and S4 "Create a task" (rows of the table
+ * that no PR built). A new link of the table needs a hop here in the same PR.
  */
 import type { Page } from '@playwright/test'
 import { expect, expectMounted, loginWithDfl, test } from './helpers'
@@ -35,15 +42,19 @@ async function open(page: Page, url: string, readyTestId: string): Promise<void>
   await expect(page.getByTestId('not-found'), `404 page at ${url}`).toHaveCount(0)
 }
 
-test('studio compatibility links work forward and way back, no 404, no page error', async ({ page }) => {
+/** Log in, read the API base from the bundle's own GET /eval-cases (as in studio.spec.ts) and ensure the fixture. */
+async function loginAndFixture(page: Page) {
   await loginWithDfl(page)
-  // The API base comes from the bundle's own GET /eval-cases, as in studio.spec.ts.
   const listCall = page.waitForResponse((r) => r.request().method() === 'GET' && new URL(r.url()).pathname.endsWith('/eval-cases'), { timeout: 30_000 })
   await page.goto('/studio')
   const resp = await listCall
   expect(resp.status(), 'GET /eval-cases from the studio home').toBe(200)
   const apiBase = (process.env.E2E_API_URL || resp.url().slice(0, resp.url().lastIndexOf('/eval-cases'))).replace(/\/+$/, '')
-  const fixture = await ensureStudioFixture(page, apiBase)
+  return ensureStudioFixture(page, apiBase)
+}
+
+test('studio compatibility links work forward and way back, no 404, no page error', async ({ page }) => {
+  const fixture = await loginAndFixture(page)
 
   // Way back from S5: the base agent of the fixture links to its page. This also gives the agent id.
   await open(page, `/studio/experiments/new?case=${fixture.caseId}`, 'studio-experiment-page')
@@ -79,4 +90,51 @@ test('studio compatibility links work forward and way back, no 404, no page erro
   expect(rowHrefs.length, 'row links on /evaluations').toBeGreaterThan(0)
   for (const rowHref of rowHrefs) expect(rowHref, 'every /evaluations row link targets S6 for an agent').toMatch(/^\/studio\/experiments\?agent=[^&]+$/)
   await hop(page, 'row-studio-experiments', /\/studio\/experiments\?agent=/, 'studio-experiments-page')
+})
+
+/** The catalog task of task-tabs.spec.ts: a /tasks/:slug page that exists in production. */
+const CATALOG_TASK = 'tsk_webhook_dup'
+
+test('studio links from evaluations, tasks and S4 work forward and way back, no 404, no page error', async ({ page }) => {
+  const fixture = await loginAndFixture(page)
+
+  // S6 cell -> the evaluation page (canonical page of one evaluation). CONTROL: the skill cell of the fixture.
+  await open(page, `/studio/experiments?case=${fixture.caseId}`, 's6-matrix')
+  const skillCell = page.locator(`[data-testid="s6-cell"][data-variant="${fixture.skillVariantId}"]`)
+  await expect(skillCell, 'S6 skill cell (CONTROL: the fixture variant)').toBeVisible({ timeout: 30_000 })
+  await skillCell.getByTestId('s6-cell-link').click()
+  await expect(page, 'URL after the S6 cell link').toHaveURL(/\/evaluations\/[^/?]+$/)
+  await expectMounted(page)
+  await expect(page.getByTestId('not-found'), '404 page after the S6 cell link').toHaveCount(0)
+  const evaluationPath = new URL(page.url()).pathname
+
+  // /evaluations/:eid -> S7 "Compare with baseline" (the skill variant is not the baseline), then the way back.
+  await hop(page, 'studio-compare-baseline', /\/studio\/diff\?evaluation=/, 's7-table')
+  expect(await page.locator('[data-testid="s7-row"]').count(), 'S7 rows (CONTROL)').toBeGreaterThanOrEqual(1)
+  await hop(page, 's7-variant-evaluation-link', /\/evaluations\/[^/?]+$/, 'view-agent')
+  expect(new URL(page.url()).pathname, 'way back lands on the same evaluation').toBe(evaluationPath)
+
+  // /tasks/:slug -> S4 list filtered by the task, then the way back to the task page.
+  await open(page, `/tasks/${CATALOG_TASK}`, 'task-profile')
+  await hop(page, 'studio-task-cases', new RegExp(`/studio/cases\\?task=${CATALOG_TASK}$`), 'studio-task-filter')
+  await page.getByTestId('studio-task-filter').getByRole('link', { name: CATALOG_TASK }).click()
+  await expect(page, 'URL after the task link of S4').toHaveURL(new RegExp(`/tasks/${CATALOG_TASK}$`))
+  await expectMounted(page)
+  await expect(page.getByTestId('task-profile'), 'task page after the S4 way back').toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('not-found'), '404 page after the S4 way back').toHaveCount(0)
+
+  // S4 case page -> the task page of the case (CONTROL: the fixture case holds its task slug).
+  await open(page, `/studio/cases/${fixture.caseId}`, 'case-key')
+  await expect(page.getByTestId('case-task-link'), 'S4 task link (CONTROL: the fixture case has a task)').toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('case-task-link').click()
+  await expect(page, 'URL after the S4 task link').toHaveURL(/\/tasks\/[^/?]+$/)
+  await expectMounted(page)
+  await expect(page.getByTestId('not-found'), '404 page after the S4 task link').toHaveCount(0)
+
+  // S1 -> /tasks (code tasks stay on the Tasks page).
+  await page.goto('/studio')
+  await expectMounted(page)
+  await hop(page, 'studio-tasks-link', /\/tasks$/, 'tasks-page')
+  // CONTROL: the Tasks page lists tasks (the testid is per row, so count, do not resolve one).
+  await expect(page.getByTestId('task-author').first(), 'Tasks page row (CONTROL)').toBeVisible({ timeout: 30_000 })
 })
