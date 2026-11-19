@@ -1,0 +1,38 @@
+{
+  "repo": "repo",
+  "answer_format": "path relative to repo/, a colon and a 1-based line number inside the function, e.g. src/foo/bar.ts:42",
+  "questions": [
+    {
+      "id": "q1",
+      "question": "Which function decides whether a user session can no longer be used, because it timed out or was revoked?"
+    },
+    {
+      "id": "q2",
+      "question": "Which function computes how long to wait before the next retry of a failed task?"
+    },
+    {
+      "id": "q3",
+      "question": "Which function applies a percentage coupon to the subtotal in the CURRENT pricing code, not the deprecated one?"
+    },
+    {
+      "id": "q4",
+      "question": "Which function turns an amount and a region into the tax in cents for the CURRENT pricing code?"
+    },
+    {
+      "id": "q5",
+      "question": "Which function reports problems when a cart is empty or has an item whose quantity is not a positive integer?"
+    },
+    {
+      "id": "q6",
+      "question": "Which function builds the HTTP response sent to a client that went over its request limit?"
+    },
+    {
+      "id": "q7",
+      "question": "Which function reads the listening port from the environment and falls back to a default when it is missing?"
+    },
+    {
+      "id": "q8",
+      "question": "Which function gives reserved units back to the available stock of a product?"
+    }
+  ]
+}
