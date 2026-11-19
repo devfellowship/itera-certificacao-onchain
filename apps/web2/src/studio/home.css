@@ -153,7 +153,7 @@
 .s1-cases a:hover { color: var(--stu-accent-hover); }
 .s1-tag { margin-left: 6px; padding: 0 5px; border: 1px solid var(--stu-line); border-radius: var(--stu-radius); }
 
-.s1-unclassified .s1-cases { padding-top: 8px; }
+.s1-refused { margin: 12px 0 0; }
 .s1-none { padding: 12px 10px; }
 .s1-empty { display: flex; flex-direction: column; gap: var(--stu-gap-2); padding: var(--stu-gap-4); border: 1px solid var(--stu-line); border-radius: var(--stu-radius); background: var(--stu-surface); }
 .s1-foot { margin: 0; }

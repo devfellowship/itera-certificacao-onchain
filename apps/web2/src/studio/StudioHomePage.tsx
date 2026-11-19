@@ -20,7 +20,7 @@ import { agentGround, agentLetters, costText, passesVerdict, scoreText, summariz
 import { studioHref } from './links'
 import { getRoutes } from './routing'
 import { themeClass } from './theme'
-import { groupByUseCase, isL1Pair, splitUseCaseKey, type StudioCase } from './use-case'
+import { groupByUseCase, refusedCases, splitUseCaseKey, type StudioCase } from './use-case'
 import { loadErrorText, useStudioLoad } from './useStudioLoad'
 import './studio.css'
 import './home.css'
@@ -176,12 +176,13 @@ export function StudioHomePage({ cases, summaries }: { cases?: StudioCase[]; sum
   )
   const all = cases ?? (loaded.state === 'ok' ? loaded.data.cases : [])
   const list = task ? all.filter((c) => c.taskSlug === task) : all
-  const groups = groupByUseCase(list.filter((c) => isL1Pair(c.useCaseKey)))
+  const groups = groupByUseCase(list)
   const keys = useMemo(() => groups.flatMap((g) => g.subtypes.map((s) => (s.subtype ? `${g.type}/${s.subtype}` : g.type))), [groups.map((g) => g.type + g.total).join()])
   const fetched = useSummaries(keys, !cases && !summaries)
   const sums = summaries ?? fetched
-  // A name that is not one of the 33 pairs never gets its own use case row (Q-T17 = A).
-  const unclassified = list.filter((c) => !isL1Pair(c.useCaseKey)).sort((x, y) => x.caseKey.localeCompare(y.caseKey))
+  // Row 12 (parent ADR-29): S1 shows only the 33 pairs. A case with another name is refused: no row, no name.
+  // The page shows only how many were refused, so the refusal is not silent.
+  const refused = refusedCases(list).length
   const loading = !cases && loaded.state === 'loading'
   const error = !cases && loaded.state === 'error' ? loaded : null
 
@@ -240,7 +241,7 @@ export function StudioHomePage({ cases, summaries }: { cases?: StudioCase[]; sum
           <p className="tma-body-sm tma-muted" data-testid="studio-loading">
             Loading test cases…
           </p>
-        ) : groups.length === 0 && unclassified.length === 0 ? (
+        ) : groups.length === 0 ? (
           <div className="s1-empty" data-testid="studio-empty">
             <span className="tma-label">No test cases yet</span>
             {error && (
@@ -301,19 +302,10 @@ export function StudioHomePage({ cases, summaries }: { cases?: StudioCase[]; sum
             </div>
           </div>
         )}
-        {unclassified.length > 0 ? (
-          <section className="s1-unclassified" data-testid="use-case-unclassified">
-            <h2 className="s1-group">
-              Not a taxonomy pair · {unclassified.length} {unclassified.length === 1 ? 'case' : 'cases'}
-            </h2>
-            <ul className="s1-cases">
-              {unclassified.map((c) => (
-                <li key={c.caseKey} data-testid="studio-case">
-                  {c.caseKey} <span className="tma-muted">({c.useCaseKey})</span>
-                </li>
-              ))}
-            </ul>
-          </section>
+        {refused > 0 ? (
+          <p className="tma-body-sm tma-muted s1-refused" data-testid="s1-refused">
+            {refused} {refused === 1 ? 'case has' : 'cases have'} a use case name that is not one of the 33 taxonomy pairs. S1 does not list {refused === 1 ? 'it' : 'them'}.
+          </p>
         ) : null}
         {/* ADR-1: no own top bar, so the other studio screens are linked here, under the table. */}
         <nav className="s1-links" aria-label="Studio screens">
@@ -340,7 +332,7 @@ export function StudioHomePage({ cases, summaries }: { cases?: StudioCase[]; sum
             </Link>
           )}
         </nav>
-        {!loading && (groups.length > 0 || unclassified.length > 0) && (
+        {!loading && (groups.length > 0 || refused > 0) && (
           <p className="tma-body-sm tma-muted s1-foot">
             {!cases && loaded.state === 'ok' && loaded.data.truncated && <span data-testid="studio-truncated">Showing the newest {loaded.data.limit} test cases. </span>}
             Code tasks are on the{' '}

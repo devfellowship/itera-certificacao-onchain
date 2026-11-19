@@ -48,10 +48,20 @@ export function splitUseCaseKey(key: string): { type: string; subtype: string | 
   return { type: key.slice(0, i), subtype: key.slice(i + 1) || null }
 }
 
-/** Group cases by the L1 pair: type first, then subtype. Both levels sort by name; a null subtype sorts first. */
+/** Cases whose use case name is not one of the 33 pairs. S1 refuses them (Verification row 12, parent ADR-29). */
+export function refusedCases(cases: StudioCase[]): StudioCase[] {
+  return cases.filter((c) => !isL1Pair(c.useCaseKey))
+}
+
+/**
+ * Group cases by the L1 pair: type first, then subtype. Both levels sort by name.
+ * A case whose use case name is not one of the 33 pairs is REFUSED: it is in no group (row 12). Callers count
+ * the refused cases with `refusedCases`.
+ */
 export function groupByUseCase(cases: StudioCase[]): UseCaseGroup[] {
   const types = new Map<string, Map<string | null, StudioCase[]>>()
   for (const c of cases) {
+    if (!isL1Pair(c.useCaseKey)) continue
     const { type, subtype } = splitUseCaseKey(c.useCaseKey)
     const subs = types.get(type) ?? new Map<string | null, StudioCase[]>()
     subs.set(subtype, [...(subs.get(subtype) ?? []), c])
