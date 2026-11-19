@@ -606,11 +606,35 @@ function runSummaryView(r: Row, title: string | null) {
 }
 
 /** The candidate row of one run, newest selection day first, with the pin status of that day. */
-function findCandidate(selectDir: string, sessionId: string, agentId: string | null): { row: Row; pin: PinStatus | null } | null {
+export function findCandidate(selectDir: string, sessionId: string, agentId: string | null): { row: Row; pin: PinStatus | null } | null {
   const want = key(sessionId, agentId);
   for (const d of selectionDays(selectDir)) {
     const row = readJsonl(d.candidates).find((r) => key(r.session_id, r.agent_id) === want);
     if (row) return { row, pin: pinStatuses(d.pinsIndex).get(want) ?? null };
+  }
+  return null;
+}
+
+/**
+ * MT-05 (Build N cases): the full tma-pin/1 record of one run. The pins index of a day names the pin sha of the run;
+ * the record is the row of `pins-<day>.jsonl` (the same folder) with that pin_sha256. Newest day first: the first day
+ * whose index names the run wins. Null when no index names the run, or when that day holds no record of its sha.
+ */
+export function pinRecordOf(selectDir: string, sessionId: string, agentId: string | null): { pin_sha256: string; record: Row | null } | null {
+  const want = key(sessionId, agentId);
+  for (const d of selectionDays(selectDir)) {
+    if (!d.pinsIndex) continue;
+    const hit = readJsonl(d.pinsIndex).find((r) => key(r.session_id, r.agent_id) === want);
+    const sha = hit ? str(hit.pin_sha256) : null;
+    if (!sha || !PIN_SHA.test(sha)) continue;
+    const records = d.pinsIndex.replace(/\.index\.jsonl$/, '.jsonl');
+    let rows: Row[] = [];
+    try {
+      rows = readJsonl(records);
+    } catch {
+      rows = [];
+    }
+    return { pin_sha256: sha, record: rows.find((r) => str(r.pin_sha256) === sha) ?? null };
   }
   return null;
 }

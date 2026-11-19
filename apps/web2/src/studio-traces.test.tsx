@@ -147,7 +147,7 @@ async function waitFor(check: () => boolean, label: string, timeoutMs = 5000) {
   }
 }
 
-function mountAt(path: string, answers: { list?: Answer; trace?: Answer } = {}, keepCalls = false) {
+function mountAt(path: string, answers: { list?: Answer; trace?: Answer; build?: Answer } = {}, keepCalls = false) {
   saveSession({ token: TOKEN, user: { id: 'u-1', email: 'ana@example.com' } })
   if (!keepCalls) calls.length = 0
   vi.stubGlobal(
@@ -160,7 +160,7 @@ function mountAt(path: string, answers: { list?: Answer; trace?: Answer } = {}, 
       calls.push({ url, method: init.method ?? 'GET', headers, body: typeof init.body === 'string' ? init.body : init.body ? String(init.body) : '', credentials: init.credentials, cache: init.cache })
       const u = new URL(url)
       if (url.startsWith(`${SERVE}/`)) {
-        const a = u.pathname === '/v1/traces' ? (answers.list ?? [200, LIST]) : (answers.trace ?? [200, TRACE])
+        const a = u.pathname === '/v1/traces' ? (answers.list ?? [200, LIST]) : u.pathname === '/v1/case-drafts' ? (answers.build ?? [500, { error: 'no build answer' }]) : (answers.trace ?? [200, TRACE])
         if (a === 'network') throw new TypeError('Failed to fetch')
         return json(...a)
       }
@@ -436,7 +436,7 @@ describe('S2 trace picker', () => {
     expect(new URL(serveCalls()[0]!.url).searchParams.has('small_diff')).toBe(false)
   })
 
-  it('selects rows with the checkbox column: "N selected", select all on the page, Clear, a disabled Build button (MT-05)', async () => {
+  it('selects rows with the checkbox column: "N selected", select all on the page, Clear, Build waits for a use case (MT-05)', async () => {
     const c = mountAt('/studio/traces')
     await waitFor(() => traceRows(c).length > 0, 'rows')
     expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
@@ -450,10 +450,11 @@ describe('S2 trace picker', () => {
     act(() => boxes()[2]!.focus())
     expect(traceRows(c)[0]!.getAttribute('data-focused')).toBe(focusedBefore)
     expect(traceRows(c)[2]!.getAttribute('data-focused')).toBeNull()
-    // The build button names the count and stays disabled until its write path lands (MT-05, Q 3d291a2b = A).
+    // The build button names the count and stays disabled until a use case is chosen.
     const build = c.querySelector<HTMLButtonElement>('[data-testid="trace-build-cases"]')!
     expect(build.textContent).toBe('Build 2 cases')
     expect(build.disabled).toBe(true)
+    expect(c.querySelector<HTMLSelectElement>('[data-testid="trace-build-use-case"]')!.options.length).toBe(34)
     const all = c.querySelector<HTMLInputElement>('[data-testid="trace-select-all"]')!
     act(() => all.click())
     expect(c.querySelector('[data-testid="trace-selection-count"]')!.textContent).toBe(`${LIST.rows.length} selected`)
@@ -464,6 +465,69 @@ describe('S2 trace picker', () => {
     act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-selection-clear"]')!.click())
     expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
     expect(boxes().every((b) => !b.checked)).toBe(true)
+  })
+
+  it('Build N cases posts the selected trace ids and the use case, then shows the count, each case and the PR (MT-05)', async () => {
+    const id1 = traceIdOf(SID_A, SUB)
+    const id2 = traceIdOf(SID_B, null)
+    const result = {
+      store: 'evals',
+      created: [
+        { trace_id: id1, case_key: 'trace-11111111-a0fixtur', use_case: 'fix/red-ci', path: 'cases/fix/red-ci/trace-11111111-a0fixtur/case.json' },
+        { trace_id: id2, case_key: 'trace-11111111-bbbbbbbb', use_case: 'fix/red-ci', path: 'cases/fix/red-ci/trace-11111111-bbbbbbbb/case.json' },
+      ],
+      skipped: [{ trace_id: traceIdOf(SID_C, null), reason: 'no_pin' }],
+      pr_url: 'https://github.com/devfellowship/dfl-evals/pull/42',
+      branch: 'studio/build-cases-x',
+    }
+    const c = mountAt('/studio/traces', { build: [200, result] })
+    await waitFor(() => traceRows(c).length > 0, 'rows')
+    const boxes = () => traceRows(c).map((r) => r.querySelector<HTMLInputElement>('[data-testid="trace-select"]')!)
+    act(() => boxes()[1]!.click())
+    act(() => boxes()[2]!.click())
+    act(() => boxes()[3]!.click())
+    const select = c.querySelector<HTMLSelectElement>('[data-testid="trace-build-use-case"]')!
+    act(() => {
+      const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!
+      set.call(select, 'fix/red-ci')
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const build = c.querySelector<HTMLButtonElement>('[data-testid="trace-build-cases"]')!
+    expect(build.disabled).toBe(false)
+    expect(build.textContent).toBe('Build 3 cases')
+    act(() => build.click())
+    await waitFor(() => !!c.querySelector('[data-testid="trace-build-result"]'), 'build result')
+    const post = serveCalls().find((x) => x.method === 'POST')!
+    expect(post.url).toBe(`${SERVE}/v1/case-drafts`)
+    expect(post.headers.authorization).toBe(`Bearer ${TOKEN}`)
+    expect(post.headers['content-type']).toBe('application/json')
+    expect(post.credentials).toBe('omit')
+    const sent = JSON.parse(post.body) as { trace_ids: string[]; use_case: string }
+    expect(sent.use_case).toBe('fix/red-ci')
+    expect([...sent.trace_ids].sort()).toEqual([id1, id2, traceIdOf(SID_C, null)].sort())
+    expect(c.querySelector('[data-testid="trace-build-count"]')!.textContent).toBe('2 cases created')
+    expect(c.querySelector('[data-testid="trace-build-pr"]')!.getAttribute('href')).toBe(result.pr_url)
+    expect([...c.querySelectorAll('[data-testid="trace-build-cases-list"] li')].map((li) => li.textContent)).toEqual(result.created.map((x) => x.path))
+    expect(c.querySelector('[data-testid="trace-build-skipped"]')!.textContent).toContain('the trace is not pinned')
+    // A build that made cases clears the selection.
+    expect(c.querySelector('[data-testid="trace-selection"]')).toBeNull()
+    // No trace text and no session id goes to the TMA API.
+    for (const x of apiCalls()) for (const t of TRACE_TEXT) expect(x.url + x.body).not.toContain(t)
+  })
+
+  it('a refused build shows the reason and keeps the selection (MT-05)', async () => {
+    const c = mountAt('/studio/traces', { build: [503, { error: 'case_store_not_configured' }] })
+    await waitFor(() => traceRows(c).length > 0, 'rows')
+    act(() => traceRows(c)[0]!.querySelector<HTMLInputElement>('[data-testid="trace-select"]')!.click())
+    const select = c.querySelector<HTMLSelectElement>('[data-testid="trace-build-use-case"]')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, 'build/feature')
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    act(() => c.querySelector<HTMLButtonElement>('[data-testid="trace-build-cases"]')!.click())
+    await waitFor(() => !!c.querySelector('[data-testid="trace-build-error"]'), 'build error')
+    expect(c.querySelector('[data-testid="trace-build-error"]')!.textContent).toContain('no case store for your login')
+    expect(c.querySelector('[data-testid="trace-selection-count"]')!.textContent).toBe('1 selected')
   })
 
   it('passes why, mode and offset from the URL', async () => {

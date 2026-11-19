@@ -13,6 +13,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathS
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
+import { sealPin } from '@itera/contracts';
 import type { StudioSources } from './content.js';
 
 /** The marker file that `buildFixture()` writes at the root of a fixture tree. */
@@ -41,6 +42,39 @@ export const FIXTURE_VARIANT: FixtureVariant = {
   taskId: '11111111-0000-4000-8000-000000000001',
   label: 'Fixture',
 };
+
+/**
+ * MT-05: a synthetic tma-pin/1 record (invented hashes only), sealed, so a fixture run can become a case draft. The
+ * repo is an example.invalid name; the hashes are one repeated hex character each.
+ */
+export function fixturePinRecord(c: string, complete: boolean): Record<string, unknown> & { pin_sha256: string } {
+  const H = (x: string) => x.repeat(64);
+  return sealPin({
+    format: 'tma-pin/1',
+    repo: complete ? 'example-org/fixture-repo' : null,
+    base_sha: complete ? c.repeat(40) : null,
+    harness: 'claude-code',
+    harness_version: '2.1.0',
+    harness_repo_sha: '1'.repeat(40),
+    rules_sha256: H('2'),
+    skills_sha256: [H('3')],
+    model_id: 'anthropic/claude-sonnet-5.5',
+    mcp_manifest_sha256: H('4'),
+    input_sha256: H(c),
+    completeness: {
+      repo: complete ? 'exact' : 'missing',
+      base_sha: complete ? 'exact' : 'missing',
+      harness: 'exact',
+      harness_version: 'exact',
+      harness_repo_sha: 'derived',
+      rules_sha256: 'derived',
+      skills_sha256: 'derived',
+      model_id: 'derived',
+      mcp_manifest_sha256: 'derived',
+      input_sha256: 'exact',
+    },
+  });
+}
 
 /** The sources of a fixture tree, by their fixed names under its root. */
 export function fixtureSources(root: string): StudioSources {
@@ -103,10 +137,21 @@ export function buildFixture(root?: string, v: FixtureVariant = FIXTURE_VARIANT)
       candidate(v.sidOutside, null),
     ].join('\n') + '\n',
   );
+  // MT-05: the sub-agent run of sidA and the main run of sidB have a full pin record in pins-2026-11-02.jsonl, so
+  // they can become case drafts. The main run of sidA keeps an index row with no record (a draft skips it: no_pin_record).
+  const pinSub = fixturePinRecord('a', false);
+  const pinB = fixturePinRecord('b', true);
   writeFileSync(
     join(selectDir, 'pins-2026-11-02.index.jsonl'),
-    `${JSON.stringify({ session_id: v.sidA, agent_id: null, pin_sha256: 'f'.repeat(64), complete: false, missing: ['repo', 'base_sha'], layer1: true })}\n`,
+    [
+      { session_id: v.sidA, agent_id: null, pin_sha256: 'f'.repeat(64), complete: false, missing: ['repo', 'base_sha'], layer1: true },
+      { session_id: v.sidA, agent_id: v.subAgent, pin_sha256: pinSub.pin_sha256, complete: false, missing: ['repo', 'base_sha'], layer1: true },
+      { session_id: v.sidB, agent_id: null, pin_sha256: pinB.pin_sha256, complete: true, missing: [], layer1: true },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join('\n') + '\n',
   );
+  writeFileSync(join(selectDir, 'pins-2026-11-02.jsonl'), `${JSON.stringify(pinSub)}\n${JSON.stringify(pinB)}\n`);
 
   const span = (seq: number, ok: boolean, ts: string) => ({
     seq,

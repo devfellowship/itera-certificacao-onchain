@@ -6,7 +6,11 @@ import type { Command } from '../command.js';
 import { apiUrl, CliError } from '../env.js';
 import { apiIntrospect } from '../studio/auth.js';
 import type { StudioSources } from '../studio/content.js';
+import { DirCaseStore, GitCaseStore, type CaseStore } from '../studio/case-drafts.js';
 import { buildFixture, FIXTURE_VARIANT, fixtureSourcesAt } from '../studio/fixture.js';
+import { parseJudge } from '../eval/review-batch.js';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, resolve, sep } from 'node:path';
 import { BIND_HOST, startStudioServer } from '../studio/server.js';
 
 export const STUDIO_DEFAULTS = {
@@ -19,6 +23,8 @@ export const STUDIO_DEFAULTS = {
 const USAGE = `usage: tma studio serve --allow-principal <id> [--allow-principal <id> ...] [--allow-origin <url> ...]
                         [--port ${STUDIO_DEFAULTS.port}] [--index <file>] [--select-dir <dir>] [--trajectory-root <dir>]
                         [--grader-root <dir>] [--fixture-principal <id> ... --fixture-root <dir>]
+                        [--fixture-cases-root <dir>] [--cases-repo <clone> --cases-publish-cmd <file> [--cases-base main]]
+                        [--case-judge <id>@<semver> ...]
        tma studio fixture --out <dir>
   A read-only HTTP service for the studio trace screens (S2 picker, S3 trace view). It binds ${BIND_HOST} only.
   It reads the trace-select output, the trace index (SQLite, opened read-only) and the layer-1 trajectory
@@ -41,9 +47,47 @@ const USAGE = `usage: tma studio serve --allow-principal <id> [--allow-principal
     one grader grades one output with the code path of tma eval grade --dry-run and the answer comes back.
     Nothing is stored (a temp dir, removed after). One at a time (429), 60 s (504). A judge grader runs only
     with a model of A11 Q1 = B (fleet Claude, or a local ollama/ or local/ model); any other model is 422.
-  Routes: GET /v1/health, GET /v1/traces, GET /v1/traces/<session_id>[?agent_id=<id>], POST /grade/dry-run
+  MT-05 Build N cases: POST /v1/case-drafts {"trace_ids":["<12 hex>",...],"use_case":"<type>/<subtype>"} writes one
+    tma-case/1 draft per trace (cases/<type>/<subtype>/<case_key>/case.json); GET /v1/case-drafts lists them;
+    DELETE /v1/case-drafts/<case_key> removes one fixture draft. The store follows the login kind:
+  --fixture-cases-root  the folder of the fixture principals' drafts (for example /run/tma-studio/fixture-cases). It
+                    must not overlap a real source or --cases-repo. Without it a fixture principal gets 503.
+  --cases-repo      a clone of the eval repo (dfl-evals) that the serve owns: a real principal's build makes one branch
+                    from origin/<--cases-base> and one commit, then runs --cases-publish-cmd <repo> <branch> <title>,
+                    which pushes and opens the PR and prints its URL. Without both a real principal gets 503.
+  --case-judge      a judge of every draft (repeatable). Default: async-wait-lifecycle@0.1.0, external-block-handling@0.1.0.
+  Routes: GET /v1/health, GET /v1/traces, GET /v1/traces/<session_id>[?agent_id=<id>], POST /grade/dry-run,
+    GET|POST /v1/case-drafts, DELETE /v1/case-drafts/<case_key>
   tma studio fixture --out <dir>: write the synthetic fixture tree (no real text) into <dir>, which must not exist
     or be empty. Serve it with --fixture-root <dir>.`;
+
+const realOrResolved = (p: string) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
+const overlaps = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep) || b.startsWith(a.endsWith(sep) ? a : a + sep);
+
+/** MT-05: the case stores of the serve flags. The fixture store never overlaps a real source or the eval clone. */
+export function caseStoresFrom(fixtureRoot: string | undefined, repo: string | undefined, publishCmd: string | undefined, base: string | undefined, real: StudioSources): { fixture?: CaseStore; real?: CaseStore } {
+  const out: { fixture?: CaseStore; real?: CaseStore } = {};
+  if ((repo === undefined) !== (publishCmd === undefined)) throw new CliError('--cases-repo and --cases-publish-cmd go together');
+  if (base !== undefined && !/^[A-Za-z0-9._/-]{1,100}$/.test(base)) throw new CliError('--cases-base: a branch name');
+  if (repo && publishCmd) {
+    if (!existsSync(resolve(repo, '.git'))) throw new CliError(`--cases-repo: not a git clone: ${repo}`);
+    if (!existsSync(publishCmd)) throw new CliError(`--cases-publish-cmd: no such file: ${publishCmd}`);
+    out.real = new GitCaseStore({ repo: resolve(repo), publishCmd: resolve(publishCmd), ...(base ? { base } : {}) });
+  }
+  if (fixtureRoot) {
+    const f = realOrResolved(fixtureRoot);
+    const realDirs = [real.selectDir, real.trajectoryRoot, dirname(real.indexPath), ...(repo ? [repo] : [])].map(realOrResolved);
+    for (const d of realDirs) if (overlaps(f, d)) throw new CliError(`--fixture-cases-root overlaps a real source or the eval clone (${d})`);
+    out.fixture = new DirCaseStore(fixtureRoot);
+  }
+  return out;
+}
 
 const PRINCIPAL_ID = /^[A-Za-z0-9:_-]{3,100}$/;
 
@@ -84,6 +128,11 @@ export const studioCommand: Command = {
       'allow-origin': { repeat: true },
       'fixture-principal': { repeat: true },
       'fixture-root': {},
+      'fixture-cases-root': {},
+      'cases-repo': {},
+      'cases-publish-cmd': {},
+      'cases-base': {},
+      'case-judge': { repeat: true },
     });
     if (a.positionals.length > 0) throw new CliError(`unexpected argument: ${a.positionals[0]}\n${USAGE}`);
     const principals = principalList(flagList(a, 'allow-principal'), 'allow-principal');
@@ -118,12 +167,15 @@ export const studioCommand: Command = {
         throw new CliError(`--fixture-root: ${(e as Error).message}`);
       }
     }
+    const caseStores = caseStoresFrom(flag(a, 'fixture-cases-root'), flag(a, 'cases-repo'), flag(a, 'cases-publish-cmd'), flag(a, 'cases-base'), sources);
+    const judges = flagList(a, 'case-judge').map(parseJudge);
     const server = await startStudioServer(port, {
       sources,
       ...(fixtureSources ? { fixtureSources } : {}),
       auth: { introspect: apiIntrospect(api), allowPrincipals: new Set(principals), fixturePrincipals: new Set(fixturePrincipals) },
       allowOrigins: new Set(origins),
       dryRun: { graderRoot: flag(a, 'grader-root') },
+      caseStores: { ...caseStores, ...(judges.length > 0 ? { judges } : {}) },
       log: (line) => io.err(`[studio] ${new Date().toISOString()} ${line}`),
     });
     const addr = server.address();
