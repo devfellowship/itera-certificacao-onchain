@@ -1110,6 +1110,18 @@ textarea.tma-input {
   position: relative;
   display: inline-flex;
 }
+/* A phone is narrower than the app links, the Studio sections and "More" in one row (8 items, about 550px wide):
+   the links wrap to a second row instead of widening the page. Pages that lift the 1024px floor rely on this. */
+@media (max-width: 720px) {
+  .tma-nav__links {
+    flex-wrap: wrap;
+    min-width: 0;
+    gap: 6px 14px;
+  }
+  .tma-nav__sep {
+    display: none;
+  }
+}
 .tma-nav__more-trigger {
   display: inline-flex;
   align-items: center;
