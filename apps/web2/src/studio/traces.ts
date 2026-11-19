@@ -281,6 +281,78 @@ export function fetchPin(pinSha: string, opts: TraceFetchOptions = {}): Promise<
   return getJson<PinLookup>((b) => pinUrl(b, pinSha), opts)
 }
 
+/**
+ * MT-05 "Build N cases": POST <serve>/v1/case-drafts. The serve writes one tma-case/1 draft per trace into the case
+ * store of the login: the eval repo (dfl-evals, one PR) for a real login, a synthetic folder for the fixture login.
+ */
+export interface CaseDraftSkip {
+  trace_id: string
+  reason: string
+}
+export interface CaseDraftBuild {
+  store: 'fixture' | 'evals'
+  created: Array<{ trace_id: string; case_key: string; use_case: string; path: string }>
+  skipped: CaseDraftSkip[]
+  pr_url: string | null
+  branch: string | null
+}
+export interface CaseDraftList {
+  store: 'fixture' | 'evals'
+  drafts: Array<{ case_key: string; use_case: string; mode: string; task_id: string; written_at: string; path: string }>
+}
+
+async function sendJson<T>(path: string, method: 'POST' | 'DELETE', body: unknown, opts: TraceFetchOptions): Promise<T> {
+  const base = opts.serveUrl ?? STUDIO_SERVE_URL
+  if (!base) throw new TraceServeError('not_configured')
+  const token = (opts.getToken ?? sessionBearer)()
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  const doFetch = opts.fetchImpl ?? fetch
+  let res: Response
+  try {
+    res = await doFetch(`${base.replace(/\/+$/, '')}${path}`, { method, headers, credentials: 'omit', cache: 'no-store', ...(body !== undefined ? { body: JSON.stringify(body) } : {}) })
+  } catch {
+    throw new TraceServeError('network')
+  }
+  const parsed = (await res.json().catch(() => null)) as unknown
+  if (!res.ok) {
+    const code = parsed && typeof parsed === 'object' && typeof (parsed as { error?: unknown }).error === 'string' ? (parsed as { error: string }).error : null
+    throw new TraceServeError('http', res.status, code)
+  }
+  if (!parsed || typeof parsed !== 'object') throw new TraceServeError('http', res.status, 'bad_body')
+  return parsed as T
+}
+
+export function postCaseDrafts(body: { trace_ids: string[]; use_case: string }, opts: TraceFetchOptions = {}): Promise<CaseDraftBuild> {
+  return sendJson<CaseDraftBuild>('/v1/case-drafts', 'POST', body, opts)
+}
+export function fetchCaseDrafts(opts: TraceFetchOptions = {}): Promise<CaseDraftList> {
+  return getJson<CaseDraftList>((b) => `${b.replace(/\/+$/, '')}/v1/case-drafts`, opts)
+}
+
+/** The user text of one skip reason of a build. */
+export const CASE_SKIP_TEXT: Record<string, string> = {
+  trace_not_found: 'no run has this trace id',
+  no_candidate: 'not in the trace selection',
+  no_task: 'the trace has no task id',
+  no_pin: 'the trace is not pinned',
+  no_pin_record: 'the pin record is missing',
+  pin_record_invalid: 'the pin record is not valid',
+  manifest_invalid: 'the case would not be valid',
+  case_exists: 'a case of this run exists already',
+}
+
+/** The user text of a failed build. */
+export function caseBuildErrorText(err: unknown): string {
+  if (err instanceof TraceServeError && err.kind === 'http') {
+    if (err.code === 'case_store_not_configured') return 'The trace service has no case store for your login yet.'
+    if (err.code === 'evals_publish_failed' || err.code === 'evals_git_failed') return 'The drafts could not be pushed to the eval repo. Nothing was opened.'
+    if (err.status === 401) return 'Your session ended. Sign in again.'
+  }
+  return traceErrorText(err)
+}
+
 /** The user text of a failed trace read. */
 export function traceErrorText(err: unknown): string {
   if (err instanceof TraceServeError) {

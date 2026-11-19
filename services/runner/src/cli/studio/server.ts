@@ -1,7 +1,7 @@
 // The HTTP surface of `tma studio serve` (plan 20261112-tma-c5-studio-area-web2, ADR-4, task C5-T11).
 //
-// Read-only by construction: GET only (OPTIONS answers a CORS preflight), every other method is 405
-// before any other check. The one exception is `POST /grade/dry-run` (task C5-T10, Q-C5-2b = A): a no-store
+// Read-only on the sources by construction: GET only (OPTIONS answers a CORS preflight), every other method is 405
+// before any other check. MT-05 /v1/case-drafts writes case drafts to a case STORE (never to a source). The other exception is `POST /grade/dry-run` (task C5-T10, Q-C5-2b = A): a no-store
 // dry-run grading (dry-run.ts); it writes nothing outside a temp dir that it removes. Every content route checks the login on every call (auth.ts). The service
 // binds 127.0.0.1 only; how a browser reaches it is a separate decision (Q-C5-2). It handles one request
 // at a time: a request waits for the one before it.
@@ -17,6 +17,10 @@
 //   GET /v1/traces/:session_id[?agent_id=...]          S3, the old key: one run with agent_id, else the whole session
 //   GET /v1/pins/:pin_sha256                           S13: the session of a review run's case pin over every selection
 //                                                      day, with its task name and task summary (content.ts resolvePin)
+//   GET    /v1/case-drafts                  MT-05: the case drafts of the login's store (fixture or eval repo)
+//   POST   /v1/case-drafts                  MT-05 "Build N cases": {trace_ids, use_case} -> one tma-case/1 draft per
+//          trace in the store of the login kind (case-drafts.ts). JSON body <= 16 KB. The real store opens one PR.
+//   DELETE /v1/case-drafts/:case_key        MT-05: remove one draft of the fixture store (a real draft: close its PR)
 //   POST /grade/dry-run                                S10a/S11a: one grader grades one output; nothing stored.
 //        Same login as the GET routes; JSON body <= 256 KB (413); one dry run at a time (429); 504 after the timeout;
 //        a code grader runs in a network namespace (unshare -rn), 503 network_sandbox_unavailable when there is none.
@@ -24,6 +28,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { checkLogin, principalConflicts, type AuthDeps, type PrincipalKind } from './auth.js';
 import { getTrace, getTraceById, listTraces, NotFound, resolvePin, SESSION_ID, TRACE_ID, type StudioSources } from './content.js';
 import { assertDisjointSources } from './fixture.js';
+import { buildCaseDrafts, CASE_DRAFTS_MAX_BODY, CASE_DRAFTS_PATH, CaseDraftRefused, DEFAULT_CASE_JUDGES, parseBuildBody, type CaseStore } from './case-drafts.js';
 import { DRY_RUN_MAX_BODY, DRY_RUN_PATH, DRY_RUN_TIMEOUT_MS, DryRunRefused, parseDryRunBody, probeNetworkSandbox, runDryRun, type DryRunOptions } from './dry-run.js';
 
 /** The only address the service binds. A wider bind needs a code change and a review, not a flag. */
@@ -41,6 +46,11 @@ export interface StudioServerOptions {
   log?: (line: string) => void;
   /** POST /grade/dry-run (C5-T10): the grader library root, the judge path, the timeout. */
   dryRun?: DryRunOptions;
+  /**
+   * MT-05 /v1/case-drafts: where the drafts of each login kind go. A fixture principal writes only to `fixture`; a
+   * real principal only to `real`. An absent store answers 503 case_store_not_configured.
+   */
+  caseStores?: { fixture?: CaseStore; real?: CaseStore; judges?: ReadonlyArray<{ id: string; version: string }> };
 }
 
 export interface Answer {
@@ -128,6 +138,67 @@ export async function route(method: string, rawUrl: string, authorization: strin
   } catch (e) {
     if (e instanceof NotFound) return json(e.code.startsWith('bad_') ? 400 : 404, { error: e.code });
     return json(500, { error: 'read_failed' });
+  }
+}
+
+/** THE one place that picks the case store of a login, as sourcesFor picks the sources. Never real by default. */
+export function storeFor(login: { kind: PrincipalKind }, opts: Pick<StudioServerOptions, 'caseStores'>): CaseStore | null {
+  switch (login.kind) {
+    case 'fixture':
+      return opts.caseStores?.fixture ?? null;
+    case 'real':
+      return opts.caseStores?.real ?? null;
+    default:
+      return null;
+  }
+}
+
+const CASE_DRAFT_KEY = /^\/v1\/case-drafts\/([a-z0-9][a-z0-9_-]{2,62})\/?$/;
+export const isCaseDraftsPath = (path: string) => path === CASE_DRAFTS_PATH || path === `${CASE_DRAFTS_PATH}/` || path.startsWith(`${CASE_DRAFTS_PATH}/`);
+
+/** MT-05: GET (list), POST (build) and DELETE (remove one) of /v1/case-drafts. Login, then the store of its kind. */
+export async function caseDraftsRoute(req: IncomingMessage, opts: StudioServerOptions): Promise<Answer> {
+  const url = new URL(req.url ?? '/', 'http://studio.invalid');
+  const method = req.method ?? 'GET';
+  const base = url.pathname === CASE_DRAFTS_PATH || url.pathname === `${CASE_DRAFTS_PATH}/`;
+  const keyMatch = CASE_DRAFT_KEY.exec(url.pathname);
+  const allowed = base ? ['GET', 'POST'] : keyMatch ? ['DELETE'] : [];
+  if (allowed.length === 0) {
+    req.resume();
+    return json(404, { error: 'not_found' });
+  }
+  if (!allowed.includes(method)) {
+    req.resume();
+    return json(405, { error: 'method_not_allowed' }, { allow: `${allowed.join(', ')}, OPTIONS` });
+  }
+  const login = await checkLogin(req.headers.authorization, opts.auth);
+  if (!login.ok) {
+    req.resume();
+    return json(login.status, { error: login.reason });
+  }
+  const sources = sourcesFor(login, opts);
+  const store = storeFor(login, opts);
+  if (!sources || !store) {
+    req.resume();
+    return json(503, { error: 'case_store_not_configured', message: 'this serve has no case store for this login' });
+  }
+  try {
+    if (method === 'GET') return json(200, { store: store.kind, drafts: await store.list() });
+    if (method === 'DELETE') {
+      const removed = await store.remove(keyMatch![1]!);
+      return removed ? json(200, { removed: keyMatch![1]! }) : json(404, { error: 'draft_not_found' });
+    }
+    const declared = Number(req.headers['content-length'] ?? '0');
+    const body = Number.isFinite(declared) && declared > CASE_DRAFTS_MAX_BODY ? ({ ok: false } as const) : await readBody(req, CASE_DRAFTS_MAX_BODY);
+    if (!body.ok) return json(413, { error: 'body_too_large', max_bytes: CASE_DRAFTS_MAX_BODY });
+    const type = String(req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
+    if (type !== 'application/json') return json(415, { error: 'unsupported_media_type', message: 'send application/json' });
+    const parsed = parseBuildBody(body.text);
+    return json(200, await buildCaseDrafts(sources, store, parsed, opts.caseStores?.judges ?? DEFAULT_CASE_JUDGES));
+  } catch (e) {
+    if (e instanceof CaseDraftRefused) return json(e.status, { error: e.code, message: e.message });
+    if (e instanceof NotFound) return json(404, { error: e.code });
+    return json(500, { error: 'case_drafts_failed' });
   }
 }
 
@@ -241,10 +312,11 @@ export function handler(opts: StudioServerOptions): (req: IncomingMessage, res: 
         send(res, json(403, { error: 'origin_not_allowed' }), {});
       } else {
         const dry = path === DRY_RUN_PATH;
+        const drafts = isCaseDraftsPath(path);
         res.writeHead(204, {
           ...cors,
-          'access-control-allow-methods': dry ? 'POST' : 'GET',
-          'access-control-allow-headers': dry ? 'authorization, content-type' : 'authorization',
+          'access-control-allow-methods': dry ? 'POST' : drafts ? 'GET, POST, DELETE' : 'GET',
+          'access-control-allow-headers': dry || drafts ? 'authorization, content-type' : 'authorization',
           'access-control-max-age': '600',
         });
         res.end();
@@ -260,6 +332,15 @@ export function handler(opts: StudioServerOptions): (req: IncomingMessage, res: 
           send(res, a, cors);
           log(`POST ${path} ${a.status} ${Date.now() - started}ms`);
         });
+      return;
+    }
+    if (isCaseDraftsPath(path)) {
+      // In the one-at-a-time queue: a build writes, so two builds never run side by side.
+      queue = queue.then(async () => {
+        const a = await caseDraftsRoute(req, opts).catch(() => json(500, { error: 'internal' }));
+        send(res, a, cors);
+        log(`${req.method} ${path} ${a.status} ${Date.now() - started}ms`);
+      });
       return;
     }
     queue = queue.then(async () => {

@@ -10,8 +10,10 @@
  * Filters (MT-02): one "Filters (n)" button with a dropdown, the active filters as removable chips, "+N more", "Clear
  * all". Rows (MT-04): the task id only, no "picked for" tag (it is a filter and a panel field); the header is the title
  * row only, the selection day moves into its (i).
- * Selection (MT-05, first half): a checkbox column, the "N selected · Clear" bar and a DISABLED "Build N cases" button.
- * Its action (Q 3d291a2b = A: the serve writes case drafts into dfl-evals) lands in its own PR.
+ * Selection (MT-05): a checkbox column, the "N selected · Clear" bar, a use case (one of the 33 L1 pairs) and
+ * "Build N cases" (Q 3d291a2b = A): POST /v1/case-drafts on the serve writes one tma-case/1 draft per trace into the
+ * case store of the login (dfl-evals and one PR for a real login, a synthetic folder for the fixture login). The
+ * result shows the count, each case and the PR link.
  * MT-20: one row = one trace = one run. A row links to /studio/traces/<trace_id>; the session is a column and a filter
  * (?session_id=).
  * Gaps against the artboard (the index has no such field or the studio has no such screen): the task title (the row
@@ -23,7 +25,8 @@ import { Card } from '../tma/ui'
 import { useDismiss } from '../tma/ui/useDismiss'
 import { AgentAvatar, ExternalRef, InfoTip, PinBadge, SignalChips, TaskSummaryBlock, TraceErrorCard, dash, fmtTime, useTraceLoad } from './TraceParts'
 import { themeClass } from './theme'
-import { TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prFiles, prUrl, replayOf, shortDay, signalLabel, rowHref, sessionHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
+import { L1_PAIRS_V4 } from './use-case'
+import { CASE_SKIP_TEXT, caseBuildErrorText, isTraceId, postCaseDrafts, traceIdOf, type CaseDraftBuild, TRACE_PAGE_SIZE, agentChip, dayOf, fetchTraceList, newestFirst, plainValue, prFiles, prUrl, replayOf, shortDay, signalLabel, rowHref, sessionHref, trueSignals, type Replay, type TraceList, type TraceRow } from './traces'
 import './studio.css'
 import './traces.css'
 
@@ -400,6 +403,101 @@ function Paging({ params, data }: { params: URLSearchParams; data: TraceList }) 
 
 type Keyed = Array<{ r: TraceRow; k: string }>
 
+type BuildState = { state: 'idle' } | { state: 'building'; n: number } | { state: 'done'; result: CaseDraftBuild } | { state: 'error'; text: string }
+
+/** MT-05: the use case and the "Build N cases" button of the selection bar. */
+function BuildCases({ n, traceIds, onBuilt, building }: { n: number; traceIds: string[]; onBuilt: (b: BuildState) => void; building: boolean }) {
+  const [useCase, setUseCase] = useState('')
+  const build = async () => {
+    onBuilt({ state: 'building', n })
+    try {
+      onBuilt({ state: 'done', result: await postCaseDrafts({ trace_ids: traceIds, use_case: useCase }) })
+    } catch (e) {
+      onBuilt({ state: 'error', text: caseBuildErrorText(e) })
+    }
+  }
+  const missing = traceIds.length === 0
+  return (
+    <>
+      <label className="trc-selbar__uc">
+        <span className="tma-body-sm tma-muted">Use case</span>
+        <select value={useCase} onChange={(e) => setUseCase(e.target.value)} data-testid="trace-build-use-case" aria-label="Use case of the new cases">
+          <option value="">Choose…</option>
+          {L1_PAIRS_V4.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        className="stu-btn stu-btn--primary"
+        disabled={!useCase || building || missing}
+        title={missing ? 'The selected rows have no trace id' : !useCase ? 'Choose the use case of the new cases first' : 'Write one case draft per selected trace'}
+        onClick={() => void build()}
+        data-testid="trace-build-cases"
+      >
+        {building ? 'Building…' : `Build ${n} ${n === 1 ? 'case' : 'cases'}`}
+      </button>
+    </>
+  )
+}
+
+/** MT-05: what the build made: the count, each case, the PR (eval repo) or the fixture note, and the skips. */
+function BuildResult({ b, onClose }: { b: BuildState; onClose: () => void }) {
+  if (b.state === 'idle' || b.state === 'building') return null
+  if (b.state === 'error')
+    return (
+      <div className="trc-build trc-build--error" role="alert" data-testid="trace-build-error">
+        <span>{b.text}</span>
+        <button type="button" className="trc-selbar__clear" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    )
+  const r = b.result
+  const n = r.created.length
+  return (
+    <div className="trc-build" role="status" data-testid="trace-build-result">
+      <div className="trc-build__head">
+        <strong data-testid="trace-build-count">
+          {n} {n === 1 ? 'case' : 'cases'} created
+        </strong>
+        {r.pr_url ? (
+          <a href={r.pr_url} target="_blank" rel="noreferrer" data-testid="trace-build-pr">
+            Open the pull request in dfl-evals
+          </a>
+        ) : n > 0 && r.store === 'fixture' ? (
+          <span className="tma-body-sm tma-muted">Fixture store: test drafts that stay on the trace host.</span>
+        ) : null}
+        <span className="trc-filters__fill" />
+        <button type="button" className="trc-selbar__clear" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      {n > 0 && (
+        <ul className="trc-build__list" data-testid="trace-build-cases-list">
+          {r.created.map((c) => (
+            <li key={c.case_key}>
+              <code>{c.path}</code>
+            </li>
+          ))}
+        </ul>
+      )}
+      {r.skipped.length > 0 && (
+        <ul className="trc-build__list tma-muted" data-testid="trace-build-skipped">
+          {r.skipped.map((s) => (
+            <li key={s.trace_id}>
+              Skipped <code>{s.trace_id}</code>: {CASE_SKIP_TEXT[s.reason] ?? s.reason}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function TraceTable({ rows, focusedKey, onFocus, selected, onSelect }: { rows: Keyed; focusedKey: string | null; onFocus: (k: string) => void; selected: Set<string>; onSelect: (next: Set<string>) => void }) {
   const all = rows.length > 0 && rows.every(({ k }) => selected.has(k))
   const toggle = (k: string) => {
@@ -434,6 +532,7 @@ export function StudioTracesPage() {
   const [params] = useSearchParams()
   const [focus, setFocus] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [build, setBuild] = useState<BuildState>({ state: 'idle' })
   const offset = Number(params.get('offset') ?? '0')
   const q = {
     limit: TRACE_PAGE_SIZE,
@@ -450,6 +549,12 @@ export function StudioTracesPage() {
   // Newest first on each page. The serve pages by its own order, so the date order holds inside a page only.
   const keyed = loaded.state === 'ok' ? newestFirst(loaded.data.rows).map((r, i) => ({ r, k: rowKey(r, i) })) : []
   const focused = keyed.find((x) => x.k === focus) ?? keyed[0] ?? null
+  // The trace id of each selected row: the served one, else the one computed from its session and agent (MT-20).
+  const selectedIds = [...new Set(keyed.filter(({ k }) => selected.has(k)).map(({ r }) => (r.trace_id && isTraceId(r.trace_id) ? r.trace_id : r.session_id ? traceIdOf(r.session_id, r.agent_id) : null)).filter((id): id is string => !!id))]
+  const onBuilt = (b: BuildState) => {
+    setBuild(b)
+    if (b.state === 'done' && b.result.created.length > 0) setSelected(new Set())
+  }
   return (
     <main className={themeClass('tma-page', 'trc-page', 'trc-page--picker')} data-testid="studio-traces">
       <div className="trc-shell">
@@ -486,12 +591,10 @@ export function StudioTracesPage() {
                     Clear
                   </button>
                   <span className="trc-filters__fill" />
-                  {/* Disabled until the write lands (Q 3d291a2b = A: the serve writes case drafts into dfl-evals). */}
-                  <button type="button" className="stu-btn stu-btn--primary" disabled title="Coming next: builds case drafts from the selected traces" data-testid="trace-build-cases">
-                    Build {selected.size} {selected.size === 1 ? 'case' : 'cases'}
-                  </button>
+                  <BuildCases n={selected.size} traceIds={selectedIds} onBuilt={onBuilt} building={build.state === 'building'} />
                 </div>
               )}
+              <BuildResult b={build} onClose={() => setBuild({ state: 'idle' })} />
               {loaded.data.rows.length === 0 ? (
                 <p className="tma-body-sm tma-muted" data-testid="traces-empty">
                   No candidate traces match these filters.

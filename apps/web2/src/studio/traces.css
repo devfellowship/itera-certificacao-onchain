@@ -275,3 +275,10 @@
   .trc-axis__tick:not(:first-child):not(:last-child) { display: none; }
   .trc-tiles { gap: var(--stu-gap-3) var(--stu-gap-5); }
 }
+/* MT-05: the use case of "Build N cases" and the build result under the selection bar. */
+.trc-selbar__uc { display: inline-flex; align-items: center; gap: 6px; }
+.trc-selbar__uc select { height: 28px; max-width: 100%; border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); background: var(--stu-surface); color: var(--stu-text); font: inherit; padding: 0 6px; }
+.trc-build { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; border: 1px solid var(--stu-line-strong); border-radius: var(--stu-radius); background: var(--stu-surface); }
+.trc-build--error { flex-direction: row; align-items: center; justify-content: space-between; border-color: var(--stu-bad); }
+.trc-build__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--stu-gap-3); }
+.trc-build__list { margin: 0; padding-left: 18px; font-size: 12px; overflow-wrap: anywhere; }
