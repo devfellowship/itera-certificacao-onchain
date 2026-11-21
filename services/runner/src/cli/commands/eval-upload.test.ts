@@ -366,6 +366,103 @@ describe('a patch written outside the kit names its producer (C7-T5)', () => {
   });
 });
 
+describe('a derived cost for a producer patch (C7-COST)', () => {
+  const TABLE = {
+    schema: 'tma-model-prices/1', as_of: '2026-11-21', currency: 'USD', per: '1M tokens',
+    models: [{ model_id: 'zai/glm-5.3', input: 2, cache_read: 0.1, cache_write: 2.5, output: 10, source_url: 'https://example.test/pricing', fetched_on: '2026-11-21', note: 'fixture' }],
+  };
+  const producer = (over: Record<string, unknown> = {}) => ({ harness: 'opencode', model: 'zai/glm-5.3', tokens_in: 1_000_000, tokens_out: 50_000, cache_read_tokens: 600_000, cache_write_tokens: 100_000, ...over });
+  const writeTable = (t: unknown) => {
+    const f = join(tmp('prices'), 'p.json');
+    writeFileSync(f, JSON.stringify(t));
+    return f;
+  };
+  async function dry(prod: Record<string, unknown>, extra: string[] = []) {
+    const env = loggedIn();
+    const f = fakeApi();
+    const { dir, vdir } = await caseWithRuns({}, { kind: 'patch', patch: 'p.patch', agent: undefined, change_kind: 'none', is_baseline: true, prediction: null, producer: prod }, deps({ env: { ...env, OPENROUTER_API_KEY: KEY } }));
+    const io = captureIo();
+    const code = await makeEvalCommand(deps({ env, fetchImpl: f as unknown as typeof fetch })).main(['upload', '--case', dir, '--variant-dir', vdir, '--agent', AGENT, '--dry-run', ...extra], io);
+    return { code, io, body: code === 0 ? (JSON.parse(String((f.mock.calls.at(-1) as unknown as [string, RequestInit])[1].body)) as Record<string, any>) : null };
+  }
+
+  it('prices the cache split: 600k read, 100k written, 300k fresh, 50k out is 1.41 USD, labelled derived', async () => {
+    const { code, io, body } = await dry(producer(), ['--prices', writeTable(TABLE)]);
+    expect(code, io.errText()).toBe(0);
+    expect(body!.executor.cost_source).toBe('derived');
+    for (const r of body!.runs) expect(r.cost_usd).toBe(1.41); // 0.3M*2 + 0.6M*0.1 + 0.1M*2.5 + 0.05M*10
+    expect(validateLocalResultV2(body).ok).toBe(true);
+    expect(io.errText()).toMatch(/cost derived from the list price of zai\/glm-5\.3, table as of 2026-11-21/);
+    expect(io.errText()).toMatch(/not money paid/);
+  });
+
+  it('a model that is not in the table keeps cost null and the source none', async () => {
+    const { code, io, body } = await dry(producer({ model: 'zai/glm-9.9' }), ['--prices', writeTable(TABLE)]);
+    expect(code, io.errText()).toBe(0);
+    expect(body!.executor.cost_source).toBe('none');
+    for (const r of body!.runs) expect(r.cost_usd).toBeNull();
+  });
+
+  it('a run with no output token count keeps cost null (never a guess)', async () => {
+    const { code, body } = await dry(producer({ tokens_out: null }), ['--prices', writeTable(TABLE)]);
+    expect(code).toBe(0);
+    for (const r of body!.runs) expect(r.cost_usd).toBeNull();
+    expect(body!.executor.cost_source).toBe('none');
+  });
+
+  it('without --prices the body keeps cost null and source none, and the variant is the same as with --prices', async () => {
+    const without = await dry(producer());
+    const withP = await dry(producer(), ['--prices', writeTable(TABLE)]);
+    expect(without.body!.executor.cost_source).toBe('none');
+    for (const r of without.body!.runs) expect(r.cost_usd).toBeNull();
+    expect(withP.body!.variant.variant_sha256).toBe(without.body!.variant.variant_sha256);
+    expect(withP.body!.variant).toEqual(without.body!.variant);
+  });
+
+  it('a cache split larger than tokens_in is refused when the variant file is read', async () => {
+    const { readVariant } = await import('../eval/variant.js');
+    const src = tmp('split');
+    writeFileSync(join(src, 'p.patch'), PATCH);
+    const w = (prod: Record<string, unknown>) => {
+      const f = join(src, `v${Math.random()}.json`);
+      writeFileSync(f, JSON.stringify({ schema: 'tma-variant/1', label: 'x', kind: 'patch', patch: 'p.patch', change_kind: 'none', is_baseline: true, prediction: null, producer: prod }));
+      return f;
+    };
+    await expect(readVariant(w(producer({ tokens_in: 100, cache_read_tokens: 80, cache_write_tokens: 40 })))).rejects.toThrow(/cannot be more than it/);
+    await expect(readVariant(w(producer({ tokens_in: null })))).rejects.toThrow(/cannot be more than it/);
+    await expect(readVariant(w(producer({ cache_read_tokens: -1 })))).rejects.toThrow(/producer\/cache_read_tokens/);
+    await expect(readVariant(w(producer({ cache_cost: 1 })))).rejects.toThrow(/producer\/cache_cost: unknown key/);
+    await expect(readVariant(w(producer({ tokens_in: 100, cache_read_tokens: 60, cache_write_tokens: 40 })))).resolves.toBeTruthy();
+  });
+
+  it('a price table with an unknown key, a non-https source, a zero price or a stale fetched_on is refused', async () => {
+    const bad = (m: Record<string, unknown>) => ({ ...TABLE, models: [{ ...TABLE.models[0], ...m }] });
+    for (const [t, re] of [
+      [{ ...TABLE, extra: 1 }, /unknown key extra/],
+      [bad({ source_url: 'http://x.test' }), /source_url must start with https/],
+      [bad({ input: 0 }), /input must be a number greater than 0/],
+      [bad({ fetched_on: '2026-11-20' }), /differs from the table as_of/],
+      [{ ...TABLE, models: [TABLE.models[0], TABLE.models[0]] }, /duplicate model_id/],
+    ] as Array<[unknown, RegExp]>) {
+      const { parsePriceTable } = await import('../eval/prices.js');
+      expect(() => parsePriceTable(JSON.stringify(t), 'p.json')).toThrow(re);
+    }
+  });
+
+  it('a re-upload with a different cost is the same variant (tokens and cost are not in the digest)', async () => {
+    const { readVariant } = await import('../eval/variant.js');
+    const src = tmp('digest');
+    writeFileSync(join(src, 'p.patch'), PATCH);
+    const w = (name: string, prod: Record<string, unknown>) => {
+      writeFileSync(join(src, name), JSON.stringify({ schema: 'tma-variant/1', label: 'x', kind: 'patch', patch: 'p.patch', change_kind: 'none', is_baseline: true, prediction: null, producer: prod }));
+      return join(src, name);
+    };
+    const a = await readVariant(w('a.json', { harness: 'opencode', model: 'zai/glm-5.3', tokens_in: 10, tokens_out: 1 }));
+    const b = await readVariant(w('b.json', producer()));
+    expect(a.variantSha256).toBe(b.variantSha256);
+  });
+});
+
 describe('the model id of the base agent', () => {
   it('maps what a harness records to the OpenRouter catalog id the API knows', () => {
     expect(catalogModelId('claude-opus-5-5')).toBe('anthropic/claude-opus-5.5');

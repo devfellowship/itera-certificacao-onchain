@@ -64,7 +64,7 @@ export interface RunRecord {
   /** The docker image id of the sandbox that ran or graded the run. */
   sandbox_image_id?: string | null;
   /** Agent runs: the model usage and the tool calls. Host only. */
-  agent: null | { model: string; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; agent_errors: string[]; actions: unknown[] };
+  agent: null | { model: string; tokens_in: number | null; tokens_out: number | null; cache_read_tokens?: number | null; cache_write_tokens?: number | null; cost_usd: number | null; agent_errors: string[]; actions: unknown[] };
 }
 
 export interface GradingEntry {
@@ -293,7 +293,11 @@ export async function runVariant(input: { c: LoadedCase; v: ResolvedVariant; rep
       log(`[tma eval] ${runId}: ${c.manifest.case_key} variant ${v.variantSha256.slice(0, 12)} (${v.file.label}) repeat ${already + n}, patch ${patch.length} bytes`);
       const p = v.file.producer;
       // A patch written outside the kit: the run carries the producer's model and tokens (no tool calls, no cost).
-      if (p) agentInfo = { model: p.model, tokens_in: p.tokens_in, tokens_out: p.tokens_out, cost_usd: null, agent_errors: [], actions: [] };
+      if (p) {
+        agentInfo = { model: p.model, tokens_in: p.tokens_in, tokens_out: p.tokens_out, cost_usd: null, agent_errors: [], actions: [] };
+        if (p.cache_read_tokens != null) agentInfo.cache_read_tokens = p.cache_read_tokens;
+        if (p.cache_write_tokens != null) agentInfo.cache_write_tokens = p.cache_write_tokens;
+      }
     }
     const runDir = join(variantDir, runId);
     const record: RunRecord = {
