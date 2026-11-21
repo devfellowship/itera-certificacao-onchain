@@ -50,6 +50,7 @@ import type { GraderSourceResolver } from "./self-declared/grader-source.js";
 import { createTrajectoriesRouter, type TrajectoriesReader } from "./self-declared/trajectories.js";
 import { createHumanLabelsRouter, type HumanLabelsRouterDeps } from "./self-declared/human-labels.js";
 import { createEvalCleanupRouter, type EvalCleanupRouterDeps } from "./self-declared/cleanup.js";
+import { createRunCostRouter, type RunCostRouterDeps } from "./self-declared/run-cost.js";
 import { createRecomputeRouter, type RecomputeRouterDeps } from "./self-declared/recompute.js";
 import { createCliAuthRouter, type CliAuthRouterDeps } from "./cli-auth/router.js";
 import { createCliSessionGuard } from "./cli-auth/guard.js";
@@ -256,6 +257,9 @@ export interface AppOptions {
   /** C4-T10: POST /eval-results/recompute, the back-fill of a derived column (step_kind) of the caller's own hosted rows
    * (dry_run by default; scope all for a TMA admin). Needs 0024. Mounted only when given. */
   recompute?: RecomputeRouterDeps;
+  /** C7-COST: POST /eval-results/run-cost, a derived cost (tokens x a dated list price) for stored self-declared runs of the
+   * caller (dry_run by default; writes only model_cost_usd and model_cost_source). Needs 0023. Mounted only when given. */
+  runCost?: RunCostRouterDeps;
   /** L4: GET /model-options, /me/models, POST /agents/local, GET|PATCH /agents/:id of a local agent. Needs 0021
    * for the writes (503 schema_not_ready before it). Mounted only when given, before the GitHub router. */
   localAgents?: LocalAgentsRouterDeps;
@@ -340,6 +344,7 @@ export function createApp(repo: Repository, options: AppOptions = {}): Express {
   // C4-T13: after express.json() (a small JSON body), owner-only.
   if (options.evalCleanup) app.use(createEvalCleanupRouter(options.evalCleanup));
   if (options.recompute) app.use(createRecomputeRouter(options.recompute));
+  if (options.runCost) app.use(createRunCostRouter(options.runCost));
   // L17a: the runs router reads the origin itself on GET /runs/:id/artifacts (a self-declared run lists nothing).
   if (options.runs) app.use(createRunsRouter({ repo, runOrigins: options.runOrigins, ...options.runs }));
   // Before the 410 router: both answer POST /evaluations (the v2 one falls through on a legacy
