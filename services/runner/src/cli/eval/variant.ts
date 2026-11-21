@@ -8,6 +8,9 @@
 // example Claude Code or Codex on the host), with the tokens of that one model run. The kit then records that
 // model and those tokens on the run, and the upload labels the agent with that harness and model, never with
 // the model of the case pin (C7-T5: a z.ai or Codex output must not show as the pin's Sonnet).
+// `tokens_in` is the TOTAL input (cache reads and writes included); `cache_read_tokens` and `cache_write_tokens`
+// say how much of it was cached, so `tma eval upload --prices <file>` can price the split (C7-COST). Tokens are
+// not part of variant_sha256: a re-upload of the same patch and producer with a cost is the same variant.
 //
 // variant_sha256 is the digest of what the run consumes (the patch bytes, or the agent files + model +
 // profile); the label and the prediction describe the variant and are not in it. A non-baseline variant
@@ -45,8 +48,12 @@ export interface VariantFile {
 export interface Producer {
   harness: string;
   model: string;
+  /** TOTAL input tokens: cache reads and cache writes are included in it. */
   tokens_in: number | null;
   tokens_out: number | null;
+  /** Of tokens_in, the part read from and the part written to the prompt cache. Not in variant_sha256. */
+  cache_read_tokens?: number | null;
+  cache_write_tokens?: number | null;
 }
 
 const PRODUCER_HARNESS = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -102,12 +109,22 @@ export function variantErrors(v: unknown): string[] {
       const p = v.producer;
       if (!isObject(p)) errors.push('/producer: {harness, model, tokens_in, tokens_out}');
       else {
-        for (const k of Object.keys(p)) if (!['harness', 'model', 'tokens_in', 'tokens_out'].includes(k)) errors.push(`/producer/${k}: unknown key`);
+        for (const k of Object.keys(p)) if (!['harness', 'model', 'tokens_in', 'tokens_out', 'cache_read_tokens', 'cache_write_tokens'].includes(k)) errors.push(`/producer/${k}: unknown key`);
         if (typeof p.harness !== 'string' || !PRODUCER_HARNESS.test(p.harness) || p.harness === 'patch') errors.push('/producer/harness: a harness name such as claude-code, codex or opencode');
         if (typeof p.model !== 'string' || !PRODUCER_MODEL.test(p.model)) errors.push('/producer/model: the model id the harness ran');
         for (const k of ['tokens_in', 'tokens_out'] as const) {
           const n = p[k];
           if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > MAX_PRODUCER_TOKENS)) errors.push(`/producer/${k}: a token count, or null`);
+        }
+        let cacheSum = 0;
+        for (const k of ['cache_read_tokens', 'cache_write_tokens'] as const) {
+          if (!(k in p) || p[k] === null) continue;
+          const n = p[k];
+          if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > MAX_PRODUCER_TOKENS) errors.push(`/producer/${k}: a token count, or null`);
+          else cacheSum += n;
+        }
+        if (cacheSum > 0 && (typeof p.tokens_in !== 'number' || cacheSum > p.tokens_in)) {
+          errors.push('/producer: cache_read_tokens + cache_write_tokens are part of tokens_in and cannot be more than it');
         }
       }
     }

@@ -25,6 +25,7 @@ import { campaignState, chargeCampaign, initCampaign, MAX_CAMPAIGN_RUNS, MAX_TOK
 import { checkModelId } from './run.js';
 import { gradeRecorded, regrade, runDirs, runVariant, summaryTable, type EvalDeps } from '../eval/runs.js';
 import { readVariant } from '../eval/variant.js';
+import { parsePriceTable, priceFor, type PriceTable } from '../eval/prices.js';
 import { dryRunGrade } from '../eval/dry-run.js';
 import { proveGrader } from '../eval/prove.js';
 import { calibrateJudge } from '../eval/calibrate.js';
@@ -126,13 +127,17 @@ const TRAJECTORY_USAGE = `usage: tma eval trajectory --from claude-code <session
   result. No prompt, argument, output or file body is kept. --out <run dir>/trajectory.json attaches it to a run.
   --root  a folder whose prefix is dropped from paths (the session cwd is one by default)`;
 
-const UPLOAD_USAGE = `usage: tma eval upload --case <case dir> --variant-dir <dir> --agent <agent id> [--base-agent <file>] [--dry-run]
+const UPLOAD_USAGE = `usage: tma eval upload --case <case dir> --variant-dir <dir> --agent <agent id> [--base-agent <file>] [--prices <file>] [--dry-run]
        tma eval upload --mode trace_review --case <case dir> --session <session.jsonl> --agent <agent id>
                        [--base-agent <file>] [--label-file <label.json>] [--label-only] [--variant-label <text>] [--root <dir>]... [--dry-run]
   Sends the runs of ONE variant as one tma-local-result/2 body (numbers, digests, grader rows, trajectory)
   to POST /self-declared-results. --dry-run prints the body and asks the API with ?dry_run=1 when logged in.
   --base-agent  the base agent version (the 8 fields of variant.agent, or a tma-pin/1). Default: the case pin,
                 else the agent folder of an agent variant (trace_review: else the harness and model of the session).
+  --prices      a tma-model-prices/1 file (models/prices/<date>.json of the eval repo). A patch variant that names its
+                producer then uploads a DERIVED cost per run: tokens x the list price of the producer model (the
+                cache split of tokens_in is priced when the variant gives cache_read_tokens and cache_write_tokens).
+                A model with no entry, or a run with no token count, keeps cost null. It is list price, not money paid.
   --mode trace_review  a RECORDED Claude Code session of a trace_review case: no agent runs. ONE run (repeat 1) of the
                 variant "recorded session" (the baseline: change_kind none, no prediction), with the redacted
                 trajectory of the session and the latest tma eval grade of the recorded output, if any.
@@ -381,7 +386,7 @@ async function traceReviewBody(a: ParsedArgs, c: Awaited<ReturnType<typeof loadC
 
 async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<number> {
   const a = parseArgs(argv, {
-    case: {}, 'variant-dir': {}, agent: {}, 'base-agent': {}, 'dry-run': { boolean: true },
+    case: {}, 'variant-dir': {}, agent: {}, 'base-agent': {}, prices: {}, 'dry-run': { boolean: true },
     mode: {}, session: {}, 'label-file': {}, 'label-only': { boolean: true }, 'variant-label': {}, root: { repeat: true },
   });
   const c = await loadCaseFolder(required(a, 'case', UPLOAD_USAGE));
@@ -390,8 +395,11 @@ async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<numbe
   if (mode !== 'replay' && mode !== 'trace_review') throw new CliError(`--mode must be replay or trace_review\n${UPLOAD_USAGE}`);
   if (mode !== c.manifest.mode) throw new CliError(`case ${c.manifest.case_key} is a ${c.manifest.mode} case: give --mode ${c.manifest.mode}`);
   let body: LocalResultV2Plus;
-  if (mode === 'trace_review') body = await traceReviewBody(a, c, agentId, io);
-  else {
+  let prices: PriceTable | undefined;
+  if (mode === 'trace_review') {
+    if (has(a, 'prices')) throw new CliError('--prices is for --mode replay (a producer patch variant)');
+    body = await traceReviewBody(a, c, agentId, io);
+  } else {
     for (const k of ['session', 'label-file', 'label-only', 'variant-label']) if (has(a, k)) throw new CliError(`--${k} is for --mode trace_review`);
     let dirs = flag(a, 'variant-dir') ? [resolve(flag(a, 'variant-dir')!)] : [];
     if (dirs.length === 0) {
@@ -400,7 +408,9 @@ async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<numbe
     }
     const baseFile = flag(a, 'base-agent');
     const baseAgent = baseFile ? baseAgentFrom(await readJsonFile(baseFile), baseFile) : undefined;
-    body = await buildEvalUpload({ c, variantDir: dirs[0]!, agentId, baseAgent });
+    const pricesFile = flag(a, 'prices');
+    prices = pricesFile ? parsePriceTable(await readFile(resolve(pricesFile)).catch(() => { throw new CliError(`cannot read ${pricesFile}`); }), pricesFile) : undefined;
+    body = await buildEvalUpload({ c, variantDir: dirs[0]!, agentId, baseAgent, prices });
   }
   const env = deps.env ?? process.env;
   const base = apiUrl(env);
@@ -412,6 +422,8 @@ async function uploadMain(argv: string[], io: Io, deps: EvalDeps): Promise<numbe
     token = s && s.api_url === base && Date.parse(s.expires_at) > nowMs ? s.session_token : undefined;
   } else token = requireSession(base, nowMs, env).session_token;
   const label = `${body.case.case_key} / ${body.variant.label}`;
+  const used = prices && body.executor.cost_source === 'derived' ? priceFor(prices, body.variant.agent.model_id) : null;
+  if (used) io.err(`[tma eval] cost derived from the list price of ${used.model_id}, table as of ${prices!.as_of} (sha256 ${prices!.sha256.slice(0, 12)}), source ${used.source_url}: tokens x list price, not money paid`);
   io.err(`[tma eval] ${label}: ${body.format}, ${body.runs.length} run(s), mean score ${body.summary.score}, agent ${agentSha(body).slice(0, 12)}, variant ${body.variant.variant_sha256.slice(0, 12)}`);
   if (dryRun) {
     io.err('dry run: this is exactly what tma eval upload sends:');

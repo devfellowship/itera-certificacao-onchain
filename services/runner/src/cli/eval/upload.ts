@@ -31,6 +31,7 @@ import { BENCHMARKS_DIR, catalogVersion, localTaskRef, type ResolvedTask, type T
 import { findSecrets } from '../commands/upload.js';
 import { sha256, type LoadedCase } from './case.js';
 import { canonicalJson, type VariantFile } from './variant.js';
+import { derivedCostUsd, priceFor, type PriceTable } from './prices.js';
 import { RUN_FORMAT, runDirs, TRAJECTORY_FILE, type GradingEntry, type RunRecord } from './runs.js';
 
 /** The case_key of tma-local-result/2 (narrower than tma-case/1: no dot, at most 63). */
@@ -114,6 +115,8 @@ export interface UploadInput {
   agentId: string;
   /** --base-agent: the base agent version. Default: the case pin, else (agent variant) the agent folder. */
   baseAgent?: AgentVersion;
+  /** --prices: a tma-model-prices/1 table. A patch variant with a producer gets a DERIVED cost from it (C7-COST). */
+  prices?: PriceTable;
 }
 
 /** The base agent of an upload: the flag, the case pin, or the agent variant itself. */
@@ -191,6 +194,15 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
     const evidence = await readJson<Record<string, { status?: FinalStatus; manifest?: EvidenceManifest }>>(join(rd, 'evidence.json'));
     const manifest = evidence?.[`${HIDDEN_TESTS_GRADER_ID}@${EVALUATOR_VERSION}`]?.manifest ?? null;
     const status = runStatus(g, evidence);
+    // C7-COST: a patch written outside the kit has no metered cost. With a price table the cost is DERIVED from
+    // the measured tokens at the list price; a model with no entry, or a run with no token count, gets no cost.
+    let costUsd = run.agent?.cost_usd ?? null;
+    if (costUsd === null && input.prices && v.kind === 'patch' && v.producer && run.agent) {
+      const entry = priceFor(input.prices, run.agent.model, catalogModelId(run.agent.model));
+      if (entry) {
+        costUsd = derivedCostUsd(entry, { tokensIn: run.agent.tokens_in, tokensOut: run.agent.tokens_out, cacheRead: run.agent.cache_read_tokens, cacheWrite: run.agent.cache_write_tokens });
+      }
+    }
     const row: ResultRow = resultRow({
       itemSha256: c.lock.task!.item_sha256,
       repeat: run.repeat,
@@ -198,7 +210,7 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
       score: g.case.score ?? 0,
       manifest,
       wallS: run.wall_s,
-      costUsd: run.agent?.cost_usd ?? null,
+      costUsd,
       tokensIn: run.agent?.tokens_in ?? null,
       tokensOut: run.agent?.tokens_out ?? null,
       facts: { timedOut: run.facts.timedOut, costCapped: run.facts.costCapped, rateLimited: run.facts.rateLimitedFinal > 0, emptyPatch: run.patch_sha256 === sha256('') },
@@ -235,7 +247,7 @@ export async function buildEvalUpload(input: UploadInput): Promise<LocalResultV2
     metrics_shape: 'tma-score/1' as const,
     grader_version: EVALUATOR_VERSION,
     runner: { version: RUNNER_VERSION, execution: isAgent ? ('tma-sandbox' as const) : ('external' as const), profile: isAgent ? (first.profile ?? 'opencode') : null, sandbox_image_id: imageId },
-    executor: executorOf({ modelId: executorModel, harness: isAgent ? (first.profile ?? 'opencode') : (producer?.harness ?? 'patch'), costSource: isAgent && runs.some((r) => r.cost_usd !== null) ? 'derived' : 'none' }),
+    executor: executorOf({ modelId: executorModel, harness: isAgent ? (first.profile ?? 'opencode') : (producer?.harness ?? 'patch'), costSource: runs.some((r) => r.cost_usd !== null) ? 'derived' : 'none' }),
     ran_from: new Date(from).toISOString(),
     ran_to: new Date(to).toISOString(),
     summary: summarize(runs as unknown as ResultRow[]),
