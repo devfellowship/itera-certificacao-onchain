@@ -745,3 +745,38 @@ export declare function isSafeArtifactPath(path: unknown): path is string;
 export declare function artifactRef(path: string): string;
 export declare function artifactPathOfRef(ref: unknown): string | null;
 export declare function redactSecrets(text: string, extra?: readonly string[]): string;
+
+// --- tma-run-cost/1 (plan 20261112-tma-c7-model-comparison-per-use-case, C7-COST): a derived cost for stored runs.
+export declare const RUN_COST_FORMAT: 'tma-run-cost/1';
+export declare const RUN_COST_MAX_RUNS: number;
+export interface RunCostPrice {
+  model_id: string;
+  input: number;
+  cache_read: number | null;
+  cache_write: number | null;
+  output: number;
+  source_url: string;
+  as_of: string;
+  table_sha256: string;
+}
+export interface RunCostRun {
+  tokens_in: number;
+  tokens_out: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+}
+export interface RunCostBody {
+  format: 'tma-run-cost/1';
+  evaluation_id: string;
+  dry_run?: boolean;
+  price: RunCostPrice;
+  runs: RunCostRun[];
+}
+/** USD of one run at a list price (per 1M tokens); tokensIn is the total input, cache tokens included. null when not computable. */
+export declare function derivedCostUsd(
+  price: Pick<RunCostPrice, 'input' | 'cache_read' | 'cache_write' | 'output'>,
+  usage: { tokensIn: number | null; tokensOut: number | null; cacheRead?: number | null; cacheWrite?: number | null },
+): number | null;
+export declare function validateRunCost(
+  value: unknown,
+): { ok: true; value: RunCostBody } | { ok: false; issues: Array<{ code: string; path: string; message: string }> };

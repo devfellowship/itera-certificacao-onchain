@@ -10,6 +10,7 @@ import { PgTrajectoriesReader } from "./self-declared/trajectories.js";
 import { PgHumanLabelStore } from "./self-declared/human-labels.js";
 import { PgEvalCleanupStore } from "./self-declared/cleanup.pg.js";
 import { PgRecomputeStore } from "./self-declared/recompute.pg.js";
+import { PgRunCostStore } from "./self-declared/run-cost.pg.js";
 import { hasEvalMetaSchema, hasEvalResultsSchema } from "./domain/schema-features.js";
 import { PgLocalAgentsStore } from "./local-agents/store.pg.js";
 import { PgCliAuthStore } from "./cli-auth/store.pg.js";
@@ -155,6 +156,8 @@ createApp(repo, {
   evalCleanup: { store: new PgEvalCleanupStore(getPool()), ready: () => hasEvalResultsSchema(getPool()) },
   // C4-T10: POST /eval-results/recompute (back-fill of derived columns of the caller's own rows; dry_run default).
   recompute: { store: new PgRecomputeStore(getPool()), ready: () => hasEvalMetaSchema(getPool()) },
+  // C7-COST: POST /eval-results/run-cost (a derived cost for the caller's stored self-declared runs; dry_run by default).
+  runCost: { store: new PgRunCostStore(getPool()), ready: () => hasEvalResultsSchema(getPool()) },
   // L4: local agents and custom models (writes need 0021; 503 schema_not_ready before it).
   localAgents: { store: new PgLocalAgentsStore(getPool) },
   // L5: tma login (device code approved on web2 /cli) and CLI session revocation (needs 0021).

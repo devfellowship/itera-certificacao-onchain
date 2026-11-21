@@ -26,6 +26,7 @@ import { checkModelId } from './run.js';
 import { gradeRecorded, regrade, runDirs, runVariant, summaryTable, type EvalDeps } from '../eval/runs.js';
 import { readVariant } from '../eval/variant.js';
 import { parsePriceTable, priceFor, type PriceTable } from '../eval/prices.js';
+import { RUN_COST_USAGE, runCostMain } from '../eval/run-cost.js';
 import { dryRunGrade } from '../eval/dry-run.js';
 import { proveGrader } from '../eval/prove.js';
 import { calibrateJudge } from '../eval/calibrate.js';
@@ -167,7 +168,7 @@ const REVIEW_BATCH_USAGE = `usage: tma eval review-batch --batch <rows.jsonl> --
                   The run stays ungraded (infra_ok false). Off unless --runner on; the cap (default 50) counts calls.`;
 
 const USAGE = [
-  'usage: tma eval <case|run|campaign|grade|diff|trajectory|upload|review-batch|workflow-labels|grader prove|judge calibrate|judge labels|judge texts> ...   (the eval kit: plan C3)',
+  'usage: tma eval <case|run|campaign|grade|diff|trajectory|upload|cost|review-batch|workflow-labels|grader prove|judge calibrate|judge labels|judge texts> ...   (the eval kit: plan C3)',
   '',
   CASE_USAGE,
   '',
@@ -182,6 +183,8 @@ const USAGE = [
   TRAJECTORY_USAGE,
   '',
   UPLOAD_USAGE,
+  '',
+  RUN_COST_USAGE,
   '',
   REVIEW_BATCH_USAGE,
   '',
@@ -624,6 +627,8 @@ export function makeEvalCommand(deps: EvalCommandDeps = {}): Command {
           return trajectoryMain(rest, io);
         case 'upload':
           return uploadMain(rest, io, deps);
+        case 'cost':
+          return runCostMain(rest, io, deps);
         case 'review-batch':
           return reviewBatchMain(rest, io, deps);
         case 'workflow-labels':

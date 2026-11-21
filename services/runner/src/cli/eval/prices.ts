@@ -4,6 +4,7 @@
 // tokens, not money paid (a producer on a subscription pays nothing). A model with no entry gets no cost: the kit
 // never guesses a price.
 import { createHash } from 'node:crypto';
+import { derivedCostUsd as contractsCost } from '@itera/contracts';
 import { CliError } from '../env.js';
 
 export const PRICES_FORMAT = 'tma-model-prices/1';
@@ -91,14 +92,9 @@ export interface UsageForCost {
 /**
  * USD of one run. `tokensIn` is the TOTAL input (cache reads and writes included), so the fresh input is what is
  * left after the cache tokens. A null cache price bills those tokens at the input price. null when the run has no
- * input or no output count.
+ * input or no output count. The arithmetic is the one of @itera/contracts, the same that the API runs on
+ * POST /eval-results/run-cost, so the upload and the stored cost cannot disagree.
  */
 export function derivedCostUsd(p: PriceEntry, u: UsageForCost): number | null {
-  if (u.tokensIn === null || u.tokensOut === null) return null;
-  const read = u.cacheRead ?? 0;
-  const write = u.cacheWrite ?? 0;
-  const fresh = u.tokensIn - read - write;
-  if (fresh < 0) return null;
-  const usd = (fresh * p.input + read * (p.cache_read ?? p.input) + write * (p.cache_write ?? p.input) + u.tokensOut * p.output) / 1e6;
-  return Math.round(usd * 1e6) / 1e6;
+  return contractsCost(p, u);
 }
