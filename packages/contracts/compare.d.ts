@@ -123,7 +123,7 @@ export interface UseCaseRun {
   /** False: a platform fault, left out of every number and counted as infraExcluded. */
   infraOk?: boolean;
   costUsd?: number | null;
-  costSource?: 'metered' | 'derived' | null;
+  costSource?: 'metered' | 'derived' | 'estimate' | null;
   wallMs?: number | null;
   graders: GraderRow[];
 }
@@ -196,7 +196,7 @@ export interface UseCaseAgentCell {
   distribution: ScoreDistribution | null;
   /** The mean costUsd of the counted runs; null when any counted run lacks a cost. */
   costPerTask: number | null;
-  costLabel: 'metered' | 'derived' | null;
+  costLabel: 'metered' | 'derived' | 'estimate' | null;
   medianWallMs: number | null;
   absolute: AbsoluteSide;
   /** This agent (variant) against the current agent (base). `tie` is the "relative same" of the C7 plan. */

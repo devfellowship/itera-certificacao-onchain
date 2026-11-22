@@ -26,6 +26,7 @@ import { Card, CardHeader } from '../tma/ui'
 import { Crumb, CrumbSep, InfoTip, StudioBar, TitleRow } from './chrome'
 import {
   absoluteText,
+  costText,
   formatCost,
   formatGap,
   formatScore,
@@ -502,7 +503,7 @@ function SuggestionPanel({ data, useCase }: { data: UseCaseCompareResponse; useC
             <dl className="s8-facts" data-testid="s8-suggestion-facts">
               <dt>Cost per task</dt>
               <dd>
-                {vsCurrent && vsCurrent.cost_per_task !== null && <s className="s8-was">{formatCost(vsCurrent.cost_per_task, null).amount}</s>} {formatCost(a.cost_per_task, a.cost_label).amount}
+                {vsCurrent && vsCurrent.cost_per_task !== null && <s className="s8-was">{formatCost(vsCurrent.cost_per_task, null).amount}</s>} {costText(a.cost_per_task, a.cost_label)}
               </dd>
               <dt>Score</dt>
               <dd>

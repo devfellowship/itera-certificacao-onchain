@@ -44,9 +44,9 @@ export class PgRunCostStore implements RunCostStore {
         for (const p of plan) {
           if (p.op !== "update") continue;
           const r = await c.query(
-            `update public.runs set model_cost_usd = $2, model_cost_source = 'derived'
+            `update public.runs set model_cost_usd = $2, model_cost_source = $4
               where id = $1 and owner_wallet = $3 and result_origin = 'self_declared' and model_cost_usd is null`,
-            [p.runId, p.costUsd, owner],
+            [p.runId, p.costUsd, owner, body.cost_source ?? "derived"],
           );
           updated += r.rowCount ?? 0;
         }
