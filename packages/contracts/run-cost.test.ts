@@ -36,6 +36,16 @@ describe('validateRunCost', () => {
       if (!r.ok) expect(r.issues.some((i) => i.code === 'unknown_key' && i.path === path)).toBe(true);
     }
   });
+  it('cost_source: absent and estimate are valid; metered and guess are invalid_cost_source', () => {
+    expect(validateRunCost(body()).ok).toBe(true);
+    expect(validateRunCost(body({ cost_source: 'derived' })).ok).toBe(true);
+    expect(validateRunCost(body({ cost_source: 'estimate' })).ok).toBe(true);
+    for (const v of ['metered', 'guess']) {
+      const r = validateRunCost(body({ cost_source: v }));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.issues.some((i) => i.code === 'invalid_cost_source' && i.path === '/cost_source')).toBe(true);
+    }
+  });
   it('refuses a bad uuid, a zero price, a non-https source, a cache split above tokens_in and an empty list', () => {
     for (const b of [
       body({ evaluation_id: 'nope' }),

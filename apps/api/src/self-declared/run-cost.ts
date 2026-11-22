@@ -6,21 +6,21 @@
  * DML": a route on the caller's identity, never a migration).
  *
  *   auth      a TMA session of a `dfl` principal (any other → 403 self_declared_dfl_only).
- *   body      tma-run-cost/1 (@itera/contracts validateRunCost): { format, evaluation_id, dry_run?, price {model_id, input,
+ *   body      tma-run-cost/1 (@itera/contracts validateRunCost): { format, evaluation_id, dry_run?, cost_source? ('derived' | 'estimate', default derived), price {model_id, input,
  *             cache_read, cache_write, output (USD per 1M tokens), source_url, as_of, table_sha256}, runs [{tokens_in,
  *             tokens_out, cache_read_tokens, cache_write_tokens}] }. Closed: an unknown key is 400 unknown_key.
  *             dry_run defaults to TRUE; only the boolean false writes.
  *   match     each entry is matched to ONE stored run of that evaluation by its stored token counts (model_tokens_in =
  *             tokens_in, model_tokens_out = tokens_out). The run must be the caller's, self-declared, and its stored model
  *             must be price.model_id. An entry that matches no run, or more entries than runs, is 409 run_not_found.
- *   writes    ONLY runs.model_cost_usd and runs.model_cost_source = 'derived', and only on a run whose cost is null. A run
- *             that already has the same derived cost is `unchanged`; a run that has another cost is 409 cost_exists
- *             (a metered or earlier cost is never overwritten). It never touches a grade (grader_results has no UPDATE
+ *   writes    ONLY runs.model_cost_usd and runs.model_cost_source (= body.cost_source: 'derived' by default, or 'estimate'), and only on a run whose cost is null. A run
+ *             that already has the same cost with the same source is `unchanged`; a run that has another cost is 409 cost_exists
+ *             (a metered or earlier cost is never overwritten; an estimate never replaces a derived cost, nor the reverse). It never touches a grade (grader_results has no UPDATE
  *             grant for the API role), the evidence manifest, the import digest, the patch digest, the score, the
  *             tokens, the provenance or any other column. All or nothing, in one transaction.
  *   cost      the server recomputes it with derivedCostUsd from the price and the tokens of the body; the body carries
  *             no cost number.
- *   answer    200 { format, evaluation_id, dry_run, matched, updated, unchanged, runs: [{run_id, cost_usd}] }.
+ *   answer    200 { format, evaluation_id, dry_run, cost_source, matched, updated, unchanged, runs: [{run_id, cost_usd}] }.
  *   not ready 503 schema_not_ready before db/migrations/0023 (the self-declared v2 rows do not exist).
  */
 import { Router, type NextFunction, type Request, type Response } from "express";
@@ -68,6 +68,7 @@ export interface CostPlanEntry {
  * tokens twice need two runs. A cost that already exists is `same` when it is this derived cost, else 409 cost_exists.
  */
 export function planRunCost(stored: StoredCostRun[], body: RunCostBody): CostPlanEntry[] {
+  const source = body.cost_source ?? "derived";
   const free = stored.filter((s) => s.model === body.price.model_id);
   const used = new Set<string>();
   return body.runs.map((entry, i) => {
@@ -86,7 +87,7 @@ export function planRunCost(stored: StoredCostRun[], body: RunCostBody): CostPla
     }
     used.add(hit.id);
     if (hit.costUsd === null) return { runId: hit.id, costUsd, op: "update" as const };
-    if (hit.costSource === "derived" && Math.abs(hit.costUsd - costUsd) < 5e-7) return { runId: hit.id, costUsd, op: "same" as const };
+    if (hit.costSource === source && Math.abs(hit.costUsd - costUsd) < 5e-7) return { runId: hit.id, costUsd, op: "same" as const };
     throw new SelfDeclaredError(409, "cost_exists", `runs[${i}] already has a cost (${hit.costUsd}, ${hit.costSource ?? "no source"}); it is never overwritten`);
   });
 }
@@ -116,6 +117,7 @@ export function createRunCostRouter(deps: RunCostRouterDeps): Router {
         format: RUN_COST_FORMAT,
         evaluation_id: out.evaluationId,
         dry_run: dryRun,
+        cost_source: checked.value.cost_source ?? "derived",
         matched: out.matched,
         updated: dryRun ? 0 : out.updated,
         unchanged: out.unchanged,

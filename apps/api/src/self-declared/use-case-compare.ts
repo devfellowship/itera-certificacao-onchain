@@ -21,7 +21,7 @@
  *                  `weight`, `hard_gate`, `decisive` and the version's `kind`. A stored weight of 0 is passed as
  *                  "no weight" (the library ignores the row as `no_weight`).
  *   cost           runs.model_cost_usd with runs.model_cost_source: `metered` → metered, `derived` or `mixed` →
- *                  derived, `unpriced` / `none` / no value → no cost.
+ *                  derived, `estimate` → estimate, `unpriced` / `none` / no value → no cost.
  *   profile        v1: the stored per-result weight and hard gate (the weight the run used, ADR-3) and the library
  *                  defaults (min runs per cell 5, margin 5 points, bars 95/85): `profile.source = "defaults"`.
  *   evidence       each agent carries `evidence_run_ids`: its counted runs (sorted, unique; an infra-fault run and a
@@ -92,9 +92,10 @@ export interface UseCaseCompareReader {
 
 export const agentKeyOf = (r: { agentSha256: string; modelId: string }): string => `${r.modelId}#${r.agentSha256}`;
 
-function costOf(r: CompareRunRow): { costUsd: number | null; costSource: "metered" | "derived" | null } {
+function costOf(r: CompareRunRow): { costUsd: number | null; costSource: "metered" | "derived" | "estimate" | null } {
   if (r.costUsd === null || !Number.isFinite(r.costUsd)) return { costUsd: null, costSource: null };
   if (r.costSource === "metered") return { costUsd: r.costUsd, costSource: "metered" };
+  if (r.costSource === "estimate") return { costUsd: r.costUsd, costSource: "estimate" };
   if (r.costSource === "derived" || r.costSource === "mixed") return { costUsd: r.costUsd, costSource: "derived" };
   if (r.costSource === "unpriced" || r.costSource === "none") return { costUsd: null, costSource: null };
   // A cost with no source: a number, but never `metered` (the library labels the cell `derived`).
@@ -185,7 +186,7 @@ export interface CompareAgentView {
   mean_score: number | null;
   distribution: UseCaseAgentCell["distribution"];
   cost_per_task: number | null;
-  cost_label: "metered" | "derived" | null;
+  cost_label: "metered" | "derived" | "estimate" | null;
   median_wall_ms: number | null;
   /** The counted run ids of this agent (countedRunIdsOf), at most ROUTE_MAX_EVIDENCE. */
   evidence_run_ids: string[];

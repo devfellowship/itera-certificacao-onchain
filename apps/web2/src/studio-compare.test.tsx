@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { saveSession } from './auth/sessionStorage'
 import { routes } from './routes'
 import type { CompareAgent, UseCaseCompareResponse } from './studio/compare'
+import { costText } from './studio/compare'
 import { costAxis, gatesHeld, scoreFloor } from './studio/StudioComparePage'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -230,6 +231,22 @@ describe('S8 table', () => {
     expect(document.getElementById(info.getAttribute('aria-describedby')!)!.textContent).toBe(RULES.relative)
     // Provider badge from the model id prefix.
     expect(cell(row(c, KEY_A), 's8-provider').textContent).toBe('anthropic/')
+  })
+})
+
+describe('S8 estimate cost', () => {
+  it('an estimate agent shows its amount and the word estimate in the cost cell', async () => {
+    const data: UseCaseCompareResponse = { ...DATA, agents: [agent(KEY_A, { cost_per_task: 2.026417, cost_label: 'estimate' })] }
+    const c = mountAt(PAGE, [200, data])
+    await waitFor(() => rows(c).length > 0, 'rows')
+    const cost = cell(row(c, KEY_A), 's8-cost')
+    expect(cost.textContent).toContain('$2.03')
+    expect(cost.querySelector('[data-cost-label="estimate"]')).not.toBeNull()
+  })
+  it('costText keeps the estimate mark', () => {
+    expect(costText(2.026417, 'estimate')).toBe('$2.03 (estimate)')
+    expect(costText(0.0913, 'derived')).toBe('$0.0913')
+    expect(costText(null, 'estimate')).toBe('no cost')
   })
 })
 

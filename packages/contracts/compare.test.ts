@@ -223,6 +223,21 @@ describe('compareUseCase: Pareto after hard gates', () => {
     expect(m).toMatchObject({ costPerTask: null, costLabel: null, pareto: { eligible: false, ineligibleReason: 'no_cost' } });
     expect(d).toMatchObject({ costPerTask: 1, costLabel: 'derived', medianWallMs: 1000 });
   });
+
+  it('an estimate run makes the cell cost an estimate; derived-only and metered-only cells keep their label', () => {
+    const runs = [
+      ...many(5, () => runWithScore('e', 80, { costUsd: 1, costSource: 'derived' })),
+      runWithScore('e', 80, { costUsd: 4, costSource: 'estimate' }),
+      ...many(5, () => runWithScore('d', 80, { costUsd: 1, costSource: 'derived' })),
+      ...many(5, () => runWithScore('m', 80)),
+    ];
+    const c = compareUseCase(runs, profile, { currentAgentKey: null });
+    const get = (k: string) => c.agents.find((a) => a.agentKey === k)!;
+    expect(get('e')).toMatchObject({ costPerTask: 1.5, costLabel: 'estimate' });
+    expect(get('e').pareto.ineligibleReason).not.toBe('no_cost');
+    expect(get('d')).toMatchObject({ costPerTask: 1, costLabel: 'derived' });
+    expect(get('m')).toMatchObject({ costPerTask: 1, costLabel: 'metered' });
+  });
 });
 
 describe('distribution', () => {

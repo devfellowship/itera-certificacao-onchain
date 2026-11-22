@@ -749,6 +749,8 @@ export declare function redactSecrets(text: string, extra?: readonly string[]): 
 // --- tma-run-cost/1 (plan 20261112-tma-c7-model-comparison-per-use-case, C7-COST): a derived cost for stored runs.
 export declare const RUN_COST_FORMAT: 'tma-run-cost/1';
 export declare const RUN_COST_MAX_RUNS: number;
+export declare const RUN_COST_SOURCES: readonly ['derived', 'estimate'];
+export type RunCostSource = 'derived' | 'estimate';
 export interface RunCostPrice {
   model_id: string;
   input: number;
@@ -769,6 +771,8 @@ export interface RunCostBody {
   format: 'tma-run-cost/1';
   evaluation_id: string;
   dry_run?: boolean;
+  /** 'derived' (default) or 'estimate' (the cache split of each run is an assumption). */
+  cost_source?: RunCostSource;
   price: RunCostPrice;
   runs: RunCostRun[];
 }

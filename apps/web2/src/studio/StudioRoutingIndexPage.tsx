@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { InfoTip, TitleRow } from './chrome'
-import { formatCost, formatScore, sha12 } from './compare'
+import { costText, formatScore, sha12 } from './compare'
 import { CopyCommand } from './CopyCommand'
 import { caseCommands } from './eval-command'
 import { routingHref } from './links'
@@ -95,12 +95,12 @@ function CostCell({ row }: { row: RoutingRow }) {
       <span>
         <span className={change.endsWith('cheaper') ? 'rix-good' : undefined}>{change}</span>
         <span className="rix-sub">
-          {formatCost(cur!.cost_per_task, cur!.cost_label).amount} → {formatCost(sug!.cost_per_task, sug!.cost_label).amount}
+          {costText(cur!.cost_per_task, cur!.cost_label)} → {costText(sug!.cost_per_task, sug!.cost_label)}
         </span>
       </span>
     )
   const one = sug ?? cur
-  if (one && one.cost_per_task !== null) return <span>{formatCost(one.cost_per_task, one.cost_label).amount}</span>
+  if (one && one.cost_per_task !== null) return <span>{costText(one.cost_per_task, one.cost_label)}</span>
   return <span className="rix-muted">no cost</span>
 }
 
@@ -147,7 +147,7 @@ function titleOf(row: RoutingRow): string {
 function summaryOf(row: RoutingRow): string {
   const sug = agentOf(row, row.suggested?.key ?? null) ?? row.rec?.agent ?? null
   if (sug) {
-    const cost = sug.cost_per_task !== null ? ` at ${formatCost(sug.cost_per_task, sug.cost_label).amount} a task` : ''
+    const cost = sug.cost_per_task !== null ? ` at ${costText(sug.cost_per_task, sug.cost_label)} a task` : ''
     return `In ${sug.n} runs, ${sug.model_id} scored ${formatScore(sug.mean_score)} on average${cost}. Verdict: ${row.verdict.replace('_', ' ')}.`
   }
   const agents = row.compare?.agents ?? []

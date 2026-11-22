@@ -5,16 +5,20 @@
 // of one model. Numbers and identifiers only. It carries no patch, no grade and no text beyond a source URL.
 // The API finds each run by its stored token counts, recomputes the cost with derivedCostUsd, and writes only
 // runs.model_cost_usd and runs.model_cost_source (never a grade, a digest or any other column).
+// The optional body key cost_source is 'derived' (the default) or 'estimate'. With 'estimate' the cache split of each run
+// entry is an assumption, not a measurement; the cost is computed the same way and stored with the source 'estimate'.
 
 export const RUN_COST_FORMAT = 'tma-run-cost/1';
 /** The most runs in one call (one upload holds at most 50 runs). */
 export const RUN_COST_MAX_RUNS = 50;
+/** The sources this body may write: a derived cost (measured tokens) or an estimate (assumed cache split). */
+export const RUN_COST_SOURCES = ['derived', 'estimate'];
 const MAX_TOKENS = 4_000_000_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
-const BODY_KEYS = ['format', 'evaluation_id', 'dry_run', 'price', 'runs'];
+const BODY_KEYS = ['format', 'evaluation_id', 'dry_run', 'cost_source', 'price', 'runs'];
 const PRICE_KEYS = ['model_id', 'input', 'cache_read', 'cache_write', 'output', 'source_url', 'as_of', 'table_sha256'];
 const RUN_KEYS = ['tokens_in', 'tokens_out', 'cache_read_tokens', 'cache_write_tokens'];
 
@@ -57,6 +61,7 @@ export function validateRunCost(value) {
   if (value.format !== RUN_COST_FORMAT) bad('invalid_format', '/format', `format must be ${RUN_COST_FORMAT}`);
   if (typeof value.evaluation_id !== 'string' || !UUID.test(value.evaluation_id)) bad('invalid_evaluation_id', '/evaluation_id', 'evaluation_id must be a lowercase uuid');
   if ('dry_run' in value && typeof value.dry_run !== 'boolean') bad('invalid_dry_run', '/dry_run', 'dry_run must be true or false');
+  if ('cost_source' in value && !RUN_COST_SOURCES.includes(/** @type {any} */ (value.cost_source))) bad('invalid_cost_source', '/cost_source', `cost_source must be one of ${RUN_COST_SOURCES.join(', ')}`);
   const p = value.price;
   if (!isObject(p)) bad('invalid_price', '/price', 'price must be an object');
   else {

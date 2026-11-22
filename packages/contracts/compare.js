@@ -238,7 +238,7 @@ export function compareCase(baseRuns, variantRuns) {
  */
 /**
  * @typedef {{ runId: string, agentKey: string, caseKey: string, infraOk?: boolean, costUsd?: number | null,
- *   costSource?: 'metered' | 'derived' | null, wallMs?: number | null, graders: GraderRow[] }} UseCaseRun
+ *   costSource?: 'metered' | 'derived' | 'estimate' | null, wallMs?: number | null, graders: GraderRow[] }} UseCaseRun
  */
 /** @typedef {{ id: string, weight: number, hardGate: boolean }} ProfileGrader */
 /**
@@ -366,8 +366,9 @@ export function compareUseCase(runs, profile, opts) {
     const costs = cell.kept.map((k) => k.run.costUsd);
     const allCost = n > 0 && costs.every((c) => typeof c === 'number' && Number.isFinite(c));
     const costPerTask = allCost ? /** @type {number} */ (mean(/** @type {number[]} */ (costs))) : null;
-    /** @type {'metered' | 'derived' | null} */
-    const costLabel = costPerTask === null ? null : cell.kept.every((k) => k.run.costSource === 'metered') ? 'metered' : 'derived';
+    // An estimate in the cell makes the whole cost an estimate; it still counts as a cost for Pareto.
+    /** @type {'metered' | 'derived' | 'estimate' | null} */
+    const costLabel = costPerTask === null ? null : cell.kept.some((k) => k.run.costSource === 'estimate') ? 'estimate' : cell.kept.every((k) => k.run.costSource === 'metered') ? 'metered' : 'derived';
     const walls = cell.kept.map((k) => k.run.wallMs).filter((w) => typeof w === 'number' && Number.isFinite(w));
     const medianWallMs = median(/** @type {number[]} */ (walls));
 

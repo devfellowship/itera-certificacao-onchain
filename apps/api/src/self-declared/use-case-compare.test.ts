@@ -139,6 +139,13 @@ describe("GET /use-cases/:key/compare", () => {
     expect(JSON.stringify(r.json)).not.toMatch(/case-1|hidden-tests|rubric/);
   });
 
+  it("an estimate run row gives the agent cost_label estimate", async () => {
+    reader.rows = fixture([{ ...A, source: "estimate" }]);
+    const r = await compare();
+    expect(r.status).toBe(200);
+    expect(agentOf(r.json, A)).toMatchObject({ cost_label: "estimate", cost_per_task: 0.03 });
+  });
+
   it("computes the relative verdict against current_agent (agent key or variant id)", async () => {
     const byKey = await compare(`?current_agent=${enc(keyOf(B))}`);
     expect(byKey.status).toBe(200);

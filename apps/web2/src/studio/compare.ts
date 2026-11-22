@@ -29,7 +29,7 @@ export interface CompareAgent {
   mean_score: number | null
   distribution: CompareDistribution | null
   cost_per_task: number | null
-  cost_label: 'metered' | 'derived' | null
+  cost_label: 'metered' | 'derived' | 'estimate' | null
   median_wall_ms: number | null
   /**
    * The counted run ids of this agent (sorted; at most 500): the exact list POST /routes/approve freezes for it (plan
@@ -80,6 +80,12 @@ export function formatCost(cost: number | null, label: CompareAgent['cost_label'
   if (cost === null) return { amount: 'no cost', label: '' }
   const amount = cost >= 1 ? `$${cost.toFixed(2)}` : `$${trim(cost, 6)}`
   return { amount, label: label ?? 'derived' }
+}
+
+/** The amount with the word "estimate" kept on an estimated cost: "$2.03 (estimate)". No cost: "no cost". */
+export function costText(cost: number | null, label: CompareAgent['cost_label']): string {
+  const { amount } = formatCost(cost, label)
+  return cost !== null && label === 'estimate' ? `${amount} (estimate)` : amount
 }
 
 /** A median wall time: ms under 1 s, seconds under 1 min, then minutes and seconds. */

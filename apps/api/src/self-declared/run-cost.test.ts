@@ -41,6 +41,22 @@ describe("planRunCost", () => {
     expect(() => planRunCost([row("r1", { costUsd: 0.5, costSource: "metered" })], asBody())).toThrow(/never overwritten/);
     expect(() => planRunCost([row("r1", { costUsd: 0.5, costSource: "derived" })], asBody())).toThrow(/never overwritten/);
   });
+  it("an estimate body plans an update; the same estimate cost is same", () => {
+    expect(planRunCost([row("r1")], asBody({ cost_source: "estimate" }))).toEqual([{ runId: "r1", costUsd: 1.41, op: "update" }]);
+    expect(planRunCost([row("r1", { costUsd: 1.41, costSource: "estimate" })], asBody({ cost_source: "estimate" }))).toEqual([{ runId: "r1", costUsd: 1.41, op: "same" }]);
+  });
+  it("an estimate never replaces a derived cost, and a derived never replaces an estimate (409 cost_exists)", () => {
+    for (const [stored, source] of [["derived", "estimate"], ["estimate", "derived"]] as const) {
+      try {
+        planRunCost([row("r1", { costUsd: 1.41, costSource: stored })], asBody({ cost_source: source }));
+        expect.unreachable();
+      } catch (e) {
+        expect(e).toBeInstanceOf(SelfDeclaredError);
+        expect((e as SelfDeclaredError).status).toBe(409);
+        expect((e as SelfDeclaredError).code).toBe("cost_exists");
+      }
+    }
+  });
 });
 
 class FakeStore implements RunCostStore {
