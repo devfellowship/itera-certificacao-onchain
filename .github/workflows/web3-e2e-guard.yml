@@ -134,6 +134,15 @@ jobs:
         env:
           ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
 
+      # C7-COST-LABEL (plan 20261112-tma-c7-model-comparison-per-use-case): 0027 adds 'estimate' to the allowed
+      # runs.model_cost_source values; it applies a second time and changes nothing, and leaves one check that refuses
+      # any other value. It writes no row.
+      - name: Migration 0027 test (Postgres)
+        working-directory: apps/api
+        run: npx vitest run src/domain/migration-0027.pg.test.ts
+        env:
+          ITERA_PG_TEST_URL: ${{ env.DATABASE_URL_ADMIN }}
+
       - name: Self-declared results store test (Postgres)
         working-directory: apps/api
         run: npx vitest run src/self-declared/store.pg.test.ts
