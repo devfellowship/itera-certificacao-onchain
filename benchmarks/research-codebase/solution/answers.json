@@ -1,0 +1,36 @@
+{
+  "answers": [
+    {
+      "id": "q1",
+      "answer": "src/auth/session.ts:21"
+    },
+    {
+      "id": "q2",
+      "answer": "src/util/retry.ts:1"
+    },
+    {
+      "id": "q3",
+      "answer": "src/orders/pricing.ts:19"
+    },
+    {
+      "id": "q4",
+      "answer": "src/orders/pricing.ts:28"
+    },
+    {
+      "id": "q5",
+      "answer": "src/orders/checkout.ts:10"
+    },
+    {
+      "id": "q6",
+      "answer": "src/http/rate-limit.ts:5"
+    },
+    {
+      "id": "q7",
+      "answer": "src/config/env.ts:7"
+    },
+    {
+      "id": "q8",
+      "answer": "src/inventory/stock.ts:13"
+    }
+  ]
+}
